@@ -4,6 +4,11 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag to publish (example: v1.0.0-beta.2)'
+        required: true
+        type: string
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -91,6 +96,8 @@ jobs:
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || github.event.inputs.tag_name }}
+          target_commitish: ${{ github.sha }}
           files: |
             release-assets/**/*.dmg
             release-assets/**/*.zip

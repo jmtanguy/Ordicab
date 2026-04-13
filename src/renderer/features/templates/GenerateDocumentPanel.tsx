@@ -368,7 +368,7 @@ export function GenerateDocumentPanel({
     return () => {
       isCancelled = true
     }
-  }, [selectedDossierId, loadContacts, loadDetail])
+  }, [selectedDossierId, loadContacts, loadDetail, i18n.resolvedLanguage])
 
   const dossierContacts = selectedDossierId ? (contactsByDossierId[selectedDossierId] ?? []) : []
   const selectedTemplate = templates.find((tmpl) => tmpl.id === selectedTemplateId)

@@ -158,9 +158,7 @@ describe('PiiPseudonymizer', () => {
     const pseudonymized = pseudonymizer.pseudonymize('Merci de contacter marie dubois.')
     const accentlessAssistantReply = pseudonymized.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
 
-    expect(pseudonymizer.revert(accentlessAssistantReply)).toBe(
-      'Merci de contacter Marie Dubois.'
-    )
+    expect(pseudonymizer.revert(accentlessAssistantReply)).toBe('Merci de contacter Marie Dubois.')
   })
 
   it('keeps delete confirmation wording and binary answers clear while pseudonymizing only the contact identity', () => {

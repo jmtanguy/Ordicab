@@ -47,8 +47,7 @@ const PROMPT_TUNING_SCENARIOS: PromptTuningScenario[] = [
   },
   {
     name: 'generate an email for a known contact',
-    command:
-      'Rédige un email poli à John Martin pour demander un rendez-vous la semaine prochaine',
+    command: 'Rédige un email poli à John Martin pour demander un rendez-vous la semaine prochaine',
     context: { dossierId: 'dossier-testcase-a', contactId: 'contact-john-martin' },
     runtimeIntent: {
       type: 'text_generate',

@@ -135,7 +135,11 @@ describe('createOrdicabApi', () => {
       [IPC_CHANNELS.entity.get],
       [
         IPC_CHANNELS.entity.update,
-        { firmName: 'Cabinet Test-Legal', email: 'contact@test-legal-firm.fr', phone: '+33 1 98 76 54 32' }
+        {
+          firmName: 'Cabinet Test-Legal',
+          email: 'contact@test-legal-firm.fr',
+          phone: '+33 1 98 76 54 32'
+        }
       ],
       [IPC_CHANNELS.document.list, { dossierId: 'dos-1' }],
       [IPC_CHANNELS.document.preview, { dossierId: 'dos-1', documentId: 'doc-1.pdf' }],

@@ -1,0 +1,34 @@
+export const APP_LOCALES = ['en', 'fr'] as const
+
+export type AppLocale = (typeof APP_LOCALES)[number]
+
+export interface AppVersionInfo {
+  name: string
+  version: string
+}
+
+export interface AppLocaleInfo {
+  locale: AppLocale
+}
+
+export interface SetLocaleInput {
+  locale: AppLocale
+}
+
+export interface OpenExternalInput {
+  url: string
+}
+
+export interface OpenFolderInput {
+  path: string
+}
+
+export interface DomainSelectionResult {
+  selectedPath: string | null
+}
+
+export interface DomainStatusSnapshot {
+  registeredDomainPath: string | null
+  isAvailable: boolean
+  dossierCount: number
+}

@@ -1,0 +1,633 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`InstructionsGenerator > generates a domain-root CLAUDE.md with entity, dossier, template, and co-work sections 1`] = `
+"# Ordicab Domain Context
+
+Domain: <DOMAIN_PATH>
+
+## Session Startup
+At the start of every new session, greet the user in one short sentence confirming that Ordicab is detected and connected for this session.
+Example: "Ordicab est détecté et connecté pour cette session. Je suis prêt à vous aider."
+
+## Operating Rules
+This CLAUDE.md is intentionally limited to workflow instructions and canonical source paths.
+Always read the source files directly before acting. Do not trust this file as a live data snapshot.
+
+## Domain Source Files
+- Registry: <DOMAIN_PATH>/.ordicab/registry.json
+- Entity profile: <DOMAIN_PATH>/.ordicab/entity.json
+- Templates index (lean, no content): <DOMAIN_PATH>/.ordicab/templates.json
+- Template HTML content (on-demand): <DOMAIN_PATH>/.ordicab/templates/<id>.html
+- Template routines guide: <DOMAIN_PATH>/.ordicab/template-routines.md
+
+## Registered Dossier Source Paths (1 total)
+Verify each dossier from its own canonical files before deciding whether to create or update records.
+
+- Client Alpha
+  - Folder: <DOMAIN_PATH>/Client Alpha
+  - dossier.json: <DOMAIN_PATH>/Client Alpha/.ordicab/dossier.json
+  - contacts.json: <DOMAIN_PATH>/Client Alpha/.ordicab/contacts.json
+  - documents root: <DOMAIN_PATH>/Client Alpha
+
+## Delegated Instructions
+
+### How to use these instructions
+Claude can read any canonical Ordicab files in this domain, including dossier documents and \`.ordicab\` metadata.
+All writes must go through delegated intent files.
+Never modify \`.ordicab/*.json\`, dossier documents, templates, generated documents, or \`CLAUDE.md\` directly.
+The only allowed write target is the inbox folder: \`<DOMAIN_PATH>/.ordicab-delegated/inbox\`.
+
+### Device-Scoped Responses
+This domain may be synchronized across multiple devices, so the instructions file, inbox, and response folders can appear on more than one machine at the same time.
+Use this device-scoped origin id for every delegated intent emitted from this Ordicab installation: \`device-origin-123\`.
+Always include \`originDeviceId\` in the intent envelope and keep using the same value for follow-up intents in the same workflow.
+After each intent is processed, Ordicab writes exactly one response file into \`<DOMAIN_PATH>/.ordicab-delegated/responses\`.
+Only consume a response file when its \`originDeviceId\` matches this local device id exactly.
+If another synchronized device sees the same response file but the \`originDeviceId\` does not match its own local device id, it must ignore that response completely and must not continue the workflow.
+
+### Intent Workflow
+1. Read canonical files directly to discover current state, existing IDs, and any surfaced UUIDs.
+2. Write exactly one complete JSON intent file per mutation into the inbox folder.
+3. Wait for the matching response file after each emitted intent. Delegated workflows are multi-step and Ordicab may instruct you to continue, ask the user for missing information, or stop.
+4. For updates or deletes, use the real existing IDs from the canonical files and rely on UUIDs to disambiguate collisions before writing the payload.
+5. Never invent an \`id\` for an update. If the existing record ID is unknown, either omit \`id\` to create a new record when that matches the request, or ask for clarification before writing the intent.
+6. If the target entity cannot be identified uniquely, or if a field required by the action is missing, ask for clarification instead of guessing.
+7. For \`contact.upsert\`, include \`id\` to update an existing contact (merge — only the provided fields are changed, existing fields are preserved). Omit \`id\` to create a new contact.
+8. When names collide, prefer stable IDs, dossier UUIDs, and document UUIDs from the canonical files over display names or filenames.
+
+### Response Workflow
+Ordicab does not use silent success anymore. Every processed intent yields a response file with the same basename as the original inbox file.
+- Read responses from: \`<DOMAIN_PATH>/.ordicab-delegated/responses\`
+- Legacy failure folder retained during migration: \`<DOMAIN_PATH>/.ordicab-delegated/failed\`
+- Treat the response file as the authoritative completion signal. Do not infer completion from the inbox file disappearing.
+- Read the response \`status\` and follow \`nextStep\` exactly.
+- \`completed\`: the action finished. Read canonical files if you need fresh state for the next step.
+- \`needs_input\`: Ordicab needs more information from the user before the workflow can continue. Ask for the missing values, then emit a new intent with a new \`commandId\` and the same \`originDeviceId\`.
+- \`failed\`: Ordicab rejected the action or hit a terminal error. Read \`error\` and \`nextStep\` before deciding whether to retry.
+
+### Chaining Actions
+When a task requires multiple mutations (e.g. create a dossier then immediately add contacts or key dates):
+1. Emit all required intent files in the correct logical order using ascending \`commandId\` timestamps.
+2. Use the \`sequence\` envelope field to signal ordering within a related group:
+\`\`\`json
+{
+  "version": 1,
+  "commandId": "2026-03-20T21-45-12.000Z-dossier-create",
+  "createdAt": "2026-03-20T21:45:12.000Z",
+  "actor": "claude-delegated",
+  "originDeviceId": "device-origin-123",
+  "action": "dossier.create",
+  "payload": {
+    "id": "Nouveau Dossier Client"
+  },
+  "sequence": {
+    "groupId": "onboarding-client-alpha",
+    "index": 1,
+    "total": 3
+  }
+}
+\`\`\`
+3. After each intent, read the response file before deciding whether the workflow is finished.
+4. For \`generate.document\`, Ordicab may return \`needs_input\` when some macros are unresolved. In that case, ask the user for every missing value, then re-emit \`generate.document\` with a \`tagOverrides\` object and the same \`originDeviceId\`.
+5. Do not let another synchronized device continue a workflow started on this device. Responses are origin-scoped.
+
+### Tag Taxonomy
+Use consistent, lowercase, hyphenated tags. Always sort tag arrays in alphabetical order before writing.
+
+#### Document tags (dossier-level)
+Tags on documents describe the content of a specific file within a dossier.
+Combine a document category tag with a year tag when the document date is clear:
+- Category: \`assignation\`, \`conclusions\`, \`mise-en-demeure\`, \`jugement\`, \`ordonnance\`
+- Category: \`courrier-client\`, \`courrier-adverse\`, \`courrier-juridiction\`
+- Category: \`contrat\`, \`acte-notarie\`, \`expertise\`, \`rapport\`
+- Category: \`piece-justificative\`, \`convocation\`, \`accord-transactionnel\`
+- Year: \`2024\`, \`2025\`, \`2026\`, etc.
+
+
+### Template Discovery
+Templates are a domain-level resource, independent of any individual dossier.
+Read the supported routine guide first: \`<DOMAIN_PATH>/.ordicab/template-routines.md\`.
+When a template needs placeholders, select routines from that guide by preference because those routines are supported directly by Ordicab.
+
+#### Template storage layout
+\`<DOMAIN_PATH>/.ordicab/templates.json\` is a **lean index** — each record contains \`id\`, \`name\`, \`description\`, \`macros\`, \`hasDocxSource\`, \`updatedAt\`. No \`content\` field is present.
+Full HTML content for each template lives in a separate file: \`<domain>/.ordicab/templates/<id>.html\`.
+When a DOCX source exists (\`hasDocxSource: true\`), it is at: \`<domain>/.ordicab/templates/<id>.docx\`.
+
+#### Using the index efficiently
+- **Variable compatibility check**: the \`macros\` array in the index lists every placeholder the template uses (e.g. \`["contact.displayName", "dossier.name"]\`). Use this to decide whether a template is compatible with the available dossier data — no need to load the HTML for this check.
+- **Content editing or generation preview**: read \`<domain>/.ordicab/templates/<id>.html\` on demand only when you need to inspect, modify, or show the full template text.
+
+To identify the right template for a \`generate.document\` action:
+1. Read the templates index file to list all available templates with their \`id\`, \`name\`, \`description\`, and \`macros\`.
+2. Filter templates by matching \`name\` or \`description\` against the desired document type.
+3. If multiple templates match, prefer the one whose name or description best fits the context; ask for clarification only if still ambiguous.
+4. Never invent a \`templateId\`. If no suitable template exists, suggest creating one first with \`template.create\`.
+5. Do not try to pre-validate \`macros\` against dossier data manually — many fields are computed at render time. Emit the intent and rely on the failure file (see "Verifying Intent Outcomes") if any fields are missing.
+
+### Procedure: "Organize the dossier"
+When the user asks to organize a dossier, follow this order:
+1. Read the dossier documents and canonical \`.ordicab\` files directly before writing any intent.
+2. Treat the process as incremental if the dossier was already organized: add only new elements and fill only missing details, without duplicating existing contacts, key dates, document summaries, or tags.
+3. For each relevant document, extract its purpose and content, then persist a concise summary and useful tags with \`document.saveMetadata\`. Use document category tags from the taxonomy above and include at least one year tag such as \`2026\` when the document date is clear.
+When the document clearly supports it, include at least one year tag such as \`2011\` in the document tags, and sort the final \`tags\` array in alphabetical order before writing the intent.
+4. Sort the final \`tags\` array in alphabetical order before writing the intent.
+5. Complete the dossier details that can be inferred reliably from the documents with \`dossier.update\`, such as dossier type, status, and the dossier \`information\` note when the evidence is clear.
+6. Extract contacts from the documents and persist them with \`contact.upsert\`.
+7. Extract key dates from the documents and persist them with \`dossier.upsertKeyDate\`.
+8. If a contact, key date, or dossier detail may already exist, re-read the canonical files first and use the real existing \`id\` only for updates.
+9. If a contact identity, role, date meaning, or dossier detail is ambiguous, ask for clarification instead of guessing.
+10. Emit multiple small intents in this order instead of one large batch payload: document metadata first, then dossier details, then contacts, then key dates.
+
+### Contact Extraction Rules
+When extracting contacts from documents, prioritize by role and data completeness:
+
+#### Priority 1: Parties to the Case
+**"partie représentée" (Represented Party) and "partie adverse" (Adverse Party)**
+These are the primary stakeholders. Extract and persist all available information:
+- Full identity: \`title\`, \`firstName\`, \`additionalFirstNames\`, \`lastName\`, \`maidenName\`, \`gender\`
+- Complete contact information: \`phone\`, \`email\`, \`addressLine\`, \`addressLine2\`, \`zipCode\`, \`city\`, \`country\`
+- Personal information when clearly documented: \`dateOfBirth\`, \`maidenName\`, \`nationality\`, \`countryOfBirth\`, \`occupation\`, \`socialSecurityNumber\`
+- Optional context: \`information\` field for notes about the party's role or status in the case
+Always include \`gender\` when it can be inferred from context or title so that salutation routines work correctly in generated documents.
+For the represented party, always use role \`partie représentée\`. For the adverse party, always use role \`partie adverse\`.
+
+#### Priority 2: Jurisdiction and Court Officials
+**"juridiction" (Jurisdiction/Court)**
+Use court and judicial documents to extract jurisdiction details:
+- Persist as a contact with role \`juridiction\`
+- Focus on the \`institution\` field: the name of the court or tribunal
+- Include any phone or email if provided in the court letterhead or signature block
+- Do not invent personal names; if the court is referenced generically, use the full court name in \`institution\`
+
+#### Priority 3: Other Legal Professionals and Advocates
+**Such as adverse counsel, other lawyers, notaries, bailiffs, etc.**
+Extract limited identity information for secondary actors:
+- Identify the role correctly from the document context (e.g., \`avocat de la partie adverse\`, \`notaire\`, \`huissier de justice\`)
+- Full identity: \`title\`, \`firstName\`, \`lastName\`, \`gender\` (when clearly marked)
+- Contact information: \`phone\`, \`email\`, \`addressLine\`, \`zipCode\`, \`city\`
+- Do NOT attempt to extract personal information (date of birth, etc.) for these roles unless explicitly stated
+- Include \`institution\` (firm or office name) when documented
+
+#### General Rules for All Contact Extraction
+- Always sort contact extraction to match document sections: parties first (in order of appearance), then judicial officials, then supporting professionals
+- Include \`country\` only when clearly documented; omit it when it can be reasonably inferred from context
+- Never invent or guess missing identity fields. If a field cannot be clearly extracted from the document, omit it rather than inferring a value
+- Use existing contact \`id\` values only when updating known contacts; for new contacts omit the \`id\` field
+- When a contact appears in multiple documents with the same role, use the most complete version and consolidate into a single \`contact.upsert\` per person
+- If the same person appears with different roles across documents, create separate contact records for each distinct role context
+
+### Supported Intent Actions
+- \`dossier.create\`
+- \`contact.upsert\`
+- \`contact.delete\`
+- \`dossier.update\`
+- \`dossier.upsertKeyDate\`
+- \`dossier.deleteKeyDate\`
+- \`dossier.upsertKeyReference\`
+- \`dossier.deleteKeyReference\`
+- \`entity.update\`
+- \`document.saveMetadata\`
+- \`document.relocate\`
+- \`template.create\`
+- \`template.update\`
+- \`template.delete\`
+- \`generate.document\`
+
+### Intent File Format
+Each inbox file must contain one JSON object with this envelope:
+\`\`\`json
+{
+  "version": 1,
+  "commandId": "2026-03-20T21-45-12.345Z-contact-upsert",
+  "createdAt": "2026-03-20T21:45:12.345Z",
+  "actor": "claude-delegated",
+  "originDeviceId": "device-origin-123",
+  "action": "contact.upsert",
+  "payload": {
+    "dossierId": "Client Alpha",
+    "role": "Avocat",
+    "email": "alex.dupres@example.fr"
+  }
+}
+\`\`\`
+\`version\` must be \`1\`.
+\`actor\` must be \`claude-delegated\`.
+\`originDeviceId\` must be the local device-scoped origin id for this Ordicab installation. Reuse the same value for follow-up intents in the same workflow.
+\`commandId\` must be unique for each intent file.
+Never batch multiple mutations into one intent file.
+
+### Response File Format
+After Ordicab processes an intent, it writes a response file with the same basename in the responses folder.
+Read the response and follow \`nextStep\` before taking any other action.
+\`\`\`json
+{
+  "version": 1,
+  "commandId": "generate-document-1",
+  "action": "generate.document",
+  "originDeviceId": "device-origin-123",
+  "receivedAt": "2026-03-20T21:45:12.345Z",
+  "completedAt": "2026-03-20T21:45:12.789Z",
+  "status": "needs_input",
+  "nextStep": "Ask the user for each missing field, then re-emit generate.document with tagOverrides and the same originDeviceId.",
+  "error": {
+    "code": "VALIDATION_FAILED",
+    "message": "Document generation failed: some template fields could not be resolved from the dossier data.",
+    "unresolvedTags": [
+      {
+        "path": "dossier.keyDate.judgmentDate",
+        "description": "Judgment date"
+      }
+    ]
+  }
+}
+\`\`\`
+
+### Action Payload Examples
+
+#### Contacts
+**Important**: \`displayName\` is a **computed field** derived from \`title\`, \`firstName\`, \`additionalFirstNames\`, and \`lastName\`. Never include \`displayName\` in contact write intents—it is automatically computed at render time.
+**Partial update (merge semantics)**: when updating an existing contact, include \`id\` and only the fields you want to change — all other fields are preserved from the existing record. Only omit \`id\` when creating a new contact.
+Create or update:
+If role or another useful field is known, include it. If some action truly requires a missing field, ask the user before emitting the intent.
+For the \`role\` field, always prefer one of the predefined roles listed below for the relevant profession. Only use a custom role if none of the predefined roles fits.
+Predefined roles by profession:
+- **lawyer**: partie représentée, partie adverse, avocat de la partie adverse, juridiction, juge, greffier, expert judiciaire, notaire, huissier de justice, commissaire de justice, assureur, témoin, tuteur, organisme public, médiateur, procureur de la République, médecin expert, interprète
+- **architect**: maître d'ouvrage, maître d'œuvre, entreprise générale, sous-traitant, bureau de contrôle, coordinateur SPS, géomètre-expert, notaire, assureur, architecte des bâtiments de France, service urbanisme, syndic de copropriété
+- **real_estate**: vendeur, acquéreur, notaire, agent immobilier, promoteur immobilier, gestionnaire locatif, bailleur, locataire, garant, banque, diagnostiqueur, syndic, copropriétaire, assureur
+**Address fields**: \`addressLine\`, \`addressLine2\`, \`zipCode\`, \`city\`, \`country\` are stored as separate fields. When persisted, Ordicab automatically derives \`addressFormatted\` (multi-line) and \`addressInline\` (comma-separated) from these fields — do not compute them yourself.
+**Salutation fields**: \`salutation\`, \`salutationFull\`, and \`dear\` are derived from the \`gender\` field (\`M\`, \`F\`, or \`N\`) — do not set them directly. Always include \`gender\` when it can be inferred from context so that salutation routines work in generated documents.
+**Personal information fields**: \`dateOfBirth\`, \`maidenName\`, \`nationality\`, \`countryOfBirth\`, \`occupation\`, \`socialSecurityNumber\` apply primarily to clients and adversarial parties. Include these only when they are clearly documented; do not guess or infer them.
+\`\`\`json
+{
+  "version": 1,
+  "commandId": "contact-upsert-1",
+  "createdAt": "2026-03-20T21:45:12.345Z",
+  "actor": "claude-delegated",
+  "originDeviceId": "device-origin-123",
+  "action": "contact.upsert",
+  "payload": {
+    "dossierId": "Client Alpha",
+    "title": "Me",
+    "firstName": "Alex",
+    "additionalFirstNames": "Marie Hélène",
+    "lastName": "Dupres",
+    "maidenName": "Bertrand",
+    "gender": "M",
+    "role": "Avocat",
+    "institution": "Cabinet Exemple",
+    "addressLine": "12 rue du Palais",
+    "zipCode": "75001",
+    "city": "Paris",
+    "country": "France",
+    "phone": "+33 6 12 34 56 78",
+    "email": "alex.dupres@example.fr",
+    "dateOfBirth": "1985-06-15",
+    "countryOfBirth": "France",
+    "nationality": "Française",
+    "occupation": "Ingénieure",
+    "socialSecurityNumber": "2 85 06 75 123 456 78",
+    "information": "Contact principal du dossier. Valide les choix procéduraux et reçoit les mises à jour."
+  }
+}
+\`\`\`
+Delete:
+\`\`\`json
+{
+  "version": 1,
+  "commandId": "contact-delete-1",
+  "createdAt": "2026-03-20T21:45:12.345Z",
+  "actor": "claude-delegated",
+  "originDeviceId": "device-origin-123",
+  "action": "contact.delete",
+  "payload": {
+    "dossierId": "Client Alpha",
+    "contactId": "7aa77f6f-84f6-4d54-9b79-8bb4c1570a11"
+  }
+}
+\`\`\`
+
+#### Key Dates
+Create a new key date: omit \`id\`.
+\`\`\`json
+{
+  "version": 1,
+  "commandId": "key-date-create-1",
+  "createdAt": "2026-03-20T21:45:12.345Z",
+  "actor": "claude-delegated",
+  "originDeviceId": "device-origin-123",
+  "action": "dossier.upsertKeyDate",
+  "payload": {
+    "dossierId": "example-dossier",
+    "label": "Audience de mise en etat",
+    "date": "2026-04-15",
+    "note": "Salle 2, arrivee 15 minutes avant"
+  }
+}
+\`\`\`
+Update an existing key date: include the real existing \`id\` from canonical files. Never invent one.
+\`\`\`json
+{
+  "version": 1,
+  "commandId": "key-date-upsert-1",
+  "createdAt": "2026-03-20T21:45:12.345Z",
+  "actor": "claude-delegated",
+  "originDeviceId": "device-origin-123",
+  "action": "dossier.upsertKeyDate",
+  "payload": {
+    "id": "5f8f5d83-f0d3-4a53-9db4-feb6b6db03c7",
+    "dossierId": "example-dossier",
+    "label": "Audience de mise en etat",
+    "date": "2026-04-15",
+    "note": "Salle 2, arrivee 15 minutes avant"
+  }
+}
+\`\`\`
+Delete:
+\`\`\`json
+{
+  "version": 1,
+  "commandId": "key-date-delete-1",
+  "createdAt": "2026-03-20T21:45:12.345Z",
+  "actor": "claude-delegated",
+  "originDeviceId": "device-origin-123",
+  "action": "dossier.deleteKeyDate",
+  "payload": {
+    "dossierId": "example-dossier",
+    "keyDateId": "5f8f5d83-f0d3-4a53-9db4-feb6b6db03c7"
+  }
+}
+\`\`\`
+
+#### Key References
+Create a new key reference: omit \`id\`.
+\`\`\`json
+{
+  "version": 1,
+  "commandId": "key-reference-create-1",
+  "createdAt": "2026-03-20T21:45:12.345Z",
+  "actor": "claude-delegated",
+  "originDeviceId": "device-origin-123",
+  "action": "dossier.upsertKeyReference",
+  "payload": {
+    "dossierId": "example-dossier",
+    "label": "Numero RG",
+    "value": "RG 26/00124",
+    "note": "Tribunal judiciaire de Paris"
+  }
+}
+\`\`\`
+Update an existing key reference: include the real existing \`id\` from canonical files. Never invent one.
+\`\`\`json
+{
+  "version": 1,
+  "commandId": "key-reference-upsert-1",
+  "createdAt": "2026-03-20T21:45:12.345Z",
+  "actor": "claude-delegated",
+  "originDeviceId": "device-origin-123",
+  "action": "dossier.upsertKeyReference",
+  "payload": {
+    "id": "9d086d17-cf57-4743-bb05-d8f12a2706d8",
+    "dossierId": "example-dossier",
+    "label": "Numero RG",
+    "value": "RG 26/00124",
+    "note": "Tribunal judiciaire de Paris"
+  }
+}
+\`\`\`
+Delete:
+\`\`\`json
+{
+  "version": 1,
+  "commandId": "key-reference-delete-1",
+  "createdAt": "2026-03-20T21:45:12.345Z",
+  "actor": "claude-delegated",
+  "originDeviceId": "device-origin-123",
+  "action": "dossier.deleteKeyReference",
+  "payload": {
+    "dossierId": "example-dossier",
+    "keyReferenceId": "9d086d17-cf57-4743-bb05-d8f12a2706d8"
+  }
+}
+\`\`\`
+
+#### Entity Profile
+Update the domain entity profile:
+\`\`\`json
+{
+  "version": 1,
+  "commandId": "entity-update-1",
+  "createdAt": "2026-03-20T21:45:12.345Z",
+  "actor": "claude-delegated",
+  "originDeviceId": "device-origin-123",
+  "action": "entity.update",
+  "payload": {
+    "firmName": "Cabinet Exemple",
+    "profession": "lawyer",
+    "title": "Me",
+    "firstName": "Alex",
+    "lastName": "Dupres",
+    "address": "12 rue du Palais, 75001 Paris",
+    "vatNumber": "FR00123456789",
+    "phone": "+33 1 23 45 67 89",
+    "email": "contact@cabinet-exemple.fr"
+  }
+}
+\`\`\`
+
+#### Dossier Creation
+Create a new dossier folder and register it in the domain. The \`id\` is the folder name (direct child of the domain root). The folder must not already exist as a registered dossier.
+\`\`\`json
+{
+  "version": 1,
+  "commandId": "dossier-create-1",
+  "createdAt": "2026-03-20T21:45:12.345Z",
+  "actor": "claude-delegated",
+  "originDeviceId": "device-origin-123",
+  "action": "dossier.create",
+  "payload": {
+    "id": "Nouveau Dossier Client"
+  }
+}
+\`\`\`
+After emitting a \`dossier.create\` intent, verify success by reading the domain registry file and confirming the new dossier \`id\` appears in the \`dossiers\` array.
+
+#### Dossier Metadata
+Update dossier setup:
+\`\`\`json
+{
+  "version": 1,
+  "commandId": "dossier-update-1",
+  "createdAt": "2026-03-20T21:45:12.345Z",
+  "actor": "claude-delegated",
+  "originDeviceId": "device-origin-123",
+  "action": "dossier.update",
+  "payload": {
+    "id": "Client Alpha",
+    "status": "active",
+    "type": "Civil litigation",
+    "information": "Running dossier summary and current status. Update this incrementally as new context becomes reliable."
+  }
+}
+\`\`\`
+
+#### Document Annotations
+Read the canonical document metadata and dossier folder directly to identify the correct file, then emit the canonical \`relativePath\` as \`documentId\` in the payload:
+\`\`\`json
+{
+  "version": 1,
+  "commandId": "document-save-metadata-1",
+  "createdAt": "2026-03-20T21:45:12.345Z",
+  "actor": "claude-delegated",
+  "originDeviceId": "device-origin-123",
+  "action": "document.saveMetadata",
+  "payload": {
+    "dossierId": "Client Alpha",
+    "documentId": "subfolder/filename.pdf",
+    "description": "Optional description",
+    "tags": [
+      "tag1",
+      "tag2"
+    ]
+  }
+}
+\`\`\`
+Use this action only to update \`description\` and \`tags\` for an existing document.
+Always sort document tags in alphabetical order before writing the payload.
+Execution is still relativePath-based today, so UUIDs are for discovery and disambiguation, while \`documentId\` remains the canonical relative path.
+If the same document was moved or renamed outside Ordicab and you know its UUID, use \`document.relocate\` to preserve the existing metadata binding:
+\`\`\`json
+{
+  "version": 1,
+  "commandId": "document-relocate-1",
+  "createdAt": "2026-03-20T21:45:12.345Z",
+  "actor": "claude-delegated",
+  "originDeviceId": "device-origin-123",
+  "action": "document.relocate",
+  "payload": {
+    "dossierId": "Client Alpha",
+    "documentUuid": "document-uuid-1",
+    "fromDocumentId": "old-folder/filename.pdf",
+    "toDocumentId": "new-folder/filename.pdf"
+  }
+}
+\`\`\`
+
+#### Templates
+Templates are domain-level resources, not tied to any specific dossier.
+Before editing template content, read the supported routine guide at <DOMAIN_PATH>/.ordicab/template-routines.md.
+Prefer routines listed in that guide over ad hoc placeholders because those routines are supported directly by Ordicab.
+The \`macros\` field in the index is computed by Ordicab from the HTML content — do not include it in intent payloads.
+To edit an existing template, read its HTML content first from \`<domain>/.ordicab/templates/<id>.html\`, then emit a \`template.update\` intent with the modified content.
+Create:
+\`\`\`json
+{
+  "version": 1,
+  "commandId": "template-create-1",
+  "createdAt": "2026-03-20T21:45:12.345Z",
+  "actor": "claude-delegated",
+  "originDeviceId": "device-origin-123",
+  "action": "template.create",
+  "payload": {
+    "name": "Lettre de mise en demeure",
+    "content": "Objet : Mise en demeure\\n\\nBonjour {{contact.displayName}},",
+    "description": "Modele de courrier initial"
+  }
+}
+\`\`\`
+Update (read \`<domain>/.ordicab/templates/<id>.html\` first, then emit with modified content):
+\`\`\`json
+{
+  "version": 1,
+  "commandId": "template-update-1",
+  "createdAt": "2026-03-20T21:45:12.345Z",
+  "actor": "claude-delegated",
+  "originDeviceId": "device-origin-123",
+  "action": "template.update",
+  "payload": {
+    "id": "3f84e5b6-3912-49dc-9c7d-8c446df43b0f",
+    "name": "Lettre de mise en demeure",
+    "content": "Objet : Mise en demeure\\n\\nBonjour {{contact.displayName}},",
+    "description": "Modele de courrier initial"
+  }
+}
+\`\`\`
+Delete:
+\`\`\`json
+{
+  "version": 1,
+  "commandId": "template-delete-1",
+  "createdAt": "2026-03-20T21:45:12.345Z",
+  "actor": "claude-delegated",
+  "originDeviceId": "device-origin-123",
+  "action": "template.delete",
+  "payload": {
+    "id": "3f84e5b6-3912-49dc-9c7d-8c446df43b0f"
+  }
+}
+\`\`\`
+
+#### Document Generation
+Ask Ordicab to generate the document instead of writing it yourself.
+Always include \`description\` and \`tags\` in the payload so the generated document is annotated immediately after creation. Use document category tags from the taxonomy above and include at least one year tag when the document date is clear. Sort \`tags\` alphabetically.
+\`\`\`json
+{
+  "version": 1,
+  "commandId": "generate-document-1",
+  "createdAt": "2026-03-20T21:45:12.345Z",
+  "actor": "claude-delegated",
+  "originDeviceId": "device-origin-123",
+  "action": "generate.document",
+  "payload": {
+    "dossierId": "Client Alpha",
+    "templateId": "3f84e5b6-3912-49dc-9c7d-8c446df43b0f",
+    "description": "Concise description of the generated document purpose",
+    "tags": [
+      "2026",
+      "example-tag"
+    ]
+  }
+}
+\`\`\`
+If Ordicab replies with \`status: "needs_input"\` because some macros are unresolved, ask the user for every missing value and then emit a new \`generate.document\` intent with a new \`commandId\`, the same \`originDeviceId\`, and a \`tagOverrides\` object containing the collected values.
+\`\`\`json
+{
+  "version": 1,
+  "commandId": "generate-document-2",
+  "createdAt": "2026-03-20T21:46:10.000Z",
+  "actor": "claude-delegated",
+  "originDeviceId": "device-origin-123",
+  "action": "generate.document",
+  "payload": {
+    "dossierId": "Client Alpha",
+    "templateId": "3f84e5b6-3912-49dc-9c7d-8c446df43b0f",
+    "description": "Concise description of the generated document purpose",
+    "tags": [
+      "2026",
+      "example-tag"
+    ],
+    "tagOverrides": {
+      "dossier.keyDate.judgmentDate": "2026-04-22"
+    }
+  }
+}
+\`\`\`
+Worked example for synchronized devices: device A submits the first intent and receives \`needs_input\`; device B may see the synchronized response file but must ignore it because the \`originDeviceId\` does not belong to device B. Only device A may ask the user for the missing macro and continue with the follow-up intent.
+
+### File Paths
+
+#### Domain Files
+- Entity profile: <DOMAIN_PATH>/.ordicab/entity.json
+- Templates index (lean, no content): <DOMAIN_PATH>/.ordicab/templates.json
+- Template HTML content (on-demand): <domain>/.ordicab/templates/<id>.html
+- Template routines guide: <DOMAIN_PATH>/.ordicab/template-routines.md
+- Delegated intent inbox: <DOMAIN_PATH>/.ordicab-delegated/inbox
+- Delegated responses: <DOMAIN_PATH>/.ordicab-delegated/responses
+- Legacy failed responses during migration: <DOMAIN_PATH>/.ordicab-delegated/failed
+
+#### Dossier Files
+- Client Alpha (Client Alpha, uuid: dossier-uuid-1)
+  - contacts.json: <DOMAIN_PATH>/Client Alpha/.ordicab/contacts.json
+  - dossier.json: <DOMAIN_PATH>/Client Alpha/.ordicab/dossier.json
+"
+`;

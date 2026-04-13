@@ -1,0 +1,1636 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ordicab — L'application simple pour gérer votre cabinet indépendant</title>
+    <meta
+      name="description"
+      content="Ordicab simplifie la gestion de votre cabinet indépendant — avocat, architecte, agent immobilier. Dossiers, documents, contacts et modèles réunis dans une seule application intuitive, avec un assistant IA."
+    />
+    <link rel="icon" href="./icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,300&family=DM+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --bg: #060d1a;
+        --bg-panel: #0b1a2f;
+        --bg-card: rgba(14, 24, 40, 0.72);
+        --aurora: #38bdf8;
+        --aurora-soft: #7dd3fc;
+        --cyan-strong: #22d3ee;
+        --blue: #2563eb;
+        --glass-border: rgba(255, 255, 255, 0.1);
+        --glass-border-hover: rgba(56, 189, 248, 0.35);
+        --text-primary: rgba(230, 242, 255, 0.97);
+        --text-secondary: rgba(170, 205, 235, 0.85);
+        --text-muted: rgba(130, 165, 195, 0.7);
+        --font: 'DM Sans', 'Avenir Next', 'Segoe UI', sans-serif;
+        --font-mono: 'DM Mono', 'SF Mono', monospace;
+        --radius-card: 20px;
+        --radius-btn: 14px;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        font-family: var(--font);
+        background: var(--bg);
+        color: var(--text-primary);
+        min-height: 100vh;
+        overflow-x: hidden;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* ── NOISE GRAIN OVERLAY ─────────────────────────────── */
+      body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        opacity: 0.025;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+        background-size: 200px 200px;
+      }
+
+      /* ── SHARED ──────────────────────────────────────────── */
+      .container {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 0 28px;
+        position: relative;
+        z-index: 1;
+      }
+
+      /* ── NAVIGATION ──────────────────────────────────────── */
+      nav {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 100;
+        padding: 16px 0;
+        background: rgba(6, 13, 26, 0.72);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      nav .inner {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 0 28px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .nav-brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        text-decoration: none;
+      }
+
+      .nav-brand img {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+      }
+
+      .nav-brand span {
+        font-size: 17px;
+        font-weight: 600;
+        color: var(--text-primary);
+        letter-spacing: -0.3px;
+      }
+
+      .nav-link {
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--text-secondary);
+        text-decoration: none;
+        padding: 7px 14px;
+        border-radius: 10px;
+        border: 1px solid transparent;
+        transition:
+          color 180ms,
+          border-color 180ms,
+          background 180ms;
+      }
+
+      .nav-link:hover {
+        color: var(--aurora-soft);
+        border-color: rgba(56, 189, 248, 0.22);
+        background: rgba(56, 189, 248, 0.07);
+      }
+
+      .nav-cta {
+        font-size: 14px;
+        font-weight: 600;
+        color: #fff;
+        text-decoration: none;
+        padding: 8px 18px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, rgba(56, 189, 248, 0.85), rgba(37, 99, 235, 0.85));
+        border: 1px solid rgba(186, 239, 255, 0.22);
+        transition:
+          box-shadow 200ms,
+          transform 120ms;
+      }
+
+      .nav-cta:hover {
+        box-shadow: 0 6px 20px rgba(34, 211, 238, 0.25);
+        transform: translateY(-1px);
+      }
+
+      /* ── HERO ────────────────────────────────────────────── */
+      .hero {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 120px 28px 80px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      /* Radial aurora glow */
+      .hero::after {
+        content: '';
+        position: absolute;
+        top: 38%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 700px;
+        height: 500px;
+        background: radial-gradient(
+          ellipse at center,
+          rgba(34, 211, 238, 0.12) 0%,
+          rgba(37, 99, 235, 0.07) 40%,
+          transparent 70%
+        );
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      /* Subtle grid */
+      .hero::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background-image:
+          linear-gradient(rgba(56, 189, 248, 0.04) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(56, 189, 248, 0.04) 1px, transparent 1px);
+        background-size: 60px 60px;
+        mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black, transparent);
+        pointer-events: none;
+      }
+
+      .hero-content {
+        position: relative;
+        z-index: 1;
+        max-width: 680px;
+      }
+
+      .hero-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 5px 14px 5px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(56, 189, 248, 0.28);
+        background: rgba(56, 189, 248, 0.08);
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--aurora-soft);
+        letter-spacing: 0.3px;
+        margin-bottom: 28px;
+        animation: fadeUp 0.6s ease both;
+      }
+
+      .hero-badge-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--cyan-strong);
+        box-shadow: 0 0 8px var(--cyan-strong);
+        animation: pulse 2s infinite;
+      }
+
+      .hero-title-row {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        margin-bottom: 18px;
+        animation: fadeUp 0.6s 0.1s ease both;
+      }
+
+      .hero-icon-wrap {
+        position: relative;
+        display: inline-block;
+        flex-shrink: 0;
+      }
+
+      .hero-icon {
+        width: 80px;
+        height: 80px;
+        border-radius: 20px;
+        display: block;
+      }
+
+      .hero h1 {
+        font-size: clamp(48px, 7vw, 80px);
+        font-weight: 700;
+        letter-spacing: -2.5px;
+        line-height: 1;
+        background: linear-gradient(160deg, #ffffff 30%, var(--aurora-soft) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+
+      .hero-tagline {
+        font-size: clamp(17px, 2.5vw, 20px);
+        font-weight: 400;
+        color: var(--text-secondary);
+        line-height: 1.55;
+        margin-bottom: 42px;
+        max-width: 620px;
+        margin-left: auto;
+        margin-right: auto;
+        animation: fadeUp 0.6s 0.2s ease both;
+      }
+
+      .hero-tagline em {
+        font-style: normal;
+        color: var(--aurora-soft);
+        font-weight: 400;
+      }
+
+      .hero-actions {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        flex-wrap: wrap;
+        animation: fadeUp 0.6s 0.28s ease both;
+      }
+
+      .btn-primary {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        padding: 14px 26px;
+        border-radius: var(--radius-btn);
+        font-family: var(--font);
+        font-size: 16px;
+        font-weight: 600;
+        color: #fff;
+        text-decoration: none;
+        background: linear-gradient(135deg, rgba(56, 189, 248, 0.85), rgba(37, 99, 235, 0.85));
+        border: 1px solid rgba(186, 239, 255, 0.25);
+        box-shadow:
+          0 12px 28px rgba(8, 145, 178, 0.3),
+          inset 0 1px 0 rgba(255, 255, 255, 0.12);
+        transition:
+          box-shadow 200ms ease,
+          transform 120ms ease,
+          background 200ms ease;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .btn-primary:hover {
+        background: linear-gradient(135deg, rgba(77, 200, 248, 0.9), rgba(60, 130, 246, 0.9));
+        box-shadow:
+          0 16px 36px rgba(34, 211, 238, 0.28),
+          inset 0 1px 0 rgba(255, 255, 255, 0.15);
+        transform: translateY(-2px);
+      }
+
+      .btn-primary:active {
+        transform: translateY(0);
+      }
+
+      .btn-secondary {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        padding: 14px 26px;
+        border-radius: var(--radius-btn);
+        font-family: var(--font);
+        font-size: 16px;
+        font-weight: 600;
+        color: rgba(186, 230, 255, 0.88);
+        text-decoration: none;
+        background: rgba(10, 24, 44, 0.8);
+        border: 1px solid rgba(167, 218, 255, 0.2);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+        transition:
+          background 200ms,
+          border-color 200ms,
+          transform 120ms,
+          box-shadow 200ms;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .btn-secondary:hover {
+        background: rgba(18, 40, 70, 0.9);
+        border-color: rgba(167, 218, 255, 0.38);
+        box-shadow: 0 6px 22px rgba(56, 189, 248, 0.12);
+        transform: translateY(-2px);
+      }
+
+      /* SVG icons inline */
+      .btn-icon {
+        width: 18px;
+        height: 18px;
+        flex-shrink: 0;
+      }
+
+      .hero-note {
+        margin-top: 22px;
+        font-size: 13px;
+        color: var(--text-muted);
+        animation: fadeUp 0.6s 0.35s ease both;
+      }
+
+      /* ── FEATURES ────────────────────────────────────────── */
+      .features {
+        padding: 100px 0;
+      }
+
+      .section-label {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        color: var(--aurora);
+        margin-bottom: 12px;
+      }
+
+      .section-title {
+        font-size: clamp(30px, 4vw, 44px);
+        font-weight: 700;
+        letter-spacing: -1.2px;
+        line-height: 1.1;
+        color: var(--text-primary);
+        margin-bottom: 16px;
+      }
+
+      .section-sub {
+        font-size: 17px;
+        font-weight: 400;
+        color: var(--text-secondary);
+        max-width: 520px;
+        line-height: 1.6;
+      }
+
+      .section-header {
+        margin-bottom: 56px;
+      }
+
+      .features-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 20px;
+      }
+
+      .feature-card {
+        position: relative;
+        padding: 32px 30px;
+        border-radius: var(--radius-card);
+        border: 1px solid var(--glass-border);
+        background:
+          linear-gradient(160deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%),
+          rgba(11, 22, 40, 0.7);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        overflow: hidden;
+        transition:
+          border-color 250ms,
+          box-shadow 250ms,
+          transform 200ms;
+      }
+
+      .feature-card::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: var(--radius-card);
+        background: radial-gradient(circle at 0% 0%, rgba(56, 189, 248, 0.06) 0%, transparent 60%);
+        opacity: 0;
+        transition: opacity 300ms;
+      }
+
+      .feature-card:hover {
+        border-color: var(--glass-border-hover);
+        box-shadow:
+          0 20px 50px rgba(2, 6, 23, 0.35),
+          0 0 0 1px rgba(56, 189, 248, 0.12);
+        transform: translateY(-3px);
+      }
+
+      .feature-card:hover::before {
+        opacity: 1;
+      }
+
+      .feature-icon-wrap {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        border: 1px solid rgba(56, 189, 248, 0.22);
+        background: rgba(56, 189, 248, 0.09);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 20px;
+      }
+
+      .feature-icon-wrap svg {
+        width: 22px;
+        height: 22px;
+        color: var(--aurora);
+      }
+
+      .feature-card h3 {
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: -0.4px;
+        color: var(--text-primary);
+        margin-bottom: 10px;
+      }
+
+      .feature-card p {
+        font-size: 15px;
+        font-weight: 400;
+        color: var(--text-secondary);
+        line-height: 1.65;
+      }
+
+      /* ── LOCAL STORAGE SECTION ───────────────────────────── */
+      .local-storage {
+        padding: 100px 0;
+        background: var(--bg-panel);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .local-storage::before {
+        content: '';
+        position: absolute;
+        bottom: -200px;
+        left: -200px;
+        width: 600px;
+        height: 600px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(56, 189, 248, 0.06) 0%, transparent 70%);
+        pointer-events: none;
+      }
+
+      .local-inner {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 72px;
+        align-items: center;
+      }
+
+      .local-desc {
+        font-size: 16px;
+        font-weight: 400;
+        color: var(--text-secondary);
+        line-height: 1.7;
+        margin-bottom: 32px;
+      }
+
+      .local-desc strong {
+        color: var(--aurora-soft);
+        font-weight: 500;
+      }
+
+      .local-pills {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .local-pill {
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+        padding: 16px 18px;
+        border-radius: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        background: rgba(6, 13, 26, 0.5);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        transition:
+          border-color 250ms,
+          background 250ms;
+      }
+
+      .local-pill:hover {
+        border-color: rgba(56, 189, 248, 0.2);
+        background: rgba(10, 22, 40, 0.7);
+      }
+
+      .local-pill-icon {
+        flex-shrink: 0;
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        background: rgba(56, 189, 248, 0.09);
+        border: 1px solid rgba(56, 189, 248, 0.2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--aurora);
+        margin-top: 1px;
+      }
+
+      .local-pill-icon svg {
+        width: 18px;
+        height: 18px;
+      }
+
+      .local-pill h4 {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 3px;
+        letter-spacing: -0.2px;
+      }
+
+      .local-pill p {
+        font-size: 13.5px;
+        font-weight: 400;
+        color: var(--text-secondary);
+        line-height: 1.5;
+        margin: 0;
+      }
+
+      /* Diagram */
+      .local-visual {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .local-diagram {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 20px;
+        width: 100%;
+      }
+
+      .diag-node--center {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        padding: 20px 28px;
+        border-radius: 18px;
+        border: 1px solid rgba(56, 189, 248, 0.35);
+        background: linear-gradient(160deg, rgba(56, 189, 248, 0.1), rgba(37, 99, 235, 0.06));
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        box-shadow: 0 0 30px rgba(34, 211, 238, 0.08);
+        color: var(--aurora-soft);
+        font-size: 15px;
+        font-weight: 600;
+      }
+
+      .diag-node--center svg {
+        width: 28px;
+        height: 28px;
+        color: var(--aurora);
+      }
+
+      .diag-spokes {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        width: 100%;
+        position: relative;
+      }
+
+      .diag-spokes::before {
+        content: '';
+        position: absolute;
+        top: -20px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 1px;
+        height: 20px;
+        background: linear-gradient(180deg, rgba(56, 189, 248, 0.5), rgba(56, 189, 248, 0.1));
+      }
+
+      .diag-node--small {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        padding: 14px 12px;
+        border-radius: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(11, 22, 40, 0.7);
+        color: var(--text-secondary);
+        font-size: 12px;
+        font-weight: 500;
+        text-align: center;
+        transition: border-color 250ms;
+      }
+
+      .diag-node--small:hover {
+        border-color: rgba(56, 189, 248, 0.22);
+      }
+      .diag-node--small svg {
+        width: 20px;
+        height: 20px;
+        color: var(--aurora);
+      }
+
+      .diag-label {
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.5px;
+        color: var(--text-muted);
+        text-align: center;
+      }
+
+      /* ── COWORK SECTION ──────────────────────────────────── */
+      .cowork {
+        padding: 100px 0;
+        background: var(--bg-panel);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .cowork::before {
+        content: '';
+        position: absolute;
+        top: -200px;
+        right: -200px;
+        width: 600px;
+        height: 600px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(34, 211, 238, 0.07) 0%, transparent 70%);
+        pointer-events: none;
+      }
+
+      .cowork-inner {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 72px;
+        align-items: center;
+      }
+
+      .cowork-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 14px 5px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(34, 211, 238, 0.28);
+        background: rgba(34, 211, 238, 0.07);
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--cyan-strong);
+        letter-spacing: 0.3px;
+        margin-bottom: 22px;
+      }
+
+      .cowork-badge svg {
+        width: 14px;
+        height: 14px;
+      }
+
+      .cowork-desc {
+        font-size: 16px;
+        font-weight: 400;
+        color: var(--text-secondary);
+        line-height: 1.7;
+        margin-bottom: 36px;
+      }
+
+      .cowork-desc strong {
+        color: var(--aurora-soft);
+        font-weight: 500;
+      }
+
+      .cowork-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--aurora);
+        text-decoration: none;
+        transition:
+          color 180ms,
+          gap 180ms;
+      }
+
+      .cowork-link:hover {
+        color: var(--aurora-soft);
+        gap: 10px;
+      }
+
+      /* Steps */
+      .steps {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .step {
+        display: flex;
+        align-items: flex-start;
+        gap: 18px;
+        padding: 20px 22px;
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        background: rgba(6, 13, 26, 0.6);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        transition:
+          border-color 250ms,
+          background 250ms;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .step::after {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 3px;
+        background: linear-gradient(180deg, var(--aurora), var(--blue));
+        opacity: 0;
+        transition: opacity 250ms;
+      }
+
+      .step:hover {
+        border-color: rgba(56, 189, 248, 0.22);
+        background: rgba(10, 20, 38, 0.8);
+      }
+
+      .step:hover::after {
+        opacity: 1;
+      }
+
+      .step-number {
+        flex-shrink: 0;
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(37, 99, 235, 0.2));
+        border: 1px solid rgba(56, 189, 248, 0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--aurora-soft);
+        font-family: var(--font-mono);
+      }
+
+      .step-text h4 {
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 4px;
+        letter-spacing: -0.2px;
+      }
+
+      .step-text p {
+        font-size: 14px;
+        font-weight: 400;
+        color: var(--text-secondary);
+        line-height: 1.5;
+      }
+
+      /* ── DOWNLOAD STRIP ──────────────────────────────────── */
+      .download-strip {
+        padding: 90px 0;
+        text-align: center;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .download-strip::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 800px;
+        height: 400px;
+        background: radial-gradient(ellipse, rgba(37, 99, 235, 0.1) 0%, transparent 70%);
+        pointer-events: none;
+      }
+
+      .download-strip h2 {
+        font-size: clamp(28px, 4vw, 42px);
+        font-weight: 700;
+        letter-spacing: -1.2px;
+        margin-bottom: 14px;
+      }
+
+      .download-strip p {
+        font-size: 16px;
+        font-weight: 400;
+        color: var(--text-secondary);
+        margin-bottom: 40px;
+      }
+
+      .download-actions {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 14px;
+        flex-wrap: wrap;
+      }
+
+      .version-tag {
+        display: inline-block;
+        margin-top: 18px;
+        font-size: 12px;
+        font-family: var(--font-mono);
+        color: var(--text-muted);
+        letter-spacing: 0.5px;
+      }
+
+      /* ── FOOTER ──────────────────────────────────────────── */
+      footer {
+        padding: 28px 0;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      .footer-inner {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 0 28px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+
+      .footer-brand {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        text-decoration: none;
+      }
+
+      .footer-brand img {
+        width: 24px;
+        height: 24px;
+        border-radius: 6px;
+        opacity: 0.7;
+      }
+
+      .footer-copy {
+        font-size: 13px;
+        color: var(--text-muted);
+      }
+
+      .footer-links {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+      }
+
+      .footer-links a {
+        font-size: 13px;
+        color: var(--text-muted);
+        text-decoration: none;
+        transition: color 180ms;
+      }
+
+      .footer-links a:hover {
+        color: var(--aurora-soft);
+      }
+
+      /* ── WARNING BANNER ──────────────────────────────────── */
+      .warning-banner {
+        background: linear-gradient(135deg, rgba(234, 179, 8, 0.12), rgba(234, 88, 12, 0.08));
+        border: 1px solid rgba(234, 179, 8, 0.3);
+        border-radius: 16px;
+        padding: 20px 24px;
+        margin: 32px 0 0;
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+        text-align: left;
+      }
+
+      .warning-banner-icon {
+        flex-shrink: 0;
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        background: rgba(234, 179, 8, 0.15);
+        border: 1px solid rgba(234, 179, 8, 0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #facc15;
+        margin-top: 2px;
+      }
+
+      .warning-banner-icon svg {
+        width: 18px;
+        height: 18px;
+      }
+
+      .warning-banner-body h4 {
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        color: #facc15;
+        margin-bottom: 6px;
+      }
+
+      .warning-banner-body p {
+        font-size: 13.5px;
+        font-weight: 400;
+        color: rgba(253, 230, 138, 0.9);
+        line-height: 1.6;
+        margin: 0;
+      }
+
+      .warning-banner-body p + p {
+        margin-top: 6px;
+      }
+
+      /* ── ANIMATIONS ──────────────────────────────────────── */
+      @keyframes fadeUp {
+        from {
+          opacity: 0;
+          transform: translateY(18px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.6;
+          transform: scale(0.85);
+        }
+      }
+
+      /* scroll-triggered fade for cards */
+      .fade-in {
+        opacity: 0;
+        transform: translateY(24px);
+        transition:
+          opacity 0.55s ease,
+          transform 0.55s ease;
+      }
+
+      .fade-in.visible {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      /* ── RESPONSIVE ──────────────────────────────────────── */
+      @media (max-width: 768px) {
+        .features-grid {
+          grid-template-columns: 1fr;
+        }
+        .cowork-inner {
+          grid-template-columns: 1fr;
+          gap: 48px;
+        }
+        .local-inner {
+          grid-template-columns: 1fr;
+          gap: 48px;
+        }
+        .local-visual {
+          display: none;
+        }
+        .nav-link {
+          display: none;
+        }
+        .hero h1 {
+          letter-spacing: -1.5px;
+        }
+        .hero-icon {
+          width: 60px;
+          height: 60px;
+          border-radius: 15px;
+        }
+        .hero-title-row {
+          gap: 14px;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .hero-actions {
+          flex-direction: column;
+          width: 100%;
+        }
+        .btn-primary,
+        .btn-secondary {
+          width: 100%;
+          justify-content: center;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ── NAVIGATION ─────────────────────────────────────── -->
+    <nav>
+      <div class="inner">
+        <a href="#" class="nav-brand">
+          <img src="./icon.png" alt="Ordicab" />
+          <span>Ordicab</span>
+        </a>
+        <div style="display: flex; align-items: center; gap: 4px">
+          <a href="#features" class="nav-link">Fonctionnalités</a>
+          <a href="#cowork" class="nav-link">IA</a>
+          <a
+            href="https://github.com/jmtanguy/Ordicab"
+            target="_blank"
+            rel="noopener"
+            class="nav-link"
+            >GitHub</a
+          >
+          <a
+            href="https://github.com/jmtanguy/Ordicab/releases/latest"
+            class="nav-cta"
+            style="margin-left: 8px"
+            >Télécharger</a
+          >
+        </div>
+      </div>
+    </nav>
+
+    <!-- ── HERO ───────────────────────────────────────────── -->
+    <section class="hero">
+      <div class="hero-content">
+        <div class="hero-badge">
+          <span class="hero-badge-dot"></span>
+          Bêta — Disponible maintenant
+        </div>
+
+        <div class="hero-title-row">
+          <div class="hero-icon-wrap">
+            <img src="./icon.png" alt="Ordicab" class="hero-icon" />
+          </div>
+          <h1>Ordicab</h1>
+        </div>
+
+        <p class="hero-tagline">
+          Une application pour piloter votre activité.<br />
+          <em>Avec vos assistants IA à vos côtés.</em>
+        </p>
+
+        <div class="hero-actions">
+          <a href="https://github.com/jmtanguy/Ordicab/releases/latest/download/Ordicab-mac-arm64.dmg" class="btn-primary">
+            <svg
+              class="btn-icon"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"
+              />
+            </svg>
+            Télécharger pour Mac
+          </a>
+          <a href="https://github.com/jmtanguy/Ordicab/releases/latest/download/Ordicab-win-x64-setup.exe" class="btn-secondary">
+            <svg
+              class="btn-icon"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M3 12V6.75l6-1.32v6.57H3zm17 0V4.5l-8 1.41V12h8zM3 13h6v6.42L3 18V13zm8 .57L19 15v4.5l-8-1.41V13.57z"
+              />
+            </svg>
+            Télécharger pour Windows
+          </a>
+        </div>
+
+        <div class="warning-banner">
+          <div class="warning-banner-icon">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path
+                d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+              />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+          </div>
+          <div class="warning-banner-body">
+            <h4>Version expérimentale — Ne pas utiliser en production</h4>
+            <p>
+              Ce logiciel est une version bêta à des fins de test uniquement.
+              <strong style="color: #fde68a; font-weight: 600"
+                >Ne l'utilisez pas avec des données de travail réelles ou des dossiers de
+                clients.</strong
+              >
+              Des bugs, pertes de données ou comportements inattendus peuvent survenir.
+            </p>
+            <p>
+              L'utilisation des fonctionnalités d'intelligence artificielle (Claude Cowork, etc.)
+              peut impliquer la transmission de données vers des services tiers.
+              <strong style="color: #fde68a; font-weight: 600"
+                >L'utilisateur est seul responsable de la conformité au RGPD</strong
+              >, notamment en ce qui concerne le traitement de données à caractère personnel via des
+              outils et abonnements IA.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── FEATURES ───────────────────────────────────────── -->
+    <section class="features" id="features">
+      <div class="container">
+        <div class="section-header">
+          <p class="section-label">Fonctionnalités</p>
+          <h2 class="section-title">Les fonctionnalités essentielles</h2>
+          <p class="section-sub">
+            Ordicab est en version bêta. Les briques fondamentales sont là : gestion des dossiers,
+            des documents et des contacts, réunies dans une seule application.
+          </p>
+        </div>
+
+        <div class="features-grid">
+          <div class="feature-card fade-in">
+            <div class="feature-icon-wrap">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path
+                  d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"
+                />
+              </svg>
+            </div>
+            <h3>Gestion des dossiers</h3>
+            <p>
+              Créez et suivez vos affaires en quelques clics : statut, dates importantes, références
+              — tout est centralisé et facile à retrouver.
+            </p>
+          </div>
+
+          <div class="feature-card fade-in" style="transition-delay: 0.08s">
+            <div class="feature-icon-wrap">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+                <polyline points="10 9 9 9 8 9" />
+              </svg>
+            </div>
+            <h3>Espace documents</h3>
+            <p>
+              Consultez vos PDF, courriers et pièces jointes directement dans l'application. Plus
+              besoin d'ouvrir plusieurs logiciels — tout est lisible au même endroit.
+            </p>
+          </div>
+
+          <div class="feature-card fade-in" style="transition-delay: 0.16s">
+            <div class="feature-icon-wrap">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <rect x="3" y="3" width="18" height="18" rx="3" />
+                <path d="M8 12h8M12 8v8" />
+              </svg>
+            </div>
+            <h3>Modèles de documents</h3>
+            <p>
+              Préparez vos courriers types une seule fois, puis générez des documents pré-remplis
+              automatiquement avec les informations du dossier. Un clic suffit.
+            </p>
+          </div>
+
+          <div class="feature-card fade-in" style="transition-delay: 0.24s">
+            <div class="feature-icon-wrap">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+            </div>
+            <h3>Carnet de contacts</h3>
+            <p>
+              Retrouvez instantanément les coordonnées de vos clients, confrères et intervenants.
+              Chaque contact est rattaché à ses dossiers — plus rien ne se perd.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── LOCAL STORAGE ─────────────────────────────────────── -->
+    <section class="local-storage" id="stockage">
+      <div class="container">
+        <div class="local-inner">
+          <div class="local-visual fade-in">
+            <div class="local-diagram">
+              <div class="diag-node diag-node--center">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <rect x="2" y="3" width="20" height="14" rx="2" />
+                  <path d="M8 21h8M12 17v4" />
+                </svg>
+                <span>Ordicab</span>
+              </div>
+              <div class="diag-spokes">
+                <div class="diag-node diag-node--small">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
+                  </svg>
+                  <span>KDrive</span>
+                </div>
+                <div class="diag-node diag-node--small">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
+                  </svg>
+                  <span>OneDrive</span>
+                </div>
+                <div class="diag-node diag-node--small">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
+                  </svg>
+                  <span>Google Drive</span>
+                </div>
+                <div class="diag-node diag-node--small">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <rect x="2" y="3" width="20" height="14" rx="2" />
+                    <path d="M8 21h8M12 17v4" />
+                  </svg>
+                  <span>Mac / PC</span>
+                </div>
+              </div>
+              <div class="diag-label">Vos fichiers · Vos dossiers · Votre contrôle</div>
+            </div>
+          </div>
+
+          <div class="fade-in" style="transition-delay: 0.1s">
+            <p class="section-label">Simple dès le départ</p>
+            <h2 class="section-title">Rien à installer,<br />rien à configurer</h2>
+            <p class="local-desc">
+              Pas de base de données compliquée, pas de serveur à gérer. Ordicab stocke tout dans
+              <strong>un simple dossier sur votre ordinateur</strong> que vous pouvez placer où vous
+              voulez, y compris dans votre drive habituel.
+            </p>
+
+            <div class="local-pills">
+              <div class="local-pill">
+                <div class="local-pill-icon">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                  </svg>
+                </div>
+                <div>
+                  <h4>Données sous votre contrôle</h4>
+                  <p>
+                    Aucun serveur tiers ne stocke vos données. Vous restez propriétaire de vos
+                    fichiers à tout moment.
+                  </p>
+                </div>
+              </div>
+              <div class="local-pill">
+                <div class="local-pill-icon">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
+                  </svg>
+                </div>
+                <div>
+                  <h4>Synchronisé avec votre cloud</h4>
+                  <p>
+                    Utilisez iCloud, OneDrive, Google Drive ou Dropbox comme d'habitude : vos
+                    données se synchronisent toutes seules.
+                  </p>
+                </div>
+              </div>
+              <div class="local-pill">
+                <div class="local-pill-icon">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <rect x="2" y="3" width="20" height="14" rx="2" />
+                    <path d="M8 21h8M12 17v4" />
+                  </svg>
+                </div>
+                <div>
+                  <h4>Du bureau à la maison</h4>
+                  <p>
+                    Travaillez depuis votre Mac au cabinet et votre PC à la maison : tout est à
+                    jour, sans rien à configurer.
+                  </p>
+                </div>
+              </div>
+              <div class="local-pill">
+                <div class="local-pill-icon">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="2" y1="12" x2="22" y2="12" />
+                    <path
+                      d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
+                    />
+                  </svg>
+                </div>
+                <div>
+                  <h4>Fonctionne sans internet</h4>
+                  <p>
+                    En déplacement ou en audience — accédez à vos dossiers même sans connexion. Tout
+                    est disponible hors-ligne.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── COWORK ──────────────────────────────────────────── -->
+    <section class="cowork" id="cowork">
+      <div class="container">
+        <div class="cowork-inner">
+          <div class="fade-in">
+            <h2 class="section-title">Intégration IA flexible<br />adaptée à vos besoins</h2>
+
+            <p class="cowork-desc">
+              Ordicab propose quatre approches d'intégration IA pour traiter vos dossiers.
+              <strong
+                >Choisissez le mode qui convient à vos exigences de sécurité et de capacités</strong
+              >.
+            </p>
+
+            <a
+              href="https://github.com/jmtanguy/Ordicab"
+              target="_blank"
+              rel="noopener"
+              class="cowork-link"
+            >
+              En savoir plus sur GitHub
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <line x1="5" y1="12" x2="19" y2="12" />
+                <polyline points="12 5 19 12 12 19" />
+              </svg>
+            </a>
+          </div>
+
+          <div class="steps fade-in" style="transition-delay: 0.1s">
+            <div class="step">
+              <div class="step-number">01</div>
+              <div class="step-text">
+                <h4>Assistant IA externe (Cowork)</h4>
+                <p>
+                  Intégration avec des assistants IA distants. Vos fichiers sont organisés de
+                  manière optimale pour les agents IA, avec un système d'inbox intelligent et des
+                  intents qui renforcent la robustesse des tâches.
+                </p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-number">02</div>
+              <div class="step-text">
+                <h4>Assistant local sécurisé (Ollama)</h4>
+                <p>
+                  Déployez un assistant IA directement sur votre machine via Ollama. Vos données
+                  restent locales et complètement sécurisées. Le fonctionnement dépend de votre
+                  hardware disponible.
+                </p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-number">03</div>
+              <div class="step-text">
+                <h4>API distantes avec pseudonymisation</h4>
+                <p>
+                  Intégration standard avec des APIs IA. Protection automatique des données
+                  personnelles sensibles par pseudonymisation. Le modèle opère exclusivement dans le
+                  contexte de votre application.
+                </p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-number">04</div>
+              <div class="step-text">
+                <h4>Export pseudonymisé pour modèles frontier</h4>
+                <p>
+                  Solution innovante : exportez un dossier pseudonymisé (et non anonymisé pour une
+                  meilleure efficacité) pour traitement par les meilleurs modèles IA. Réimportez
+                  ensuite le travail complété avec décodage automatique des données.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── DOWNLOAD STRIP ─────────────────────────────────── -->
+    <section class="download-strip">
+      <div class="container">
+        <h2 class="fade-in">Prêt à commencer ?</h2>
+        <p class="fade-in" style="transition-delay: 0.06s">
+          Installation en 2 minutes. Créez votre premier dossier dans la foulée.
+        </p>
+        <div class="download-actions fade-in" style="transition-delay: 0.12s">
+          <a href="https://github.com/jmtanguy/Ordicab/releases/latest" class="btn-primary">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"
+              />
+            </svg>
+            Télécharger pour Mac
+          </a>
+          <a href="https://github.com/jmtanguy/Ordicab/releases/latest" class="btn-secondary">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M3 12V6.75l6-1.32v6.57H3zm17 0V4.5l-8 1.41V12h8zM3 13h6v6.42L3 18V13zm8 .57L19 15v4.5l-8-1.41V13.57z"
+              />
+            </svg>
+            Télécharger pour Windows
+          </a>
+        </div>
+        <span class="version-tag fade-in" style="transition-delay: 0.18s">v1.0.0-beta.1</span>
+      </div>
+    </section>
+
+    <!-- ── FOOTER ─────────────────────────────────────────── -->
+    <footer>
+      <div class="footer-inner">
+        <a href="#" class="footer-brand">
+          <img src="./icon.png" alt="Ordicab" />
+          <span class="footer-copy">© 2026 Ordicab</span>
+        </a>
+        <div class="footer-links">
+          <a href="https://github.com/jmtanguy/Ordicab" target="_blank" rel="noopener"> GitHub </a>
+          <a href="https://github.com/jmtanguy/Ordicab/releases" target="_blank" rel="noopener">
+            Versions
+          </a>
+          <a href="https://github.com/jmtanguy/Ordicab/issues" target="_blank" rel="noopener">
+            Signaler un bug
+          </a>
+        </div>
+      </div>
+    </footer>
+
+    <!-- Scroll-triggered fade-in -->
+    <script>
+      const observer = new IntersectionObserver(
+        (entries) =>
+          entries.forEach((e) => {
+            if (e.isIntersecting) e.target.classList.add('visible')
+          }),
+        { threshold: 0.12 }
+      )
+      document.querySelectorAll('.fade-in').forEach((el) => observer.observe(el))
+    </script>
+  </body>
+</html>

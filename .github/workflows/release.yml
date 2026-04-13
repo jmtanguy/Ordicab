@@ -53,13 +53,18 @@ jobs:
           echo "APPLE_API_ISSUER=${{ secrets.APPLE_API_ISSUER }}" >> "$GITHUB_ENV"
 
       # Windows signing is optional for early-stage releases.
-      # This step only runs when both Windows signing secrets are configured.
+      # This step configures signing only when both Windows signing secrets are configured.
       - name: Configure Windows signing env (optional)
-        if: matrix.os == 'windows-latest' && secrets.WIN_CSC_LINK != '' && secrets.WIN_CSC_KEY_PASSWORD != ''
+        if: matrix.os == 'windows-latest'
         shell: bash
         run: |
-          echo "CSC_LINK=${{ secrets.WIN_CSC_LINK }}" >> "$GITHUB_ENV"
-          echo "CSC_KEY_PASSWORD=${{ secrets.WIN_CSC_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+          if [ -n "${{ secrets.WIN_CSC_LINK }}" ] && [ -n "${{ secrets.WIN_CSC_KEY_PASSWORD }}" ]; then
+            echo "CSC_LINK=${{ secrets.WIN_CSC_LINK }}" >> "$GITHUB_ENV"
+            echo "CSC_KEY_PASSWORD=${{ secrets.WIN_CSC_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+            echo "Windows signing: enabled"
+          else
+            echo "Windows signing: disabled (missing WIN_CSC_LINK/WIN_CSC_KEY_PASSWORD)"
+          fi
 
       - name: Build release artifacts
         run: ${{ matrix.package_command }}

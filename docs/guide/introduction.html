@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Introduction — Ordicab Documentation</title>
+  <link rel="icon" href="../icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="_layout.css" />
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <a href="../index.html">
+      <span class="name">Ordicab</span>
+      <span class="tagline">Documentation utilisateur</span>
+    </a>
+  </div>
+  <div class="sidebar-section">Démarrage</div>
+  <nav>
+    <a href="introduction.html" class="active">Introduction</a>
+    <a href="installation.html">Installation &amp; mise en route</a>
+  </nav>
+  <div class="sidebar-section">Fonctionnalités</div>
+  <nav>
+    <a href="dossiers.html">Dossiers</a>
+    
+    <a href="modeles.html">Modèles</a>
+    
+  </nav>
+  <div class="sidebar-section">Intelligence artificielle</div>
+  <nav>
+    <a href="ia-vue-ensemble.html">Vue d'ensemble &amp; comparatif</a>
+    <a href="ia-cowork.html" class="sub">IA Cowork</a>
+    <a href="ia-assistant-local.html" class="sub">Assistant local (Ollama)</a>
+    <a href="ia-assistant-api.html" class="sub">Assistant via API</a>
+    <a href="ia-export-import.html" class="sub">Export IA &amp; Import IA</a>
+  </nav>
+</aside>
+
+<main class="main">
+  <div class="badge">Introduction</div>
+  <h1>Qu'est-ce qu'Ordicab&nbsp;?</h1>
+  <p class="page-lead">
+    Ordicab est un assistant de gestion de dossiers conçu pour les professionnels indépendants — avocats, architectes, agents immobiliers, consultants, artisans. Il organise vos dossiers clients, vos contacts, vos documents et vos échéances dans une interface unifiée, et les prépare pour une collaboration fluide avec l'intelligence artificielle.
+  </p>
+
+  <h2>À qui s'adresse Ordicab&nbsp;?</h2>
+  <p>Ordicab est fait pour vous si vous&nbsp;:</p>
+  <ul>
+    <li>gérez un portefeuille de dossiers clients avec des documents, des contacts et des échéances&nbsp;;</li>
+    <li>stockez déjà vos dossiers sur votre ordinateur, dans des dossiers classiques&nbsp;;</li>
+    <li>voulez gagner du temps en délégant des tâches répétitives à un assistant IA&nbsp;;</li>
+    <li>tenez à garder vos données en local, sur votre propre machine, sans les envoyer dans le cloud.</li>
+  </ul>
+
+  <h2>Ce qu'Ordicab fait</h2>
+  <p>Ordicab se connecte à votre répertoire de travail existant. Il n'impose pas d'import ni de migration — il lit votre organisation actuelle et y ajoute discrètement ses propres métadonnées dans un dossier caché <code>.ordicab</code>.</p>
+
+  <p>Une fois en place, Ordicab vous permet de&nbsp;:</p>
+  <ul>
+    <li><strong>Gérer chaque dossier</strong> : documents, contacts, dates clés, références et notes de synthèse accessibles en un clic.</li>
+    <li><strong>Créer des documents</strong> depuis des modèles paramétrables qui se remplissent automatiquement avec les données de votre dossier.</li>
+    <li><strong>Déléguer à l'IA</strong> : configurer un dossier en langage naturel, extraire des dates depuis un document, générer des courriers, annoter des pièces — le tout sans quitter votre poste de travail.</li>
+  </ul>
+
+  <h2>Ce qu'Ordicab ne fait pas</h2>
+  <div class="callout">
+    <strong>Ordicab est un assistant, pas un créateur.</strong><br/>
+    Il ne crée pas de dossiers sur le disque. Vos dossiers doivent exister avant d'être ajoutés à Ordicab. L'application ne déplace, ne renomme et ne supprime jamais vos fichiers.
+  </div>
+
+  <h2>Philosophie</h2>
+  <p>Ordicab repose sur trois principes&nbsp;:</p>
+  <ol>
+    <li><strong>Local d'abord.</strong> Vos données restent sur votre machine. Aucune synchronisation cloud n'est requise.</li>
+    <li><strong>Non intrusif.</strong> Ordicab ne touche pas à vos fichiers existants. Ses métadonnées vivent à part, dans des fichiers cachés.</li>
+    <li><strong>Prêt pour l'IA.</strong> Chaque dossier peut être exporté dans un format structuré que Claude comprend immédiatement, permettant une collaboration homme-machine sans friction.</li>
+  </ol>
+
+  <p style="margin-top:40px;">
+    <a href="installation.html" style="color:var(--aurora);text-decoration:none;font-weight:600;">Suivant : Installation &amp; mise en route →</a>
+  </p>
+</main>
+
+</body>
+</html>

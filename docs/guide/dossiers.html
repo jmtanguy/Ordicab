@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dossiers — Ordicab Documentation</title>
+  <link rel="icon" href="../icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="_layout.css" />
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <a href="../index.html">
+      <span class="name">Ordicab</span>
+      <span class="tagline">Documentation utilisateur</span>
+    </a>
+  </div>
+  <div class="sidebar-section">Démarrage</div>
+  <nav>
+    <a href="introduction.html">Introduction</a>
+    <a href="installation.html">Installation &amp; mise en route</a>
+  </nav>
+  <div class="sidebar-section">Fonctionnalités</div>
+  <nav>
+    <a href="dossiers.html" class="active">Dossiers</a>
+    
+    <a href="modeles.html">Modèles</a>
+    
+  </nav>
+  <div class="sidebar-section">Intelligence artificielle</div>
+  <nav>
+    <a href="ia-vue-ensemble.html">Vue d'ensemble &amp; comparatif</a>
+    <a href="ia-cowork.html" class="sub">IA Cowork</a>
+    <a href="ia-assistant-local.html" class="sub">Assistant local (Ollama)</a>
+    <a href="ia-assistant-api.html" class="sub">Assistant via API</a>
+    <a href="ia-export-import.html" class="sub">Export IA &amp; Import IA</a>
+  </nav>
+</aside>
+
+<main class="main">
+  <div class="badge">Fonctionnalités</div>
+  <h1>Dossiers</h1>
+  <p class="page-lead">
+    Chaque dossier enregistré dans Ordicab dispose d'une fiche détaillée répartie en plusieurs onglets. Voici le tour complet des fonctionnalités disponibles.
+  </p>
+
+  <h2>Vue d'ensemble — le portefeuille</h2>
+  <p>L'onglet <strong>Dossiers</strong> affiche l'ensemble de vos dossiers enregistrés sous forme de cartes. Chaque carte résume&nbsp;:</p>
+  <ul>
+    <li>le nom du dossier (correspondant au nom du répertoire sur disque)&nbsp;;</li>
+    <li>son statut : <em>Actif, En attente, Terminé, Archivé</em>&nbsp;;</li>
+    <li>son type (ex. : « Contentieux civil »)&nbsp;;</li>
+    <li>la prochaine date clé, si elle est renseignée.</li>
+  </ul>
+
+  <p>Vous pouvez filtrer les dossiers par statut, les rechercher par nom et les trier par ordre alphabétique, prochaine échéance ou dernière ouverture.</p>
+
+  <p>Cliquez sur <strong>Ouvrir le détail</strong> pour accéder à la fiche complète d'un dossier.</p>
+
+  <h2>Documents</h2>
+  <p>L'onglet <strong>Documents</strong> liste tous les fichiers présents dans le répertoire du dossier sur votre disque. Ordicab surveille ce dossier en temps réel — tout nouveau fichier ajouté apparaît automatiquement.</p>
+
+  <p>Pour chaque document, vous pouvez&nbsp;:</p>
+  <ul>
+    <li><strong>Annoter</strong> : ajouter une description courte et des tags pour retrouver un fichier plus vite.</li>
+    <li><strong>Prévisualiser</strong> : ouvrir un aperçu intégré (PDF, Word, email, texte) sans quitter Ordicab.</li>
+    <li><strong>Extraire le texte</strong> : Ordicab extrait le contenu textuel du document (PDF, DOCX, EML…) pour le rendre lisible par l'IA lors d'un export. Pour les documents scannés (images, PDF non sélectionnables), Ordicab applique une <strong>reconnaissance optique de caractères (OCR) entièrement en local</strong> — aucune donnée n'est envoyée à un service externe. Le bouton <strong>Tout extraire</strong> permet de traiter l'ensemble des documents extractibles en une seule opération.</li>
+    <li><strong>Ouvrir</strong> : ouvrir le fichier dans son application native.</li>
+    <li><strong>Générer un document</strong> : créer un nouveau document à partir d'un modèle en utilisant les données du dossier.</li>
+  </ul>
+
+  <div class="callout-green">
+    <strong>Extraction de texte — clé de l'IA.</strong><br/>
+    L'extraction de texte est l'étape indispensable pour que l'IA puisse lire et exploiter le contenu de vos documents. Sans extraction, l'agent ne voit que les noms de fichiers, pas leur contenu. Pensez à lancer <strong>Tout extraire</strong> avant tout export IA, en particulier sur les dossiers comportant des documents scannés — l'OCR local s'en charge automatiquement.
+  </div>
+
+  <h2>Contacts</h2>
+  <p>L'onglet <strong>Contacts</strong> centralise toutes les personnes liées au dossier : client, adversaire, expert, notaire, huissier, etc.</p>
+
+  <p>Pour chaque contact, vous pouvez renseigner&nbsp;:</p>
+  <ul>
+    <li>Identité : titre, prénom, nom, nom affiché, genre</li>
+    <li>Rôle dans le dossier (liste configurable dans les paramètres de l'entité)</li>
+    <li>Institution ou société</li>
+    <li>Coordonnées : adresse, téléphone, email</li>
+    <li>Informations personnelles : date de naissance, nationalité, profession, numéro de sécurité sociale…</li>
+    <li>Champs gérés spécifiques au rôle (configurés dans votre entité)</li>
+    <li>Un champ libre <em>Contexte</em> pour toute note utile sur ce contact</li>
+  </ul>
+
+  <p>Les contacts sont utilisés par les macros des modèles de documents et par l'IA lors des exports.</p>
+
+  <h2>Dates clés</h2>
+  <p>L'onglet <strong>Dates clés</strong> regroupe toutes les échéances importantes du dossier : audiences, dépôts de pièces, réunions de chantier, délais légaux…</p>
+
+  <p>Chaque date clé comprend&nbsp;:</p>
+  <ul>
+    <li>un <strong>libellé</strong> (ex. : « Audience de plaidoirie »)&nbsp;;</li>
+    <li>une <strong>date</strong>&nbsp;;</li>
+    <li>une note de contexte libre (enjeu, état d'avancement, action attendue).</li>
+  </ul>
+
+  <p>La prochaine date clé à venir est mise en avant sur la carte du dossier dans le portefeuille, et les dossiers peuvent être triés par prochaine échéance.</p>
+
+  <h2>Références clés</h2>
+  <p>L'onglet <strong>Références clés</strong> stocke les identifiants importants du dossier : numéro de rôle, référence client, référence contradicteur, numéro de marché, etc.</p>
+
+  <p>Chaque référence est un couple <strong>libellé / valeur</strong> (ex. : <em>RG n°</em> / <em>24/01234</em>). Les références clés sont accessibles dans les macros des modèles et dans les exports IA.</p>
+
+  <h2>Détails du dossier</h2>
+  <p>L'onglet <strong>Détails</strong> contient les métadonnées générales du dossier&nbsp;:</p>
+  <ul>
+    <li><strong>Statut</strong> : Actif, En attente, Terminé, Archivé</li>
+    <li><strong>Type</strong> : libellé libre décrivant la nature du dossier (ex. : « Construction — VEFA »)</li>
+    <li><strong>Information</strong> : résumé narratif libre — état actuel, contexte, prochaines étapes. Ce champ est particulièrement utile pour briefer rapidement l'IA.</li>
+  </ul>
+
+  <h2>Désenregistrer un dossier</h2>
+  <p>Pour retirer un dossier d'Ordicab, utilisez le bouton <strong>Désenregistrer</strong> dans la fiche du dossier. Seules les métadonnées Ordicab (contenues dans le dossier caché <code>.ordicab</code>) sont supprimées. Vos documents et fichiers restent intacts à leur emplacement d'origine.</p>
+
+  <p style="margin-top:40px;">
+    <a href="modeles.html" style="color:var(--aurora);text-decoration:none;font-weight:600;">Suivant : Modèles →</a>
+  </p>
+</main>
+
+</body>
+</html>

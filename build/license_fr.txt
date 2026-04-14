@@ -1,0 +1,72 @@
+CONTRAT DE LICENCE UTILISATEUR FINAL (EULA) - ORDICAB
+Derniere mise a jour : 12 avril 2026
+
+IMPORTANT : VEUILLEZ LIRE ATTENTIVEMENT.
+EN INSTALLANT, COPIANT, ACCEDANT OU UTILISANT LE LOGICIEL ORDICAB, VOUS ACCEPTEZ LES
+PRESENTES CONDITIONS. SI VOUS N'ACCEPTEZ PAS CES CONDITIONS, N'INSTALLEZ PAS ET
+N'UTILISEZ PAS LE LOGICIEL.
+
+1) OBJET ET CHAMP D'APPLICATION
+Le present contrat regit l'utilisation du logiciel Ordicab, de ses mises a jour,
+de sa documentation et de ses composants associes (ensemble, le "Logiciel").
+
+2) LICENCE
+Sous reserve du respect du present EULA, Ordicab vous accorde une licence personnelle,
+non exclusive, non transferable et revocable d'utilisation du Logiciel.
+
+3) VERSION EXPERIMENTALE (BETA)
+Le Logiciel est fourni en version experimentale/beta. Il est destine a des tests.
+Vous reconnaissez que des defauts, indisponibilites, pertes de donnees, erreurs
+ou comportements inattendus peuvent survenir.
+
+4) INTERDICTION D'USAGE EN PRODUCTION
+Le Logiciel ne doit pas etre utilise en production, ni avec des donnees reelles
+critiques, ni avec des dossiers clients sensibles, sauf a vos risques exclusifs.
+
+5) DONNEES, IA ET SERVICES TIERS
+Certaines fonctionnalites (incluant les fonctions IA) peuvent entrainer la
+transmission de donnees a des services tiers. Vous etes seul responsable :
+- du choix des services tiers et de leurs conditions contractuelles,
+- du parametrage de confidentialite,
+- de la conformite legale et reglementaire (notamment RGPD),
+- de l'obtention des autorisations et bases legales necessaires.
+
+6) SECURITE ET SAUVEGARDES
+Vous etes responsable de vos sauvegardes, de la securite de votre environnement,
+et des controles necessaires avant toute utilisation sur des donnees a enjeu.
+
+7) ABSENCE DE GARANTIE
+LE LOGICIEL EST FOURNI "EN L'ETAT" ET "SELON DISPONIBILITE", SANS GARANTIE D'AUCUNE
+SORTE, EXPRESSE OU IMPLICITE, Y COMPRIS SANS LIMITATION LES GARANTIES DE QUALITE
+MARCHANDE, D'ADEQUATION A UN USAGE PARTICULIER, D'EXACTITUDE, DE DISPONIBILITE,
+DE SECURITE, OU D'ABSENCE D'ERREUR.
+
+8) LIMITATION DE RESPONSABILITE
+DANS LES LIMITES AUTORISEES PAR LA LOI APPLICABLE, ORDICAB ET SES CONTRIBUTEURS NE
+SAURAIENT ETRE TENUS RESPONSABLES DES DOMMAGES DIRECTS, INDIRECTS, SPECIAUX, INCIDENTS,
+PUNITIFS OU CONSECUTIFS (Y COMPRIS PERTE DE DONNEES, PERTE D'EXPLOITATION, PERTE DE
+CHIFFRE D'AFFAIRES, PREJUDICE COMMERCIAL OU REPUTATIONNEL), MEME EN CAS D'AVERTISSEMENT
+DE LA POSSIBILITE DE TELS DOMMAGES.
+
+9) CONFORMITE, USAGES INTERDITS
+Vous vous engagez a respecter les lois applicables. Vous ne devez pas utiliser le
+Logiciel pour des activites illicites, ni d'une maniere portant atteinte aux droits
+de tiers.
+
+10) EVOLUTION, SUSPENSION, RESILIATION
+Ordicab peut modifier, suspendre ou arreter tout ou partie du Logiciel a tout moment.
+Le non-respect du present EULA peut entrainer la suspension ou la resiliation du droit
+d'utilisation.
+
+11) PROPRIETE INTELLECTUELLE
+Le Logiciel et ses elements sont proteges par les lois de propriete intellectuelle.
+Le present EULA n'opere aucun transfert de propriete.
+
+12) DROIT APPLICABLE
+Le present EULA est regi par le droit applicable au lieu d'etablissement de l'editeur,
+sous reserve des regles imperatives applicables au consommateur le cas echeant.
+
+13) INTEGRALITE
+Le present EULA constitue l'integralite de l'accord relatif a l'utilisation du Logiciel.
+Si une clause est jugee nulle, les autres clauses restent en vigueur.
+

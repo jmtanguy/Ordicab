@@ -1,0 +1,68 @@
+END USER LICENSE AGREEMENT (EULA) - ORDICAB
+Last updated: April 12, 2026
+
+IMPORTANT: PLEASE READ CAREFULLY.
+BY INSTALLING, COPYING, ACCESSING, OR USING ORDICAB SOFTWARE, YOU AGREE TO BE BOUND
+BY THIS EULA. IF YOU DO NOT AGREE, DO NOT INSTALL OR USE THE SOFTWARE.
+
+1) SCOPE
+This agreement governs your use of the Ordicab software, updates, documentation,
+and related components (collectively, the "Software").
+
+2) LICENSE GRANT
+Subject to compliance with this EULA, Ordicab grants you a personal, non-exclusive,
+non-transferable, revocable license to use the Software.
+
+3) EXPERIMENTAL / BETA STATUS
+The Software is provided as an experimental/beta release for testing purposes.
+You acknowledge that defects, downtime, data loss, errors, and unexpected behavior
+may occur.
+
+4) NO PRODUCTION USE
+The Software must not be used in production, or with critical real-world data,
+or with sensitive client files, except entirely at your own risk.
+
+5) DATA, AI, AND THIRD-PARTY SERVICES
+Some features (including AI features) may transmit data to third-party services.
+You are solely responsible for:
+- selecting third-party providers and accepting their terms,
+- privacy/security configuration,
+- legal and regulatory compliance (including GDPR where applicable),
+- obtaining required authorizations and legal bases.
+
+6) SECURITY AND BACKUPS
+You are responsible for backups, environment security, and appropriate controls
+before using the Software with any important data.
+
+7) DISCLAIMER OF WARRANTIES
+THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE," WITHOUT WARRANTIES OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, ACCURACY, AVAILABILITY, SECURITY, OR NON-INFRINGEMENT.
+
+8) LIMITATION OF LIABILITY
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, ORDICAB AND ITS CONTRIBUTORS SHALL
+NOT BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, PUNITIVE, OR CONSEQUENTIAL
+DAMAGES (INCLUDING DATA LOSS, BUSINESS INTERRUPTION, LOST REVENUE, OR REPUTATIONAL HARM),
+EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+9) COMPLIANCE AND PROHIBITED USE
+You must comply with applicable laws and may not use the Software for unlawful activities
+or in ways that infringe third-party rights.
+
+10) CHANGES, SUSPENSION, TERMINATION
+Ordicab may modify, suspend, or discontinue all or part of the Software at any time.
+Breach of this EULA may result in suspension or termination of your rights to use
+the Software.
+
+11) INTELLECTUAL PROPERTY
+The Software is protected by intellectual property laws. This EULA does not transfer
+ownership rights.
+
+12) GOVERNING LAW
+This EULA is governed by the law applicable at the publisher's place of establishment,
+subject to mandatory consumer law protections where applicable.
+
+13) ENTIRE AGREEMENT; SEVERABILITY
+This EULA is the entire agreement regarding use of the Software. If any provision is
+held invalid, the remaining provisions remain in effect.
+

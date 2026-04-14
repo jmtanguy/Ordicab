@@ -62,25 +62,29 @@ export function OnboardingPage({
 
       <div className="relative grid items-start gap-6 px-6 py-6 md:px-8 md:py-7 lg:grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.92fr)] lg:gap-8">
         <div className="flex flex-col gap-10 self-center">
-          <div>
-            <h2 className="text-pretty text-3xl font-semibold leading-snug text-slate-50 md:text-[2rem]">
-              {t('onboarding.hero_title')}
-            </h2>
-            <p className="mt-3 max-w-2xl text-pretty text-base leading-relaxed text-slate-400 md:text-lg">
-              {t('onboarding.hero_summary')}
-            </p>
-          </div>
-
-          <div className="grid gap-3">
-            <Card className="border-white/10 bg-white/4 p-4">
-              <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-aurora-soft/80">
-                {t('shell.teaser_card_local_label')}
+          <Card className="border-amber-200/25 bg-amber-950/30 p-5">
+            <div className="warning-banner-body">
+              <h4 className="text-lg font-semibold tracking-tight text-amber-50">
+                Version expérimentale — Ne pas utiliser en production
+              </h4>
+              <p className="mt-3 text-sm leading-relaxed text-amber-100/90">
+                Ce logiciel est une version bêta à des fins de test uniquement.{' '}
+                <strong style={{ color: '#fde68a', fontWeight: 600 }}>
+                  Ne l'utilisez pas avec des données de travail réelles ou des dossiers de clients.
+                </strong>{' '}
+                Des bugs, pertes de données ou comportements inattendus peuvent survenir.
               </p>
-              <p className="mt-2 text-base leading-relaxed text-slate-300">
-                {t('shell.teaser_card_local_body')}
+              <p className="mt-3 text-sm leading-relaxed text-amber-100/90">
+                L'utilisation des fonctionnalités d'intelligence artificielle (Claude Cowork, etc.)
+                peut impliquer la transmission de données vers des services tiers.{' '}
+                <strong style={{ color: '#fde68a', fontWeight: 600 }}>
+                  L'utilisateur est seul responsable de la conformité au RGPD
+                </strong>
+                , notamment en ce qui concerne le traitement de données à caractère personnel via des
+                outils et abonnements IA.
               </p>
-            </Card>
-          </div>
+            </div>
+          </Card>
         </div>
 
         <DomainOnboardingCard isLoading={isLoading} error={error} onSelectDomain={onSelectDomain} />

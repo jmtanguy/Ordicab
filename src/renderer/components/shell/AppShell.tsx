@@ -6,6 +6,7 @@ import { type AppLocale, IpcErrorCode, type OrdicabDataChangedEvent } from '@sha
 import { normalizeAppLocale } from '@renderer/i18n'
 import { DomainDashboard } from '@renderer/features/domain/DomainDashboard'
 import { EntityDialog } from '@renderer/features/domain/EntityPanel'
+import { EulaDialog } from '@renderer/features/legal/EulaDialog'
 import { OnboardingPage } from '@renderer/features/onboarding/OnboardingPage'
 import { AlertBanner } from '@renderer/components/ui'
 import {
@@ -77,6 +78,11 @@ export default function AppShell(): React.JSX.Element {
   const [generateDossierId, setGenerateDossierId] = useState<string | null>(null)
   const [ordicabSyncWarning, setOrdicabSyncWarning] = useState<string | null>(null)
   const [showEntityOnboardingDialog, setShowEntityOnboardingDialog] = useState(false)
+  const [isEulaRequired, setIsEulaRequired] = useState(false)
+  const [eulaContent, setEulaContent] = useState('')
+  const [eulaVersion, setEulaVersion] = useState('')
+  const [eulaError, setEulaError] = useState<string | null>(null)
+  const [isAcceptingEula, setIsAcceptingEula] = useState(false)
 
   const versionStatus = useUiStore((state) => state.versionStatus)
   const versionLabel = useUiStore((state) => state.versionLabel)
@@ -176,6 +182,39 @@ export default function AppShell(): React.JSX.Element {
   useEffect(() => {
     void bootstrap()
   }, [bootstrap])
+
+  useEffect(() => {
+    const api = getOrdicabApi()
+
+    if (!api?.app?.eulaStatus) {
+      return
+    }
+
+    let isCancelled = false
+
+    void (async () => {
+      const locale = normalizeAppLocale(i18n.resolvedLanguage)
+      const status = await api.app.eulaStatus({ locale })
+      if (isCancelled) {
+        return
+      }
+
+      if (!status.success) {
+        setEulaError(status.error)
+        setIsEulaRequired(true)
+        return
+      }
+
+      setIsEulaRequired(status.data.required)
+      setEulaVersion(status.data.version)
+      setEulaContent(status.data.content)
+      setEulaError(null)
+    })()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [i18n.resolvedLanguage])
 
   const refreshAndApplyDomainStatus = useCallback(async () => {
     const status = await refreshStatus()
@@ -367,6 +406,27 @@ export default function AppShell(): React.JSX.Element {
     [i18n, persistLocale]
   )
 
+  const handleAcceptEula = useCallback(async () => {
+    const api = getOrdicabApi()
+    if (!api?.app?.eulaAccept || !eulaVersion) {
+      return
+    }
+
+    setIsAcceptingEula(true)
+    setEulaError(null)
+    const locale = normalizeAppLocale(i18n.resolvedLanguage)
+    const result = await api.app.eulaAccept({ version: eulaVersion, locale })
+    setIsAcceptingEula(false)
+
+    if (!result.success) {
+      setEulaError(result.error)
+      return
+    }
+
+    setIsEulaRequired(result.data.required)
+    setEulaContent(result.data.content)
+  }, [eulaVersion, i18n.resolvedLanguage])
+
   const handleOpenDossier = useCallback(
     async (id: string) => {
       openDossierDetail(id)
@@ -447,6 +507,19 @@ export default function AppShell(): React.JSX.Element {
   return (
     <main className="relative min-h-screen overflow-hidden bg-deep-space text-slate-100">
       <AuroraBackground />
+
+      <EulaDialog
+        open={isEulaRequired}
+        title={t('legal.eula_title')}
+        summary={t('legal.eula_summary')}
+        acceptLabel={t('legal.eula_accept_action')}
+        loadingLabel={t('legal.eula_accept_loading')}
+        content={eulaContent}
+        version={eulaVersion}
+        error={eulaError}
+        isSubmitting={isAcceptingEula}
+        onAccept={handleAcceptEula}
+      />
 
       <EntityDialog
         open={showEntityOnboardingDialog}

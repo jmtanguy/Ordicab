@@ -74,7 +74,9 @@ export function createOrdicabApi(
       getLocale: () => invoke(ipcInvoke, IPC_CHANNELS.app.getLocale),
       setLocale: (input) => invoke(ipcInvoke, IPC_CHANNELS.app.setLocale, input),
       openExternal: (input) => invoke(ipcInvoke, IPC_CHANNELS.app.openExternal, input),
-      openFolder: (input) => invoke(ipcInvoke, IPC_CHANNELS.app.openFolder, input)
+      openFolder: (input) => invoke(ipcInvoke, IPC_CHANNELS.app.openFolder, input),
+      eulaStatus: (input) => invoke(ipcInvoke, IPC_CHANNELS.app.eulaStatus, input),
+      eulaAccept: (input) => invoke(ipcInvoke, IPC_CHANNELS.app.eulaAccept, input)
     },
     domain: {
       select: () => invoke(ipcInvoke, IPC_CHANNELS.domain.select),

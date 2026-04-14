@@ -4,7 +4,9 @@ export const IPC_CHANNELS = {
     getLocale: 'app:getLocale',
     setLocale: 'app:setLocale',
     openExternal: 'app:openExternal',
-    openFolder: 'app:openFolder'
+    openFolder: 'app:openFolder',
+    eulaStatus: 'app:eula-status',
+    eulaAccept: 'app:eula-accept'
   },
   domain: {
     select: 'domain:select',

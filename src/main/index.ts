@@ -59,6 +59,7 @@ import { registerGenerateHandlers } from './handlers/generateHandler'
 import { registerTemplateHandlers, syncDocxTemplate } from './handlers/templateHandler'
 import { createCredentialStore, type CredentialStore } from './lib/system/credentialStore'
 import { createDelegatedOriginDeviceStore } from './lib/system/delegatedOriginDeviceStore'
+import { createEulaStore, type EulaStore } from './lib/system/eulaStore'
 import { createFileWatcherService } from './lib/ordicab/FileWatcherService'
 import {
   createOrdicabDataWatcher,
@@ -201,6 +202,7 @@ function isSupportedLocale(locale: string): locale is AppLocale {
 interface RegisterIpcHandlersOptions {
   aiService: ReturnType<typeof createAiService> | null
   webContents: { send(channel: string, ...args: unknown[]): void } | null
+  eulaStore: EulaStore
 }
 
 function registerIpcHandlers(
@@ -309,6 +311,63 @@ function registerIpcHandlers(
       }
 
       return { success: true, data: null }
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.app.eulaStatus,
+    async (
+      _event,
+      input: { locale: string }
+    ): Promise<IpcResult<{ required: boolean; version: string; content: string }>> => {
+      if (!input || !isSupportedLocale(input.locale)) {
+        return {
+          success: false,
+          error: 'Unsupported locale.',
+          code: IpcErrorCode.INVALID_INPUT
+        }
+      }
+
+      try {
+        return {
+          success: true,
+          data: await options.eulaStore.getStatus(input.locale)
+        }
+      } catch (error) {
+        return mapUnknownError(error, 'Unable to load EULA status.', IpcErrorCode.FILE_SYSTEM_ERROR)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.app.eulaAccept,
+    async (
+      _event,
+      input: { version: string; locale?: string }
+    ): Promise<IpcResult<{ required: boolean; version: string; content: string }>> => {
+      if (!input || typeof input.version !== 'string' || input.version.trim().length === 0) {
+        return {
+          success: false,
+          error: 'Missing EULA version.',
+          code: IpcErrorCode.INVALID_INPUT
+        }
+      }
+
+      const locale =
+        typeof input.locale === 'string' && isSupportedLocale(input.locale) ? input.locale : 'en'
+
+      try {
+        return {
+          success: true,
+          data: await options.eulaStore.accept(input.version.trim(), locale)
+        }
+      } catch (error) {
+        return mapUnknownError(
+          error,
+          'Unable to persist EULA acceptance.',
+          IpcErrorCode.FILE_SYSTEM_ERROR
+        )
+      }
     }
   )
 
@@ -856,7 +915,8 @@ app
           () => currentAiMode,
           {
             aiService,
-            webContents: mainWindowLifecycle?.getWindow()?.webContents ?? null
+            webContents: mainWindowLifecycle?.getWindow()?.webContents ?? null,
+            eulaStore: createEulaStore(stateFilePath)
           }
         )
       },

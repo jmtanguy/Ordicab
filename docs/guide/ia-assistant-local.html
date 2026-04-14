@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Assistant local (Ollama) — Ordicab Documentation</title>
+  <link rel="icon" href="../icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="_layout.css" />
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <a href="../index.html">
+      <span class="name">Ordicab</span>
+      <span class="tagline">Documentation utilisateur</span>
+    </a>
+  </div>
+  <div class="sidebar-section">Démarrage</div>
+  <nav>
+    <a href="introduction.html">Introduction</a>
+    <a href="installation.html">Installation &amp; mise en route</a>
+  </nav>
+  <div class="sidebar-section">Fonctionnalités</div>
+  <nav>
+    <a href="dossiers.html">Dossiers</a>
+    <a href="modeles.html">Modèles</a>
+  </nav>
+  <div class="sidebar-section">Intelligence artificielle</div>
+  <nav>
+    <a href="ia-vue-ensemble.html">Vue d'ensemble &amp; comparatif</a>
+    <a href="ia-cowork.html" class="sub">IA Cowork</a>
+    <a href="ia-assistant-local.html" class="sub active">Assistant local (Ollama)</a>
+    <a href="ia-assistant-api.html" class="sub">Assistant via API</a>
+    <a href="ia-export-import.html" class="sub">Export IA &amp; Import IA</a>
+  </nav>
+</aside>
+
+<main class="main">
+  <div class="badge">Intelligence artificielle</div>
+  <h1>Assistant local (Ollama)</h1>
+  <p class="page-lead">
+    Le mode local connecte l'assistant IA intégré à Ordicab à un modèle de langage qui tourne entièrement sur votre machine, via Ollama. Aucune donnée ne quitte votre ordinateur — confidentialité totale, sans compromis.
+  </p>
+
+  <h2>Principe</h2>
+  <p><a href="https://ollama.com" style="color:var(--aurora);" target="_blank" rel="noopener">Ollama</a> est un outil open source qui permet de télécharger et d'exécuter des modèles de langage (Llama, Mistral, Qwen, Phi…) localement sur votre machine, sans connexion internet. Ordicab se connecte à Ollama via une interface locale pour alimenter son assistant IA intégré.</p>
+
+  <p>Tout reste sur votre disque&nbsp;: vos questions, les données de vos dossiers, les réponses du modèle. Aucun tiers n'y a accès.</p>
+
+  <h2>Prérequis</h2>
+  <p>Un ordinateur relativement récent est recommandé. Les performances dépendent de la puissance de votre machine et du modèle choisi. Sur un Mac avec puce Apple Silicon (M1/M2/M3/M4), les modèles 7B–13B paramètres sont fluides. Sur Windows avec un GPU récent, les résultats sont similaires.</p>
+
+  <h2>Installation et configuration</h2>
+  <ol class="step-list">
+    <li>
+      <div>
+        <strong>Installez Ollama</strong> depuis <a href="https://ollama.com" style="color:var(--aurora);" target="_blank" rel="noopener">ollama.com</a>. L'installation est disponible pour macOS, Windows et Linux.
+      </div>
+    </li>
+    <li>
+      <div>
+        <strong>Téléchargez un modèle.</strong> Ouvrez un terminal et exécutez par exemple&nbsp;:<br/>
+        <code>ollama pull llama3</code><br/>
+        D'autres modèles sont disponibles sur <a href="https://ollama.com/library" style="color:var(--aurora);" target="_blank" rel="noopener">ollama.com/library</a>. Pour un usage juridique ou professionnel, <code>mistral</code> ou <code>qwen3</code> sont également de bons choix.
+      </div>
+    </li>
+    <li>
+      <div>
+        <strong>Dans Ordicab, ouvrez Paramètres → Configuration IA</strong> et sélectionnez <em>Local (Ollama)</em>.
+      </div>
+    </li>
+    <li>
+      <div>
+        <strong>Vérifiez l'endpoint.</strong> Par défaut, Ordicab pointe vers <code>http://localhost:11434</code> — c'est l'adresse standard d'Ollama. Si vous avez configuré un port différent, modifiez-le ici.
+      </div>
+    </li>
+    <li>
+      <div>
+        <strong>Sélectionnez le modèle</strong> que vous venez de télécharger dans la liste déroulante, puis cliquez sur <strong>Vérifier la connexion</strong>.
+      </div>
+    </li>
+    <li>
+      <div>
+        Ordicab confirme la connexion. L'assistant IA est maintenant disponible dans l'interface.
+      </div>
+    </li>
+  </ol>
+
+  <div class="callout-green">
+    <strong>Confidentialité maximale.</strong><br/>
+    En mode local, aucune donnée ne sort de votre machine. C'est le seul mode compatible avec les obligations de secret professionnel les plus strictes (avocat, médecin, notaire…) sans nécessiter d'accord avec un sous-traitant de données.
+  </div>
+
+  <h2>L'assistant intégré</h2>
+  <p>Une fois le mode local activé, l'onglet <strong>Assistant IA</strong> d'Ordicab affiche un chat directement dans l'application. L'assistant connaît le contexte du dossier actif — il peut répondre à des questions sur un dossier, aider à rédiger, reformuler ou analyser un texte.</p>
+
+  <p>Des outils spécialisés permettent aussi à Ordicab de piloter l'IA pour des opérations structurées&nbsp;: mise à jour de contacts, extraction de dates, annotation de documents. Le résultat est validé par Ordicab avant d'être appliqué.</p>
+
+  <h2>Limitations</h2>
+  <p>Les modèles locaux sont moins puissants que les grands modèles cloud (GPT-4, Claude 3 Opus…). Pour des tâches simples — résumé, reformulation, extraction de dates, saisie de coordonnées — ils sont tout à fait adaptés. Pour des analyses juridiques complexes ou la rédaction de documents longs et structurés, un modèle cloud via API donnera de meilleurs résultats.</p>
+
+  <div class="callout">
+    <strong>Pas de pseudonymisation nécessaire.</strong><br/>
+    En mode local, vos données ne quittent jamais votre machine. La pseudonymisation n'a pas d'utilité ici — elle est réservée aux modes qui transmettent des données à l'extérieur.
+  </div>
+
+  <a href="ia-assistant-api.html" class="next-link">Suivant : Assistant via API →</a>
+</main>
+
+</body>
+</html>

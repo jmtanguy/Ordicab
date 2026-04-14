@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Modèles — Ordicab Documentation</title>
+  <link rel="icon" href="../icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="_layout.css" />
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <a href="../index.html">
+      <span class="name">Ordicab</span>
+      <span class="tagline">Documentation utilisateur</span>
+    </a>
+  </div>
+  <div class="sidebar-section">Démarrage</div>
+  <nav>
+    <a href="introduction.html">Introduction</a>
+    <a href="installation.html">Installation &amp; mise en route</a>
+  </nav>
+  <div class="sidebar-section">Fonctionnalités</div>
+  <nav>
+    <a href="dossiers.html">Dossiers</a>
+    
+    <a href="modeles.html" class="active">Modèles</a>
+    
+  </nav>
+  <div class="sidebar-section">Intelligence artificielle</div>
+  <nav>
+    <a href="ia-vue-ensemble.html">Vue d'ensemble &amp; comparatif</a>
+    <a href="ia-cowork.html" class="sub">IA Cowork</a>
+    <a href="ia-assistant-local.html" class="sub">Assistant local (Ollama)</a>
+    <a href="ia-assistant-api.html" class="sub">Assistant via API</a>
+    <a href="ia-export-import.html" class="sub">Export IA &amp; Import IA</a>
+  </nav>
+</aside>
+
+<main class="main">
+  <div class="badge">Fonctionnalités</div>
+  <h1>Modèles</h1>
+  <p class="page-lead">
+    Ordicab permet de constituer une bibliothèque de modèles de documents réutilisables. Chaque modèle peut contenir des <strong>routines</strong> — des balises dynamiques qui se substituent automatiquement aux données réelles du dossier lors de la génération.
+  </p>
+
+  <h2>Principe des routines</h2>
+  <p>Une routine est une balise de la forme <span class="macro">{{nom.champ}}</span>. Lorsque vous générez un document à partir d'un modèle, Ordicab résout chaque routine en la remplaçant par la valeur correspondante dans le dossier sélectionné.</p>
+
+  <p>Exemple&nbsp;: si votre dossier contient un contact avec le rôle <em>Client</em> nommé <em>Marie Martin</em>, la routine <span class="macro">{{contact.client.nomAffiche}}</span> sera remplacée par <code>Marie Martin</code> dans le document généré.</p>
+
+  <div class="callout">
+    <strong>Aucune donnée manquante bloquante.</strong><br/>
+    Si une valeur n'est pas renseignée dans le dossier, Ordicab insère un marqueur visible à la place (ex. : <code>[Nom manquant]</code>). Le document reste utilisable et peut être complété manuellement.
+  </div>
+
+  <h2>Catégories de routines disponibles</h2>
+  <table>
+    <thead><tr><th>Catégorie</th><th>Exemples de routines</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Dossier</strong></td>
+        <td>Nom du dossier, statut, type, date d'ouverture, information générale</td>
+      </tr>
+      <tr>
+        <td><strong>Contact (par rôle)</strong></td>
+        <td>Nom affiché, civilité, prénom, nom, adresse, email, téléphone, formules d'appel</td>
+      </tr>
+      <tr>
+        <td><strong>Entité</strong></td>
+        <td>Nom du cabinet, adresse, téléphone, email, numéro de TVA</td>
+      </tr>
+      <tr>
+        <td><strong>Dates clés</strong></td>
+        <td>Date d'un événement nommé (ex. : <span class="macro">{{keyDate.Audience}}</span>)</td>
+      </tr>
+      <tr>
+        <td><strong>Références clés</strong></td>
+        <td>Valeur d'une référence nommée (ex. : <span class="macro">{{keyRef.RG}}</span>)</td>
+      </tr>
+      <tr>
+        <td><strong>Système</strong></td>
+        <td>Date du jour, année en cours</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>Dans l'éditeur de modèle, le panneau <strong>Insérer une routine</strong> liste toutes les routines disponibles. Cliquez sur une routine pour l'insérer à la position du curseur.</p>
+
+  <h2>Créer un modèle</h2>
+  <p>Depuis l'onglet <strong>Modèles</strong>, cliquez sur <strong>Nouveau modèle</strong>. Deux types sont disponibles.</p>
+
+  <h3>Modèle texte enrichi</h3>
+  <p>Rédigez directement le contenu dans l'éditeur intégré d'Ordicab. La mise en forme riche (gras, italique, listes, titres) est conservée. Insérez des routines via le panneau latéral ou en saisissant <code>{{</code> manuellement.</p>
+
+  <h3>Modèle Word (.docx)</h3>
+  <p>Importez un document Word existant comme source de mise en forme. Word conserve le contrôle total de la mise en page — polices, en-têtes, pieds de page, styles. Ajoutez les routines Ordicab directement dans le fichier Word avec la syntaxe <span class="macro">{{routine}}</span>.</p>
+
+  <p>Si vous souhaitez injecter du contenu géré dans Ordicab (par exemple un paragraphe supplémentaire), placez le marqueur <span class="macro">{{app.content}}</span> à l'endroit voulu dans le fichier Word.</p>
+
+  <div class="callout">
+    <strong>Modifier une source Word.</strong><br/>
+    Depuis la fiche du modèle, cliquez sur <strong>Ouvrir dans Word</strong> pour modifier la mise en forme et ajouter ou ajuster les routines directement dans le fichier source.
+  </div>
+
+  <h2>Générer un document</h2>
+  <p>Un document peut être généré depuis plusieurs endroits&nbsp;:</p>
+  <ul>
+    <li>Depuis la liste des modèles, en cliquant sur <strong>Générer</strong> sur un modèle.</li>
+    <li>Depuis l'onglet Documents d'un dossier, en cliquant sur <strong>Générer un document</strong>.</li>
+  </ul>
+
+  <p>L'assistant de génération vous demande de&nbsp;:</p>
+  <ol class="step-list">
+    <li>Sélectionner le dossier cible (si non déjà ouvert).</li>
+    <li>Choisir le modèle à utiliser.</li>
+    <li>Associer les contacts du dossier aux rôles utilisés dans le modèle (contact principal et éventuellement des contacts par rôle).</li>
+    <li>Choisir le mode de génération&nbsp;: <strong>directe</strong> (le fichier est écrit immédiatement) ou <strong>relire avant enregistrement</strong> (un brouillon est préparé et vous pouvez l'ajuster avant de sauvegarder).</li>
+  </ol>
+
+  <p>Le document généré est enregistré dans le répertoire du dossier et apparaît automatiquement dans la liste des documents.</p>
+
+  <h2>Gérer la bibliothèque</h2>
+  <p>Chaque modèle peut être modifié, dupliqué ou supprimé depuis la liste. La bibliothèque est commune à tous vos dossiers — un modèle créé une fois est utilisable sur n'importe quel dossier.</p>
+
+  <p style="margin-top:40px;">
+    <a href="ia-vue-ensemble.html" style="color:var(--aurora);text-decoration:none;font-weight:600;">Suivant : Vue d'ensemble IA →</a>
+  </p>
+</main>
+
+</body>
+</html>

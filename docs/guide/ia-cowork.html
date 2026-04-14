@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IA Cowork — Ordicab Documentation</title>
+  <link rel="icon" href="../icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="_layout.css" />
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <a href="../index.html">
+      <span class="name">Ordicab</span>
+      <span class="tagline">Documentation utilisateur</span>
+    </a>
+  </div>
+  <div class="sidebar-section">Démarrage</div>
+  <nav>
+    <a href="introduction.html">Introduction</a>
+    <a href="installation.html">Installation &amp; mise en route</a>
+  </nav>
+  <div class="sidebar-section">Fonctionnalités</div>
+  <nav>
+    <a href="dossiers.html">Dossiers</a>
+    <a href="modeles.html">Modèles</a>
+  </nav>
+  <div class="sidebar-section">Intelligence artificielle</div>
+  <nav>
+    <a href="ia-vue-ensemble.html">Vue d'ensemble &amp; comparatif</a>
+    <a href="ia-cowork.html" class="sub active">IA Cowork</a>
+    <a href="ia-assistant-local.html" class="sub">Assistant local (Ollama)</a>
+    <a href="ia-assistant-api.html" class="sub">Assistant via API</a>
+    <a href="ia-export-import.html" class="sub">Export IA &amp; Import IA</a>
+  </nav>
+</aside>
+
+<main class="main">
+  <div class="badge">Intelligence artificielle</div>
+  <h1>IA Cowork</h1>
+  <p class="page-lead">
+    Le mode Cowork connecte Ordicab à un agent IA — Claude Code ou OpenAI Codex — qui accède directement aux fichiers de vos dossiers. C'est le mode le plus puissant : l'agent peut lire, analyser et créer des documents en toute autonomie, piloté par vos instructions en langage naturel.
+  </p>
+
+  <h2>Principe</h2>
+  <p>Un agent Cowork est un programme IA capable de lire et écrire des fichiers sur votre ordinateur. Ordicab lui fournit un contexte structuré sur chaque dossier — contacts, dates clés, références, textes extraits des documents — et l'agent peut ensuite exécuter des tâches complexes&nbsp;:</p>
+  <ul>
+    <li>créer un courrier, un contrat ou un rapport à partir d'un modèle Ordicab&nbsp;;</li>
+    <li>analyser plusieurs pièces d'un dossier et en extraire un résumé&nbsp;;</li>
+    <li>mettre à jour les métadonnées d'un dossier entier en une seule opération&nbsp;;</li>
+    <li>comparer des documents, détecter des incohérences, proposer des modifications.</li>
+  </ul>
+
+  <h2>Agents compatibles</h2>
+  <table>
+    <thead><tr><th>Agent</th><th>Éditeur</th><th>Installation</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Claude Code</strong></td>
+        <td>Anthropic</td>
+        <td><code>npm install -g @anthropic-ai/claude-code</code></td>
+      </tr>
+      <tr>
+        <td><strong>OpenAI Codex CLI</strong></td>
+        <td>OpenAI</td>
+        <td><code>npm install -g @openai/codex</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Configurer le mode Cowork</h2>
+  <ol class="step-list">
+    <li>
+      <div>
+        <strong>Installez l'agent de votre choix</strong> sur votre machine (voir tableau ci-dessus). Un compte actif chez Anthropic ou OpenAI est requis.
+      </div>
+    </li>
+    <li>
+      <div>
+        <strong>Dans Ordicab, ouvrez Paramètres → Configuration IA</strong> et sélectionnez <em>Claude Cowork</em> ou <em>OpenAI Codex</em> dans la liste des modes.
+      </div>
+    </li>
+    <li>
+      <div>
+        <strong>Ajoutez le domaine Ordicab à l'application IA.</strong> Pour que l'agent connaisse la structure de vos dossiers, vous devez pointer l'agent vers votre répertoire de domaine au premier usage — par exemple en lançant <code>claude</code> dans ce répertoire depuis un terminal, ou en ouvrant ce dossier depuis l'interface de l'agent.
+      </div>
+    </li>
+    <li>
+      <div>
+        Ordicab confirme la connexion et active les fonctionnalités IA dans l'interface.
+      </div>
+    </li>
+  </ol>
+
+  <div class="callout-warn">
+    <strong>Données transmises à l'agent.</strong><br/>
+    Claude Code et Codex envoient vos commandes et le contexte de vos dossiers à leurs serveurs respectifs (Anthropic, OpenAI). Vérifiez que cela est compatible avec vos obligations de confidentialité professionnelle. Pour les données sensibles, privilégiez l'<strong>Export IA avec pseudonymisation</strong>.
+  </div>
+
+  <h2>Comment Ordicab prépare le contexte</h2>
+  <p>Ordicab maintient dans chaque dossier un espace caché <code>.ordicab/</code> contenant des fichiers de configuration lisibles par l'agent&nbsp;:</p>
+  <ul>
+    <li><code>dossier.json</code> — métadonnées du dossier (statut, type, information)</li>
+    <li><code>contacts.json</code> — liste des contacts et leurs coordonnées structurées</li>
+    <li><code>key-dates.json</code> — dates clés et leurs notes</li>
+    <li><code>key-references.json</code> — références clés</li>
+    <li><code>CLAUDE.md</code> — fichier d'instructions que Claude lit automatiquement au démarrage</li>
+  </ul>
+  <p>L'agent n'a besoin d'aucune configuration supplémentaire — il lit ce contexte et comprend immédiatement la structure du dossier.</p>
+
+  <h2>L'intent inbox — écriture sans conflit</h2>
+  <p>Lorsque l'agent écrit dans un dossier Ordicab, il ne modifie pas directement les fichiers de données — il dépose ses modifications dans une <strong>boîte d'intentions</strong> (<em>intent inbox</em>).</p>
+
+  <p>Ordicab surveille cette boîte en temps réel. Lorsqu'une intention est détectée, il&nbsp;:</p>
+  <ol>
+    <li>valide que les données respectent les contrats attendus&nbsp;;</li>
+    <li>applique les modifications de manière atomique, sans risque de corruption&nbsp;;</li>
+    <li>notifie l'interface si une validation échoue — vous pouvez alors corriger manuellement.</li>
+  </ol>
+
+  <div class="callout-green">
+    <strong>Pourquoi ce système est innovant.</strong><br/>
+    Les agents IA travaillent de façon asynchrone et peuvent écrire plusieurs modifications en rafale. L'intent inbox élimine les problèmes de concurrence et de corruption de données qui surviendraient si l'agent écrivait directement dans les fichiers pendant qu'Ordicab les lit. Chaque modification est vérifiée avant d'être appliquée.
+  </div>
+
+  <h2>Ce que vous pouvez demander à l'agent</h2>
+  <p>L'onglet <strong>Assistant IA</strong> d'Ordicab contient une référence des opérations disponibles, avec pour chacune un prompt prêt à l'emploi pré-rempli avec le contexte de votre dossier actif. Copiez le prompt, collez-le dans votre session agent, complétez les crochets et envoyez.</p>
+
+  <p>Exemples d'opérations&nbsp;:</p>
+  <ul>
+    <li>Configurer un dossier entier depuis un texte décrivant le client</li>
+    <li>Extraire les dates clés d'un jugement ou d'un contrat</li>
+    <li>Générer un courrier à partir d'un modèle Ordicab</li>
+    <li>Annoter et taguer les documents d'un dossier</li>
+    <li>Ajouter ou modifier un modèle de document</li>
+  </ul>
+
+  <a href="ia-assistant-local.html" class="next-link">Suivant : Assistant local (Ollama) →</a>
+</main>
+
+</body>
+</html>

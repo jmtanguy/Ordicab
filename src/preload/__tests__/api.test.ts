@@ -27,6 +27,8 @@ describe('createOrdicabApi', () => {
     await api.app.getLocale()
     await api.app.setLocale({ locale: 'fr' })
     await api.app.openFolder({ path: '/tmp' })
+    await api.app.eulaStatus({ locale: 'fr' })
+    await api.app.eulaAccept({ version: '2026-04-14' })
     await api.domain.select()
     await api.domain.status()
     await api.dossier.listEligible()
@@ -108,6 +110,8 @@ describe('createOrdicabApi', () => {
       [IPC_CHANNELS.app.getLocale],
       [IPC_CHANNELS.app.setLocale, { locale: 'fr' }],
       [IPC_CHANNELS.app.openFolder, { path: '/tmp' }],
+      [IPC_CHANNELS.app.eulaStatus, { locale: 'fr' }],
+      [IPC_CHANNELS.app.eulaAccept, { version: '2026-04-14' }],
       [IPC_CHANNELS.domain.select],
       [IPC_CHANNELS.domain.status],
       [IPC_CHANNELS.dossier.listEligible],

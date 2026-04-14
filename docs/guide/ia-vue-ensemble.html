@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IA — Vue d'ensemble — Ordicab Documentation</title>
+  <link rel="icon" href="../icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="_layout.css" />
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <a href="../index.html">
+      <span class="name">Ordicab</span>
+      <span class="tagline">Documentation utilisateur</span>
+    </a>
+  </div>
+  <div class="sidebar-section">Démarrage</div>
+  <nav>
+    <a href="introduction.html">Introduction</a>
+    <a href="installation.html">Installation &amp; mise en route</a>
+  </nav>
+  <div class="sidebar-section">Fonctionnalités</div>
+  <nav>
+    <a href="dossiers.html">Dossiers</a>
+    <a href="modeles.html">Modèles</a>
+  </nav>
+  <div class="sidebar-section">Intelligence artificielle</div>
+  <nav>
+    <a href="ia-vue-ensemble.html" class="active">Vue d'ensemble &amp; comparatif</a>
+    <a href="ia-cowork.html" class="sub">IA Cowork</a>
+    <a href="ia-assistant-local.html" class="sub">Assistant local (Ollama)</a>
+    <a href="ia-assistant-api.html" class="sub">Assistant via API</a>
+    <a href="ia-export-import.html" class="sub">Export IA &amp; Import IA</a>
+  </nav>
+</aside>
+
+<main class="main">
+  <div class="badge">Intelligence artificielle</div>
+  <h1>Interactions IA — Vue d'ensemble</h1>
+  <p class="page-lead">
+    Ordicab propose quatre façons d'intégrer l'intelligence artificielle dans votre travail. Chacune répond à des besoins différents en termes de puissance, de simplicité et de confidentialité.
+  </p>
+
+  <h2>Les quatre modes d'interaction</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Mode</th>
+        <th>En un mot</th>
+        <th>Accès</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong><a href="ia-cowork.html" style="color:var(--aurora);text-decoration:none;">IA Cowork</a></strong></td>
+        <td>Collaboration directe avec un agent IA (Claude, Codex…) qui lit et écrit dans vos dossiers</td>
+        <td>Paramètres → IA → Claude Cowork</td>
+      </tr>
+      <tr>
+        <td><strong><a href="ia-assistant-local.html" style="color:var(--aurora);text-decoration:none;">Assistant local</a></strong></td>
+        <td>Chat IA intégré à Ordicab, alimenté par un modèle tournant sur votre machine via Ollama</td>
+        <td>Paramètres → IA → Local (Ollama)</td>
+      </tr>
+      <tr>
+        <td><strong><a href="ia-assistant-api.html" style="color:var(--aurora);text-decoration:none;">Assistant via API</a></strong></td>
+        <td>Chat IA intégré, connecté à un fournisseur cloud (OpenAI, Anthropic, Infomaniak…) via clé API</td>
+        <td>Paramètres → IA → API externe</td>
+      </tr>
+      <tr>
+        <td><strong><a href="ia-export-import.html" style="color:var(--aurora);text-decoration:none;">Export / Import IA</a></strong></td>
+        <td>Export d'un dossier structuré à ouvrir avec n'importe quelle IA Cowork, puis réimport des résultats</td>
+        <td>Onglet dossier → Export IA / Import IA</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Anonymisation vs pseudonymisation</h2>
+  <p>Avant de comparer les modes, il est important de comprendre la distinction entre ces deux approches de protection des données — Ordicab utilise l'une d'elles de façon innovante.</p>
+
+  <h3>Anonymisation — irréversible</h3>
+  <p>L'anonymisation supprime ou masque définitivement les données personnelles. Une fois anonymisé, un document ne peut plus être rattaché à son sujet d'origine. C'est la méthode la plus protectrice sur le plan légal, mais elle rend les données <strong>inutilisables pour un traitement personnalisé</strong> — vous ne pouvez pas récupérer les vraies informations après coup.</p>
+
+  <h3>Pseudonymisation — réversible</h3>
+  <p>La pseudonymisation remplace les données identifiantes (noms, adresses, numéros…) par des <strong>alias cohérents et fictifs</strong> — par exemple <em>Marie Martin</em> devient <em>Contact A</em>, et ce même alias est utilisé partout dans le dossier exporté. L'IA travaille sur des données cohérentes mais non identifiantes.</p>
+
+  <p>La clé de correspondance reste sur votre machine. Ordicab peut donc <strong>restituer automatiquement les vraies données</strong> lors de l'import — les alias sont remplacés par les noms réels, les routines sont résolues, et le document final est complet et personnalisé.</p>
+
+  <div class="callout-green">
+    <strong>L'avantage de la pseudonymisation réversible.</strong><br/>
+    Vous pouvez envoyer un dossier à un service IA sans exposer les données personnelles de vos clients, obtenir un document de qualité en retour, puis le « démasquer » en un clic dans Ordicab. C'est le meilleur compromis entre utilité de l'IA et protection de la vie privée.
+  </div>
+
+  <h2>Comparatif des quatre modes</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Critère</th>
+        <th>IA Cowork</th>
+        <th>Assistant local</th>
+        <th>Assistant API</th>
+        <th>Export / Import</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Puissance IA</strong></td>
+        <td><span class="pill pill-green">Maximale</span></td>
+        <td><span class="pill pill-red">Faible</span></td>
+        <td><span class="pill pill-green">Élevée</span></td>
+        <td><span class="pill pill-green">Maximale</span></td>
+      </tr>
+      <tr>
+        <td><strong>Facilité d'usage</strong></td>
+        <td><span class="pill pill-yellow">Intermédiaire</span></td>
+        <td><span class="pill pill-green">Très simple</span></td>
+        <td><span class="pill pill-green">Simple</span></td>
+        <td><span class="pill pill-yellow">Intermédiaire</span></td>
+      </tr>
+      <tr>
+        <td><strong>Installation requise</strong></td>
+        <td>Claude Code ou Codex CLI</td>
+        <td>Ollama + modèle local</td>
+        <td>Clé API uniquement</td>
+        <td>Claude Code ou autre IA Cowork</td>
+      </tr>
+      <tr>
+        <td><strong>Données quittent la machine</strong></td>
+        <td><span class="pill pill-red">Oui — cloud</span></td>
+        <td><span class="pill pill-green">Non — 100 % local</span></td>
+        <td><span class="pill pill-red">Oui — cloud</span></td>
+        <td><span class="pill pill-red">Oui — cloud</span></td>
+      </tr>
+      <tr>
+        <td><strong>Pseudonymisation</strong></td>
+        <td><span class="pill pill-red">Aucune</span></td>
+        <td><span class="pill pill-green">Inutile (local)</span></td>
+        <td><span class="pill pill-green">Intégrée (optionnel)</span></td>
+        <td><span class="pill pill-green">Intégrée à l'export</span></td>
+      </tr>
+      <tr>
+        <td><strong>Création de documents</strong></td>
+        <td><span class="pill pill-green">Oui</span></td>
+        <td><span class="pill pill-yellow">Partiel — via modèles</span></td>
+        <td><span class="pill pill-yellow">Partiel — via modèles</span></td>
+        <td><span class="pill pill-green">Oui, avec import</span></td>
+      </tr>
+      <tr>
+        <td><strong>Mise à jour des données dossier</strong></td>
+        <td><span class="pill pill-green">Directe</span></td>
+        <td><span class="pill pill-green">Directe</span></td>
+        <td><span class="pill pill-green">Directe</span></td>
+        <td><span class="pill pill-red">Non</span></td>
+      </tr>
+      <tr>
+        <td><strong>Coût</strong></td>
+        <td>Abonnement Claude / Codex</td>
+        <td>Gratuit (après install)</td>
+        <td>À la consommation (API)</td>
+        <td>Selon l'IA Cowork utilisée</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <strong>Quel mode choisir&nbsp;?</strong><br/>
+    Débutez avec l'<strong>Assistant via API</strong> si vous voulez la simplicité maximale avec une IA puissante. Choisissez l'<strong>Assistant local</strong> si la confidentialité absolue est prioritaire. Optez pour <strong>IA Cowork</strong> ou <strong>Export/Import</strong> pour des tâches complexes — création de documents, analyse en profondeur.
+  </div>
+
+  <a href="ia-cowork.html" class="next-link">Suivant : IA Cowork →</a>
+</main>
+
+</body>
+</html>

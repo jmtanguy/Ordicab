@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Installation &amp; mise en route — Ordicab Documentation</title>
+  <link rel="icon" href="../icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="_layout.css" />
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <a href="../index.html">
+      <span class="name">Ordicab</span>
+      <span class="tagline">Documentation utilisateur</span>
+    </a>
+  </div>
+  <div class="sidebar-section">Démarrage</div>
+  <nav>
+    <a href="introduction.html">Introduction</a>
+    <a href="installation.html" class="active">Installation &amp; mise en route</a>
+  </nav>
+  <div class="sidebar-section">Fonctionnalités</div>
+  <nav>
+    <a href="dossiers.html">Dossiers</a>
+    
+    <a href="modeles.html">Modèles</a>
+    
+  </nav>
+  <div class="sidebar-section">Intelligence artificielle</div>
+  <nav>
+    <a href="ia-vue-ensemble.html">Vue d'ensemble &amp; comparatif</a>
+    <a href="ia-cowork.html" class="sub">IA Cowork</a>
+    <a href="ia-assistant-local.html" class="sub">Assistant local (Ollama)</a>
+    <a href="ia-assistant-api.html" class="sub">Assistant via API</a>
+    <a href="ia-export-import.html" class="sub">Export IA &amp; Import IA</a>
+  </nav>
+</aside>
+
+<main class="main">
+  <div class="badge">Démarrage</div>
+  <h1>Installation &amp; mise en route</h1>
+  <p class="page-lead">
+    Ordicab s'installe en quelques minutes. Ce guide vous emmène du téléchargement jusqu'à l'ajout de vos premiers dossiers.
+  </p>
+
+  <h2>1. Téléchargement</h2>
+  <p>Rendez-vous sur <strong>ordicab.app</strong> et téléchargez la version correspondant à votre système&nbsp;:</p>
+  <table>
+    <thead><tr><th>Système</th><th>Fichier</th></tr></thead>
+    <tbody>
+      <tr><td>macOS (Apple Silicon &amp; Intel)</td><td><code>.dmg</code></td></tr>
+      <tr><td>Windows 10/11</td><td><code>.exe</code> (installeur)</td></tr>
+    </tbody>
+  </table>
+
+  <h2>2. Installation</h2>
+
+  <h3>macOS</h3>
+  <ol class="step-list">
+    <li>Ouvrez le fichier <code>.dmg</code> téléchargé.</li>
+    <li>Faites glisser l'icône Ordicab vers le dossier <strong>Applications</strong>.</li>
+    <li>Au premier lancement, macOS peut vous demander de confirmer l'ouverture d'une application téléchargée depuis Internet — cliquez sur <strong>Ouvrir</strong>.</li>
+  </ol>
+
+  <h3>Windows</h3>
+  <ol class="step-list">
+    <li>Lancez l'installeur <code>.exe</code>.</li>
+    <li>Suivez l'assistant d'installation (les options par défaut conviennent dans la plupart des cas).</li>
+    <li>Ordicab sera disponible dans le menu Démarrer une fois l'installation terminée.</li>
+  </ol>
+
+  <div class="callout">
+    <strong>Première ouverture — contrat de licence.</strong><br/>
+    Au tout premier lancement, Ordicab affiche le contrat de licence utilisateur (CLUF). Lisez-le et cliquez sur <strong>Accepter et continuer</strong> pour accéder à l'application.
+  </div>
+
+  <h2>3. Choisir un dossier domaine</h2>
+  <p>La première chose qu'Ordicab vous demande est de désigner votre <strong>dossier domaine</strong>. C'est le répertoire racine qui contient l'ensemble de vos dossiers clients — par exemple <code>Mes Documents/Dossiers clients</code> ou <code>Dropbox/Cabinet</code>.</p>
+
+  <div class="callout">
+    <strong>Comment ça fonctionne&nbsp;?</strong><br/>
+    Chaque <strong>sous-dossier direct</strong> du domaine peut ensuite être enregistré comme dossier dans Ordicab. Si votre domaine est <code>Cabinet/</code> et qu'il contient <code>Cabinet/Dupont/</code> et <code>Cabinet/Martin SCI/</code>, ces deux dossiers pourront être ajoutés à Ordicab.
+  </div>
+
+  <ol class="step-list">
+    <li>Au premier lancement, cliquez sur <strong>Sélectionner mon répertoire de travail</strong>.</li>
+    <li>Naviguez jusqu'au dossier qui contient vos dossiers clients et confirmez.</li>
+    <li>Ordicab crée son espace caché <code>.ordicab</code> à la racine de ce dossier. Vos fichiers existants ne sont pas modifiés.</li>
+  </ol>
+
+  <p>Vous pourrez changer de domaine à tout moment depuis <strong>Paramètres → Changer de domaine</strong>, sans perdre vos données.</p>
+
+  <h2>4. Configurer votre entité</h2>
+  <p>Avant d'ajouter des dossiers, renseignez le profil de votre cabinet dans <strong>Paramètres → Mon entité</strong>. Ces informations servent ensuite dans les modèles de documents et dans le contexte partagé avec l'IA.</p>
+
+  <p>Complétez a minima&nbsp;:</p>
+  <ul>
+    <li>Nom du cabinet et coordonnées (adresse, téléphone, email)</li>
+    <li>Type d'activité (avocat, architecte, immobilier…) — ce choix adapte les listes de rôles de contacts et de champs proposés par défaut</li>
+  </ul>
+
+  <p>Vous pouvez également configurer&nbsp;:</p>
+  <ul>
+    <li>Les <strong>rôles de contacts</strong> disponibles dans vos dossiers (ex. : client, adversaire, expert…)</li>
+    <li>Les <strong>champs gérés</strong> des contacts et des dossiers (champs personnalisés propres à votre activité)</li>
+    <li>Les <strong>dates clés proposées</strong> par défaut (ex. : Audience, Dépôt de pièces…)</li>
+    <li>Les <strong>références clés proposées</strong> par défaut (ex. : Numéro RG, Référence client…)</li>
+  </ul>
+
+  <h2>5. Ajouter vos premiers dossiers</h2>
+  <p>Depuis l'onglet <strong>Dossiers</strong>, cliquez sur <strong>Enregistrer un dossier</strong>. Une liste des sous-dossiers éligibles de votre domaine s'affiche — sélectionnez ceux que vous souhaitez suivre dans Ordicab et confirmez.</p>
+
+  <div class="callout">
+    <strong>Rappel important.</strong><br/>
+    Ordicab enregistre des dossiers qui <em>existent déjà</em> sur votre disque. Il ne crée pas de nouveaux dossiers. Si un dossier client n'est pas encore présent sur votre machine, créez-le d'abord dans votre explorateur de fichiers habituel, puis revenez dans Ordicab pour l'enregistrer.
+  </div>
+
+  <p style="margin-top:40px;">
+    <a href="dossiers.html" style="color:var(--aurora);text-decoration:none;font-weight:600;">Suivant : Dossiers →</a>
+  </p>
+</main>
+
+</body>
+</html>

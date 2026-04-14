@@ -1083,6 +1083,7 @@
         <div style="display: flex; align-items: center; gap: 4px">
           <a href="#features" class="nav-link">Fonctionnalités</a>
           <a href="#cowork" class="nav-link">IA</a>
+          <a href="./guide/introduction.html" class="nav-link">Documentation</a>
           <a
             href="https://github.com/jmtanguy/Ordicab"
             target="_blank"
@@ -1116,12 +1117,12 @@
         </div>
 
         <p class="hero-tagline">
-          Une application pour piloter votre activité.<br />
+          L'application des indépendants pour piloter votre activité.<br />
           <em>Avec vos assistants IA à vos côtés.</em>
         </p>
 
         <div class="hero-actions">
-          <a href="https://github.com/jmtanguy/Ordicab/releases/latest/download/Ordicab-mac-arm64.dmg" class="btn-primary">
+          <a href="#" class="btn-primary download-link" data-platform="mac">
             <svg
               class="btn-icon"
               viewBox="0 0 24 24"
@@ -1134,7 +1135,7 @@
             </svg>
             Télécharger pour Mac
           </a>
-          <a href="https://github.com/jmtanguy/Ordicab/releases/latest/download/Ordicab-win-x64-setup.exe" class="btn-secondary">
+          <a href="#" class="btn-secondary download-link" data-platform="windows">
             <svg
               class="btn-icon"
               viewBox="0 0 24 24"
@@ -1186,6 +1187,13 @@
             </p>
           </div>
         </div>
+      </div>
+    </section>
+
+    <!-- ── SCREENSHOT ─────────────────────────────────────── -->
+    <section style="padding: 0 0 80px; position: relative; z-index: 1;">
+      <div class="container">
+        <img src="./snap1.png" alt="Capture d'écran Ordicab" style="display:block; width:100%; height:auto;" />
       </div>
     </section>
 
@@ -1581,7 +1589,7 @@
           Installation en 2 minutes. Créez votre premier dossier dans la foulée.
         </p>
         <div class="download-actions fade-in" style="transition-delay: 0.12s">
-          <a href="https://github.com/jmtanguy/Ordicab/releases/latest" class="btn-primary">
+          <a href="#" class="btn-primary download-link" data-platform="mac">
             <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
               <path
                 d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"
@@ -1589,7 +1597,7 @@
             </svg>
             Télécharger pour Mac
           </a>
-          <a href="https://github.com/jmtanguy/Ordicab/releases/latest" class="btn-secondary">
+          <a href="#" class="btn-secondary download-link" data-platform="windows">
             <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
               <path
                 d="M3 12V6.75l6-1.32v6.57H3zm17 0V4.5l-8 1.41V12h8zM3 13h6v6.42L3 18V13zm8 .57L19 15v4.5l-8-1.41V13.57z"
@@ -1598,8 +1606,7 @@
             Télécharger pour Windows
           </a>
         </div>
-        <span class="version-tag fade-in" style="transition-delay: 0.18s">v1.0.0-beta.1</span>
-      </div>
+       </div>
     </section>
 
     <!-- ── FOOTER ─────────────────────────────────────────── -->
@@ -1607,7 +1614,7 @@
       <div class="footer-inner">
         <a href="#" class="footer-brand">
           <img src="./icon.png" alt="Ordicab" />
-          <span class="footer-copy">© 2026 Ordicab</span>
+          <span class="footer-copy">© 2026 Ordicab - JM Tanguy</span>
         </a>
         <div class="footer-links">
           <a href="https://github.com/jmtanguy/Ordicab" target="_blank" rel="noopener"> GitHub </a>
@@ -1631,6 +1638,56 @@
         { threshold: 0.12 }
       )
       document.querySelectorAll('.fade-in').forEach((el) => observer.observe(el))
+    </script>
+
+    <!-- Dynamic Release Downloads -->
+    <script>
+      // Récupère le dernier release depuis l'API GitHub et met à jour les liens
+      async function initializeDownloadLinks() {
+        try {
+          const response = await fetch('https://api.github.com/repos/jmtanguy/Ordicab/releases/latest')
+          const release = await response.json()
+
+          const assetMap = {
+            mac: null,
+            windows: null
+          }
+
+          // Trouve les assets pour Mac et Windows
+          release.assets.forEach(asset => {
+            if (asset.name.includes('mac-arm64') || asset.name.includes('mac-x64') || asset.name.includes('darwin')) {
+              assetMap.mac = asset.browser_download_url
+            } else if (asset.name.includes('windows') || asset.name.includes('win32') || asset.name.includes('.exe')) {
+              assetMap.windows = asset.browser_download_url
+            }
+          })
+
+          // Met à jour les liens de téléchargement
+          document.querySelectorAll('.download-link').forEach(link => {
+            const platform = link.dataset.platform
+            if (assetMap[platform]) {
+              link.href = assetMap[platform]
+              link.style.pointerEvents = 'auto'
+            } else {
+              // Fallback vers releases/latest si l'asset spécifique n'est pas trouvé
+              link.href = 'https://github.com/jmtanguy/Ordicab/releases/latest'
+            }
+          })
+        } catch (error) {
+          console.error('Erreur lors de la récupération du dernier release:', error)
+          // Fallback vers releases/latest en cas d'erreur
+          document.querySelectorAll('.download-link').forEach(link => {
+            link.href = 'https://github.com/jmtanguy/Ordicab/releases/latest'
+          })
+        }
+      }
+
+      // Initialise les liens quand le DOM est prêt
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeDownloadLinks)
+      } else {
+        initializeDownloadLinks()
+      }
     </script>
   </body>
 </html>

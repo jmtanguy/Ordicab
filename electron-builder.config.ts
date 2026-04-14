@@ -16,6 +16,10 @@ const configuration: Configuration = {
     '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
   ],
   asarUnpack: ['resources/**'],
+  extraResources: [
+    { from: 'build/license_fr.txt', to: 'legal/license_fr.txt' },
+    { from: 'build/license_en.txt', to: 'legal/license_en.txt' }
+  ],
   mac: {
     icon: 'build/icon.icns',
     target: [
@@ -37,7 +41,10 @@ const configuration: Configuration = {
     artifactName: '${productName}-win-${arch}-setup.${ext}',
     shortcutName: '${productName}',
     uninstallDisplayName: '${productName}',
-    createDesktopShortcut: 'always'
+    createDesktopShortcut: 'always',
+    oneClick: false,
+    allowToChangeInstallationDirectory: false,
+    license: 'build/license_fr.txt'
   },
   npmRebuild: false,
   publish: [

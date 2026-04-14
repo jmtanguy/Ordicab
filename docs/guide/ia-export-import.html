@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Export IA &amp; Import IA — Ordicab Documentation</title>
+  <link rel="icon" href="../icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="_layout.css" />
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <a href="../index.html">
+      <span class="name">Ordicab</span>
+      <span class="tagline">Documentation utilisateur</span>
+    </a>
+  </div>
+  <div class="sidebar-section">Démarrage</div>
+  <nav>
+    <a href="introduction.html">Introduction</a>
+    <a href="installation.html">Installation &amp; mise en route</a>
+  </nav>
+  <div class="sidebar-section">Fonctionnalités</div>
+  <nav>
+    <a href="dossiers.html">Dossiers</a>
+    <a href="modeles.html">Modèles</a>
+  </nav>
+  <div class="sidebar-section">Intelligence artificielle</div>
+  <nav>
+    <a href="ia-vue-ensemble.html">Vue d'ensemble &amp; comparatif</a>
+    <a href="ia-cowork.html" class="sub">IA Cowork</a>
+    <a href="ia-assistant-local.html" class="sub">Assistant local (Ollama)</a>
+    <a href="ia-assistant-api.html" class="sub">Assistant via API</a>
+    <a href="ia-export-import.html" class="sub active">Export IA &amp; Import IA</a>
+  </nav>
+</aside>
+
+<main class="main">
+  <div class="badge">Intelligence artificielle</div>
+  <h1>Export IA &amp; Import IA</h1>
+  <p class="page-lead">
+    Le workflow Export / Import IA est le mode le plus universel&nbsp;: il prépare un dossier structuré que n'importe quelle IA Cowork peut ouvrir, travailler dessus et produire des documents — que vous réimportez ensuite dans Ordicab en un clic.
+  </p>
+
+  <p><strong>La fonctionnalité clé de ce mode est la pseudonymisation du dossier entier.</strong> Avant l'export, Ordicab remplace toutes les données personnelles du dossier (noms, adresses, emails, téléphones…) par des pseudonymes d'apparence réelle. L'IA travaille sur ces pseudonymes sans jamais voir les vraies identités. À l'import, Ordicab restitue automatiquement les données réelles dans les documents produits. La clé de correspondance ne quitte jamais votre machine.</p>
+
+  <h2>Principe</h2>
+  <p>Ordicab ne se connecte pas directement à un service IA. À la place, il prépare un <strong>dossier IA exporté</strong> — un répertoire autonome et structuré contenant&nbsp;:</p>
+  <ul>
+    <li>les métadonnées du dossier (contacts, dates clés, références)&nbsp;;</li>
+    <li>les textes extraits de vos documents (PDF, Word, emails…)&nbsp;;</li>
+    <li>vos modèles de documents avec leurs routines&nbsp;;</li>
+    <li>un fichier <code>CLAUDE.md</code> (ou équivalent) que l'agent IA lit au démarrage pour comprendre le contexte.</li>
+  </ul>
+
+  <p>Vous ouvrez ce dossier avec votre IA Cowork de choix (Claude Code, Codex, ou tout agent compatible), lui demandez de créer des documents, puis vous réimportez les résultats dans Ordicab.</p>
+
+  <div class="callout">
+    <strong>Compatibilité universelle.</strong><br/>
+    Le dossier exporté est un répertoire de fichiers texte et JSON standard. Il fonctionne avec n'importe quel agent IA capable de lire et écrire des fichiers — aujourd'hui et dans le futur.
+  </div>
+
+  <h2>Pseudonymisation réversible — la grande innovation</h2>
+  <p>Avant d'exporter, vous pouvez activer la <strong>pseudonymisation</strong>. Ordicab remplace alors toutes les données identifiantes par des alias cohérents et fictifs dans le dossier exporté.</p>
+
+  <h3>Ce qui est pseudonymisé</h3>
+  <ul>
+    <li>Noms et prénoms des contacts</li>
+    <li>Adresses postales</li>
+    <li>Emails et numéros de téléphone</li>
+    <li>Numéros de sécurité sociale, dates de naissance</li>
+    <li>Toute donnée personnelle structurée dans Ordicab</li>
+  </ul>
+
+  <h3>Pourquoi c'est différent de l'anonymisation</h3>
+  <table>
+    <thead><tr><th></th><th>Anonymisation</th><th>Pseudonymisation (Ordicab)</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Données masquées</strong></td>
+        <td>Oui</td>
+        <td>Oui — remplacées par des alias</td>
+      </tr>
+      <tr>
+        <td><strong>Cohérence des alias</strong></td>
+        <td>Non garantie</td>
+        <td>Oui — le même contact garde le même alias partout</td>
+      </tr>
+      <tr>
+        <td><strong>L'IA peut travailler normalement</strong></td>
+        <td>Partiellement</td>
+        <td>Oui — le contexte reste complet et cohérent</td>
+      </tr>
+      <tr>
+        <td><strong>Restitution des vraies données</strong></td>
+        <td>Impossible</td>
+        <td><strong>Automatique à l'import</strong></td>
+      </tr>
+      <tr>
+        <td><strong>Document final</strong></td>
+        <td>Avec alias — à corriger manuellement</td>
+        <td>Avec vraies données — prêt à l'emploi</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout-green">
+    <strong>La clé de la pseudonymisation reste sur votre machine.</strong><br/>
+    Ordicab conserve localement la table de correspondance alias ↔ données réelles. Lors de l'import, il substitue automatiquement chaque alias par la vraie valeur. Le document final est complet et personnalisé — sans que les données réelles aient jamais été transmises à l'IA.
+  </div>
+
+  <h2>Export IA — étape par étape</h2>
+  <p>Dans la fiche d'un dossier, ouvrez l'onglet <strong>Export IA</strong>.</p>
+
+  <ol class="step-list">
+    <li>
+      <div>
+        <strong>Vérifiez les extractions de texte.</strong><br/>
+        Ordicab indique combien de documents sont extractibles, combien ont été traités, combien restent. Cliquez sur <strong>Terminer les extractions manquantes</strong> si nécessaire — sans texte extrait, l'IA ne peut pas lire le contenu de ces documents.
+      </div>
+    </li>
+    <li>
+      <div>
+        <strong>Activez la pseudonymisation si nécessaire.</strong><br/>
+        Cochez <em>Anonymiser les textes et métadonnées exportés</em> pour remplacer les données sensibles par des alias dans le dossier exporté.
+      </div>
+    </li>
+    <li>
+      <div>
+        <strong>Choisissez un répertoire de destination</strong> et cliquez sur <strong>Exporter pour l'IA</strong>. Ordicab crée le dossier structuré à l'emplacement indiqué.
+      </div>
+    </li>
+    <li>
+      <div>
+        <strong>Ouvrez le sous-dossier <code>IA/</code> avec votre IA Cowork — pas le dossier parent.</strong><br/>
+        Le dossier exporté contient un répertoire <code>IA/</code> (données pseudonymisées, contexte, modèles) et un répertoire confidentiel contenant la clé de correspondance et les données PII réelles. <strong>Pointez votre agent uniquement sur <code>IA/</code></strong> pour éviter tout risque de fuite.<br/>
+        Exemple avec Claude Code&nbsp;: ouvrez un terminal dans <code>IA/</code> et lancez <code>claude</code>. L'agent lit le fichier de contexte et connaît immédiatement le dossier.
+      </div>
+    </li>
+    <li>
+      <div>
+        <strong>Demandez à l'IA de créer des documents.</strong><br/>
+        L'agent dépose les fichiers créés dans <code>IA/</code>. Revenez dans Ordicab pour les importer.
+      </div>
+    </li>
+  </ol>
+
+  <h2>Import IA — étape par étape</h2>
+  <p>Dans la fiche du même dossier, ouvrez l'onglet <strong>Import IA</strong>.</p>
+
+  <ol class="step-list">
+    <li>
+      Cliquez sur <strong>Choisir le répertoire source</strong> et sélectionnez le dossier IA exporté dans lequel l'agent a travaillé.
+    </li>
+    <li>
+      Ordicab analyse le contenu et liste les fichiers nouveaux ou modifiés.
+    </li>
+    <li>
+      Sélectionnez les fichiers à importer (ou <strong>Tout sélectionner</strong>) et cliquez sur <strong>Importer les fichiers sélectionnés</strong>.
+    </li>
+  </ol>
+
+  <p>À l'import, Ordicab&nbsp;:</p>
+  <ul>
+    <li>restitue les <strong>pseudonymes</strong> par les données réelles du dossier&nbsp;;</li>
+    <li>résout les <strong>macros Ordicab</strong> (<span class="macro">{{ }}</span>) en injectant les valeurs correspondantes&nbsp;;</li>
+    <li>indexe les fichiers importés dans la liste des documents du dossier.</li>
+  </ul>
+
+  <h2>Extraire le texte avant d'exporter</h2>
+  <p>L'extraction de texte est l'opération qui rend le contenu de vos documents lisible par l'IA. Sans elle, l'agent ne voit que les noms de fichiers, pas leur contenu.</p>
+  <p>Pour extraire&nbsp;: dans l'onglet <strong>Documents</strong> du dossier, cliquez sur <strong>Tout extraire</strong>. Ordicab traite PDF, Word, emails et autres formats extractibles. L'opération peut prendre quelques minutes selon le volume.</p>
+
+  <p style="margin-top:40px; color: var(--text-muted); font-size:14px;">
+    Vous êtes arrivé à la fin de la documentation IA. Pour toute question, contactez-nous depuis le site <strong>ordicab.app</strong>.
+  </p>
+</main>
+
+</body>
+</html>

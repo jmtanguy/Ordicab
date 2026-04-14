@@ -14,6 +14,9 @@ import type {
   AppVersionInfo,
   DomainSelectionResult,
   DomainStatusSnapshot,
+  EulaAcceptInput,
+  EulaStatus,
+  EulaStatusInput,
   OpenExternalInput,
   OpenFolderInput,
   SetLocaleInput
@@ -81,6 +84,8 @@ export interface OrdicabAPI {
     setLocale: (input: SetLocaleInput) => Promise<IpcResult<AppLocaleInfo>>
     openExternal: (input: OpenExternalInput) => Promise<IpcResult<null>>
     openFolder: (input: OpenFolderInput) => Promise<IpcResult<null>>
+    eulaStatus: (input: EulaStatusInput) => Promise<IpcResult<EulaStatus>>
+    eulaAccept: (input: EulaAcceptInput) => Promise<IpcResult<EulaStatus>>
   }
   domain: {
     select: () => Promise<IpcResult<DomainSelectionResult>>

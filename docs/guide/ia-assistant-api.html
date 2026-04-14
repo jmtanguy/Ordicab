@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Assistant via API — Ordicab Documentation</title>
+  <link rel="icon" href="../icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="_layout.css" />
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <a href="../index.html">
+      <span class="name">Ordicab</span>
+      <span class="tagline">Documentation utilisateur</span>
+    </a>
+  </div>
+  <div class="sidebar-section">Démarrage</div>
+  <nav>
+    <a href="introduction.html">Introduction</a>
+    <a href="installation.html">Installation &amp; mise en route</a>
+  </nav>
+  <div class="sidebar-section">Fonctionnalités</div>
+  <nav>
+    <a href="dossiers.html">Dossiers</a>
+    <a href="modeles.html">Modèles</a>
+  </nav>
+  <div class="sidebar-section">Intelligence artificielle</div>
+  <nav>
+    <a href="ia-vue-ensemble.html">Vue d'ensemble &amp; comparatif</a>
+    <a href="ia-cowork.html" class="sub">IA Cowork</a>
+    <a href="ia-assistant-local.html" class="sub">Assistant local (Ollama)</a>
+    <a href="ia-assistant-api.html" class="sub active">Assistant via API</a>
+    <a href="ia-export-import.html" class="sub">Export IA &amp; Import IA</a>
+  </nav>
+</aside>
+
+<main class="main">
+  <div class="badge">Intelligence artificielle</div>
+  <h1>Assistant via API <span class="badge-exp">Expérimental</span></h1>
+  <p class="page-lead">
+    Le mode API connecte l'assistant intégré d'Ordicab à un fournisseur IA cloud via une clé API. Vous bénéficiez de la puissance des grands modèles avec une grande flexibilité de choix, et une option de pseudonymisation pour minimiser l'exposition des données personnelles.
+  </p>
+
+  <h2>Principe</h2>
+  <p>À la différence du mode Cowork qui utilise un agent autonome, le mode API propose un <strong>chat intégré directement dans Ordicab</strong>. L'assistant connaît le contexte de votre dossier actif et peut exécuter des opérations structurées (mise à jour de contacts, extraction de dates…) via des outils spécialisés.</p>
+
+  <p>La clé API est stockée localement sur votre machine et n'est jamais transmise à Ordicab. Ordicab l'utilise directement pour appeler le fournisseur IA de votre choix.</p>
+
+  <h2>Fournisseurs supportés</h2>
+
+  <table>
+    <thead><tr><th>Fournisseur</th><th>Modèles notables</th><th>Particularité</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>OpenAI</strong></td>
+        <td>GPT-5.2, GPT-5.3, GPT-5.4 Mini</td>
+        <td>Référence mondiale, très polyvalent</td>
+      </tr>
+      <tr>
+        <td><strong>Anthropic</strong></td>
+        <td>Claude Sonnet 4.5, Claude Sonnet 4.6, Claude Opus 4.6, Claude Haiku 4.5</td>
+        <td>Excellent pour la rédaction juridique et les longues analyses</td>
+      </tr>
+      <tr>
+        <td><strong>Google Gemini</strong></td>
+        <td>Gemini 2.5 Flash, Gemini 3.1 Pro</td>
+        <td>Très rapide, contexte long, multimodal</td>
+      </tr>
+      <tr>
+        <td><strong>Mistral AI</strong></td>
+        <td>Ministral 8B, Mistral Small, Mistral Medium, Mistral Large</td>
+        <td>Modèles européens (France), très bons en français</td>
+      </tr>
+      <tr>
+        <td><strong>Infomaniak</strong></td>
+        <td>Qwen3, Mistral3, Mistral 24B, GPT-OSS 120B</td>
+        <td>Hébergement suisse, données en Europe, bon marché</td>
+      </tr>
+      <tr>
+        <td><strong>Tout fournisseur compatible OpenAI</strong></td>
+        <td>GPT-5.1 Mini, Qwen3 32B, Llama 3.3 70B…</td>
+        <td>Together AI, Groq, self-hosted…</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Infomaniak — la solution souveraine</h3>
+  <p>Infomaniak est un hébergeur suisse qui propose une API IA compatible avec le standard OpenAI. C'est une alternative sérieuse pour les professionnels soucieux de la localisation de leurs données&nbsp;:</p>
+  <ul>
+    <li>Données hébergées en <strong>Suisse</strong>, soumises au droit suisse</li>
+    <li>Tarification <strong>à la consommation</strong>, sans abonnement minimum</li>
+    <li>Modèles open source de qualité (Llama, Mixtral…)</li>
+    <li>Compatible RGPD européen</li>
+  </ul>
+
+  <p>Pour Infomaniak, une <strong>référence projet / workspace</strong> est requise en plus de la clé API — vous la trouverez dans votre espace Infomaniak.</p>
+
+  <h2>Configuration</h2>
+  <ol class="step-list">
+    <li>
+      <div>
+        <strong>Obtenez une clé API</strong> auprès du fournisseur de votre choix et notez l'URL de l'endpoint API.
+      </div>
+    </li>
+    <li>
+      <div>
+        <strong>Dans Ordicab, ouvrez Paramètres → Configuration IA</strong> et sélectionnez <em>API externe (clé API)</em>.
+      </div>
+    </li>
+    <li>
+      <div>
+        Renseignez l'<strong>URL du fournisseur</strong> (ex. <code>https://api.openai.com/v1</code>), votre <strong>clé API</strong> et le <strong>nom du modèle</strong> à utiliser.
+      </div>
+    </li>
+    <li>
+      <div>
+        Pour Infomaniak, renseignez également la <strong>référence projet</strong>.
+      </div>
+    </li>
+    <li>
+      <div>
+        Cliquez sur <strong>Vérifier la connexion</strong>. Ordicab teste l'accès et confirme que le fournisseur est joignable.
+      </div>
+    </li>
+    <li>
+      <div>
+        Enregistrez la configuration. L'assistant IA est maintenant actif dans l'interface.
+      </div>
+    </li>
+  </ol>
+
+  <h2>Pseudonymisation des données <span class="badge-exp">Expérimental</span></h2>
+  <p>Le mode API propose une option de <strong>pseudonymisation automatique</strong> des données personnelles avant leur envoi au fournisseur. Lorsqu'elle est activée, Ordicab remplace les noms, adresses, numéros et autres informations identifiantes par des alias fictifs et cohérents — puis restitue les données réelles dans la réponse finale.</p>
+
+  <div class="callout-green">
+    <strong>Comment ça fonctionne.</strong><br/>
+    Avant d'envoyer votre message au fournisseur IA, Ordicab scanne le contenu et remplace les données PII (noms, emails, téléphones, adresses…) par des <strong>pseudonymes</strong> — des noms d'apparence réelle (ex. <em>Jean Mercier</em>, <em>j.mercier@example.com</em>) plutôt que des étiquettes génériques. Cette approche préserve la fluidité du texte et maximise la qualité des réponses du modèle IA. La clé de correspondance reste en local. La réponse de l'IA — qui contient les pseudonymes — est ensuite re-substituée par les vraies données avant affichage.
+  </div>
+
+  <div class="callout-warn">
+    <strong>Fonctionnalité expérimentale.</strong><br/>
+    La pseudonymisation automatique est encore en phase d'expérimentation. La détection des données personnelles n'est pas infaillible — certaines formulations inhabituelles peuvent ne pas être détectées.
+  </div>
+
+  <h2>Avertissement confidentialité</h2>
+  <p>Même avec la pseudonymisation activée, la substance de vos échanges (nature du dossier, questions posées, extraits de documents non identifiants) est transmise au fournisseur IA. Évaluez la compatibilité de ce mode avec vos obligations professionnelles.</p>
+
+  <p>Ordicab vous rappelle cet avertissement lors de la première activation du mode API et vous demande de confirmer.</p>
+
+  <h2>Référence technique — outils disponibles</h2>
+  <p>L'assistant API dispose d'un ensemble d'outils structurés qu'il peut invoquer pour lire et modifier les données Ordicab. Ces outils sont passés au modèle IA via le protocole de <em>function calling</em> standard.</p>
+
+  <h3>Lecture de données</h3>
+  <ul>
+    <li><strong>dossier_get</strong> — Charge les métadonnées complètes du dossier actif : statut, type, information, dates clés, références clés.</li>
+    <li><strong>contact_lookup</strong> — Liste tous les contacts du dossier avec leur UUID et leur rôle.</li>
+    <li><strong>contact_get</strong> — Récupère le détail complet d'un contact (coordonnées, dates, champs gérés) à partir de son UUID.</li>
+    <li><strong>managed_fields_get</strong> — Charge les rôles de contacts configurés et les champs personnalisés définis dans le profil de l'entité.</li>
+    <li><strong>template_list</strong> — Liste les modèles de documents disponibles (identifiant, nom, description).</li>
+    <li><strong>document_list</strong> — Liste les documents présents dans le dossier avec leurs métadonnées (nom, type, annotation).</li>
+    <li><strong>document_get</strong> — Récupère les détails complets d'un document.</li>
+    <li><strong>document_search</strong> — Recherche en langage naturel dans le texte pré-extrait de tous les documents du dossier.</li>
+    <li><strong>document_analyze</strong> — Lit le texte pré-extrait d'un document précis pour en analyser le contenu.</li>
+  </ul>
+
+  <h3>Actions sur les contacts</h3>
+  <ul>
+    <li><strong>contact_upsert</strong> — Crée ou met à jour un contact dans le dossier.</li>
+    <li><strong>contact_delete</strong> — Supprime un contact du dossier.</li>
+  </ul>
+
+  <h3>Actions sur le dossier</h3>
+  <ul>
+    <li><strong>dossier_select</strong> — Définit un dossier comme contexte actif de la session.</li>
+    <li><strong>dossier_upsert_key_date</strong> — Ajoute ou met à jour une date clé (audience, échéance, délai…).</li>
+    <li><strong>dossier_delete_key_date</strong> — Supprime une date clé.</li>
+    <li><strong>dossier_upsert_key_reference</strong> — Ajoute ou met à jour une référence clé (numéro de rôle, référence client…).</li>
+    <li><strong>dossier_delete_key_reference</strong> — Supprime une référence clé.</li>
+  </ul>
+
+  <h3>Actions sur les documents et modèles</h3>
+  <ul>
+    <li><strong>template_select</strong> — Sélectionne un modèle de document par nom pour l'étape de génération.</li>
+    <li><strong>field_populate</strong> — Prépare le remplissage des champs d'un modèle à partir des données d'un contact.</li>
+    <li><strong>document_generate</strong> — Génère un document final à partir d'un modèle et des données du dossier.</li>
+    <li><strong>document_metadata_save</strong> — Enregistre ou met à jour la description et les tags d'un document.</li>
+    <li><strong>document_relocate</strong> — Met à jour le lien de métadonnées d'un document après un déplacement de fichier.</li>
+  </ul>
+
+  <h3>Actions générales</h3>
+  <ul>
+    <li><strong>text_generate</strong> — Demande à l'IA de rédiger un texte libre (email, courrier, analyse, résumé) sans générer de document Ordicab.</li>
+    <li><strong>clarification_request</strong> — Permet à l'IA de poser une question de clarification structurée avant d'agir.</li>
+  </ul>
+
+  <a href="ia-export-import.html" class="next-link">Suivant : Export IA &amp; Import IA →</a>
+</main>
+
+</body>
+</html>

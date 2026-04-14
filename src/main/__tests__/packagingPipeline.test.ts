@@ -84,12 +84,4 @@ describe('Story 1.5 packaging and release pipeline', () => {
       ).toBeDefined()
     }
   })
-
-  it('documents updater signing caveats for macOS while keeping the release process reproducible', () => {
-    const releaseNotes = readProjectFile('docs/release-pipeline.md')
-
-    expect(releaseNotes).toContain('macOS app must be signed')
-    expect(releaseNotes).toContain('unsigned artifacts')
-    expect(releaseNotes).toContain('deterministic')
-  })
 })

@@ -515,7 +515,7 @@ export default function AppShell(): React.JSX.Element {
         acceptLabel={t('legal.eula_accept_action')}
         loadingLabel={t('legal.eula_accept_loading')}
         content={eulaContent}
-        version={eulaVersion}
+        versionLabel={t('legal.eula_version_label', { version: eulaVersion })}
         error={eulaError}
         isSubmitting={isAcceptingEula}
         onAccept={handleAcceptEula}

@@ -65,23 +65,21 @@ export function OnboardingPage({
           <Card className="border-amber-200/25 bg-amber-950/30 p-5">
             <div className="warning-banner-body">
               <h4 className="text-lg font-semibold tracking-tight text-amber-50">
-                Version expérimentale — Ne pas utiliser en production
+                {t('onboarding.beta_warning_title')}
               </h4>
               <p className="mt-3 text-sm leading-relaxed text-amber-100/90">
-                Ce logiciel est une version bêta à des fins de test uniquement.{' '}
+                {t('onboarding.beta_warning_body1_prefix')}{' '}
                 <strong style={{ color: '#fde68a', fontWeight: 600 }}>
-                  Ne l&apos;utilisez pas avec des données de travail réelles ou des dossiers de clients.
+                  {t('onboarding.beta_warning_body1_strong')}
                 </strong>{' '}
-                Des bugs, pertes de données ou comportements inattendus peuvent survenir.
+                {t('onboarding.beta_warning_body1_suffix')}
               </p>
               <p className="mt-3 text-sm leading-relaxed text-amber-100/90">
-                L&apos;utilisation des fonctionnalités d&apos;intelligence artificielle (Claude Cowork, etc.)
-                peut impliquer la transmission de données vers des services tiers.{' '}
+                {t('onboarding.beta_warning_body2_prefix')}{' '}
                 <strong style={{ color: '#fde68a', fontWeight: 600 }}>
-                  L&apos;utilisateur est seul responsable de la conformité au RGPD
-                </strong>
-                {' '}notamment en ce qui concerne le traitement de données à caractère personnel via
-                des outils et abonnements IA.
+                  {t('onboarding.beta_warning_body2_strong')}
+                </strong>{' '}
+                {t('onboarding.beta_warning_body2_suffix')}
               </p>
             </div>
           </Card>

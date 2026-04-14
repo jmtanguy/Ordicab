@@ -9,6 +9,7 @@
   "homepage": "https://github.com/Ordicab/Ordicab-Electron",
   "scripts": {
     "format": "prettier --write .",
+    "validate": "npm run lint && npm run typecheck && npm run test",
     "lint": "eslint --cache .",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run",

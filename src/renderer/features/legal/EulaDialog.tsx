@@ -7,7 +7,7 @@ interface EulaDialogProps {
   acceptLabel: string
   loadingLabel: string
   content: string
-  version: string
+  versionLabel: string
   error: string | null
   isSubmitting: boolean
   onAccept: () => Promise<void>
@@ -20,7 +20,7 @@ export function EulaDialog({
   acceptLabel,
   loadingLabel,
   content,
-  version,
+  versionLabel,
   error,
   isSubmitting,
   onAccept
@@ -34,7 +34,7 @@ export function EulaDialog({
       <div className="space-y-4">
         <h2 className="text-lg font-semibold text-slate-50">{title}</h2>
         <p className="text-sm text-slate-300">{summary}</p>
-        <p className="text-xs uppercase tracking-[0.12em] text-slate-400">EULA {version}</p>
+        <p className="text-xs uppercase tracking-[0.12em] text-slate-400">{versionLabel}</p>
 
         <div className="max-h-[48vh] overflow-y-auto rounded-xl border border-white/10 bg-black/20 p-4">
           <pre className="whitespace-pre-wrap text-xs leading-relaxed text-slate-200">

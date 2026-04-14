@@ -70,18 +70,18 @@ export function OnboardingPage({
               <p className="mt-3 text-sm leading-relaxed text-amber-100/90">
                 Ce logiciel est une version bêta à des fins de test uniquement.{' '}
                 <strong style={{ color: '#fde68a', fontWeight: 600 }}>
-                  Ne l'utilisez pas avec des données de travail réelles ou des dossiers de clients.
+                  Ne l&apos;utilisez pas avec des données de travail réelles ou des dossiers de clients.
                 </strong>{' '}
                 Des bugs, pertes de données ou comportements inattendus peuvent survenir.
               </p>
               <p className="mt-3 text-sm leading-relaxed text-amber-100/90">
-                L'utilisation des fonctionnalités d'intelligence artificielle (Claude Cowork, etc.)
+                L&apos;utilisation des fonctionnalités d&apos;intelligence artificielle (Claude Cowork, etc.)
                 peut impliquer la transmission de données vers des services tiers.{' '}
                 <strong style={{ color: '#fde68a', fontWeight: 600 }}>
-                  L'utilisateur est seul responsable de la conformité au RGPD
+                  L&apos;utilisateur est seul responsable de la conformité au RGPD
                 </strong>
-                , notamment en ce qui concerne le traitement de données à caractère personnel via des
-                outils et abonnements IA.
+                {' '}notamment en ce qui concerne le traitement de données à caractère personnel via
+                des outils et abonnements IA.
               </p>
             </div>
           </Card>

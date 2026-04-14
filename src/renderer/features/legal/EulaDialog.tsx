@@ -37,7 +37,9 @@ export function EulaDialog({
         <p className="text-xs uppercase tracking-[0.12em] text-slate-400">EULA {version}</p>
 
         <div className="max-h-[48vh] overflow-y-auto rounded-xl border border-white/10 bg-black/20 p-4">
-          <pre className="whitespace-pre-wrap text-xs leading-relaxed text-slate-200">{content}</pre>
+          <pre className="whitespace-pre-wrap text-xs leading-relaxed text-slate-200">
+            {content}
+          </pre>
         </div>
 
         {error ? <p className="text-sm text-rose-300">{error}</p> : null}
@@ -57,4 +59,3 @@ export function EulaDialog({
     </DialogShell>
   )
 }
-

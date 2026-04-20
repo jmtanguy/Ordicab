@@ -1,43 +1,45 @@
-(() => {
-  const MOBILE_BREAKPOINT = 768;
-  const sidebar = document.querySelector('.sidebar');
-  const toggle = document.querySelector('[data-guide-nav-toggle]');
-  const overlay = document.querySelector('[data-guide-nav-overlay]');
+;(() => {
+  const MOBILE_BREAKPOINT = 768
+  const sidebar = document.querySelector('.sidebar')
+  const toggle = document.querySelector('[data-guide-nav-toggle]')
+  const overlay = document.querySelector('[data-guide-nav-overlay]')
 
-  if (!sidebar || !toggle || !overlay) return;
+  if (!sidebar || !toggle || !overlay) return
 
-  const isMobile = () => window.innerWidth <= MOBILE_BREAKPOINT;
+  /** @type {() => boolean} */
+  const isMobile = () => window.innerWidth <= MOBILE_BREAKPOINT
 
+  /** @type {(open: boolean) => void} */
   const setOpen = (open) => {
-    sidebar.classList.toggle('is-open', open);
-    overlay.classList.toggle('is-visible', open);
-    overlay.hidden = !open;
-    document.body.classList.toggle('nav-open', open);
-    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-  };
+    sidebar.classList.toggle('is-open', open)
+    overlay.classList.toggle('is-visible', open)
+    overlay.hidden = !open
+    document.body.classList.toggle('nav-open', open)
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false')
+  }
 
   toggle.addEventListener('click', () => {
-    setOpen(!sidebar.classList.contains('is-open'));
-  });
+    setOpen(!sidebar.classList.contains('is-open'))
+  })
 
-  overlay.addEventListener('click', () => setOpen(false));
+  overlay.addEventListener('click', () => setOpen(false))
 
   sidebar.querySelectorAll('a').forEach((link) => {
     link.addEventListener('click', () => {
-      if (isMobile()) setOpen(false);
-    });
-  });
+      if (isMobile()) setOpen(false)
+    })
+  })
 
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && sidebar.classList.contains('is-open')) {
-      setOpen(false);
+      setOpen(false)
     }
-  });
+  })
 
   window.addEventListener('resize', () => {
     if (!isMobile()) {
-      setOpen(false);
-      overlay.hidden = true;
+      setOpen(false)
+      overlay.hidden = true
     }
-  });
-})();
+  })
+})()

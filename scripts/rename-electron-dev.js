@@ -5,7 +5,6 @@
  * Run automatically via the `postinstall` npm hook.
  * Only modifies the file when running on macOS and when the plist exists.
  */
-/* eslint-disable @typescript-eslint/no-require-imports */
 const { readFileSync, writeFileSync, existsSync } = require('node:fs')
 const { join } = require('node:path')
 

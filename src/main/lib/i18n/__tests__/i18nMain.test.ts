@@ -28,7 +28,7 @@ describe('detectSupportedLocale', () => {
 })
 
 describe('createMainI18n', () => {
-  it('uses the detected system locale on first launch and exposes translated tray labels', async () => {
+  it('uses the detected system locale on first launch and exposes translated menu labels', async () => {
     const root = await createTempDir()
     const service = await createMainI18n({
       stateFilePath: join(root, 'locale-state.json'),
@@ -36,11 +36,7 @@ describe('createMainI18n', () => {
     })
 
     expect(service.getLocale()).toBe('fr')
-    expect(service.getTrayLabels()).toEqual({
-      tooltip: 'Ordicab',
-      openWindow: 'Ouvrir Ordicab',
-      quit: 'Quitter Ordicab'
-    })
+    expect(service.t('menu.app_quit')).toBe('Quitter Ordicab')
   })
 
   it('persists an explicit locale override that wins on the next cold start', async () => {
@@ -61,7 +57,7 @@ describe('createMainI18n', () => {
     })
 
     expect(reloaded.getLocale()).toBe('en')
-    expect(reloaded.getTrayLabels().openWindow).toBe('Open Ordicab')
+    expect(reloaded.t('menu.app_quit')).toBe('Quit Ordicab')
   })
 
   it('ignores unsupported persisted locales and falls back to the detected locale', async () => {

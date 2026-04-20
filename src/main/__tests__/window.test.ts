@@ -2,64 +2,33 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { createMainWindow, createMainWindowLifecycle } from '../window'
 
-type CloseHandler = (event: { preventDefault: () => void }) => void
-
 function createWindowMock(options?: { visible?: boolean; destroyed?: boolean }): {
-  windowMock: {
-    on: ReturnType<typeof vi.fn>
-    isDestroyed: ReturnType<typeof vi.fn>
-    isVisible: ReturnType<typeof vi.fn>
-    show: ReturnType<typeof vi.fn>
-    hide: ReturnType<typeof vi.fn>
-    focus: ReturnType<typeof vi.fn>
-  }
-  close: () => ReturnType<typeof vi.fn>
+  isDestroyed: ReturnType<typeof vi.fn>
+  isVisible: ReturnType<typeof vi.fn>
+  show: ReturnType<typeof vi.fn>
+  focus: ReturnType<typeof vi.fn>
 } {
-  let closeHandler: CloseHandler | undefined
-
-  const windowMock = {
-    on: vi.fn((event: string, handler: CloseHandler) => {
-      if (event === 'close') {
-        closeHandler = handler
-      }
-    }),
+  return {
     isDestroyed: vi.fn(() => options?.destroyed ?? false),
     isVisible: vi.fn(() => options?.visible ?? false),
     show: vi.fn(),
-    hide: vi.fn(),
     focus: vi.fn()
-  }
-
-  return {
-    windowMock,
-    close: () => {
-      if (!closeHandler) {
-        throw new Error('Close handler was not registered.')
-      }
-      const preventDefault = vi.fn()
-      closeHandler({ preventDefault })
-      return preventDefault
-    }
   }
 }
 
 function createBrowserWindowMock(): {
-  on: ReturnType<typeof vi.fn>
   isDestroyed: ReturnType<typeof vi.fn>
   isVisible: ReturnType<typeof vi.fn>
   show: ReturnType<typeof vi.fn>
-  hide: ReturnType<typeof vi.fn>
   focus: ReturnType<typeof vi.fn>
   loadURL: ReturnType<typeof vi.fn>
   loadFile: ReturnType<typeof vi.fn>
   webContents: { setWindowOpenHandler: ReturnType<typeof vi.fn> }
 } {
   return {
-    on: vi.fn(),
     isDestroyed: vi.fn(() => false),
     isVisible: vi.fn(() => false),
     show: vi.fn(),
-    hide: vi.fn(),
     focus: vi.fn(),
     loadURL: vi.fn(),
     loadFile: vi.fn(),
@@ -168,8 +137,8 @@ describe('createMainWindow', () => {
 })
 
 describe('createMainWindowLifecycle', () => {
-  it('shows and focuses the window when tray-open behavior is triggered', () => {
-    const { windowMock } = createWindowMock({ visible: false })
+  it('shows and focuses the window when showWindow is called', () => {
+    const windowMock = createWindowMock({ visible: false })
     const createWindow = vi.fn(() => windowMock)
     const lifecycle = createMainWindowLifecycle({ createWindow })
 
@@ -180,51 +149,19 @@ describe('createMainWindowLifecycle', () => {
     expect(windowMock.focus).toHaveBeenCalledTimes(1)
   })
 
-  it('hides on close instead of quitting by default', () => {
-    const { windowMock, close } = createWindowMock({ visible: true })
+  it('does not call show on an already-visible window but still focuses it', () => {
+    const windowMock = createWindowMock({ visible: true })
     const lifecycle = createMainWindowLifecycle({ createWindow: () => windowMock })
 
-    lifecycle.getOrCreateWindow()
-    const preventDefault = close()
+    lifecycle.showWindow()
 
-    expect(preventDefault).toHaveBeenCalledTimes(1)
-    expect(windowMock.hide).toHaveBeenCalledTimes(1)
-  })
-
-  it('allows close to proceed after markQuitting is called', () => {
-    const { windowMock, close } = createWindowMock({ visible: true })
-    const lifecycle = createMainWindowLifecycle({ createWindow: () => windowMock })
-
-    lifecycle.getOrCreateWindow()
-    lifecycle.markQuitting()
-    const preventDefault = close()
-
-    expect(preventDefault).not.toHaveBeenCalled()
-    expect(windowMock.hide).not.toHaveBeenCalled()
-  })
-
-  it('allows close to proceed when quit is signalled via onBeforeQuit callback', () => {
-    const { windowMock, close } = createWindowMock({ visible: true })
-    let beforeQuitListener: (() => void) | undefined
-
-    const lifecycle = createMainWindowLifecycle({
-      createWindow: () => windowMock,
-      onBeforeQuit: (listener) => {
-        beforeQuitListener = listener
-      }
-    })
-
-    lifecycle.getOrCreateWindow()
-    beforeQuitListener?.()
-    const preventDefault = close()
-
-    expect(preventDefault).not.toHaveBeenCalled()
-    expect(windowMock.hide).not.toHaveBeenCalled()
+    expect(windowMock.show).not.toHaveBeenCalled()
+    expect(windowMock.focus).toHaveBeenCalledTimes(1)
   })
 
   it('reuses the same window instance until it is destroyed', () => {
-    const firstWindow = createWindowMock({ destroyed: false }).windowMock
-    const secondWindow = createWindowMock({ destroyed: false }).windowMock
+    const firstWindow = createWindowMock({ destroyed: false })
+    const secondWindow = createWindowMock({ destroyed: false })
     let createCount = 0
 
     const lifecycle = createMainWindowLifecycle({

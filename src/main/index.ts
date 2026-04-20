@@ -18,9 +18,7 @@ import {
   BrowserWindow,
   dialog,
   Menu,
-  Tray,
   ipcMain,
-  nativeImage,
   safeStorage,
   shell,
   type MenuItemConstructorOptions,
@@ -66,7 +64,6 @@ import {
   type OrdicabDataWatcherLike
 } from './lib/ordicab/OrdicabDataWatcher'
 import { createMainI18n } from './lib/i18n/i18nMain'
-import { createTrayController, resolveTrayIconPath } from './tray'
 import { createDomainService } from './services/domain/domainService'
 import {
   createInstructionsGenerator,
@@ -136,7 +133,7 @@ function buildApplicationMenu(i18n: { t(key: string): string }, dev: boolean): v
         { label: i18n.t('menu.app_show_all'), role: 'unhide' },
         { type: 'separator' },
         {
-          label: i18n.t('tray.menu_quit_app'),
+          label: i18n.t('menu.app_quit'),
           accelerator: 'CmdOrCtrl+Q',
           click: () => {
             app.quit()
@@ -509,18 +506,29 @@ function registerIpcHandlers(
  *  5. On startup, regenerate the domain-root CLAUDE.md so AI tooling always has
  *     an up-to-date project context file
  */
+function resolveAppIconPath(): string {
+  if (app.isPackaged) {
+    return join(process.resourcesPath, 'app.asar.unpacked', 'resources', 'icon.png')
+  }
+  return join(app.getAppPath(), 'resources', 'icon.png')
+}
+
 app
   .whenReady()
   .then(async () => {
-    const iconPath = resolveTrayIconPath({
-      isPackaged: app.isPackaged,
-      appPath: app.getAppPath(),
-      resourcesPath: process.resourcesPath
-    })
+    const iconPath = resolveAppIconPath()
 
     // On macOS, set the Dock icon explicitly so the custom icon appears in dev
     // mode (where the process runs inside the Electron binary).
-    app.dock?.setIcon(iconPath)
+    if (existsSync(iconPath)) {
+      app.dock?.setIcon(iconPath)
+    }
+
+    // Standard desktop-app behaviour: quit the app when the last window is
+    // closed. No tray, no background mode.
+    app.on('window-all-closed', () => {
+      app.quit()
+    })
 
     let mainWindowLifecycle: MainWindowLifecycle<BrowserWindow> | null = null
     const mainI18n = await createMainI18n({
@@ -531,7 +539,6 @@ app
           : [app.getLocale()]
     })
     buildApplicationMenu(mainI18n, isDev)
-    let trayController: ReturnType<typeof createTrayController<Tray, Menu>> | null = null
     const stateFilePath = join(app.getPath('userData'), 'app-state.json')
 
     const updater = createUpdaterService({
@@ -572,10 +579,7 @@ app
               openExternal: (url: string) => {
                 void shell.openExternal(url)
               }
-            }),
-          onBeforeQuit: (listener) => {
-            app.on('before-quit', listener)
-          }
+            })
         })
 
         return mainWindowLifecycle
@@ -852,7 +856,7 @@ app
             getLocale: () => mainI18n.getLocale(),
             setLocale: async (locale) => {
               await mainI18n.setLocale(locale)
-              trayController?.updateLabels(mainI18n.getTrayLabels())
+              buildApplicationMenu(mainI18n, isDev)
             }
           },
           credentialStore,
@@ -920,43 +924,8 @@ app
           }
         )
       },
-      initTray: ({ openWindow, quit }) => {
-        const trayIconFileName =
-          process.platform === 'darwin' ? 'ordicab-logoTemplate.png' : 'icon.png'
-
-        trayController = createTrayController({
-          createTray: (trayIconPath) => {
-            if (process.platform !== 'darwin') {
-              return new Tray(trayIconPath)
-            }
-
-            const trayImage = nativeImage.createFromPath(trayIconPath)
-            trayImage.setTemplateImage(true)
-            return new Tray(trayImage)
-          },
-          buildMenu: (template) => Menu.buildFromTemplate(template as MenuItemConstructorOptions[]),
-          isPackaged: app.isPackaged,
-          appPath: app.getAppPath(),
-          resourcesPath: process.resourcesPath,
-          iconFileName: trayIconFileName,
-          labels: mainI18n.getTrayLabels(),
-          onOpenWindow: openWindow,
-          onQuit: quit
-        })
-
-        return trayController.initTray()
-      },
       onActivate: (listener) => {
         app.on('activate', listener)
-      },
-      onBeforeQuit: (listener) => {
-        app.on('before-quit', listener)
-      },
-      quitApplication: () => {
-        void fileWatcherService.disposeAll()
-        void ordicabDataWatcher?.dispose()
-        void delegatedIntentProcessor?.dispose()
-        app.quit()
       },
       updater
     })

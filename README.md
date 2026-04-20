@@ -244,16 +244,4 @@ npm install
 npm run dev
 ```
 
-## Build & release
-
-```bash
-# Local package only
-npm run package:mac
-npm run package:win
-
-# Publish a release to GitHub (requires GH_TOKEN in .env.local)
-npm run publish:mac
-npm run publish:win
-```
-
 Releases are published to GitHub Releases and auto-updates are delivered automatically to installed clients.

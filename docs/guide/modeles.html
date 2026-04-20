@@ -4,6 +4,22 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Modèles — Ordicab Documentation</title>
+  <meta
+    name="description"
+    content="Créez des modèles de documents réutilisables avec variables et routines dans Ordicab."
+  />
+  <link rel="canonical" href="https://www.ordicab.com/guide/modeles.html" />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <meta property="og:type" content="article" />
+  <meta property="og:locale" content="fr_FR" />
+  <meta property="og:site_name" content="Ordicab" />
+  <meta property="og:title" content="Modèles — Ordicab Documentation" />
+  <meta
+    property="og:description"
+    content="Créez des modèles de documents réutilisables avec variables et routines dans Ordicab."
+  />
+  <meta property="og:url" content="https://www.ordicab.com/guide/modeles.html" />
+  <meta property="og:image" content="https://www.ordicab.com/snap1.png" />
   <link rel="icon" href="../icon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -12,9 +28,18 @@
 </head>
 <body>
 
-<aside class="sidebar">
+<button class="mobile-nav-toggle" type="button" aria-label="Ouvrir le menu de navigation" aria-controls="guide-sidebar" aria-expanded="false" data-guide-nav-toggle>
+  <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <line x1="4" y1="7" x2="20" y2="7"/>
+    <line x1="4" y1="12" x2="20" y2="12"/>
+    <line x1="4" y1="17" x2="20" y2="17"/>
+  </svg>
+</button>
+<div class="mobile-nav-overlay" hidden data-guide-nav-overlay></div>
+
+<aside class="sidebar" id="guide-sidebar">
   <div class="sidebar-brand">
-    <a href="../index.html">
+    <a href="../">
       <span class="name">Ordicab</span>
       <span class="tagline">Documentation utilisateur</span>
     </a>
@@ -132,5 +157,6 @@
   </p>
 </main>
 
+<script src="_layout.js"></script>
 </body>
 </html>

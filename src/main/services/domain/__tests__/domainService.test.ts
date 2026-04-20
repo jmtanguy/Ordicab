@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { createDomainService, shouldRevealMainWindow } from '../domainService'
+import { createDomainService } from '../domainService'
 
 const tempDirs: string[] = []
 
@@ -173,37 +173,5 @@ describe('domain service', () => {
       isAvailable: true,
       dossierCount: 2
     })
-  })
-})
-
-describe('shouldRevealMainWindow', () => {
-  it('returns true when no domain is configured', () => {
-    expect(
-      shouldRevealMainWindow({
-        registeredDomainPath: null,
-        isAvailable: false,
-        dossierCount: 0
-      })
-    ).toBe(true)
-  })
-
-  it('returns true when domain is configured but unavailable', () => {
-    expect(
-      shouldRevealMainWindow({
-        registeredDomainPath: '/tmp/domain',
-        isAvailable: false,
-        dossierCount: 0
-      })
-    ).toBe(true)
-  })
-
-  it('returns false when configured domain is available', () => {
-    expect(
-      shouldRevealMainWindow({
-        registeredDomainPath: '/tmp/domain',
-        isAvailable: true,
-        dossierCount: 2
-      })
-    ).toBe(false)
   })
 })

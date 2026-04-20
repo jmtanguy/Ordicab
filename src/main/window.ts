@@ -12,25 +12,18 @@
  *   Electron window.
  *
  * `createMainWindowLifecycle`
- *   Wraps a BrowserWindow in a stateful controller that implements the
- *   "system-tray app" pattern: closing the window hides it rather than
- *   destroying it, and `showWindow` will re-create it if it was destroyed.
- *   `markQuitting` disables the hide-on-close behaviour so the window can
- *   actually close when the user quits via the tray.
+ *   Thin stateful wrapper around the BrowserWindow. It re-creates the window
+ *   if it has been destroyed (e.g. macOS "activate" after closing the window)
+ *   and exposes `showWindow` for platforms/events that need to bring it to
+ *   the foreground.
  *
  * Both functions accept interface-based dependencies so they are fully
  * unit-testable without a real Electron environment.
  */
-export interface WindowCloseEventLike {
-  preventDefault(): void
-}
-
 export interface BrowserWindowLike {
-  on(event: 'close', listener: (event: WindowCloseEventLike) => void): void
   isDestroyed(): boolean
   isVisible(): boolean
   show(): void
-  hide(): void
   focus(): void
 }
 
@@ -76,15 +69,12 @@ export interface MainWindowCreationOptions<TWindow extends BrowserWindowRuntimeL
 
 export interface MainWindowLifecycleOptions<TWindow extends BrowserWindowLike> {
   createWindow(): TWindow
-  onBeforeQuit?(listener: () => void): void
 }
 
 export interface MainWindowLifecycle<TWindow extends BrowserWindowLike> {
   getWindow(): TWindow | null
   getOrCreateWindow(): TWindow
   showWindow(): TWindow
-  hideWindow(): void
-  markQuitting(): void
 }
 
 export function createMainWindow<TWindow extends BrowserWindowRuntimeLike>(
@@ -131,30 +121,10 @@ export function createMainWindowLifecycle<TWindow extends BrowserWindowLike>(
   options: MainWindowLifecycleOptions<TWindow>
 ): MainWindowLifecycle<TWindow> {
   let mainWindow: TWindow | null = null
-  let isQuitting = false
-
-  options.onBeforeQuit?.(() => {
-    isQuitting = true
-  })
-
-  // Hide the window instead of closing it so the app stays running in the
-  // tray. The actual close is only allowed once `isQuitting` is set to true.
-  function attachCloseBehavior(windowInstance: TWindow): void {
-    windowInstance.on('close', (event) => {
-      if (isQuitting) {
-        return
-      }
-      event.preventDefault()
-      if (!windowInstance.isDestroyed()) {
-        windowInstance.hide()
-      }
-    })
-  }
 
   function getOrCreateWindow(): TWindow {
     if (!mainWindow || mainWindow.isDestroyed()) {
       mainWindow = options.createWindow()
-      attachCloseBehavior(mainWindow)
     }
     return mainWindow
   }
@@ -174,14 +144,6 @@ export function createMainWindowLifecycle<TWindow extends BrowserWindowLike>(
       }
       windowInstance.focus()
       return windowInstance
-    },
-    hideWindow(): void {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.hide()
-      }
-    },
-    markQuitting(): void {
-      isQuitting = true
     }
   }
 }

@@ -13,11 +13,9 @@ interface LocaleStateFile {
 }
 
 type MainTranslationKey =
-  | 'tray.tooltip_default'
-  | 'tray.menu_open_window'
-  | 'tray.menu_quit_app'
   | 'dialog.select_domain_title'
   | 'menu.app_about'
+  | 'menu.app_quit'
   | 'menu.app_hide'
   | 'menu.app_hide_others'
   | 'menu.app_show_all'
@@ -39,11 +37,6 @@ export interface MainI18n {
   getLocale(): AppLocale
   setLocale(locale: AppLocale): Promise<void>
   t(key: MainTranslationKey): string
-  getTrayLabels(): {
-    tooltip: string
-    openWindow: string
-    quit: string
-  }
 }
 
 const resources = {
@@ -115,13 +108,6 @@ export async function createMainI18n(options: MainI18nOptions): Promise<MainI18n
     },
     t(key: MainTranslationKey): string {
       return resources[locale][key] ?? resources.en[key]
-    },
-    getTrayLabels() {
-      return {
-        tooltip: resources[locale]['tray.tooltip_default'],
-        openWindow: resources[locale]['tray.menu_open_window'],
-        quit: resources[locale]['tray.menu_quit_app']
-      }
     }
   }
 }

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://www.ordicab.com/</loc>
+  </url>
+  <url>
+    <loc>https://www.ordicab.com/guide/introduction.html</loc>
+  </url>
+  <url>
+    <loc>https://www.ordicab.com/guide/installation.html</loc>
+  </url>
+  <url>
+    <loc>https://www.ordicab.com/guide/dossiers.html</loc>
+  </url>
+  <url>
+    <loc>https://www.ordicab.com/guide/modeles.html</loc>
+  </url>
+  <url>
+    <loc>https://www.ordicab.com/guide/ia-vue-ensemble.html</loc>
+  </url>
+  <url>
+    <loc>https://www.ordicab.com/guide/ia-cowork.html</loc>
+  </url>
+  <url>
+    <loc>https://www.ordicab.com/guide/ia-assistant-local.html</loc>
+  </url>
+  <url>
+    <loc>https://www.ordicab.com/guide/ia-assistant-api.html</loc>
+  </url>
+  <url>
+    <loc>https://www.ordicab.com/guide/ia-export-import.html</loc>
+  </url>
+</urlset>

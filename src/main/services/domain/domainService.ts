@@ -75,14 +75,6 @@ async function countDossiers(domainPath: string): Promise<number> {
   }
 }
 
-export function shouldRevealMainWindow(snapshot: DomainStatusSnapshot): boolean {
-  if (!snapshot.registeredDomainPath) {
-    return true
-  }
-
-  return !snapshot.isAvailable
-}
-
 export function createDomainService(options: DomainServiceOptions): DomainService {
   const now = options.now ?? (() => new Date())
 

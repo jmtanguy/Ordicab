@@ -9,11 +9,8 @@
  *  1. Check for a pending auto-update; if one is installing, bail out early.
  *  2. Create the main window lifecycle (window is NOT shown yet).
  *  3. Create the domain service and register all IPC handlers.
- *  4. Create the system tray.
- *  5. Decide whether to show the window immediately based on domain status:
- *       - No domain selected, or domain folder unavailable → show window (onboarding).
- *       - Domain is ready → stay in tray (background mode).
- *  6. Kick off the background update check.
+ *  4. Show the main window.
+ *  5. Kick off the background update check.
  */
 import type { DomainSelectionResult, DomainStatusSnapshot } from '@shared/types'
 
@@ -24,43 +21,22 @@ export interface DomainServiceLike {
   getStatus(): Promise<DomainStatusSnapshot>
 }
 
-export interface TrayLike {
-  destroy(): void
-}
-
 export interface UpdaterServiceLike {
   applyPendingUpdateOnLaunch(): Promise<boolean>
   checkForUpdatesOnStartup(): Promise<void>
-}
-
-export interface BootstrapHandlers {
-  openWindow(): void
-  quit(): void
 }
 
 export interface BootstrapApplicationOptions<TWindow extends BrowserWindowLike> {
   createMainWindowLifecycle(): MainWindowLifecycle<TWindow>
   createDomainService(): DomainServiceLike
   registerIpcHandlers(domainService: DomainServiceLike): void
-  initTray(handlers: BootstrapHandlers): TrayLike
   onActivate(listener: () => void): void
-  onBeforeQuit(listener: () => void): void
-  quitApplication(): void
   updater: UpdaterServiceLike
 }
 
 export interface BootstrapApplicationResult {
   started: boolean
   installingUpdate: boolean
-}
-
-/**
- * The main window is hidden by default (app lives in the tray).
- * It is revealed only when the user has not yet configured a domain, or when
- * the previously registered domain folder is no longer accessible on disk.
- */
-function shouldRevealMainWindow(snapshot: DomainStatusSnapshot): boolean {
-  return snapshot.registeredDomainPath === null || !snapshot.isAvailable
 }
 
 export async function bootstrapApplication<TWindow extends BrowserWindowLike>(
@@ -75,38 +51,11 @@ export async function bootstrapApplication<TWindow extends BrowserWindowLike>(
   const domainService = options.createDomainService()
   options.registerIpcHandlers(domainService)
 
-  const tray = options.initTray({
-    openWindow: () => {
-      mainWindowLifecycle.showWindow()
-    },
-    quit: () => {
-      mainWindowLifecycle.markQuitting()
-      options.quitApplication()
-    }
-  })
-
   options.onActivate(() => {
     mainWindowLifecycle.showWindow()
   })
 
-  options.onBeforeQuit(() => {
-    tray.destroy()
-  })
-
-  void domainService
-    .getStatus()
-    .then((snapshot) => {
-      if (shouldRevealMainWindow(snapshot)) {
-        mainWindowLifecycle.showWindow()
-      }
-    })
-    .catch((error) => {
-      console.error(
-        '[Bootstrap] Failed to read domain status; opening main window as fallback.',
-        error
-      )
-      mainWindowLifecycle.showWindow()
-    })
+  mainWindowLifecycle.showWindow()
 
   void options.updater.checkForUpdatesOnStartup().catch(() => undefined)
 

@@ -18,7 +18,9 @@ const configuration: Configuration = {
   asarUnpack: ['resources/**'],
   extraResources: [
     { from: 'build/license_fr.txt', to: 'legal/license_fr.txt' },
-    { from: 'build/license_en.txt', to: 'legal/license_en.txt' }
+    { from: 'build/license_en.txt', to: 'legal/license_en.txt' },
+    { from: 'resources/tessdata/fra.traineddata', to: 'tessdata/fra.traineddata' },
+    { from: 'resources/tessdata/eng.traineddata', to: 'tessdata/eng.traineddata' }
   ],
   mac: {
     icon: 'build/icon.icns',

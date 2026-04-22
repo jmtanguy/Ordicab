@@ -1,18 +1,12 @@
-import { motion, useReducedMotion } from 'framer-motion'
-
 interface LightCurrent {
   key: string
   d: string
   stroke: string
   glowStroke: string
   strokeWidth: number
-  duration: number
-  delay: number
-  driftX: number[]
-  driftY: number[]
-  pathLength: number[]
-  pathOffset: number[]
-  opacity: number[]
+  pathLength: number
+  pathOffset: number
+  opacity: number
 }
 
 const lightCurrents: LightCurrent[] = [
@@ -22,13 +16,9 @@ const lightCurrents: LightCurrent[] = [
     stroke: 'rgba(110, 231, 255, 0.08)',
     glowStroke: 'url(#currentGlowA)',
     strokeWidth: 1.1,
-    duration: 16,
-    delay: 0,
-    driftX: [0, 36, 0],
-    driftY: [0, -26, 0],
-    pathLength: [0.12, 0.2, 0.12],
-    pathOffset: [1, 0.18, -0.38],
-    opacity: [0, 0.5, 0]
+    pathLength: 0.2,
+    pathOffset: 0.18,
+    opacity: 0.5
   },
   {
     key: 'current-2',
@@ -36,13 +26,9 @@ const lightCurrents: LightCurrent[] = [
     stroke: 'rgba(199, 242, 255, 0.07)',
     glowStroke: 'url(#currentGlowB)',
     strokeWidth: 0.95,
-    duration: 18,
-    delay: 1.2,
-    driftX: [0, 32, 0],
-    driftY: [0, -22, 0],
-    pathLength: [0.1, 0.18, 0.1],
-    pathOffset: [0.92, 0.08, -0.46],
-    opacity: [0, 0.38, 0]
+    pathLength: 0.18,
+    pathOffset: 0.08,
+    opacity: 0.38
   },
   {
     key: 'current-3',
@@ -50,13 +36,9 @@ const lightCurrents: LightCurrent[] = [
     stroke: 'rgba(56, 189, 248, 0.08)',
     glowStroke: 'url(#currentGlowC)',
     strokeWidth: 1.2,
-    duration: 15,
-    delay: 0.6,
-    driftX: [0, 40, 0],
-    driftY: [0, -28, 0],
-    pathLength: [0.14, 0.24, 0.14],
-    pathOffset: [1.04, 0.24, -0.34],
-    opacity: [0, 0.56, 0]
+    pathLength: 0.24,
+    pathOffset: 0.24,
+    opacity: 0.56
   },
   {
     key: 'current-4',
@@ -64,13 +46,9 @@ const lightCurrents: LightCurrent[] = [
     stroke: 'rgba(147, 197, 253, 0.06)',
     glowStroke: 'url(#currentGlowA)',
     strokeWidth: 0.85,
-    duration: 20,
-    delay: 2.4,
-    driftX: [0, 26, 0],
-    driftY: [0, -18, 0],
-    pathLength: [0.08, 0.14, 0.08],
-    pathOffset: [0.96, 0.14, -0.52],
-    opacity: [0, 0.28, 0]
+    pathLength: 0.14,
+    pathOffset: 0.14,
+    opacity: 0.28
   },
   {
     key: 'current-5',
@@ -78,24 +56,18 @@ const lightCurrents: LightCurrent[] = [
     stroke: 'rgba(255, 255, 255, 0.05)',
     glowStroke: 'url(#currentGlowB)',
     strokeWidth: 0.95,
-    duration: 22,
-    delay: 1.8,
-    driftX: [0, 30, 0],
-    driftY: [0, -20, 0],
-    pathLength: [0.08, 0.16, 0.08],
-    pathOffset: [1.08, 0.26, -0.48],
-    opacity: [0, 0.3, 0]
+    pathLength: 0.16,
+    pathOffset: 0.26,
+    opacity: 0.3
   }
 ]
 
 export function AuroraBackground(): React.JSX.Element {
-  const reduceMotion = useReducedMotion()
-
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
       <div className="absolute inset-0 bg-[#040915]" />
 
-      <motion.div
+      <div
         className="absolute inset-[-12%]"
         style={{
           background: `
@@ -106,53 +78,39 @@ export function AuroraBackground(): React.JSX.Element {
             linear-gradient(145deg, #020611 4%, #071325 44%, #0a1830 70%, #030712 100%)
           `
         }}
-        animate={reduceMotion ? undefined : { scale: [1, 1.02, 1], x: [0, -10, 0], y: [0, 8, 0] }}
-        transition={
-          reduceMotion ? undefined : { duration: 24, repeat: Infinity, ease: 'easeInOut' }
-        }
       />
 
-      <motion.div
-        className="absolute inset-0 opacity-90 mix-blend-screen"
+      <div
+        className="absolute inset-0 opacity-60"
         style={{
           background: `
-            linear-gradient(128deg, transparent 12%, rgba(110,231,255,0.08) 38%, transparent 54%),
-            linear-gradient(128deg, transparent 26%, rgba(56,189,248,0.05) 50%, transparent 68%),
-            radial-gradient(circle at 72% 20%, rgba(255,255,255,0.04), transparent 14%)
+            linear-gradient(128deg, transparent 12%, rgba(110,231,255,0.06) 38%, transparent 54%),
+            linear-gradient(128deg, transparent 26%, rgba(56,189,248,0.04) 50%, transparent 68%),
+            radial-gradient(circle at 72% 20%, rgba(255,255,255,0.03), transparent 14%)
           `
         }}
-        animate={
-          reduceMotion ? undefined : { opacity: [0.24, 0.42, 0.24], x: [0, 6, 0], y: [0, -4, 0] }
-        }
-        transition={
-          reduceMotion ? undefined : { duration: 14, repeat: Infinity, ease: 'easeInOut' }
-        }
       />
 
-      <motion.div
-        className="absolute left-[68%] top-[22%] h-[30rem] w-[30rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(125,211,252,0.14),rgba(56,189,248,0.05)_42%,transparent_72%)] blur-3xl"
-        animate={reduceMotion ? undefined : { scale: [1, 1.05, 1], opacity: [0.08, 0.16, 0.08] }}
-        transition={
-          reduceMotion ? undefined : { duration: 18, repeat: Infinity, ease: 'easeInOut' }
-        }
+      <div
+        className="absolute left-[68%] top-[22%] h-120 w-120 -translate-x-1/2 -translate-y-1/2 rounded-full blur-2xl"
+        style={{
+          background:
+            'radial-gradient(circle, rgba(125,211,252,0.14), rgba(56,189,248,0.05) 42%, transparent 72%)'
+        }}
       />
 
-      <motion.div
-        className="absolute left-[24%] top-[74%] h-[28rem] w-[28rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(34,211,238,0.1),rgba(14,165,233,0.04)_46%,transparent_72%)] blur-3xl"
-        animate={reduceMotion ? undefined : { scale: [1, 1.06, 1], opacity: [0.06, 0.14, 0.06] }}
-        transition={
-          reduceMotion ? undefined : { duration: 20, repeat: Infinity, ease: 'easeInOut' }
-        }
+      <div
+        className="absolute left-[24%] top-[74%] h-112 w-md -translate-x-1/2 -translate-y-1/2 rounded-full blur-2xl"
+        style={{
+          background:
+            'radial-gradient(circle, rgba(34,211,238,0.1), rgba(14,165,233,0.04) 46%, transparent 72%)'
+        }}
       />
 
-      <motion.svg
+      <svg
         viewBox="0 0 1440 960"
-        className="absolute inset-0 h-full w-full mix-blend-screen"
+        className="absolute inset-0 h-full w-full opacity-80"
         preserveAspectRatio="xMidYMid slice"
-        animate={reduceMotion ? undefined : { x: [0, 10, 0], y: [0, -8, 0] }}
-        transition={
-          reduceMotion ? undefined : { duration: 28, repeat: Infinity, ease: 'easeInOut' }
-        }
       >
         <defs>
           <linearGradient id="currentGlowA" x1="0%" y1="100%" x2="100%" y2="0%">
@@ -176,21 +134,7 @@ export function AuroraBackground(): React.JSX.Element {
         </defs>
 
         {lightCurrents.map((current) => (
-          <motion.g
-            key={current.key}
-            style={{ originX: 0.5, originY: 0.5 }}
-            animate={reduceMotion ? undefined : { x: current.driftX, y: current.driftY }}
-            transition={
-              reduceMotion
-                ? undefined
-                : {
-                    duration: current.duration + 8,
-                    delay: current.delay,
-                    repeat: Infinity,
-                    ease: 'easeInOut'
-                  }
-            }
-          >
+          <g key={current.key}>
             <path
               d={current.d}
               fill="none"
@@ -198,101 +142,20 @@ export function AuroraBackground(): React.JSX.Element {
               strokeWidth={current.strokeWidth}
               strokeLinecap="round"
             />
-            <motion.path
+            <path
               d={current.d}
               fill="none"
               stroke={current.glowStroke}
               strokeWidth={current.strokeWidth + 0.7}
               strokeLinecap="round"
-              animate={
-                reduceMotion
-                  ? undefined
-                  : {
-                      pathLength: current.pathLength,
-                      pathOffset: current.pathOffset,
-                      opacity: current.opacity
-                    }
-              }
-              transition={
-                reduceMotion
-                  ? undefined
-                  : {
-                      duration: current.duration,
-                      delay: current.delay,
-                      repeat: Infinity,
-                      ease: 'easeInOut'
-                    }
-              }
+              opacity={current.opacity}
+              pathLength={1}
+              strokeDasharray={`${current.pathLength} 1`}
+              strokeDashoffset={-current.pathOffset}
             />
-          </motion.g>
+          </g>
         ))}
-
-        <motion.path
-          d="M-80 848C164 740 412 562 624 392C850 210 1056 66 1360 -92"
-          fill="none"
-          stroke="rgba(255,255,255,0.07)"
-          strokeWidth="0.9"
-          strokeDasharray="4 16"
-          strokeLinecap="round"
-          animate={
-            reduceMotion ? undefined : { strokeDashoffset: [0, -40], opacity: [0.04, 0.1, 0.04] }
-          }
-          transition={reduceMotion ? undefined : { duration: 12, repeat: Infinity, ease: 'linear' }}
-        />
-        <motion.path
-          d="M40 1020C296 840 560 636 772 458C984 280 1190 124 1496 -18"
-          fill="none"
-          stroke="rgba(125,211,252,0.09)"
-          strokeWidth="1"
-          strokeDasharray="3 14"
-          strokeLinecap="round"
-          animate={
-            reduceMotion ? undefined : { strokeDashoffset: [0, -46], opacity: [0.03, 0.09, 0.03] }
-          }
-          transition={
-            reduceMotion
-              ? undefined
-              : { duration: 13, repeat: Infinity, ease: 'linear', delay: 1.1 }
-          }
-        />
-      </motion.svg>
-
-      <motion.svg
-        viewBox="0 0 1440 960"
-        className="absolute inset-0 h-full w-full opacity-90"
-        preserveAspectRatio="xMidYMid slice"
-        animate={
-          reduceMotion ? undefined : { x: [0, 6, 0], y: [0, -6, 0], rotate: [-0.2, 0.2, -0.2] }
-        }
-        transition={
-          reduceMotion ? undefined : { duration: 30, repeat: Infinity, ease: 'easeInOut' }
-        }
-      >
-        <motion.path
-          d="M-120 944C132 808 364 664 576 500C786 338 992 190 1268 50"
-          fill="none"
-          stroke="rgba(34,211,238,0.04)"
-          strokeWidth="16"
-          strokeLinecap="round"
-          animate={reduceMotion ? undefined : { opacity: [0.01, 0.04, 0.01] }}
-          transition={
-            reduceMotion ? undefined : { duration: 18, repeat: Infinity, ease: 'easeInOut' }
-          }
-        />
-        <motion.path
-          d="M-48 1066C196 904 430 734 642 560C886 360 1108 194 1432 20"
-          fill="none"
-          stroke="rgba(147,197,253,0.035)"
-          strokeWidth="12"
-          strokeLinecap="round"
-          animate={reduceMotion ? undefined : { opacity: [0.008, 0.028, 0.008] }}
-          transition={
-            reduceMotion
-              ? undefined
-              : { duration: 22, repeat: Infinity, ease: 'easeInOut', delay: 0.8 }
-          }
-        />
-      </motion.svg>
+      </svg>
 
       <div className="absolute inset-0 bg-[linear-gradient(130deg,rgba(255,255,255,0.02),transparent_30%,transparent_70%,rgba(2,6,23,0.24)),radial-gradient(circle_at_78%_16%,rgba(255,255,255,0.06),transparent_14%),linear-gradient(180deg,transparent_0%,rgba(4,8,18,0.12)_76%,rgba(4,8,18,0.3)_100%)]" />
     </div>

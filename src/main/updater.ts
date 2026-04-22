@@ -149,7 +149,12 @@ export function createUpdaterService(options: CreateUpdaterServiceOptions): Upda
     handlersBound = true
     options.updater.autoDownload = true
     options.updater.autoInstallOnAppQuit = false
-    options.updater.logger = null
+    options.updater.logger = {
+      info: (message) => logger.info(`[electron-updater] ${String(message ?? '')}`),
+      warn: (message) => logger.warn(`[electron-updater] ${String(message ?? '')}`),
+      error: (message) => logger.error(`[electron-updater] ${String(message ?? '')}`),
+      debug: (message) => logger.info(`[electron-updater:debug] ${String(message ?? '')}`)
+    }
 
     options.updater.on('checking-for-update', () => {
       logger.info('[Updater] Checking GitHub Releases for updates in the background.')

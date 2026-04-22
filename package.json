@@ -1,7 +1,7 @@
 {
   "name": "ordicab-electron",
   "productName": "Ordicab",
-  "version": "1.0.0-beta.2",
+  "version": "1.0.0-beta.3",
   "description": "Ordicab desktop foundation built with Electron, React, and TypeScript",
   "main": "./out/main/index.js",
   "author": "Ordicab",

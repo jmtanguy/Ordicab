@@ -595,11 +595,14 @@
             windows: null
           }
 
-          // Trouve les assets pour Mac et Windows
+          const isMacInstaller = (name) => name.endsWith('.dmg')
+          const isWindowsInstaller = (name) => name.endsWith('.exe')
+
+          // Trouve uniquement les installateurs finaux pour Mac et Windows
           release.assets.forEach(asset => {
-            if (asset.name.includes('mac-arm64') || asset.name.includes('mac-x64') || asset.name.includes('darwin')) {
+            if (isMacInstaller(asset.name)) {
               assetMap.mac = asset.browser_download_url
-            } else if (asset.name.includes('windows') || asset.name.includes('win32') || asset.name.includes('.exe')) {
+            } else if (isWindowsInstaller(asset.name)) {
               assetMap.windows = asset.browser_download_url
             }
           })

@@ -725,5 +725,18 @@
   "ai.page.welcome_subtitle": "Describe what you want to do in natural language.",
   "ai.page.new_conversation": "New conversation",
   "ai.page.debug_copy_title": "Copy the request sent to the LLM and its raw response",
-  "ai.page.send_hint": "Send ↵ · New line ⇧↵"
+  "ai.page.send_hint": "Send ↵ · New line ⇧↵",
+  "updater.available_title": "Update {{version}} available",
+  "updater.available_body": "Download this update now?",
+  "updater.download_action": "Download",
+  "updater.later_action": "Later",
+  "updater.downloading_title": "Downloading version {{version}}…",
+  "updater.progress_body": "{{percent}}% · {{transferred}} / {{total}} · {{speed}}/s",
+  "updater.progress_starting": "Preparing download…",
+  "updater.ready_title": "Version {{version}} ready to install",
+  "updater.ready_body": "Restart now to apply the update?",
+  "updater.install_now_action": "Restart now",
+  "updater.install_on_quit_action": "On next quit",
+  "updater.error_title": "Update failed",
+  "updater.dismiss_action": "Dismiss"
 }

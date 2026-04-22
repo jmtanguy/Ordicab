@@ -56,6 +56,7 @@ function createUpdaterMock(): UpdaterLike & {
       }
     ),
     checkForUpdates: vi.fn(async () => null),
+    downloadUpdate: vi.fn(async () => []),
     quitAndInstall: vi.fn(),
     emit<TKey extends keyof UpdaterEventMap>(
       eventName: TKey,
@@ -69,7 +70,7 @@ function createUpdaterMock(): UpdaterLike & {
 }
 
 describe('updater service', () => {
-  it('configures silent background downloads and persists downloaded updates for the next launch', async () => {
+  it('disables auto-download/install and persists downloaded updates after explicit trigger', async () => {
     const updater = createUpdaterMock()
     const pendingUpdateStore = createPendingUpdateStore()
     const logger = createLogger()
@@ -91,7 +92,7 @@ describe('updater service', () => {
     } as unknown as Parameters<UpdaterEventMap['update-downloaded']>[0])
     await Promise.resolve()
 
-    expect(updater.autoDownload).toBe(true)
+    expect(updater.autoDownload).toBe(false)
     expect(updater.autoInstallOnAppQuit).toBe(false)
     expect(pendingUpdateStore.write).toHaveBeenCalledWith({
       version: '1.2.0',
@@ -138,7 +139,7 @@ describe('updater service', () => {
     expect(logger.error).not.toHaveBeenCalled()
   })
 
-  it('keeps background event handling quiet when updates are available or absent', async () => {
+  it('awaits user confirmation when an update is available and stays silent when none is', async () => {
     const updater = createUpdaterMock()
     const pendingUpdateStore = createPendingUpdateStore()
     const logger = createLogger()
@@ -167,10 +168,96 @@ describe('updater service', () => {
     } as never)
 
     expect(logger.info).toHaveBeenCalledWith(
-      '[Updater] Update 1.2.0 available. Downloading silently.'
+      '[Updater] Update 1.2.0 available — awaiting user confirmation.'
     )
     expect(logger.info).toHaveBeenCalledWith('[Updater] No update available.')
     expect(pendingUpdateStore.write).not.toHaveBeenCalled()
+    expect(updater.downloadUpdate).not.toHaveBeenCalled()
+  })
+
+  it('starts the download and emits progress only after startDownload is called', async () => {
+    const updater = createUpdaterMock()
+    const pendingUpdateStore = createPendingUpdateStore()
+    const logger = createLogger()
+    const notifier = {
+      status: vi.fn(),
+      progress: vi.fn()
+    }
+    const service = createUpdaterService({
+      updater,
+      pendingUpdateStore,
+      logger,
+      isPackaged: true,
+      notifier
+    })
+
+    await service.checkForUpdatesOnStartup()
+    updater.emit('update-available', {
+      files: [],
+      path: '/tmp/Ordicab-1.2.0.zip',
+      sha512: 'sha512',
+      releaseDate: '2026-03-11T08:00:00.000Z',
+      version: '1.2.0'
+    } as never)
+
+    expect(updater.downloadUpdate).not.toHaveBeenCalled()
+    expect(notifier.status).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'available', version: '1.2.0' })
+    )
+
+    await service.startDownload()
+
+    expect(updater.downloadUpdate).toHaveBeenCalledTimes(1)
+
+    updater.emit('download-progress', {
+      bytesPerSecond: 2048,
+      percent: 42,
+      transferred: 420,
+      total: 1000,
+      delta: 0
+    } as never)
+
+    expect(notifier.progress).toHaveBeenCalledWith({
+      version: '1.2.0',
+      percent: 42,
+      bytesPerSecond: 2048,
+      transferred: 420,
+      total: 1000
+    })
+  })
+
+  it('installs immediately when installNow is invoked and clears the pending marker', async () => {
+    const updater = createUpdaterMock()
+    const pendingUpdateStore = createPendingUpdateStore({
+      version: '1.2.0',
+      downloadedAt: '2026-03-11T08:00:00.000Z'
+    })
+    const service = createUpdaterService({
+      updater,
+      pendingUpdateStore,
+      logger: createLogger(),
+      isPackaged: true
+    })
+
+    await service.installNow()
+
+    expect(pendingUpdateStore.clear).toHaveBeenCalledTimes(1)
+    expect(updater.quitAndInstall).toHaveBeenCalledWith(false, true)
+  })
+
+  it('defers install to next quit when installOnQuit is invoked', async () => {
+    const updater = createUpdaterMock()
+    const service = createUpdaterService({
+      updater,
+      pendingUpdateStore: createPendingUpdateStore(),
+      logger: createLogger(),
+      isPackaged: true
+    })
+
+    await service.installOnQuit()
+
+    expect(updater.autoInstallOnAppQuit).toBe(true)
+    expect(updater.quitAndInstall).not.toHaveBeenCalled()
   })
 
   it('restores the pending update marker when quitAndInstall throws', async () => {

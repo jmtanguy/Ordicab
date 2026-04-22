@@ -1,6 +1,8 @@
 import { readFile, rm } from 'node:fs/promises'
 
-import type { AppUpdater, UpdateDownloadedEvent, UpdateInfo } from 'electron-updater'
+import type { AppUpdater, ProgressInfo, UpdateDownloadedEvent, UpdateInfo } from 'electron-updater'
+
+import type { UpdaterProgressPayload, UpdaterStatus } from '@shared/types'
 
 import { atomicWrite } from './lib/system/atomicWrite'
 
@@ -26,6 +28,7 @@ export interface UpdaterEventMap {
   'checking-for-update': () => void
   'update-not-available': (info: UpdateInfo) => void
   'update-available': (info: UpdateInfo) => void
+  'download-progress': (info: ProgressInfo) => void
   'update-downloaded': (event: UpdateDownloadedEvent) => void
 }
 
@@ -35,12 +38,23 @@ export interface UpdaterLike {
   logger: AppUpdater['logger']
   on<TKey extends keyof UpdaterEventMap>(eventName: TKey, listener: UpdaterEventMap[TKey]): unknown
   checkForUpdates(): Promise<unknown>
+  downloadUpdate(): Promise<unknown>
   quitAndInstall(isSilent?: boolean, isForceRunAfter?: boolean): void
+}
+
+export interface UpdaterNotifier {
+  status(status: UpdaterStatus): void
+  progress(progress: UpdaterProgressPayload): void
 }
 
 export interface UpdaterService {
   applyPendingUpdateOnLaunch(): Promise<boolean>
   checkForUpdatesOnStartup(): Promise<void>
+  startDownload(): Promise<void>
+  installNow(): Promise<void>
+  installOnQuit(): Promise<void>
+  dismiss(): void
+  getStatus(): UpdaterStatus
 }
 
 interface CreateUpdaterServiceOptions {
@@ -48,6 +62,7 @@ interface CreateUpdaterServiceOptions {
   pendingUpdateStore: PendingUpdateStore
   logger?: UpdaterLogger
   isPackaged: boolean
+  notifier?: UpdaterNotifier
   now?: () => Date
 }
 
@@ -111,7 +126,7 @@ function logUpdaterError(logger: UpdaterLogger, error: unknown): void {
     logger.info('[Updater] Update check skipped while offline.', normalizedError)
     return
   }
-  logger.error('[Updater] Silent update flow failed.', normalizedError)
+  logger.error('[Updater] Update flow failed.', normalizedError)
 }
 
 export function createPendingUpdateStore(filePath: string): PendingUpdateStore {
@@ -138,8 +153,16 @@ export function createPendingUpdateStore(filePath: string): PendingUpdateStore {
 
 export function createUpdaterService(options: CreateUpdaterServiceOptions): UpdaterService {
   const logger = options.logger ?? consoleLogger
+  const notifier = options.notifier
   let handlersBound = false
   let errorSeenDuringCheck = false
+  let currentStatus: UpdaterStatus = { kind: 'idle' }
+  let availableVersion: string | null = null
+
+  function setStatus(next: UpdaterStatus): void {
+    currentStatus = next
+    notifier?.status(next)
+  }
 
   function bindHandlers(): void {
     if (handlersBound) {
@@ -147,7 +170,7 @@ export function createUpdaterService(options: CreateUpdaterServiceOptions): Upda
     }
 
     handlersBound = true
-    options.updater.autoDownload = true
+    options.updater.autoDownload = false
     options.updater.autoInstallOnAppQuit = false
     options.updater.logger = {
       info: (message) => logger.info(`[electron-updater] ${String(message ?? '')}`),
@@ -157,18 +180,38 @@ export function createUpdaterService(options: CreateUpdaterServiceOptions): Upda
     }
 
     options.updater.on('checking-for-update', () => {
-      logger.info('[Updater] Checking GitHub Releases for updates in the background.')
+      logger.info('[Updater] Checking GitHub Releases for updates.')
+      setStatus({ kind: 'checking' })
     })
 
     options.updater.on('update-available', (info) => {
-      logger.info(`[Updater] Update ${info.version} available. Downloading silently.`)
+      availableVersion = info.version
+      logger.info(`[Updater] Update ${info.version} available — awaiting user confirmation.`)
+      const releaseNotes = typeof info.releaseNotes === 'string' ? info.releaseNotes : null
+      setStatus({ kind: 'available', version: info.version, releaseNotes })
     })
 
     options.updater.on('update-not-available', () => {
       logger.info('[Updater] No update available.')
+      setStatus({ kind: 'idle' })
+    })
+
+    options.updater.on('download-progress', (info) => {
+      const version = availableVersion ?? 'unknown'
+      notifier?.progress({
+        version,
+        percent: info.percent,
+        bytesPerSecond: info.bytesPerSecond,
+        transferred: info.transferred,
+        total: info.total
+      })
+      if (currentStatus.kind !== 'downloading') {
+        setStatus({ kind: 'downloading', version })
+      }
     })
 
     options.updater.on('update-downloaded', (event) => {
+      availableVersion = event.version
       const pendingRecord: PendingUpdateRecord = {
         version: event.version,
         downloadedAt: (options.now ?? (() => new Date()))().toISOString()
@@ -177,16 +220,24 @@ export function createUpdaterService(options: CreateUpdaterServiceOptions): Upda
       void options.pendingUpdateStore
         .write(pendingRecord)
         .then(() => {
-          logger.info(`[Updater] Update ${event.version} downloaded for next launch install.`)
+          logger.info(`[Updater] Update ${event.version} downloaded and ready to install.`)
         })
         .catch((error) => {
           logger.error('[Updater] Failed to persist downloaded update marker.', error)
         })
+
+      setStatus({ kind: 'downloaded', version: event.version })
     })
 
     options.updater.on('error', (error) => {
       errorSeenDuringCheck = true
       logUpdaterError(logger, error)
+      const normalized = toError(error)
+      if (!isOfflineUpdaterError(normalized)) {
+        setStatus({ kind: 'error', message: normalized.message })
+      } else {
+        setStatus({ kind: 'idle' })
+      }
     })
   }
 
@@ -247,6 +298,58 @@ export function createUpdaterService(options: CreateUpdaterServiceOptions): Upda
           logUpdaterError(logger, error)
         }
       }
+    },
+
+    async startDownload(): Promise<void> {
+      if (!options.isPackaged) {
+        return
+      }
+
+      bindHandlers()
+
+      const version = availableVersion ?? 'unknown'
+      setStatus({ kind: 'downloading', version })
+
+      try {
+        await options.updater.downloadUpdate()
+      } catch (error) {
+        logUpdaterError(logger, error)
+        const normalized = toError(error)
+        setStatus({ kind: 'error', message: normalized.message })
+      }
+    },
+
+    async installNow(): Promise<void> {
+      if (!options.isPackaged) {
+        return
+      }
+
+      try {
+        await options.pendingUpdateStore.clear()
+      } catch (error) {
+        logger.warn('[Updater] Failed to clear pending update marker before install.', error)
+      }
+
+      try {
+        options.updater.quitAndInstall(false, true)
+      } catch (error) {
+        logger.error('[Updater] Failed to trigger immediate install.', error)
+        const normalized = toError(error)
+        setStatus({ kind: 'error', message: normalized.message })
+      }
+    },
+
+    async installOnQuit(): Promise<void> {
+      options.updater.autoInstallOnAppQuit = true
+      logger.info('[Updater] Will install the downloaded update on next app quit.')
+    },
+
+    dismiss(): void {
+      setStatus({ kind: 'idle' })
+    },
+
+    getStatus(): UpdaterStatus {
+      return currentStatus
     }
   }
 }

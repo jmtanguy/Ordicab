@@ -36,6 +36,7 @@ import type {
   TemplateDocxSyncedEvent
 } from './documents'
 import type { IpcResult } from '../types/ipc'
+import type { UpdaterProgressPayload, UpdaterStatus } from './updater'
 import type {
   ContactDeleteInput,
   ContactRecord,
@@ -179,5 +180,13 @@ export interface OrdicabAPI {
     resetConversation: () => Promise<IpcResult<null>>
     onIntentReceived: (listener: (event: InternalAiCommand) => void) => OrdicabEventUnsubscribe
     onTextToken: (listener: (token: string) => void) => OrdicabEventUnsubscribe
+  }
+  updater: {
+    startDownload: () => Promise<IpcResult<null>>
+    installNow: () => Promise<IpcResult<null>>
+    installOnQuit: () => Promise<IpcResult<null>>
+    dismiss: () => Promise<IpcResult<null>>
+    onState: (listener: (status: UpdaterStatus) => void) => OrdicabEventUnsubscribe
+    onProgress: (listener: (progress: UpdaterProgressPayload) => void) => OrdicabEventUnsubscribe
   }
 }

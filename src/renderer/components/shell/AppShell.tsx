@@ -26,6 +26,7 @@ import { getOrdicabApi } from '@renderer/stores/ipc'
 
 import { AuroraBackground } from './AuroraBackground'
 import { TopNav, type TopNavTab } from './TopNav'
+import { UpdateBanner } from './UpdateBanner'
 
 function mapStatus(status: 'idle' | 'loading' | 'ready' | 'error'): 'loading' | 'ready' | 'error' {
   if (status === 'ready') {
@@ -507,6 +508,8 @@ export default function AppShell(): React.JSX.Element {
   return (
     <main className="relative min-h-screen overflow-hidden bg-deep-space text-slate-100">
       <AuroraBackground />
+
+      <UpdateBanner />
 
       <EulaDialog
         open={isEulaRequired}

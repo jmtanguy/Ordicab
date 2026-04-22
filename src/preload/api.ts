@@ -30,7 +30,9 @@ import type {
   OrdicabDataChangedEvent,
   TemplateDocxSyncedEvent,
   OrdicabAPI,
-  OrdicabEventUnsubscribe
+  OrdicabEventUnsubscribe,
+  UpdaterProgressPayload,
+  UpdaterStatus
 } from '@shared/types'
 import { IPC_CHANNELS } from '@shared/types'
 
@@ -198,6 +200,21 @@ export function createOrdicabApi(
         ),
       onTextToken: (listener: (token: string) => void) =>
         subscribeToEvent<string>(ipcOn, ipcOff, IPC_CHANNELS.ai.textToken, listener)
+    },
+    updater: {
+      startDownload: () => invoke(ipcInvoke, IPC_CHANNELS.updater.startDownload),
+      installNow: () => invoke(ipcInvoke, IPC_CHANNELS.updater.installNow),
+      installOnQuit: () => invoke(ipcInvoke, IPC_CHANNELS.updater.installOnQuit),
+      dismiss: () => invoke(ipcInvoke, IPC_CHANNELS.updater.dismiss),
+      onState: (listener) =>
+        subscribeToEvent<UpdaterStatus>(ipcOn, ipcOff, IPC_CHANNELS.updater.state, listener),
+      onProgress: (listener) =>
+        subscribeToEvent<UpdaterProgressPayload>(
+          ipcOn,
+          ipcOff,
+          IPC_CHANNELS.updater.progress,
+          listener
+        )
     }
   }
 }

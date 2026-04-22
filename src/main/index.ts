@@ -546,7 +546,56 @@ app
       pendingUpdateStore: createPendingUpdateStore(
         join(app.getPath('userData'), 'pending-update.json')
       ),
-      isPackaged: app.isPackaged
+      isPackaged: app.isPackaged,
+      notifier: {
+        status: (status) => {
+          const window = mainWindowLifecycle?.getWindow()
+          if (window && !window.isDestroyed()) {
+            window.webContents.send(IPC_CHANNELS.updater.state, status)
+          }
+        },
+        progress: (progress) => {
+          const window = mainWindowLifecycle?.getWindow()
+          if (!window || window.isDestroyed()) {
+            return
+          }
+          window.webContents.send(IPC_CHANNELS.updater.progress, progress)
+          const ratio = Math.max(0, Math.min(1, progress.percent / 100))
+          window.setProgressBar(ratio)
+          if (ratio >= 1) {
+            window.setProgressBar(-1)
+          }
+        }
+      }
+    })
+
+    ipcMain.handle(IPC_CHANNELS.updater.startDownload, async (): Promise<IpcResult<null>> => {
+      try {
+        await updater.startDownload()
+        return { success: true, data: null }
+      } catch (error) {
+        return mapUnknownError(error, 'Unable to start update download.')
+      }
+    })
+    ipcMain.handle(IPC_CHANNELS.updater.installNow, async (): Promise<IpcResult<null>> => {
+      try {
+        await updater.installNow()
+        return { success: true, data: null }
+      } catch (error) {
+        return mapUnknownError(error, 'Unable to install update.')
+      }
+    })
+    ipcMain.handle(IPC_CHANNELS.updater.installOnQuit, async (): Promise<IpcResult<null>> => {
+      try {
+        await updater.installOnQuit()
+        return { success: true, data: null }
+      } catch (error) {
+        return mapUnknownError(error, 'Unable to schedule update on quit.')
+      }
+    })
+    ipcMain.handle(IPC_CHANNELS.updater.dismiss, async (): Promise<IpcResult<null>> => {
+      updater.dismiss()
+      return { success: true, data: null }
     })
     const fileWatcherService = createFileWatcherService()
     let ordicabDataWatcher: OrdicabDataWatcherLike | null = null

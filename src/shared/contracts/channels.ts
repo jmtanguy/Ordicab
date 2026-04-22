@@ -95,5 +95,13 @@ export const IPC_CHANNELS = {
   ocr: {
     progress: 'ocr:progress',
     complete: 'ocr:complete'
+  },
+  updater: {
+    startDownload: 'updater:start-download',
+    installNow: 'updater:install-now',
+    installOnQuit: 'updater:install-on-quit',
+    dismiss: 'updater:dismiss',
+    state: 'updater:state',
+    progress: 'updater:progress'
   }
 } as const

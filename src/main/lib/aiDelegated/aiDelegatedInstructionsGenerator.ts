@@ -15,7 +15,7 @@ import {
   keyDateSchema,
   keyReferenceSchema,
   type DossierMetadataFile
-} from '@renderer/schemas'
+} from '@shared/validation'
 import { type DocumentService } from '../../services/domain/documentService'
 import { atomicWrite } from '../system/atomicWrite'
 import { pathExists } from '../system/domainState'

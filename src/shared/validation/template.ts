@@ -40,7 +40,7 @@ export const templateDeleteInputSchema = z.object({
 
 export const templateDocxInputSchema = z.object({
   id: z.string().min(1),
-  filePath: z.string().optional()
+  pickToken: z.string().min(1).optional()
 })
 
 export type {

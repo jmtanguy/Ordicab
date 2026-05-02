@@ -158,7 +158,16 @@ User command : "Crée un contact pour Marie Dupont, tél. 06 12 34 56 78"
 
 ### Pseudonymisation sélective des document tools
 
-Pour `document_get`, `document_search`, `document_analyze` : seuls les **champs humainement lisibles** sont pseudonymisés. Le `rawContent` et les UUIDs sont préservés intacts.
+Le comportement est désormais distinct selon le tool :
+
+- `document_list`, `document_get`, `document_search`
+  → seuls les **champs humainement lisibles** sont pseudonymisés ; les champs
+  structurels (`id`, `uuid`, `relativePath`, `dossierId`, `modifiedAt`,
+  `byteLength`, `textExtraction`, etc.) restent intacts pour pouvoir être
+  réutilisés dans les appels suivants.
+- `document_analyze`
+  → `rawContent` et `error` sont **pseudonymisés** avant d'être renvoyés au
+  LLM ; `uuid`, `totalChars` et `charsReturned` restent intacts.
 
 ```
 document_get result:
@@ -166,7 +175,19 @@ document_get result:
   filename    → pseudonymisé
   description → pseudonymisé
   tags        → pseudonymisés
-  rawContent  → NON pseudonymisé (trop risqué de casser les références internes)
+
+document_search result:
+  query       → pseudonymisée
+  excerpt     → pseudonymisé
+  filename    → pseudonymisé
+  uuid/id     → conservés tels quels
+
+document_analyze result:
+  uuid         → conservé tel quel
+  rawContent   → pseudonymisé
+  totalChars   → conservé tel quel
+  charsReturned→ conservé tel quel
+  error        → pseudonymisée
 ```
 
 ### Cohérence multi-tours

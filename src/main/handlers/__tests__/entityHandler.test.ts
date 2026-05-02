@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { IPC_CHANNELS, IpcErrorCode, type EntityProfile, type IpcResult } from '@shared/types'
 
+import { createEntityService } from '../../services/domain/entityService'
 import { registerEntityHandlers } from '../entityHandler'
 
 const tempDirs: string[] = []
@@ -65,7 +66,7 @@ describe('entityHandler', () => {
 
     registerEntityHandlers({
       ipcMain: harness.ipcMain,
-      domainService
+      entityService: createEntityService({ domainService })
     })
 
     await expect(harness.invoke(IPC_CHANNELS.entity.get)).resolves.toEqual({
@@ -108,7 +109,7 @@ describe('entityHandler', () => {
 
     registerEntityHandlers({
       ipcMain: harness.ipcMain,
-      domainService
+      entityService: createEntityService({ domainService })
     })
 
     const result = (await harness.invoke(IPC_CHANNELS.entity.update, {
@@ -148,7 +149,7 @@ describe('entityHandler', () => {
 
     registerEntityHandlers({
       ipcMain: harness2.ipcMain,
-      domainService: domainServiceUnavailable
+      entityService: createEntityService({ domainService: domainServiceUnavailable })
     })
 
     await expect(
@@ -186,7 +187,7 @@ describe('entityHandler', () => {
 
     registerEntityHandlers({
       ipcMain: harness.ipcMain,
-      domainService
+      entityService: createEntityService({ domainService })
     })
 
     await expect(harness.invoke(IPC_CHANNELS.entity.get)).resolves.toEqual({

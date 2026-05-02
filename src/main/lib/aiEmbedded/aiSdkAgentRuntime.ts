@@ -48,6 +48,8 @@ export interface AiAgentRuntimePayload {
   domainPath?: string
   executeDataTool?: (toolName: string, args: Record<string, unknown>) => Promise<string>
   executeActionTool?: (toolName: string, args: Record<string, unknown>) => Promise<string>
+  /** Called with intermediate assistant text emitted between tool calls. Ephemeral — not persisted. */
+  onReflection?: (text: string) => void
 }
 
 function resolveRuntimeLocale(locale?: string): 'fr' | 'en' {
@@ -74,6 +76,12 @@ export interface AiAgentRuntime {
     history?: AiChatHistoryEntry[],
     mode?: 'local' | 'remote'
   ): Promise<string>
+  /**
+   * One-shot text generation that bypasses the persisted conversation history.
+   * Use for isolated sub-LLM calls (e.g. per-document batch tasks) where each
+   * call must start with a fresh context to avoid token bloat.
+   */
+  generateOneShot(prompt: string, systemPrompt: string, mode?: 'local' | 'remote'): Promise<string>
   streamText(
     prompt: string,
     systemPrompt: string,
@@ -224,7 +232,7 @@ function stripReasoningBlocks(raw: string): string {
 
 function stripJsonFences(raw: string): string {
   const match = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  return match ? match[1].trim() : raw.trim()
+  return match ? (match[1] ?? '').trim() : raw.trim()
 }
 
 function normalizeJsonCandidate(raw: string): string {
@@ -540,6 +548,12 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
   // Data tools that are safe to call repeatedly with identical arguments in one turn.
   const LOOP_SAFE_REPEATED_DATA_TOOLS = new Set<string>()
 
+  // Maximum `document_analyze` calls allowed per turn before redirecting the
+  // model to a batch tool. Why: single-document inspection is fine, but fan-out
+  // across many documents bloats context and, on weaker models, triggers
+  // [TOOL_CALLS] truncation (Mistral chat-template parallel-call bug).
+  const DOCUMENT_ANALYZE_MAX_PER_TURN = 3
+
   async function runSdkToolLoop(
     payload: AiAgentRuntimePayload,
     mode: 'local' | 'remote',
@@ -554,6 +568,7 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
 
     const dataToolCallCounts = new Map<string, number>()
     const dataToolResultsByKey = new Map<string, string>()
+    let documentAnalyzeCallCount = 0
     const dataTools = buildDataTools(async (name, args) => {
       const key = buildDataToolCacheKey(name, args)
       const count = (dataToolCallCounts.get(key) ?? 0) + 1
@@ -562,6 +577,24 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
       if (count >= 2 && !LOOP_SAFE_REPEATED_DATA_TOOLS.has(name)) {
         // Duplicate data tool calls are allowed but could be optimized
         // by reusing previous results instead of re-executing
+      }
+
+      if (name === 'document_analyze') {
+        documentAnalyzeCallCount += 1
+        if (documentAnalyzeCallCount > DOCUMENT_ANALYZE_MAX_PER_TURN) {
+          const locale = resolveRuntimeLocale(payload.locale)
+          const redirect =
+            locale === 'en'
+              ? `BLOCKED: too many document_analyze calls this turn (${documentAnalyzeCallCount}). Stop fan-out. For content questions across many documents call document_search ONCE with a query. For per-document tagging/summary call document_metadata_batch or document_summary_batch ONCE (omit documentIds to target every document). Do not retry document_analyze.`
+              : `BLOQUE: trop d'appels document_analyze sur ce tour (${documentAnalyzeCallCount}). Arrete le fan-out. Pour une question de contenu sur plusieurs documents, appelle document_search UNE fois avec une requete. Pour etiqueter/resumer chaque document, appelle document_metadata_batch ou document_summary_batch UNE fois (omets documentIds pour cibler tous les documents). Ne relance pas document_analyze.`
+          appendDebugTrace(
+            `[guardrail] document_analyze blocked (count=${documentAnalyzeCallCount}, max=${DOCUMENT_ANALYZE_MAX_PER_TURN})`
+          )
+          return JSON.stringify({
+            error: 'guardrail_document_analyze_fanout',
+            message: redirect
+          })
+        }
       }
 
       const result = await payload.executeDataTool!(name, args)
@@ -683,6 +716,21 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
             trimmed.startsWith('[TOOL_CALLS]')
           ) {
             sawTruncatedToolCallsText = true
+          }
+        }
+
+        // Stream intermediate reasoning to the renderer. Only emit when the model
+        // actually produced reasoning text for this step — bare tool-name summaries
+        // are meaningless to the user. The terminal step (finishReason=stop with no
+        // tool calls) is the final response and arrives via the command result.
+        if (payload.onReflection) {
+          const hasTools = Boolean(toolCalls && toolCalls.length > 0)
+          const isTerminal = finishReason === 'stop' && !hasTools
+          if (!isTerminal) {
+            const trimmedText = text?.trim() ?? ''
+            if (trimmedText) {
+              payload.onReflection(trimmedText)
+            }
           }
         }
       }
@@ -905,6 +953,27 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
         model: sdkModel,
         system: systemPrompt,
         messages: buildSdkMessages(prompt, history)
+      })
+      return result.text
+    },
+
+    async generateOneShot(
+      prompt: string,
+      systemPrompt: string,
+      mode: 'local' | 'remote' = 'local'
+    ): Promise<string> {
+      const sdkModel = resolveLanguageModel(mode)
+      if (!sdkModel) {
+        throw new AiRuntimeError(
+          `No ${mode} AI model configured.`,
+          IpcErrorCode.AI_RUNTIME_UNAVAILABLE
+        )
+      }
+
+      const result = await sdkGenerateText({
+        model: sdkModel,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: prompt }]
       })
       return result.text
     },

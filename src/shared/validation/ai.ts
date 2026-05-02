@@ -1,20 +1,27 @@
 import { z } from 'zod'
 import { REMOTE_PROVIDER_KIND_VALUES } from '../ai/remoteProviders'
 
+const httpUrlSchema = z
+  .string()
+  .url()
+  .refine((value) => /^https?:\/\//i.test(value), {
+    message: 'URL must use http:// or https://.'
+  })
+
 export const aiSettingsSchema = z.object({
   mode: z.enum(['none', 'local', 'remote', 'claude-code', 'copilot', 'codex']),
-  ollamaEndpoint: z.string().url().optional(),
+  ollamaEndpoint: httpUrlSchema.optional(),
   remoteProviderKind: z.enum(REMOTE_PROVIDER_KIND_VALUES).optional(),
   remoteProjectRef: z.string().optional(),
-  remoteProvider: z.string().optional()
+  remoteProvider: httpUrlSchema.optional()
 })
 
 export const aiSettingsSaveSchema = z.object({
   mode: z.enum(['none', 'local', 'remote', 'claude-code', 'copilot', 'codex']),
-  ollamaEndpoint: z.string().optional(),
+  ollamaEndpoint: httpUrlSchema.optional(),
   remoteProviderKind: z.enum(REMOTE_PROVIDER_KIND_VALUES).optional(),
   remoteProjectRef: z.string().optional(),
-  remoteProvider: z.string().optional(),
+  remoteProvider: httpUrlSchema.optional(),
   apiKey: z.string().optional(),
   piiEnabled: z.boolean().optional()
 })

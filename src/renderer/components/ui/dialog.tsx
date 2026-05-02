@@ -44,6 +44,8 @@ export interface DialogShellProps
     VariantProps<typeof dialogOverlayVariants>,
     VariantProps<typeof dialogPanelVariants> {
   panelClassName?: string
+  /** Optional Escape-to-dismiss handler. Wired at the document level. */
+  onDismiss?: () => void
 }
 
 export function DialogShell({
@@ -52,8 +54,23 @@ export function DialogShell({
   layout,
   panelClassName,
   size,
+  onDismiss,
   ...props
 }: DialogShellProps): React.JSX.Element {
+  React.useEffect(() => {
+    if (!onDismiss) return undefined
+    function handleKey(event: KeyboardEvent): void {
+      if (event.key === 'Escape') {
+        event.stopPropagation()
+        onDismiss?.()
+      }
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('keydown', handleKey)
+    }
+  }, [onDismiss])
+
   return (
     <div className={cn(dialogOverlayVariants({ layout }), className)}>
       <div

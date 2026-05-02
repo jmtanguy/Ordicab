@@ -1,8 +1,8 @@
 import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
 
-import en from './locales/en.json'
-import fr from './locales/fr.json'
+import en from '@shared/i18n/locales/en.json'
+import fr from '@shared/i18n/locales/fr.json'
 
 export const SUPPORTED_LOCALES = ['en', 'fr'] as const
 

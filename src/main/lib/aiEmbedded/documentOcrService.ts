@@ -9,6 +9,12 @@
  *
  * The result (plain text) is intended to be sent to a text-only LLM — no images
  * are transmitted outside the device.
+ *
+ * `any` usage in this file: `pdfjs-dist`, `tesseract.js` and `@napi-rs/canvas`
+ * have no usable type definitions for the APIs we touch. Each `any` is
+ * confined to a dynamic-import unwrap inside an adapter and never reaches the
+ * extracted-text data path — return values are typed (string, OcrPage). See
+ * ARCHITECTURE.md §8.
  */
 import { readFile, writeFile, mkdir, access } from 'node:fs/promises'
 import { constants } from 'node:fs'

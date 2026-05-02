@@ -27,8 +27,29 @@ export interface BrowserWindowLike {
   focus(): void
 }
 
+export interface NavigationEventLike {
+  preventDefault(): void
+}
+
 export interface WebContentsLike {
   setWindowOpenHandler(handler: (details: { url: string }) => { action: 'deny' }): void
+  on(event: 'will-navigate', listener: (event: NavigationEventLike, url: string) => void): void
+}
+
+export interface SessionLike {
+  setPermissionRequestHandler(
+    // Electron's signature: (webContents, permission, callback, details).
+    // The first parameter is typed loosely so we don't pull in Electron types
+    // here.
+    handler:
+      | ((
+          webContents: unknown,
+          permission: string,
+          callback: (granted: boolean) => void,
+          details?: unknown
+        ) => void)
+      | null
+  ): void
 }
 
 export interface BrowserWindowRuntimeLike extends BrowserWindowLike {
@@ -65,6 +86,12 @@ export interface MainWindowCreationOptions<TWindow extends BrowserWindowRuntimeL
   platform: NodeJS.Platform
   linuxIconPath?: string
   openExternal(url: string): void
+  /**
+   * Optional default session, used to install a permission-request handler that
+   * denies camera/microphone/notifications/etc. The app does not need any of
+   * those, so the safe default is to deny.
+   */
+  defaultSession?: SessionLike
 }
 
 export interface MainWindowLifecycleOptions<TWindow extends BrowserWindowLike> {
@@ -106,6 +133,31 @@ export function createMainWindow<TWindow extends BrowserWindowRuntimeLike>(
   mainWindow.webContents.setWindowOpenHandler((details) => {
     options.openExternal(details.url)
     return { action: 'deny' }
+  })
+
+  // Block top-level navigation away from the renderer. A renderer XSS could
+  // otherwise set `location.href = 'https://attacker.tld'` and bypass CSP for
+  // any subsequent fetches. External URLs are handed to the OS browser.
+  const allowedRendererUrl = options.rendererUrl
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (allowedRendererUrl && url.startsWith(allowedRendererUrl)) {
+      return
+    }
+    if (url.startsWith('file://')) {
+      // Navigations to the bundled index.html are allowed; everything else
+      // (including arbitrary file:// paths) is denied.
+      return
+    }
+    event.preventDefault()
+    if (/^https?:\/\//i.test(url)) {
+      options.openExternal(url)
+    }
+  })
+
+  // Deny every Chromium permission request — the app does not use camera,
+  // microphone, geolocation, notifications, midi, etc.
+  options.defaultSession?.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false)
   })
 
   if (options.rendererUrl) {

@@ -21,8 +21,13 @@ export type ModelCostPerformance = 'low' | 'balanced' | 'high'
 
 export interface RemoteToolModelDefinition {
   name: string
-  comment: string
-  costPerformance: ModelCostPerformance
+  // Optional metadata — leave undefined when unknown so the UI hides the info popup
+  // instead of guessing. Pricing is hand-curated; providers that bill by token but
+  // don't publish a stable rate sheet (e.g. some custom OpenAI-compat endpoints) keep
+  // this empty.
+  comment?: string
+  costPerformance?: ModelCostPerformance
+  pricing?: { inputEurPer10k: number; outputEurPer10k: number }
 }
 
 export const REMOTE_PROVIDER_TOOL_MODELS: Readonly<
@@ -107,27 +112,41 @@ export const REMOTE_PROVIDER_TOOL_MODELS: Readonly<
       costPerformance: 'high'
     }
   ],
+  // Infomaniak's catalog is curated by hand — the OpenAI-compatible /models endpoint
+  // returns embeddings and other non-LLM entries with no type field, so live discovery
+  // can't reliably tell chat LLMs apart.
   infomaniak: [
     {
-      name: 'qwen3',
-      comment: 'Cost-efficient default for general workflows.',
-      costPerformance: 'low'
+      name: 'mistralai/Ministral-3-14B-Instruct-2512',
+      comment:
+        '14B multimodal (text + vision), 256K context, multilingual. Frontier 14B-class for instruction following at low cost.',
+      costPerformance: 'low',
+      pricing: { inputEurPer10k: 0.003, outputEurPer10k: 0.004 }
     },
     {
-      name: 'mistral3',
-      comment: 'Balanced model for day-to-day agent tasks.',
-      costPerformance: 'balanced'
+      name: 'google/gemma-4-31B-it',
+      comment:
+        '31B dense multimodal model with built-in step-by-step reasoning. 256K context, 140+ languages; outperforms much larger models on reasoning benchmarks.',
+      costPerformance: 'low',
+      pricing: { inputEurPer10k: 0.002, outputEurPer10k: 0.004 }
     },
     {
-      name: 'mistral24b',
-      comment: 'Higher-capacity model for harder reasoning cases.',
-      costPerformance: 'high'
+      name: 'Qwen/Qwen3.5-122B-A10B-FP8',
+      comment:
+        '122B MoE (10B active) vision-language model, 262K context, 201 languages. Top-tier reasoning, coding, and agentic workflows.',
+      costPerformance: 'high',
+      pricing: { inputEurPer10k: 0.004, outputEurPer10k: 0.032 }
     },
     {
-      name: 'openai/gpt-oss-120b',
-      comment: 'Large open model for advanced reasoning and tool workflows.',
-      costPerformance: 'high'
+      name: 'moonshotai/Kimi-K2.6',
+      comment:
+        'Open-source coding and agent specialist. Near-100% tool-call accuracy, agent-swarm architecture, 256K context.',
+      costPerformance: 'high',
+      pricing: { inputEurPer10k: 0.006, outputEurPer10k: 0.03 }
     }
+    // Apertus 70B was tested but does not emit OpenAI-compatible tool_calls — it
+    // hallucinates fabricated tool results in plain text, breaking the agent loop.
+    // Excluded until function-calling support lands upstream.
   ],
   custom: [
     {
@@ -183,9 +202,13 @@ export function normalizeOpenAiCompatibleBaseUrl(raw: string): string {
 }
 
 export function getRemoteProviderPreset(kind: RemoteProviderKind): RemoteProviderPreset {
-  return (
-    REMOTE_PROVIDER_PRESETS.find((preset) => preset.kind === kind) ?? REMOTE_PROVIDER_PRESETS[0]
-  )
+  const found = REMOTE_PROVIDER_PRESETS.find((preset) => preset.kind === kind)
+  if (found) return found
+  const fallback = REMOTE_PROVIDER_PRESETS[0]
+  if (!fallback) {
+    throw new Error('REMOTE_PROVIDER_PRESETS must not be empty')
+  }
+  return fallback
 }
 
 export function inferRemoteProviderKind(remoteProvider?: string): RemoteProviderKind {
@@ -239,14 +262,16 @@ export function resolveDefaultRemoteModel(
 ): string {
   if (providerKind) {
     const models = REMOTE_PROVIDER_TOOL_MODEL_NAMES[providerKind]
-    if (models && models.length > 0) return models[0]
+    const first = models?.[0]
+    if (first) return first
   }
 
   const provider = normalizeOpenAiCompatibleBaseUrl(remoteProvider ?? '').toLowerCase()
 
   const inferredKind = inferRemoteProviderKind(provider)
   const inferredModels = REMOTE_PROVIDER_TOOL_MODEL_NAMES[inferredKind]
-  if (inferredModels && inferredModels.length > 0) return inferredModels[0]
+  const inferredFirst = inferredModels?.[0]
+  if (inferredFirst) return inferredFirst
   return REMOTE_PROVIDER_TOOL_MODEL_NAMES.custom[0] ?? 'gpt-5.1-mini'
 }
 

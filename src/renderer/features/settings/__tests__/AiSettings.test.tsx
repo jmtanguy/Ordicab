@@ -23,6 +23,7 @@ const aiStubs = {
   resetConversation: vi.fn(async () => ({ success: true as const, data: null })),
   onIntentReceived: vi.fn(() => () => undefined),
   onTextToken: vi.fn(() => () => undefined),
+  onReflection: vi.fn(() => () => undefined),
   remoteConnectionStatus: vi.fn(async () => ({
     success: true as const,
     data: { reachable: false }
@@ -141,7 +142,7 @@ describe('AiSettings', () => {
 
     // Cancel keeps local mode
     const cancelButtons = screen.getAllByText('Cancel')
-    fireEvent.click(cancelButtons[cancelButtons.length - 1])
+    fireEvent.click(cancelButtons[cancelButtons.length - 1]!)
 
     await waitFor(() => {
       expect(screen.queryByText('Remote API Warning')).toBeNull()

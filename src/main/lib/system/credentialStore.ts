@@ -46,12 +46,27 @@ export interface CredentialStore {
   deleteApiKey(provider: string): Promise<void>
 }
 
+export class CredentialStoreUnavailableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'CredentialStoreUnavailableError'
+  }
+}
+
 export function createCredentialStore(
   safeStorage: SafeStorageLike,
   stateFilePath: string
 ): CredentialStore {
   return {
     async saveApiKey(_provider: string, key: string): Promise<void> {
+      if (!safeStorage.isEncryptionAvailable()) {
+        // On Linux without a desktop keyring, Electron falls back to a hardcoded
+        // key — refuse to persist the secret rather than write it effectively in
+        // cleartext.
+        throw new CredentialStoreUnavailableError(
+          'Secure credential storage is not available on this system. Set up a desktop keyring (e.g. gnome-keyring, kwallet) and restart the app.'
+        )
+      }
       const state = await readAppState(stateFilePath)
       const encrypted = safeStorage.encryptString(key)
       const base64 = encrypted.toString('base64')
@@ -73,6 +88,10 @@ export function createCredentialStore(
       const base64 = state.ai?.encryptedApiKey
 
       if (!base64) {
+        return null
+      }
+
+      if (!safeStorage.isEncryptionAvailable()) {
         return null
       }
 

@@ -1,4 +1,4 @@
-import { z, ZodError } from 'zod'
+import { ZodError } from 'zod'
 
 import {
   IPC_CHANNELS,
@@ -7,6 +7,7 @@ import {
   type IpcError,
   type IpcResult
 } from '@shared/types'
+import { claudeMdRegenerateInputSchema } from '@shared/validation/claudeMd'
 
 import {
   type InstructionsGeneratorLike,
@@ -20,12 +21,6 @@ interface IpcMainLike {
     listener: (_event: unknown, input?: unknown) => Promise<unknown>
   ) => void
 }
-
-const claudeMdRegenerateInputSchema = z
-  .object({
-    dossierId: z.string().min(1).optional()
-  })
-  .strict()
 
 function mapClaudeMdError(error: unknown, fallbackMessage: string): IpcError {
   if (error instanceof ZodError) {

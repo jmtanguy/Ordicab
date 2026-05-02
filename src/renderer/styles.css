@@ -346,6 +346,12 @@ body {
   color: #dde5f0;
   border-bottom-left-radius: 4px;
 }
+/* Widen assistant bubbles when they hold dense block content (tables, code)
+   so columns stay readable instead of being crushed into the default width. */
+.ai-bubble--assistant:has(.ai-markdown-table-wrap),
+.ai-bubble--assistant:has(.ai-markdown-pre) {
+  max-width: min(100%, 900px);
+}
 .ai-bubble--error {
   background: rgba(127, 29, 29, 0.25);
   border: 1px solid rgba(239, 68, 68, 0.25);
@@ -357,6 +363,21 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.08);
   padding: 14px 16px;
   border-bottom-left-radius: 4px;
+}
+.ai-loading-reflections {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.ai-loading-reflection {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(8, 47, 73, 0.72), rgba(11, 26, 47, 0.58));
+  border: 1px solid rgba(103, 232, 249, 0.14);
+}
+.ai-loading-reflection--active {
+  border-color: rgba(103, 232, 249, 0.24);
 }
 
 /* Copy button */
@@ -420,6 +441,66 @@ body {
     transform: translateY(-5px);
     opacity: 1;
   }
+}
+
+/* Reflection block — intermediate reasoning shown during command execution */
+.ai-row--reflection {
+  margin-top: -10px;
+}
+.ai-avatar--reflection {
+  opacity: 0.72;
+  transform: scale(0.92);
+}
+.ai-bubble--reflection {
+  max-width: 640px;
+  padding: 12px 14px;
+  background: linear-gradient(180deg, rgba(8, 47, 73, 0.78), rgba(11, 26, 47, 0.72));
+  border: 1px solid rgba(103, 232, 249, 0.18);
+  color: #d7e7f4;
+  border-bottom-left-radius: 10px;
+  box-shadow: 0 10px 30px rgba(2, 6, 23, 0.14);
+}
+.ai-bubble--reflection-active {
+  border-color: rgba(103, 232, 249, 0.28);
+  box-shadow: 0 12px 34px rgba(34, 211, 238, 0.08);
+}
+.ai-reflection-header {
+  margin-bottom: 8px;
+  color: #8be6f4;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.ai-reflection {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  background: rgba(34, 211, 238, 0.05);
+  border: 1px solid rgba(34, 211, 238, 0.18);
+  border-radius: 8px;
+}
+.ai-reflection-summary {
+  cursor: pointer;
+  color: #67e8f9;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  user-select: none;
+}
+.ai-reflection-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: #cbd5e1;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.ai-reflection-list li {
+  margin-bottom: 6px;
+  white-space: pre-wrap;
+}
+.ai-reflection-list li:last-child {
+  margin-bottom: 0;
 }
 
 /* Clarification block */

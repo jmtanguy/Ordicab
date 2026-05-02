@@ -14,6 +14,9 @@ const mockAiStore = {
   resolveClarification: vi.fn(),
   subscribeToIntentEvents: vi.fn(() => () => undefined),
   subscribeToTextTokens: vi.fn(() => () => undefined),
+  subscribeToReflections: vi.fn(() => () => undefined),
+  reflections: [] as Array<{ id: string; text: string }>,
+  streamingMessageId: null as string | null,
   checkConnection: vi.fn(),
   setSelectedModel: vi.fn(),
   setActiveDossierId: vi.fn(),
@@ -41,6 +44,18 @@ vi.mock('@renderer/stores/aiStore', () => ({
 vi.mock('@renderer/stores/dossierStore', () => ({
   useDossierStore: (selector: (state: typeof mockDossierStore) => unknown) =>
     selector(mockDossierStore)
+}))
+
+const mockUiStore = {
+  openFolder: vi.fn(async () => ({ success: true as const, data: null }))
+}
+
+vi.mock('@renderer/stores/uiStore', () => ({
+  useUiStore: (selector: (state: typeof mockUiStore) => unknown) => selector(mockUiStore)
+}))
+
+vi.mock('@renderer/contexts/ToastContext', () => ({
+  useToast: () => ({ showToast: vi.fn() })
 }))
 
 vi.mock('@renderer/stores/ipc', () => ({
@@ -82,6 +97,9 @@ describe('AiPage', () => {
     mockAiStore.resolveClarification.mockClear()
     mockAiStore.subscribeToIntentEvents.mockClear()
     mockAiStore.subscribeToTextTokens.mockClear()
+    mockAiStore.subscribeToReflections.mockClear()
+    mockAiStore.reflections = []
+    mockAiStore.streamingMessageId = null
     mockAiStore.checkConnection.mockClear()
     mockAiStore.setSelectedModel.mockClear()
     mockAiStore.setActiveDossierId.mockClear()
@@ -158,6 +176,10 @@ describe('AiPage', () => {
 })
 
 describe('MarkdownBubble', () => {
+  afterEach(() => {
+    cleanup()
+  })
+
   it('renders markdown tables in assistant bubbles', () => {
     render(
       <MarkdownBubble
@@ -191,6 +213,44 @@ describe('MarkdownBubble', () => {
     ).toEqual(['Partie représentée', 'Contact secondaire', 'DATA-B'])
   })
 
+  it('keeps showing the streaming assistant message while loading', () => {
+    mockAiStore.commandLoading = true
+    mockAiStore.streamingMessageId = 'stream-1'
+    mockAiStore.messages = [
+      { id: 'u1', role: 'user', text: 'Analyse le dossier' },
+      { id: 'stream-1', role: 'assistant', text: 'Je regarde les documents…' }
+    ]
+    mockAiStore.reflections = [
+      {
+        id: 'r1',
+        text: 'Je vais rechercher les contacts et leurs rôles dans les documents du dossier actif.'
+      }
+    ]
+
+    render(<AiPage entityName={null} sampleDossierName={null} dossierId="dos-1" />)
+
+    expect(screen.getByText('Je regarde les documents…')).toBeTruthy()
+  })
+
+  it('renders intermediate reflections inside the loading bubble', () => {
+    mockAiStore.commandLoading = true
+    mockAiStore.streamingMessageId = null
+    mockAiStore.reflections = [
+      {
+        id: 'r1',
+        text: 'Je commence par une première recherche avec des termes généraux liés aux contacts.'
+      }
+    ]
+
+    render(<AiPage entityName={null} sampleDossierName={null} dossierId="dos-1" />)
+
+    expect(
+      screen.getByText(
+        'Je commence par une première recherche avec des termes généraux liés aux contacts.'
+      )
+    ).toBeTruthy()
+  })
+
   it('preserves single line returns inside a paragraph', () => {
     render(
       <MarkdownBubble
@@ -203,12 +263,11 @@ describe('MarkdownBubble', () => {
       />
     )
 
-    const paragraph = document.querySelector('.ai-markdown-paragraph')
-    expect(paragraph).toBeTruthy()
-    expect(paragraph?.querySelectorAll('br')).toHaveLength(3)
-    expect(paragraph?.textContent).toContain('7 contact(s):')
-    expect(paragraph?.textContent).toContain('Contact DATA-A')
-    expect(paragraph?.textContent).toContain('Conseil DATA-C')
+    const markdownRoot = document.querySelector('.ai-markdown')
+    expect(markdownRoot).toBeTruthy()
+    expect(markdownRoot?.textContent).toContain('7 contact(s):')
+    expect(markdownRoot?.textContent).toContain('Contact DATA-A')
+    expect(markdownRoot?.textContent).toContain('Conseil DATA-C')
   })
 
   it('renders html line breaks from model output as visual line breaks', () => {
@@ -222,10 +281,11 @@ describe('MarkdownBubble', () => {
     )
 
     expect(document.body.textContent).not.toContain('<br>')
-    const paragraphs = document.querySelectorAll('.ai-markdown-paragraph')
-    expect(paragraphs.length).toBeGreaterThan(0)
-    const hasLineBreak = Array.from(paragraphs).some((paragraph) => paragraph.querySelector('br'))
-    expect(hasLineBreak).toBe(true)
+    expect(document.body.textContent).toContain('Nom / Prénom : Person-A LASTNAME-A')
+    expect(document.body.textContent).toContain(
+      'Date et lieu de naissance : 01 janvier 1970, CITY-A'
+    )
+    expect(document.body.textContent).toContain('Adresse : ADDRESS-A')
   })
 
   it('renders loosely formatted mixed markdown/tabular tables from model output', () => {

@@ -5,12 +5,14 @@ import type {
   DocumentAvailabilityEvent,
   DocumentChangeEvent,
   DocumentExtractedContent,
+  DocumentExtractProgressEvent,
   DocumentMetadataUpdate,
   DocumentPreview,
   DocumentPreviewInput,
   DocumentRecord,
   DocumentWatchStatus,
-  DossierScopedQuery
+  DossierScopedQuery,
+  SemanticSearchResult
 } from '@shared/types'
 
 import { getOrdicabApi, IPC_NOT_AVAILABLE_ERROR } from './ipc'
@@ -21,9 +23,23 @@ export interface DocumentPreviewState {
   error: string | null
 }
 
+export interface DocumentContentProgress {
+  phase: 'embedded' | 'ocr'
+  page: number
+  totalPages: number
+}
+
 export interface DocumentContentState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   content: DocumentExtractedContent | null
+  error: string | null
+  progress: DocumentContentProgress | null
+}
+
+export interface SemanticSearchState {
+  status: 'idle' | 'loading' | 'ready' | 'error'
+  query: string
+  results: SemanticSearchResult | null
   error: string | null
 }
 
@@ -34,6 +50,7 @@ interface DocumentStoreState {
   previewStatesByDossierId: Record<string, Record<string, DocumentPreviewState>>
   contentStatesByDossierId: Record<string, Record<string, DocumentContentState>>
   activePreviewDocumentIdByDossierId: Record<string, string | null>
+  semanticSearchStatesByDossierId: Record<string, SemanticSearchState>
   activeDossierId: string | null
   isLoading: boolean
   isSavingMetadata: boolean
@@ -55,12 +72,15 @@ interface DocumentStoreActions {
   clearContentCache: (input: { dossierId: string }) => Promise<boolean>
   saveMetadata: (input: DocumentMetadataUpdate) => Promise<boolean>
   openFile: (input: DocumentPreviewInput) => Promise<void>
+  runSemanticSearch: (input: { dossierId: string; query: string; topK?: number }) => Promise<void>
+  clearSemanticSearch: (dossierId: string) => void
 }
 
 type DocumentStore = DocumentStoreState & DocumentStoreActions
 
 let unsubscribeDocumentChanges: (() => void) | null = null
 let unsubscribeAvailabilityChanges: (() => void) | null = null
+let unsubscribeExtractProgress: (() => void) | null = null
 
 function metadataMatches(left: DocumentRecord, right: DocumentRecord): boolean {
   return (
@@ -215,7 +235,12 @@ async function loadDocuments(
 function ensureEventSubscriptions(): void {
   const api = getOrdicabApi()
 
-  if (!api || unsubscribeDocumentChanges || unsubscribeAvailabilityChanges) {
+  if (
+    !api ||
+    unsubscribeDocumentChanges ||
+    unsubscribeAvailabilityChanges ||
+    unsubscribeExtractProgress
+  ) {
     return
   }
 
@@ -226,6 +251,35 @@ function ensureEventSubscriptions(): void {
 
     void loadDocuments({ dossierId: event.dossierId })
   })
+
+  unsubscribeExtractProgress = api.document.onExtractProgress(
+    (event: DocumentExtractProgressEvent) => {
+      useDocumentStore.setState((state) => {
+        const byDocument = state.contentStatesByDossierId[event.dossierId]
+        const current = byDocument?.[event.documentId]
+        if (!current || current.status !== 'loading') {
+          return state
+        }
+        return {
+          ...state,
+          contentStatesByDossierId: {
+            ...state.contentStatesByDossierId,
+            [event.dossierId]: {
+              ...byDocument,
+              [event.documentId]: {
+                ...current,
+                progress: {
+                  phase: event.phase,
+                  page: event.page,
+                  totalPages: event.totalPages
+                }
+              }
+            }
+          }
+        }
+      })
+    }
+  )
 
   unsubscribeAvailabilityChanges = api.document.onAvailabilityChanged(
     (event: DocumentAvailabilityEvent) => {
@@ -270,6 +324,7 @@ export const useDocumentStore = create<DocumentStore>()(
     previewStatesByDossierId: {},
     contentStatesByDossierId: {},
     activePreviewDocumentIdByDossierId: {},
+    semanticSearchStatesByDossierId: {},
     activeDossierId: null,
     isLoading: false,
     isSavingMetadata: false,
@@ -341,6 +396,11 @@ export const useDocumentStore = create<DocumentStore>()(
         unsubscribeAvailabilityChanges = null
       }
 
+      if (unsubscribeExtractProgress) {
+        unsubscribeExtractProgress()
+        unsubscribeExtractProgress = null
+      }
+
       set((state) => {
         state.activeDossierId = null
         state.isLoading = false
@@ -349,6 +409,7 @@ export const useDocumentStore = create<DocumentStore>()(
         state.previewStatesByDossierId = {}
         state.contentStatesByDossierId = {}
         state.activePreviewDocumentIdByDossierId = {}
+        state.semanticSearchStatesByDossierId = {}
       })
     },
     openPreview: async (input) => {
@@ -437,7 +498,8 @@ export const useDocumentStore = create<DocumentStore>()(
           [input.documentId]: {
             status: 'loading',
             content: null,
-            error: null
+            error: null,
+            progress: null
           }
         }
       })
@@ -451,12 +513,14 @@ export const useDocumentStore = create<DocumentStore>()(
             ? {
                 status: 'ready',
                 content: result.data,
-                error: null
+                error: null,
+                progress: null
               }
             : {
                 status: 'error',
                 content: null,
-                error: result.error
+                error: result.error,
+                progress: null
               }
         }
 
@@ -467,10 +531,11 @@ export const useDocumentStore = create<DocumentStore>()(
 
         const documents = state.documentsByDossierId[input.dossierId] ?? []
         const documentIndex = documents.findIndex((document) => document.id === input.documentId)
+        const current = documentIndex >= 0 ? documents[documentIndex] : undefined
 
-        if (documentIndex >= 0) {
+        if (current) {
           documents[documentIndex] = {
-            ...documents[documentIndex],
+            ...current,
             textExtraction: result.data.status
           }
         }
@@ -482,15 +547,9 @@ export const useDocumentStore = create<DocumentStore>()(
     },
     extractPendingContent: async ({ dossierId }) => {
       const documents = get().documentsByDossierId[dossierId] ?? []
-      // DEBUG: show what the store knows about pending documents
-      console.log('[extractPendingContent] total docs in store:', documents.length)
       const pendingDocuments = documents.filter(
         (document) =>
           document.textExtraction.isExtractable && document.textExtraction.state !== 'extracted'
-      )
-      console.log(
-        '[extractPendingContent] pending docs:',
-        pendingDocuments.map((d) => ({ id: d.id, state: d.textExtraction.state }))
       )
 
       let succeeded = 0
@@ -586,6 +645,51 @@ export const useDocumentStore = create<DocumentStore>()(
       }
 
       await api.document.openFile(input)
+    },
+
+    runSemanticSearch: async ({ dossierId, query, topK }) => {
+      const trimmed = query.trim()
+      if (!trimmed) return
+
+      set((state) => {
+        state.semanticSearchStatesByDossierId[dossierId] = {
+          status: 'loading',
+          query: trimmed,
+          results: null,
+          error: null
+        }
+      })
+
+      const api = getOrdicabApi()
+      if (!api) {
+        set((state) => {
+          state.semanticSearchStatesByDossierId[dossierId] = {
+            status: 'error',
+            query: trimmed,
+            results: null,
+            error: IPC_NOT_AVAILABLE_ERROR
+          }
+        })
+        return
+      }
+
+      const result = await api.document.semanticSearch({ dossierId, query: trimmed, topK })
+
+      set((state) => {
+        // Drop the outcome if a newer query has started since we began.
+        const current = state.semanticSearchStatesByDossierId[dossierId]
+        if (!current || current.query !== trimmed) return
+
+        state.semanticSearchStatesByDossierId[dossierId] = result.success
+          ? { status: 'ready', query: trimmed, results: result.data, error: null }
+          : { status: 'error', query: trimmed, results: null, error: result.error }
+      })
+    },
+
+    clearSemanticSearch: (dossierId) => {
+      set((state) => {
+        delete state.semanticSearchStatesByDossierId[dossierId]
+      })
     }
   }))
 )

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS, IpcErrorCode, type ContactRecord, type IpcResult } from '@shared/types'
 
 import { type DocumentService, DocumentServiceError } from '../../services/domain/documentService'
+import { createContactService } from '../../services/domain/contactService'
 import { registerContactHandlers } from '../contactHandler'
 
 const tempDirs: string[] = []
@@ -62,7 +63,7 @@ describe('contactHandler', () => {
 
     registerContactHandlers({
       ipcMain: harness.ipcMain,
-      documentService
+      contactService: createContactService({ documentService })
     })
 
     await expect(
@@ -108,7 +109,7 @@ describe('contactHandler', () => {
 
     registerContactHandlers({
       ipcMain: harness.ipcMain,
-      documentService
+      contactService: createContactService({ documentService })
     })
 
     const created = (await harness.invoke(IPC_CHANNELS.contact.upsert, {
@@ -209,7 +210,7 @@ describe('contactHandler', () => {
 
     registerContactHandlers({
       ipcMain: harness.ipcMain,
-      documentService
+      contactService: createContactService({ documentService })
     })
 
     await expect(
@@ -246,7 +247,7 @@ describe('contactHandler', () => {
 
     registerContactHandlers({
       ipcMain: harness.ipcMain,
-      documentService
+      contactService: createContactService({ documentService })
     })
 
     await expect(

@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import type { DocumentMetadataUpdate, DocumentRecord } from '@shared/types'
 
 import { AlertBanner, Button, Field, Input, Textarea } from '@renderer/components/ui'
-import { documentMetadataDraftSchema } from '@renderer/schemas'
+import { documentMetadataDraftSchema } from '@shared/validation'
 import { useToast } from '@renderer/contexts/ToastContext'
 
 interface DocumentMetadataPanelProps {

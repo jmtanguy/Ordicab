@@ -460,6 +460,7 @@ function PreviewBody({
 
   if (shouldShowExtractedText) {
     if (contentState.status === 'loading') {
+      const progress = contentState.progress
       return (
         <div className="flex min-h-full flex-col items-center justify-center gap-4 text-center text-sm text-slate-300">
           <div className="relative h-12 w-12">
@@ -469,6 +470,16 @@ function PreviewBody({
           <div className="space-y-2">
             <p className="font-medium text-slate-100">{t('documents.extraction_loading_title')}</p>
             <p>{t('documents.extraction_loading_body', { name: activeDocument.filename })}</p>
+            {progress && progress.totalPages > 0 ? (
+              <p className="text-xs text-slate-400">
+                {t(
+                  progress.phase === 'ocr'
+                    ? 'documents.extraction_progress_ocr'
+                    : 'documents.extraction_progress_embedded',
+                  { page: progress.page, total: progress.totalPages }
+                )}
+              </p>
+            ) : null}
           </div>
         </div>
       )
@@ -552,7 +563,7 @@ export function DocumentPreviewPanel({
   previewState: DocumentPreviewState
   contentState: DocumentContentState
   onOpen: () => void
-  onExtractContent?: (forceRefresh: boolean) => void
+  onExtractContent?: (forceRefresh: boolean, readCacheOnly?: boolean) => void
 }): React.JSX.Element {
   const { t, i18n } = useTranslation()
   const preview = previewState.preview
@@ -647,7 +658,7 @@ export function DocumentPreviewPanel({
                 }
 
                 setExtractedTextDocumentId(activeDocumentId)
-                onExtractContent?.(false)
+                onExtractContent?.(false, true)
               }}
             >
               {t('documents.extraction_show_text_action')}

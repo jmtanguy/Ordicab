@@ -42,8 +42,8 @@ const contactCustomFieldsSchema = z
     (value) =>
       Object.fromEntries(
         Object.entries(value ?? {})
-          .map(([key, entryValue]) => [labelToKey(key), entryValue.trim()])
-          .filter(([, entryValue]) => entryValue.length > 0)
+          .map(([key, entryValue]) => [labelToKey(key), (entryValue ?? '').trim()])
+          .filter(([, entryValue]) => (entryValue ?? '').length > 0)
       ) as ContactManagedFieldValues
   )
 

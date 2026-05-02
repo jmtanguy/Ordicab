@@ -16,9 +16,9 @@ import { DocumentMetadataPanel } from './DocumentMetadataPanel'
 import { DocumentPreviewPanel } from './DocumentPreviewPanel'
 
 const FOLDER_ROW_HEIGHT = 44
-const FILE_ROW_HEIGHT = 64
-const FILE_ROW_HEIGHT_WITH_ONE_META = 88
-const FILE_ROW_HEIGHT_WITH_BOTH_META = 112
+const FILE_ROW_HEIGHT = 84
+const FILE_ROW_HEIGHT_WITH_ONE_META = 108
+const FILE_ROW_HEIGHT_WITH_BOTH_META = 132
 const MIN_VIEWPORT_HEIGHT = 420
 const SSR_INITIAL_ROW_COUNT = 16
 const INDENT_PX = 16
@@ -60,6 +60,10 @@ interface FileNode {
 }
 
 type TreeNode = FolderNode | FileNode
+
+function getTreeNodeKey(node: TreeNode): string {
+  return node.kind === 'folder' ? `folder:${node.path}` : `file:${node.document.id}`
+}
 
 function buildFolderMap(
   documents: DocumentRecord[]
@@ -369,6 +373,11 @@ export function DocumentList({
 
       return node.kind === 'folder' ? FOLDER_ROW_HEIGHT : getFileRowHeight(node.document)
     },
+    getItemKey: (index) => {
+      const node = flatNodes[index]
+
+      return node ? getTreeNodeKey(node) : index
+    },
     getScrollElement: () => parentRef.current,
     overscan: 6,
     initialRect: { height: MIN_VIEWPORT_HEIGHT, width: 0 }
@@ -380,7 +389,7 @@ export function DocumentList({
           .slice(0, Math.min(flatNodes.length, SSR_INITIAL_ROW_COUNT))
           .map((node, index) => ({
             index,
-            key: node.kind === 'folder' ? `folder:${node.path}` : node.document.id,
+            key: getTreeNodeKey(node),
             size: node.kind === 'folder' ? FOLDER_ROW_HEIGHT : getFileRowHeight(node.document),
             start:
               flatNodes
@@ -751,12 +760,14 @@ export function DocumentList({
 
                   return (
                     <button
-                      key={`folder:${node.path}`}
+                      key={getTreeNodeKey(node)}
+                      ref={(element) => rowVirtualizer.measureElement(element)}
+                      data-index={virtualItem.index}
                       data-folder-row={node.path}
                       type="button"
                       className="absolute inset-x-0 flex w-full cursor-pointer items-center gap-2 border-b border-white/6 pr-4 text-left last:border-b-0 hover:bg-white/3"
                       style={{
-                        height: FOLDER_ROW_HEIGHT,
+                        minHeight: FOLDER_ROW_HEIGHT,
                         transform: `translateY(${virtualItem.start}px)`,
                         paddingLeft: `${16 + node.depth * INDENT_PX}px`
                       }}
@@ -800,13 +811,15 @@ export function DocumentList({
 
                 return (
                   <article
-                    key={node.document.id}
+                    key={getTreeNodeKey(node)}
+                    ref={(element) => rowVirtualizer.measureElement(element)}
+                    data-index={virtualItem.index}
                     data-document-row={node.document.id}
-                    className={`absolute inset-x-0 border-b border-white/6 pt-3 pr-4 last:border-b-0 ${
+                    className={`absolute inset-x-0 border-b border-white/6 py-3 pr-4 last:border-b-0 ${
                       isPreviewActive ? 'bg-aurora/8' : ''
                     }`}
                     style={{
-                      height: virtualItem.size,
+                      minHeight: getFileRowHeight(node.document),
                       transform: `translateY(${virtualItem.start}px)`,
                       paddingLeft: `${16 + node.depth * INDENT_PX}px`
                     }}
@@ -858,14 +871,16 @@ export function DocumentList({
                     <div className="mt-1 flex flex-wrap gap-1">
                       {[...node.document.tags]
                         .sort((a, b) => a.localeCompare(b))
-                        .map((tag) => (
-                          <span
-                            key={tag}
-                            className="rounded-full border border-aurora/25 bg-aurora/10 px-2 py-0.5 text-[11px] text-aurora-soft"
-                          >
-                            {tag}
-                          </span>
-                        ))}
+                        .map((tag) => {
+                          return (
+                            <span
+                              key={tag}
+                              className="rounded-full border border-aurora/25 bg-aurora/10 px-2 py-0.5 text-[11px] text-aurora-soft"
+                            >
+                              {tag}
+                            </span>
+                          )
+                        })}
                       <span
                         className={`rounded-full border px-2 py-0.5 text-[11px] ${getExtractionBadgeTone(
                           node.document.textExtraction.state
@@ -892,12 +907,13 @@ export function DocumentList({
                 })
               }
             }}
-            onExtractContent={(forceRefresh) => {
+            onExtractContent={(forceRefresh, readCacheOnly) => {
               if (activePreviewDocument) {
                 void handleExtractContent({
                   dossierId: activePreviewDocument.dossierId,
                   documentId: activePreviewDocument.id,
-                  forceRefresh
+                  forceRefresh,
+                  readCacheOnly
                 })
               }
             }}

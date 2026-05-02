@@ -6,11 +6,11 @@ import {
 } from '@shared/templateRoutines'
 import {
   getManagedFieldKey,
-  LEGACY_CONTACT_MANAGED_FIELDS,
   normalizeManagedFieldsConfig,
   type EntityManagedFieldsConfig
 } from '@shared/managedFields'
-import type { Profession } from '@renderer/schemas'
+import { getLegacyContactManagedFields } from '@shared/professionDefaults'
+import type { Profession } from '@shared/validation'
 import { roleToTagKey } from '../dossiers/rolePresets'
 
 export const TAG_GROUPS = TEMPLATE_ROUTINE_GROUPS
@@ -93,7 +93,7 @@ const CONTACT_ROLE_FIELDS: Array<{
 ]
 
 const MANAGED_CONTACT_FIELD_KEYS = new Set(
-  LEGACY_CONTACT_MANAGED_FIELDS.map((field) => getManagedFieldKey(field))
+  getLegacyContactManagedFields().map((field) => getManagedFieldKey(field))
 )
 const CONTACT_FIELD_ALIAS_BY_KEY = new Map(CONTACT_ROLE_FIELD_ALIASES.map(({ en, fr }) => [en, fr]))
 const CONTACT_IDENTITY_FIELD_KEYS = new Set([

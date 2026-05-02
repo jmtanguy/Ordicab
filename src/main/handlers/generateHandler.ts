@@ -20,7 +20,7 @@ import {
   type GeneratePreviewInput,
   type SaveGeneratedDocumentInput,
   type SelectOutputPathInput
-} from '@renderer/schemas'
+} from '@shared/validation'
 import { type GenerateService, GenerateServiceError } from '../services/domain/generateService'
 
 interface IpcMainLike {

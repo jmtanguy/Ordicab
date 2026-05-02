@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { IPC_CHANNELS, IpcErrorCode, type IpcResult, type TemplateRecord } from '@shared/types'
 
+import { createTemplateService } from '../../services/domain/templateService'
 import { registerTemplateHandlers } from '../templateHandler'
 
 const tempDirs: string[] = []
@@ -65,7 +66,7 @@ describe('templateHandler', () => {
 
     registerTemplateHandlers({
       ipcMain: harness.ipcMain,
-      domainService
+      templateService: createTemplateService({ domainService })
     })
 
     await expect(harness.invoke(IPC_CHANNELS.template.list)).resolves.toEqual({
@@ -89,7 +90,7 @@ describe('templateHandler', () => {
 
     registerTemplateHandlers({
       ipcMain: harness.ipcMain,
-      domainService
+      templateService: createTemplateService({ domainService })
     })
 
     const created = (await harness.invoke(IPC_CHANNELS.template.create, {
@@ -151,7 +152,7 @@ describe('templateHandler', () => {
 
     registerTemplateHandlers({
       ipcMain: harness.ipcMain,
-      domainService
+      templateService: createTemplateService({ domainService })
     })
 
     const created = (await harness.invoke(IPC_CHANNELS.template.create, {
@@ -215,7 +216,7 @@ describe('templateHandler', () => {
 
     registerTemplateHandlers({
       ipcMain: harness.ipcMain,
-      domainService,
+      templateService: createTemplateService({ domainService }),
       showOpenDialog,
       openPath
     })
@@ -295,7 +296,7 @@ describe('templateHandler', () => {
 
     registerTemplateHandlers({
       ipcMain: harness.ipcMain,
-      domainService,
+      templateService: createTemplateService({ domainService }),
       showOpenDialog,
       openPath
     })
@@ -338,7 +339,7 @@ describe('templateHandler', () => {
 
     registerTemplateHandlers({
       ipcMain: harness.ipcMain,
-      domainService,
+      templateService: createTemplateService({ domainService }),
       showOpenDialog,
       openPath
     })
@@ -392,7 +393,7 @@ describe('templateHandler', () => {
 
     registerTemplateHandlers({
       ipcMain: harness.ipcMain,
-      domainService
+      templateService: createTemplateService({ domainService })
     })
 
     await expect(harness.invoke(IPC_CHANNELS.template.list)).resolves.toEqual({
@@ -415,7 +416,10 @@ describe('templateHandler', () => {
       }))
     }
 
-    registerTemplateHandlers({ ipcMain: harness.ipcMain, domainService })
+    registerTemplateHandlers({
+      ipcMain: harness.ipcMain,
+      templateService: createTemplateService({ domainService })
+    })
 
     const created = (await harness.invoke(IPC_CHANNELS.template.create, {
       name: 'Courrier',
@@ -465,13 +469,24 @@ describe('templateHandler', () => {
       }))
     }
 
-    registerTemplateHandlers({ ipcMain: harness.ipcMain, domainService })
+    const templateService = createTemplateService({ domainService })
+    registerTemplateHandlers({
+      ipcMain: harness.ipcMain,
+      templateService
+    })
+
+    // Migration is a one-shot boot routine — container.ts runs it on
+    // startup. Tests trigger it explicitly so the IPC list path stays a
+    // pure read.
+    await expect(templateService.migrateLegacyTemplatesIfNeeded()).resolves.toEqual({
+      migrated: true
+    })
 
     const listed = (await harness.invoke(IPC_CHANNELS.template.list)) as IpcResult<TemplateRecord[]>
 
     expect(listed.success).toBe(true)
     expect(listed.success && listed.data).toHaveLength(1)
-    expect(listed.success && 'content' in listed.data[0]).toBe(false)
+    expect(listed.success && 'content' in listed.data[0]!).toBe(false)
 
     // Content offloaded to separate file
     const htmlPath = join(domainPath, '.ordicab', 'templates', `${legacyId}.html`)
@@ -484,6 +499,11 @@ describe('templateHandler', () => {
     expect(stored[0]).not.toHaveProperty('content')
 
     // Macros extracted from legacy inline content during migration
-    expect(stored[0].macros).toEqual(['dossier.name'])
+    expect(stored[0]!.macros).toEqual(['dossier.name'])
+
+    // Subsequent invocations are idempotent no-ops.
+    await expect(templateService.migrateLegacyTemplatesIfNeeded()).resolves.toEqual({
+      migrated: false
+    })
   })
 })

@@ -77,7 +77,8 @@ describe('documentStore', () => {
         onAvailabilityChanged: (listener) => {
           availabilityListener = listener
           return unsubscribeAvailability
-        }
+        },
+        onExtractProgress: vi.fn(() => vi.fn())
       }
     } as unknown as OrdicabAPI
 
@@ -142,7 +143,8 @@ describe('documentStore', () => {
         startWatching: vi.fn(),
         stopWatching: vi.fn(),
         onDidChange: vi.fn(() => vi.fn()),
-        onAvailabilityChanged: vi.fn(() => vi.fn())
+        onAvailabilityChanged: vi.fn(() => vi.fn()),
+        onExtractProgress: vi.fn(() => vi.fn())
       }
     } as unknown as OrdicabAPI
 
@@ -167,7 +169,8 @@ describe('documentStore', () => {
         startWatching: vi.fn(),
         stopWatching: vi.fn(),
         onDidChange: vi.fn(() => vi.fn()),
-        onAvailabilityChanged: vi.fn(() => vi.fn())
+        onAvailabilityChanged: vi.fn(() => vi.fn()),
+        onExtractProgress: vi.fn(() => vi.fn())
       }
     } as unknown as OrdicabAPI
 
@@ -224,7 +227,8 @@ describe('documentStore', () => {
           changeListener = listener
           return vi.fn()
         },
-        onAvailabilityChanged: vi.fn(() => vi.fn())
+        onAvailabilityChanged: vi.fn(() => vi.fn()),
+        onExtractProgress: vi.fn(() => vi.fn())
       }
     } as unknown as OrdicabAPI
 
@@ -285,7 +289,8 @@ describe('documentStore', () => {
         stopWatching: vi.fn(),
         openFile: vi.fn(),
         onDidChange: vi.fn(() => vi.fn()),
-        onAvailabilityChanged: vi.fn(() => vi.fn())
+        onAvailabilityChanged: vi.fn(() => vi.fn()),
+        onExtractProgress: vi.fn(() => vi.fn())
       }
     } as unknown as OrdicabAPI
 
@@ -303,7 +308,8 @@ describe('documentStore', () => {
     expect(useDocumentStore.getState().contentStatesByDossierId['dos-1']?.['letter.txt']).toEqual({
       status: 'ready',
       content: extractedContent,
-      error: null
+      error: null,
+      progress: null
     })
     expect(useDocumentStore.getState().documentsByDossierId['dos-1']?.[0]?.textExtraction).toEqual({
       state: 'extracted',
@@ -341,7 +347,8 @@ describe('documentStore', () => {
         stopWatching: vi.fn(),
         openFile: vi.fn(),
         onDidChange: vi.fn(() => vi.fn()),
-        onAvailabilityChanged: vi.fn(() => vi.fn())
+        onAvailabilityChanged: vi.fn(() => vi.fn()),
+        onExtractProgress: vi.fn(() => vi.fn())
       }
     } as unknown as OrdicabAPI
 
@@ -368,7 +375,8 @@ describe('documentStore', () => {
     expect(useDocumentStore.getState().contentStatesByDossierId['dos-1']?.['letter.txt']).toEqual({
       status: 'ready',
       content: refreshedExtractedContent,
-      error: null
+      error: null,
+      progress: null
     })
   })
 
@@ -386,7 +394,8 @@ describe('documentStore', () => {
         startWatching: vi.fn(),
         stopWatching: vi.fn(),
         onDidChange: vi.fn(() => vi.fn()),
-        onAvailabilityChanged: vi.fn(() => vi.fn())
+        onAvailabilityChanged: vi.fn(() => vi.fn()),
+        onExtractProgress: vi.fn(() => vi.fn())
       }
     } as unknown as OrdicabAPI
 
@@ -421,7 +430,8 @@ describe('documentStore', () => {
         startWatching: vi.fn(),
         stopWatching: vi.fn(),
         onDidChange: vi.fn(() => vi.fn()),
-        onAvailabilityChanged: vi.fn(() => vi.fn())
+        onAvailabilityChanged: vi.fn(() => vi.fn()),
+        onExtractProgress: vi.fn(() => vi.fn())
       }
     } as unknown as OrdicabAPI
 
@@ -469,7 +479,8 @@ describe('documentStore', () => {
         startWatching: vi.fn(),
         stopWatching: vi.fn(),
         onDidChange: vi.fn(() => vi.fn()),
-        onAvailabilityChanged: vi.fn(() => vi.fn())
+        onAvailabilityChanged: vi.fn(() => vi.fn()),
+        onExtractProgress: vi.fn(() => vi.fn())
       }
     } as unknown as OrdicabAPI
 
@@ -554,7 +565,8 @@ describe('documentStore', () => {
         startWatching: vi.fn(),
         stopWatching: vi.fn(),
         onDidChange: vi.fn(() => vi.fn()),
-        onAvailabilityChanged: vi.fn(() => vi.fn())
+        onAvailabilityChanged: vi.fn(() => vi.fn()),
+        onExtractProgress: vi.fn(() => vi.fn())
       }
     } as unknown as OrdicabAPI
 
@@ -612,7 +624,8 @@ describe('documentStore', () => {
         })),
         stopWatching: vi.fn(async () => ({ success: true as const, data: null })),
         onDidChange: vi.fn(() => vi.fn()),
-        onAvailabilityChanged: vi.fn(() => vi.fn())
+        onAvailabilityChanged: vi.fn(() => vi.fn()),
+        onExtractProgress: vi.fn(() => vi.fn())
       }
     } as unknown as OrdicabAPI
 
@@ -627,5 +640,93 @@ describe('documentStore', () => {
 
     expect(useDocumentStore.getState().previewStatesByDossierId).toEqual({})
     expect(useDocumentStore.getState().activePreviewDocumentIdByDossierId).toEqual({})
+  })
+
+  describe('runSemanticSearch', () => {
+    it('stores results on success and keeps the trimmed query', async () => {
+      const semanticSearch = vi.fn(async () => ({
+        success: true as const,
+        data: {
+          dossierId: 'dos-1',
+          query: 'contract term',
+          hits: [
+            {
+              documentId: 'a.pdf',
+              filename: 'a.pdf',
+              charStart: 0,
+              charEnd: 10,
+              score: 0.9,
+              snippet: 'match'
+            }
+          ]
+        }
+      }))
+      ;(globalThis as MutableGlobal).ordicabAPI = {
+        document: { semanticSearch }
+      } as unknown as OrdicabAPI
+
+      await useDocumentStore
+        .getState()
+        .runSemanticSearch({ dossierId: 'dos-1', query: '  contract term  ', topK: 5 })
+
+      expect(semanticSearch).toHaveBeenCalledWith({
+        dossierId: 'dos-1',
+        query: 'contract term',
+        topK: 5
+      })
+      const entry = useDocumentStore.getState().semanticSearchStatesByDossierId['dos-1']
+      expect(entry?.status).toBe('ready')
+      expect(entry?.query).toBe('contract term')
+      expect(entry?.results?.hits).toHaveLength(1)
+    })
+
+    it('ignores empty or whitespace-only queries', async () => {
+      const semanticSearch = vi.fn()
+      ;(globalThis as MutableGlobal).ordicabAPI = {
+        document: { semanticSearch }
+      } as unknown as OrdicabAPI
+
+      await useDocumentStore.getState().runSemanticSearch({ dossierId: 'dos-1', query: '   ' })
+
+      expect(semanticSearch).not.toHaveBeenCalled()
+      expect(useDocumentStore.getState().semanticSearchStatesByDossierId['dos-1']).toBeUndefined()
+    })
+
+    it('records error state when the service rejects the request', async () => {
+      const semanticSearch = vi.fn(async () => ({
+        success: false as const,
+        error: 'search unavailable',
+        code: IpcErrorCode.UNKNOWN
+      }))
+      ;(globalThis as MutableGlobal).ordicabAPI = {
+        document: { semanticSearch }
+      } as unknown as OrdicabAPI
+
+      await useDocumentStore.getState().runSemanticSearch({ dossierId: 'dos-1', query: 'anything' })
+
+      const entry = useDocumentStore.getState().semanticSearchStatesByDossierId['dos-1']
+      expect(entry?.status).toBe('error')
+      expect(entry?.error).toBe('search unavailable')
+    })
+
+    it('clearSemanticSearch removes the entry for the dossier', async () => {
+      const semanticSearch = vi.fn(async () => ({
+        success: true as const,
+        data: {
+          dossierId: 'dos-1',
+          query: 'q',
+          hits: []
+        }
+      }))
+      ;(globalThis as MutableGlobal).ordicabAPI = {
+        document: { semanticSearch }
+      } as unknown as OrdicabAPI
+
+      await useDocumentStore.getState().runSemanticSearch({ dossierId: 'dos-1', query: 'q' })
+      expect(useDocumentStore.getState().semanticSearchStatesByDossierId['dos-1']).toBeDefined()
+
+      useDocumentStore.getState().clearSemanticSearch('dos-1')
+      expect(useDocumentStore.getState().semanticSearchStatesByDossierId['dos-1']).toBeUndefined()
+    })
   })
 })

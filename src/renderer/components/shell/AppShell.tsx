@@ -22,7 +22,6 @@ import {
   useTemplateStore,
   useUiStore
 } from '@renderer/stores'
-import { getOrdicabApi } from '@renderer/stores/ipc'
 
 import { AuroraBackground } from './AuroraBackground'
 import { TopNav, type TopNavTab } from './TopNav'
@@ -69,7 +68,8 @@ const IDLE_DOCUMENT_PREVIEW_STATE: DocumentPreviewState = {
 const IDLE_DOCUMENT_CONTENT_STATE: DocumentContentState = {
   status: 'idle',
   content: null,
-  error: null
+  error: null,
+  progress: null
 }
 const ORDICAB_WARNING_TIMEOUT_MS = 6_000
 
@@ -98,6 +98,9 @@ export default function AppShell(): React.JSX.Element {
   const closeDossierDetail = useUiStore((state) => state.closeDossierDetail)
   const openDossierDetail = useUiStore((state) => state.openDossierDetail)
   const persistLocale = useUiStore((state) => state.persistLocale)
+  const getEulaStatus = useUiStore((state) => state.getEulaStatus)
+  const acceptEula = useUiStore((state) => state.acceptEula)
+  const subscribeToOrdicabDataChanged = useUiStore((state) => state.subscribeToOrdicabDataChanged)
   const domainSnapshot = useDomainStore((state) => state.snapshot)
   const domainLoading = useDomainStore((state) => state.isLoading)
   const domainHasLoadedOnce = useDomainStore((state) => state.hasLoadedOnce)
@@ -185,17 +188,11 @@ export default function AppShell(): React.JSX.Element {
   }, [bootstrap])
 
   useEffect(() => {
-    const api = getOrdicabApi()
-
-    if (!api?.app?.eulaStatus) {
-      return
-    }
-
     let isCancelled = false
 
     void (async () => {
       const locale = normalizeAppLocale(i18n.resolvedLanguage)
-      const status = await api.app.eulaStatus({ locale })
+      const status = await getEulaStatus(locale)
       if (isCancelled) {
         return
       }
@@ -215,7 +212,7 @@ export default function AppShell(): React.JSX.Element {
     return () => {
       isCancelled = true
     }
-  }, [i18n.resolvedLanguage])
+  }, [i18n.resolvedLanguage, getEulaStatus])
 
   const refreshAndApplyDomainStatus = useCallback(async () => {
     const status = await refreshStatus()
@@ -308,12 +305,6 @@ export default function AppShell(): React.JSX.Element {
   }, [activeTab])
 
   useEffect(() => {
-    const api = getOrdicabApi()
-
-    if (!api) {
-      return
-    }
-
     const handleOrdicabDataChanged = async (event: OrdicabDataChangedEvent): Promise<void> => {
       if (event.type === 'contacts') {
         if (!event.dossierId) {
@@ -370,7 +361,7 @@ export default function AppShell(): React.JSX.Element {
       }
     }
 
-    return api.ordicab.onDataChanged((event) => {
+    return subscribeToOrdicabDataChanged((event) => {
       void handleOrdicabDataChanged(event)
     })
   }, [
@@ -380,7 +371,8 @@ export default function AppShell(): React.JSX.Element {
     loadDossiers,
     loadEntityProfile,
     loadTemplates,
-    showOrdicabValidationWarning
+    showOrdicabValidationWarning,
+    subscribeToOrdicabDataChanged
   ])
 
   const handleDomainSelection = useCallback(async () => {
@@ -408,15 +400,14 @@ export default function AppShell(): React.JSX.Element {
   )
 
   const handleAcceptEula = useCallback(async () => {
-    const api = getOrdicabApi()
-    if (!api?.app?.eulaAccept || !eulaVersion) {
+    if (!eulaVersion) {
       return
     }
 
     setIsAcceptingEula(true)
     setEulaError(null)
     const locale = normalizeAppLocale(i18n.resolvedLanguage)
-    const result = await api.app.eulaAccept({ version: eulaVersion, locale })
+    const result = await acceptEula({ version: eulaVersion, locale })
     setIsAcceptingEula(false)
 
     if (!result.success) {
@@ -426,7 +417,7 @@ export default function AppShell(): React.JSX.Element {
 
     setIsEulaRequired(result.data.required)
     setEulaContent(result.data.content)
-  }, [eulaVersion, i18n.resolvedLanguage])
+  }, [eulaVersion, i18n.resolvedLanguage, acceptEula])
 
   const handleOpenDossier = useCallback(
     async (id: string) => {

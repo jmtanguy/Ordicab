@@ -20,8 +20,8 @@ interface TemplateEditorProps {
   value: TemplateDraft
   template?: TemplateRecord | null
   preferredSourceType?: 'text' | 'docx'
-  /** Path of the Word file picked for creation but not yet saved. */
-  pendingDocxFilePath?: string | null
+  /** Basename of the Word file picked for creation but not yet saved. */
+  pendingDocxFileName?: string | null
   errors: TemplateFormErrors
   onCancel: () => void
   onChange: (field: keyof TemplateDraft, value: string) => void
@@ -37,7 +37,7 @@ export function TemplateEditor({
   value,
   template,
   preferredSourceType = 'text',
-  pendingDocxFilePath = null,
+  pendingDocxFileName = null,
   errors,
   onCancel,
   onChange,
@@ -50,10 +50,8 @@ export function TemplateEditor({
   const tagInsertRef = useRef<((tagPath: string) => void) | null>(null)
   const hasDocxSource = template?.hasDocxSource === true
   const isDocxCreationFlow = mode === 'create' && preferredSourceType === 'docx' && !hasDocxSource
-  const hasPickedFile = isDocxCreationFlow && pendingDocxFilePath !== null
-  const pickedFileName = pendingDocxFilePath
-    ? (pendingDocxFilePath.split('/').pop() ?? pendingDocxFilePath)
-    : null
+  const hasPickedFile = isDocxCreationFlow && pendingDocxFileName !== null
+  const pickedFileName = pendingDocxFileName ?? null
   const contentLabel =
     hasDocxSource || hasPickedFile
       ? t('templates.editor.contentLabelDocx')

@@ -226,6 +226,11 @@ export interface AiChatMessage {
   systemPrompt?: string
 }
 
+export interface AiReflectionMessage {
+  id: string
+  text: string
+}
+
 function toAiChatHistory(messages: AiChatMessage[]): AiChatHistoryEntry[] {
   return messages.flatMap((message) => {
     if (message.role !== 'user' && message.role !== 'assistant') return []
@@ -260,6 +265,9 @@ interface AiStoreState {
   activeDossierId: string | null
   /** ID of the assistant message currently being streamed (null when not streaming) */
   streamingMessageId: string | null
+  /** Live reasoning steps emitted between tool calls during the current command.
+   *  Cleared when the command completes — not persisted across turns. */
+  reflections: AiReflectionMessage[]
 }
 
 interface AiStoreActions {
@@ -287,6 +295,7 @@ interface AiStoreActions {
   clearMessages: () => void
   resetConversation: () => Promise<void>
   subscribeToTextTokens: () => () => void
+  subscribeToReflections: () => () => void
 }
 
 type AiStore = AiStoreState & AiStoreActions
@@ -315,6 +324,7 @@ export const useAiStore = create<AiStore>()(
     messages: [],
     activeDossierId: null,
     streamingMessageId: null,
+    reflections: [],
 
     loadSettings: async () => {
       const api = getOrdicabApi()
@@ -670,6 +680,7 @@ export const useAiStore = create<AiStore>()(
         state.lastContext = resolvedContext
         state.originalCommand = command
         state.streamingMessageId = null
+        state.reflections = []
         state.messages.push({ id: crypto.randomUUID(), role: 'user', text: command })
       })
 
@@ -695,12 +706,13 @@ export const useAiStore = create<AiStore>()(
             state.streamingMessageId = null
 
             const streamIdx = state.messages.findIndex((m) => m.id === actualStreamingId)
-            if (streamIdx !== -1) {
-              state.messages[streamIdx].text = data.feedback
-              state.messages[streamIdx].filePath = data.generatedFilePath
-              state.messages[streamIdx].userRequest = command
-              state.messages[streamIdx].executionTime = executionTime
-              state.messages[streamIdx].systemPrompt = data.debugContext
+            const streamMessage = streamIdx !== -1 ? state.messages[streamIdx] : undefined
+            if (streamMessage) {
+              streamMessage.text = data.feedback
+              streamMessage.filePath = data.generatedFilePath
+              streamMessage.userRequest = command
+              streamMessage.executionTime = executionTime
+              streamMessage.systemPrompt = data.debugContext
             } else {
               state.messages.push({
                 id: actualStreamingId,
@@ -771,6 +783,7 @@ export const useAiStore = create<AiStore>()(
         set((state) => {
           state.commandLoading = false
           state.streamingMessageId = null
+          state.reflections = []
         })
       }
     },
@@ -784,6 +797,7 @@ export const useAiStore = create<AiStore>()(
       set((state) => {
         state.commandLoading = false
         state.streamingMessageId = null
+        state.reflections = []
         // Remove any partial streaming placeholder that has no real content yet
         state.messages = state.messages.filter((m) => !(m.role === 'assistant' && m.text === ''))
       })
@@ -945,6 +959,32 @@ export const useAiStore = create<AiStore>()(
         }
         unsubscribe()
       }
+    },
+
+    subscribeToReflections: () => {
+      const api = getOrdicabApi()
+      if (!api) return () => undefined
+
+      return api.ai.onReflection((text: string) => {
+        const normalizedText = text.trim()
+        if (!normalizedText) return
+
+        set((state) => {
+          const lastReflection = state.reflections[state.reflections.length - 1]
+          if (lastReflection?.text.trim() === normalizedText) {
+            return
+          }
+
+          state.reflections.push({
+            id: crypto.randomUUID(),
+            text: normalizedText
+          })
+
+          if (state.reflections.length > 8) {
+            state.reflections.splice(0, state.reflections.length - 8)
+          }
+        })
+      })
     }
   }))
 )

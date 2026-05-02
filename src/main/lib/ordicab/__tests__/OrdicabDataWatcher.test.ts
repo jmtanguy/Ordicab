@@ -86,8 +86,8 @@ describe('OrdicabDataWatcher', () => {
 
     await watcher.watchDomain('/tmp/domain')
 
-    watchers[0].emit('change', '/tmp/domain/Client Alpha/.ordicab/contacts.json')
-    watchers[0].emit('change', '/tmp/domain/Client Alpha/.ordicab/dossier.json')
+    watchers[0]!.emit('change', '/tmp/domain/Client Alpha/.ordicab/contacts.json')
+    watchers[0]!.emit('change', '/tmp/domain/Client Alpha/.ordicab/dossier.json')
 
     await vi.advanceTimersByTimeAsync(499)
     expect(instructionsGenerator.generateDossier).not.toHaveBeenCalled()
@@ -126,7 +126,7 @@ describe('OrdicabDataWatcher', () => {
 
     await watcher.watchDomain('/tmp/domain')
 
-    watchers[0].emit('change', '/tmp/domain/.ordicab/templates.json')
+    watchers[0]!.emit('change', '/tmp/domain/.ordicab/templates.json')
 
     await vi.advanceTimersByTimeAsync(500)
     await Promise.resolve()
@@ -163,7 +163,7 @@ describe('OrdicabDataWatcher', () => {
 
     await watcher.watchDomain('/tmp/domain')
 
-    watchers[0].emit('add', '/tmp/domain/Client Alpha/.ordicab/dossier.json')
+    watchers[0]!.emit('add', '/tmp/domain/Client Alpha/.ordicab/dossier.json')
 
     await vi.advanceTimersByTimeAsync(500)
     await Promise.resolve()
@@ -200,7 +200,7 @@ describe('OrdicabDataWatcher', () => {
 
     await watcher.watchDomain('/tmp/domain')
 
-    watchers[0].emit('change', '/tmp/domain/.ordicab-delegated/inbox/intent-1.json')
+    watchers[0]!.emit('change', '/tmp/domain/.ordicab-delegated/inbox/intent-1.json')
 
     await vi.advanceTimersByTimeAsync(500)
     await Promise.resolve()
@@ -237,8 +237,8 @@ describe('OrdicabDataWatcher', () => {
 
     await watcher.watchDomain('/tmp/domain')
 
-    watchers[0].emit('change', '/tmp/domain/.ordicab/preferences.json')
-    watchers[0].emit('change', '/tmp/domain/Client Alpha/.ordicab/cache.json')
+    watchers[0]!.emit('change', '/tmp/domain/.ordicab/preferences.json')
+    watchers[0]!.emit('change', '/tmp/domain/Client Alpha/.ordicab/cache.json')
 
     await vi.advanceTimersByTimeAsync(500)
     await Promise.resolve()
@@ -275,7 +275,7 @@ describe('OrdicabDataWatcher', () => {
 
     await watcher.watchDomain('/tmp/domain')
 
-    watchers[0].emit('change', '/tmp/domain/Client Alpha/hearing-notes.txt')
+    watchers[0]!.emit('change', '/tmp/domain/Client Alpha/hearing-notes.txt')
 
     await vi.advanceTimersByTimeAsync(500)
     await Promise.resolve()
@@ -313,8 +313,8 @@ describe('OrdicabDataWatcher', () => {
 
     await watcher.watchDomain('/tmp/domain')
 
-    watchers[0].emit('change', '/tmp/domain/Client Alpha/.ordicab/contacts.json')
-    watchers[0].emit('change', '/tmp/domain/Client Alpha/.ordicab/contacts.json')
+    watchers[0]!.emit('change', '/tmp/domain/Client Alpha/.ordicab/contacts.json')
+    watchers[0]!.emit('change', '/tmp/domain/Client Alpha/.ordicab/contacts.json')
 
     await vi.advanceTimersByTimeAsync(500)
     await Promise.resolve()
@@ -357,8 +357,8 @@ describe('OrdicabDataWatcher', () => {
 
     await watcher.watchDomain('/tmp/domain')
 
-    watchers[0].emit('change', '/tmp/domain/Client Alpha/.ordicab/contacts.json')
-    watchers[0].emit('change', '/tmp/domain/.ordicab/templates.json')
+    watchers[0]!.emit('change', '/tmp/domain/Client Alpha/.ordicab/contacts.json')
+    watchers[0]!.emit('change', '/tmp/domain/.ordicab/templates.json')
 
     await vi.advanceTimersByTimeAsync(500)
     await Promise.resolve()
@@ -413,8 +413,8 @@ describe('OrdicabDataWatcher', () => {
 
     await watcher.watchDomain('/tmp/domain')
 
-    watchers[0].emit('error', new Error('watch failed'))
-    watchers[0].emit('change', '/tmp/domain/.ordicab/templates.json')
+    watchers[0]!.emit('error', new Error('watch failed'))
+    watchers[0]!.emit('change', '/tmp/domain/.ordicab/templates.json')
     await vi.advanceTimersByTimeAsync(500)
     await Promise.resolve()
 
@@ -471,9 +471,9 @@ describe('OrdicabDataWatcher', () => {
     await watcher.watchActiveDomain()
 
     expect(watchers).toHaveLength(2)
-    expect(watchers[0].close).toHaveBeenCalledTimes(1)
+    expect(watchers[0]!.close).toHaveBeenCalledTimes(1)
 
     await watcher.dispose()
-    expect(watchers[1].close).toHaveBeenCalledTimes(1)
+    expect(watchers[1]!.close).toHaveBeenCalledTimes(1)
   })
 })

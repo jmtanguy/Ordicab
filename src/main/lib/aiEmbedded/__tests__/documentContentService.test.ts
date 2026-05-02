@@ -10,6 +10,7 @@ import {
   extractStructuredOcrText,
   getDocumentContentCachePath,
   hasReadableOcrText,
+  isDocumentTextExtractable,
   normalizeExtractedText,
   resolveAutoDetectedRotation,
   scoreOcrText,
@@ -49,6 +50,15 @@ describe('documentContentService paragraph normalization', () => {
       text: 'Alpha line 1 Alpha line 2<NL>Beta paragraph',
       method: 'direct'
     })
+  })
+
+  it('treats common raster image formats as OCR extractable', () => {
+    expect(isDocumentTextExtractable('/dossier/scan.jpg')).toBe(true)
+    expect(isDocumentTextExtractable('/dossier/scan.jpeg')).toBe(true)
+    expect(isDocumentTextExtractable('/dossier/scan.png')).toBe(true)
+    expect(isDocumentTextExtractable('/dossier/scan.tif')).toBe(true)
+    expect(isDocumentTextExtractable('/dossier/scan.tiff')).toBe(true)
+    expect(isDocumentTextExtractable('/dossier/photo.gif')).toBe(false)
   })
 
   it('prefers structured OCR paragraphs over raw OCR text', () => {
@@ -191,5 +201,19 @@ describe('documentContentService paragraph normalization', () => {
     const cached = await readFile(cachePath, 'utf8')
     expect(cached).toContain('"name": "contract.docx"')
     expect(cached).toContain('"text": "One wrapped<NL>Two"')
+  })
+
+  it('uses the tesseract cache method when rewriting image OCR text', async () => {
+    const root = await createTempDir()
+    const filePath = join(root, 'scan.png')
+    const cacheDir = join(root, 'cache')
+    const cachePath = getDocumentContentCachePath(cacheDir, filePath)
+
+    await updateCachedDocumentText(filePath, cacheDir, 'Image OCR\n\nText')
+
+    const cached = await readFile(cachePath, 'utf8')
+    expect(cached).toContain('"name": "scan.png"')
+    expect(cached).toContain('"method": "tesseract"')
+    expect(cached).toContain('"text": "Image OCR<NL>Text"')
   })
 })

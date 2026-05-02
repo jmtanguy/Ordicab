@@ -23,11 +23,10 @@ import {
   type DocumentMetadataUpdate,
   type EntityProfileDraft,
   type GenerateDocumentInput
-} from '@renderer/schemas'
+} from '@shared/validation'
 import { GenerateServiceError, type GenerateService } from '../../services/domain/generateService'
 import { atomicWrite } from '../system/atomicWrite'
 import { pathExists } from '../system/domainState'
-import { extractStructuredDocumentAnalysis } from '../aiEmbedded/documentStructuredAnalysis'
 import {
   getDomainEntityPath,
   getDomainTemplatesPath,
@@ -607,7 +606,6 @@ export function createDelegatedAiActionExecutor(
           }
           // Return the full extracted payload here because delegated AI cannot
           // inspect in-memory state directly; it only sees the response file.
-          const analysis = extractStructuredDocumentAnalysis(result.text)
           return {
             documentId: payload.documentId,
             dossierId: payload.dossierId,
@@ -615,7 +613,6 @@ export function createDelegatedAiActionExecutor(
             method: result.method,
             textLength: result.text.length,
             text: result.text,
-            analysis,
             metadata: {
               description: doc?.description ?? null,
               tags: doc?.tags ?? []

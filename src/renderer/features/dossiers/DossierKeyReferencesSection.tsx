@@ -173,6 +173,7 @@ export function DossierKeyReferencesSection({
               ? t('dossiers.key_references_edit_action')
               : t('dossiers.key_references_add_action')
           }
+          onDismiss={() => setEditor(null)}
         >
           <div>
             <h3 className="text-lg font-semibold text-slate-50">

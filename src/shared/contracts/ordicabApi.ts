@@ -28,11 +28,14 @@ import type {
   DocxPreviewResult,
   DocumentAvailabilityEvent,
   DocumentChangeEvent,
+  DocumentExtractProgressEvent,
   DocumentPreview,
   DocumentWatchStatus,
   GeneratedDocumentResult,
   GeneratedDraftResult,
   OrdicabDataChangedEvent,
+  SemanticSearchQuery,
+  SemanticSearchResult,
   TemplateDocxSyncedEvent
 } from './documents'
 import type { IpcResult } from '../types/ipc'
@@ -133,9 +136,13 @@ export interface OrdicabAPI {
     onAvailabilityChanged: (
       listener: (event: DocumentAvailabilityEvent) => void
     ) => OrdicabEventUnsubscribe
+    onExtractProgress: (
+      listener: (event: DocumentExtractProgressEvent) => void
+    ) => OrdicabEventUnsubscribe
     saveMetadata: (input: DocumentMetadataUpdate) => Promise<IpcResult<DocumentRecord>>
     openFile: (input: DocumentPreviewInput) => Promise<IpcResult<null>>
     clearContentCache: (input: DossierScopedQuery) => Promise<IpcResult<null>>
+    semanticSearch: (input: SemanticSearchQuery) => Promise<IpcResult<SemanticSearchResult>>
   }
   ordicab: {
     onDataChanged: (listener: (event: OrdicabDataChangedEvent) => void) => OrdicabEventUnsubscribe
@@ -146,10 +153,10 @@ export interface OrdicabAPI {
     create: (input: TemplateDraft) => Promise<IpcResult<TemplateRecord>>
     update: (input: TemplateUpdate) => Promise<IpcResult<TemplateRecord>>
     delete: (input: TemplateDeleteInput) => Promise<IpcResult<null>>
-    pickDocxFile: () => Promise<IpcResult<{ filePath: string; html: string } | null>>
-    importDocx: (
-      input: TemplateDocxInput & { filePath?: string }
-    ) => Promise<IpcResult<TemplateRecord>>
+    pickDocxFile: () => Promise<
+      IpcResult<{ pickToken: string; fileName: string; html: string } | null>
+    >
+    importDocx: (input: TemplateDocxInput) => Promise<IpcResult<TemplateRecord>>
     openDocx: (input: TemplateDocxInput) => Promise<IpcResult<null>>
     removeDocx: (input: TemplateDocxInput) => Promise<IpcResult<TemplateRecord>>
     onDocxSynced: (listener: (event: TemplateDocxSyncedEvent) => void) => OrdicabEventUnsubscribe
@@ -180,6 +187,7 @@ export interface OrdicabAPI {
     resetConversation: () => Promise<IpcResult<null>>
     onIntentReceived: (listener: (event: InternalAiCommand) => void) => OrdicabEventUnsubscribe
     onTextToken: (listener: (token: string) => void) => OrdicabEventUnsubscribe
+    onReflection: (listener: (text: string) => void) => OrdicabEventUnsubscribe
   }
   updater: {
     startDownload: () => Promise<IpcResult<null>>

@@ -45,13 +45,15 @@ export const IPC_CHANNELS = {
     preview: 'document:preview',
     contentStatus: 'document:content-status',
     extractContent: 'document:extract-content',
+    extractProgress: 'document:extract-progress',
     clearContentCache: 'document:clear-content-cache',
     startWatching: 'document:watch:start',
     stopWatching: 'document:watch:stop',
     didChange: 'document:watch:changed',
     availabilityChanged: 'document:watch:availability',
     saveMetadata: 'document:metadata:save',
-    openFile: 'document:open-file'
+    openFile: 'document:open-file',
+    semanticSearch: 'document:semantic-search'
   },
   ordicab: {
     dataChanged: 'ordicab:data-changed'
@@ -89,6 +91,7 @@ export const IPC_CHANNELS = {
     resetConversation: 'ai:reset-conversation',
     intentReceived: 'ai:intent-received',
     textToken: 'ai:text-token',
+    reflection: 'ai:reflection',
     deleteApiKey: 'ai:delete-api-key',
     cloudProviderStatus: 'ai:cloud-provider-status'
   },

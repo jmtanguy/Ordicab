@@ -24,7 +24,7 @@ import {
   keyDateSchema,
   keyReferenceSchema,
   type DossierMetadataFile
-} from '@renderer/schemas'
+} from '@shared/validation'
 
 import {
   getDomainRegistryPath,

@@ -17,7 +17,8 @@ export const BATCHABLE_ACTION_TOOL_NAMES = new Set([
   'dossier_delete_key_date',
   'dossier_upsert_key_reference',
   'dossier_delete_key_reference',
-  'document_analyze'
+  'document_analyze',
+  'document_metadata_save'
 ])
 
 /**
@@ -30,6 +31,8 @@ export const STALE_TOOL_NAMES_AFTER_ACTION: Partial<Record<string, string[]>> = 
   contact_delete: ['contact_lookup', 'contact_get'],
   document_generate: ['document_list'],
   document_metadata_save: ['document_list', 'document_get'],
+  document_metadata_batch: ['document_list', 'document_get'],
+  document_summary_batch: ['document_list', 'document_get'],
   document_analyze: ['document_list', 'document_get'],
   document_relocate: ['document_list'],
   dossier_select: ['contact_lookup', 'contact_get', 'document_list'],
@@ -150,16 +153,18 @@ export function buildDataTools(
     }),
     document_search: tool({
       description:
-        'Search the pre-extracted text of all documents in a dossier using a natural language query. ' +
-        'Returns the most relevant text excerpts (chunks) from matching documents, each tagged with its source document ID and filename. ' +
+        'Hybrid search over the pre-extracted text of all documents in a dossier: combines exact substring matches with semantic (embedding) similarity, then returns the best-matching excerpts ranked by confidence. ' +
+        'Each match includes: excerpt, score (higher is better), matchType ("exact" for literal string hits, "semantic" for vector similarity), and document info. ' +
+        'Exact matches score ≥ 1 and always rank above semantic matches. Use matchType + score to judge how trustworthy a hit is. ' +
         'Use this tool whenever the user asks about dossier CONTENT: demands, claims, facts, amounts, dates, positions, history, or any specific information. ' +
         'You MUST call this tool (or document_analyze for a single document) before answering content questions — never answer from memory. ' +
         'QUERY EXPANSION REQUIRED: for any content question, call this tool 2–4 times with DIFFERENT query strings — ' +
         'one per semantic angle (legal concept, party name, synonyms, document type). ' +
+        'Because semantic search handles paraphrase well, vary wording across calls (e.g., "pension alimentaire" vs "contribution à l\'entretien") to catch both verbatim and reformulated passages. ' +
         'NEVER repeat the same query string across calls — it returns the same results and wastes a turn. ' +
         'Use known contact names and roles from the active context to craft targeted queries. ' +
         'Aggregate all returned excerpts before answering. ' +
-        'Only works for documents whose text has already been extracted via the Documents tab. ' +
+        'Only works for documents whose text has already been extracted and indexed via the Documents tab. ' +
         'If no excerpts are returned after all queries, say so — do NOT invent content.',
       inputSchema: z.object({
         query: z
@@ -344,6 +349,24 @@ export function buildBatchableActionTools(
         charEnd: z.number().optional().describe('Last character offset to return (inclusive).')
       }),
       execute: async (args) => execute('document_analyze', args as Record<string, unknown>)
+    }),
+    document_metadata_save: tool({
+      description:
+        'Save a description and/or tags for a document. ' +
+        'You MUST call this tool to persist metadata — do NOT describe the save in text. ' +
+        'If you do not have the documentId, call document_list first. ' +
+        'Generate a concise description (1-3 sentences) and at most 5 relevant tags from the document content. ' +
+        'When indexing multiple documents in a single turn, call this tool once per document and continue with the next one without waiting for confirmation.',
+      inputSchema: z.object({
+        documentId: z.string().describe('Document ID to update.'),
+        dossierId: z
+          .string()
+          .optional()
+          .describe('Target dossier ID. Omit to use the active dossier.'),
+        description: z.string().optional().describe('Short description of the document.'),
+        tags: z.array(z.string()).describe('List of tags for the document.')
+      }),
+      execute: async (args) => execute('document_metadata_save', args as Record<string, unknown>)
     })
   } as ToolMap
 }
@@ -365,7 +388,10 @@ export const terminalActionTools = {
   document_generate: tool({
     description:
       'Generate a document from a template for a dossier. ' +
-      'You MUST call this tool to trigger generation — do NOT describe the document as generated in text.',
+      'You MUST call this tool to trigger generation — do NOT describe the document as generated in text. ' +
+      'When the runtime returns a clarification listing missing fields with their template paths in backticks ' +
+      '(e.g. "Date d\'audience (`dossier.keyDate.audience.long`)"), the next call MUST reuse those EXACT paths ' +
+      'as `tagOverrides` keys.',
     inputSchema: z.object({
       dossierId: z.string().describe('Target dossier ID.'),
       templateId: z.string().describe('Template ID to use.'),
@@ -373,23 +399,51 @@ export const terminalActionTools = {
       tagOverrides: z
         .record(z.string(), z.string())
         .optional()
-        .describe('Override values for unresolved template tags.')
+        .describe(
+          'Override values for unresolved template tags. ' +
+            'Keys MUST be the exact template macro paths as returned by `template_list` (the `macros` array) ' +
+            'or as quoted in a previous clarification message — for example ' +
+            '`dossier.keyDate.audience.long`, `contact.juridiction.displayName`, `todayLong`. ' +
+            'Do NOT invent short keys (e.g. `dateDAudience`, `audience`) or use marker names ' +
+            '(e.g. `custom.dossier_1`); the runtime will silently drop any key that is not in the macros list.'
+        )
     })
   }),
-  document_metadata_save: tool({
+  document_metadata_batch: tool({
     description:
-      'Save a description and/or tags for a document. ' +
-      'You MUST call this tool to persist metadata — do NOT describe the save in text. ' +
-      'If you do not have the documentId, call document_list first. ' +
-      'Generate a concise description (1-3 sentences) and at most 5 relevant tags from the document content.',
+      'Process multiple documents in one shot to generate and persist their metadata (description + tags) without polluting the main conversation context. ' +
+      'Each document is handled by an isolated sub-LLM call with only that document text. ' +
+      'Use this whenever the user wants to "index", "organise", "generate metadata", or "tag all documents" of a dossier — even when no explicit list is provided. ' +
+      'When `documentIds` is omitted, ALL documents without metadata in the dossier are processed automatically. ' +
+      'Prefer this over emitting many `document_metadata_save` calls in a loop.',
     inputSchema: z.object({
-      documentId: z.string().describe('Document ID to update.'),
       dossierId: z
         .string()
         .optional()
         .describe('Target dossier ID. Omit to use the active dossier.'),
-      description: z.string().optional().describe('Short description of the document.'),
-      tags: z.array(z.string()).describe('List of tags for the document.')
+      documentIds: z
+        .array(z.string())
+        .optional()
+        .describe(
+          'Optional explicit list of document UUIDs. Omit to process every document without metadata in the dossier.'
+        )
+    })
+  }),
+  document_summary_batch: tool({
+    description:
+      'Produce a longer narrative summary (2–4 paragraphs) for multiple documents in one shot, persisted as the document description. Existing tags are preserved. ' +
+      'Each document is handled by an isolated sub-LLM call. ' +
+      'Use this when the user wants a "summary of each document" or "summarise all documents" — distinct from `document_metadata_batch` which produces short descriptions plus tags. ' +
+      'When `documentIds` is omitted, EVERY document in the dossier is summarised.',
+    inputSchema: z.object({
+      dossierId: z
+        .string()
+        .optional()
+        .describe('Target dossier ID. Omit to use the active dossier.'),
+      documentIds: z
+        .array(z.string())
+        .optional()
+        .describe('Optional explicit list of document UUIDs. Omit to summarise every document.')
     })
   }),
   dossier_create: tool({

@@ -23,7 +23,10 @@ function createBrowserWindowMock(): {
   focus: ReturnType<typeof vi.fn>
   loadURL: ReturnType<typeof vi.fn>
   loadFile: ReturnType<typeof vi.fn>
-  webContents: { setWindowOpenHandler: ReturnType<typeof vi.fn> }
+  webContents: {
+    setWindowOpenHandler: ReturnType<typeof vi.fn>
+    on: ReturnType<typeof vi.fn>
+  }
 } {
   return {
     isDestroyed: vi.fn(() => false),
@@ -32,7 +35,7 @@ function createBrowserWindowMock(): {
     focus: vi.fn(),
     loadURL: vi.fn(),
     loadFile: vi.fn(),
-    webContents: { setWindowOpenHandler: vi.fn() }
+    webContents: { setWindowOpenHandler: vi.fn(), on: vi.fn() }
   }
 }
 
@@ -84,7 +87,7 @@ describe('createMainWindow', () => {
       openExternal
     })
 
-    const handler = instance.webContents.setWindowOpenHandler.mock.calls[0][0] as (details: {
+    const handler = instance.webContents.setWindowOpenHandler.mock.calls[0]![0] as (details: {
       url: string
     }) => { action: string }
     const result = handler({ url: 'https://example.com' })

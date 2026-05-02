@@ -8,12 +8,28 @@ import type {
   DocumentRelocationInput,
   StoredDocumentMetadata
 } from '@shared/domain/document'
+import type { SemanticSearchQuery } from '@shared/contracts/documents'
 
 import { dossierIdSchema } from './dossierId'
 
 function normalizeRelativePath(value: string): string {
   return value.trim().replace(/\\/g, '/')
 }
+
+function isSafeRelativePath(value: string): boolean {
+  if (!value || value.startsWith('/') || /^[A-Za-z]:/.test(value)) {
+    return false
+  }
+  return !value.split('/').includes('..')
+}
+
+const SAFE_RELATIVE_PATH_MESSAGE = 'Path must be relative and must not contain traversal segments.'
+
+const safeRelativePathSchema = z
+  .string()
+  .min(1)
+  .transform(normalizeRelativePath)
+  .refine(isSafeRelativePath, { message: SAFE_RELATIVE_PATH_MESSAGE })
 
 function normalizeDescription(value: string | undefined): string | undefined {
   const normalized = value?.trim()
@@ -38,7 +54,7 @@ function normalizeTags(values: string[]): string[] {
   return normalized
 }
 
-const documentRelativePathSchema = z.string().min(1).transform(normalizeRelativePath)
+const documentRelativePathSchema = safeRelativePathSchema
 const documentDescriptionSchema = z.string().optional().transform(normalizeDescription)
 const documentTagsSchema = z.array(z.string()).transform(normalizeTags)
 const documentByteLengthSchema = z.number().int().nonnegative()
@@ -80,15 +96,22 @@ export const documentMetadataUpdateSchema = z.object({
 
 export const documentPreviewInputSchema = z.object({
   dossierId: dossierIdSchema,
-  documentId: z.string().min(1).transform(normalizeRelativePath),
-  forceRefresh: z.boolean().optional()
+  documentId: safeRelativePathSchema,
+  forceRefresh: z.boolean().optional(),
+  readCacheOnly: z.boolean().optional()
 })
 
 export const documentRelocationInputSchema = z.object({
   dossierId: dossierIdSchema,
   documentUuid: z.string().min(1),
-  toDocumentId: z.string().min(1).transform(normalizeRelativePath),
-  fromDocumentId: z.string().min(1).transform(normalizeRelativePath).optional()
+  toDocumentId: safeRelativePathSchema,
+  fromDocumentId: safeRelativePathSchema.optional()
+})
+
+export const semanticSearchQuerySchema: z.ZodType<SemanticSearchQuery> = z.object({
+  dossierId: dossierIdSchema,
+  query: z.string().trim().min(1),
+  topK: z.number().int().positive().max(100).optional()
 })
 
 export const documentMetadataDraftSchema = z

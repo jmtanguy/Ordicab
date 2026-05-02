@@ -113,7 +113,7 @@ export function normalizeTagPath(path: string): string {
     return SYSTEM_ALIASES[seg] ?? seg
   }
 
-  const [rootRaw, ...rest] = segments
+  const [rootRaw, ...rest] = segments as [string, ...string[]]
   const root = ROOT_ALIASES[rootRaw] ?? rootRaw
 
   const rootAliases = FIELD_ALIASES[root] ?? {}

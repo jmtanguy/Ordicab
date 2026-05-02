@@ -45,8 +45,8 @@ describe('FileWatcherService', () => {
 
     expect(watchers).toHaveLength(1)
 
-    watchers[0].emit('add', '/tmp/domain/dos-1/.ordicab/dossier.json')
-    watchers[0].emit('add', '/tmp/domain/dos-1/contract.pdf')
+    watchers[0]!.emit('add', '/tmp/domain/dos-1/.ordicab/dossier.json')
+    watchers[0]!.emit('add', '/tmp/domain/dos-1/contract.pdf')
     await vi.advanceTimersByTimeAsync(300)
 
     expect(onDocumentsChanged).toHaveBeenCalledTimes(1)
@@ -87,7 +87,7 @@ describe('FileWatcherService', () => {
       onAvailabilityChanged
     })
 
-    watchers[0].emit('change', '/tmp/domain/dos-claude/CLAUDE.md')
+    watchers[0]!.emit('change', '/tmp/domain/dos-claude/CLAUDE.md')
     await vi.advanceTimersByTimeAsync(300)
 
     expect(onDocumentsChanged).not.toHaveBeenCalled()
@@ -116,11 +116,11 @@ describe('FileWatcherService', () => {
     })
 
     // Trigger a pending debounce timer
-    watchers[0].emit('add', '/tmp/domain/dos-unsubscribe/contract.pdf')
+    watchers[0]!.emit('add', '/tmp/domain/dos-unsubscribe/contract.pdf')
 
     await service.unsubscribe({ dossierId: 'dos-unsubscribe' })
 
-    expect(watchers[0].close).toHaveBeenCalledTimes(1)
+    expect(watchers[0]!.close).toHaveBeenCalledTimes(1)
 
     // Advance timers — debounced callback must NOT fire after unsubscribe
     await vi.advanceTimersByTimeAsync(500)
@@ -155,8 +155,8 @@ describe('FileWatcherService', () => {
     await service.disposeAll()
 
     expect(watchers).toHaveLength(2)
-    expect(watchers[0].close).toHaveBeenCalledTimes(1)
-    expect(watchers[1].close).toHaveBeenCalledTimes(1)
+    expect(watchers[0]!.close).toHaveBeenCalledTimes(1)
+    expect(watchers[1]!.close).toHaveBeenCalledTimes(1)
   })
 
   it('publishes unavailability, retries, and recreates the watcher when the folder becomes accessible again', async () => {
@@ -187,7 +187,7 @@ describe('FileWatcherService', () => {
       onAvailabilityChanged
     })
 
-    watchers[0].emit('error', new Error('ENOENT: dossier disappeared'))
+    watchers[0]!.emit('error', new Error('ENOENT: dossier disappeared'))
     await vi.runOnlyPendingTimersAsync()
 
     expect(onAvailabilityChanged).toHaveBeenNthCalledWith(
@@ -197,7 +197,7 @@ describe('FileWatcherService', () => {
         status: 'unavailable'
       })
     )
-    expect(watchers[0].close).toHaveBeenCalledTimes(1)
+    expect(watchers[0]!.close).toHaveBeenCalledTimes(1)
 
     await vi.advanceTimersByTimeAsync(2_000)
 

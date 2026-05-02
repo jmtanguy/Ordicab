@@ -12,7 +12,9 @@ import type {
   DocumentPreviewInput,
   DocumentPreviewSourceType,
   DocumentRecord,
-  DossierScopedQuery
+  DossierScopedQuery,
+  SemanticSearchQuery,
+  SemanticSearchResult
 } from '@shared/types'
 import { IpcErrorCode } from '@shared/types'
 import {
@@ -24,7 +26,7 @@ import {
   type DocumentRelocationInput,
   type StoredDocumentMetadata,
   storedDocumentMetadataSchema
-} from '@renderer/schemas'
+} from '@shared/validation'
 
 import {
   getDomainRegistryPath,
@@ -35,12 +37,24 @@ import { atomicWrite } from '../../lib/system/atomicWrite'
 import { loadDomainState, pathExists } from '../../lib/system/domainState'
 import {
   extractDocumentText,
+  ensurePlainTextDocumentCache,
   getDocumentContentCachePath,
   isDocumentTextExtractable,
   isPlainTextDocument,
-  markDocumentExtractionEmpty
+  markDocumentExtractionEmpty,
+  readCachedDocumentText,
+  type ExtractProgressCallback
 } from '../../lib/aiEmbedded/documentContentService'
 import { getDossierContentCachePath } from '../../lib/ordicab/ordicabPaths'
+import { indexDocumentEmbeddings } from '../../lib/aiEmbedded/embeddings/embeddingIndexer'
+import {
+  searchDossier,
+  type IndexedDocument
+} from '../../lib/aiEmbedded/embeddings/semanticSearchService'
+import {
+  DEFAULT_EMBEDDING_DIM,
+  type EmbeddingServiceConfig
+} from '../../lib/aiEmbedded/embeddings/embeddingService'
 
 interface DossierRegistryEntry {
   id: string
@@ -57,17 +71,23 @@ export interface DocumentServiceOptions {
   stateFilePath: string
   tessDataPath?: string
   previewLoaders?: Partial<DocumentPreviewLoaders>
+  /** Embedding-model configuration used for both post-extraction indexing and query-time search. */
+  embeddingConfig?: EmbeddingServiceConfig
 }
 
 export interface DocumentService {
   listDocuments: (input: DossierScopedQuery) => Promise<DocumentRecord[]>
   getPreview: (input: DocumentPreviewInput) => Promise<DocumentPreview>
   getContentStatus: (input: DocumentPreviewInput) => Promise<DocumentTextExtractionStatus>
-  extractContent: (input: DocumentPreviewInput) => Promise<DocumentExtractedContent>
+  extractContent: (
+    input: DocumentPreviewInput,
+    onProgress?: ExtractProgressCallback
+  ) => Promise<DocumentExtractedContent>
   clearContentCache: (input: DossierScopedQuery) => Promise<void>
   saveMetadata: (input: DocumentMetadataUpdate) => Promise<DocumentRecord>
   relocateMetadata: (input: DocumentRelocationInput) => Promise<DocumentRecord>
   resolveRegisteredDossierRoot: (input: DossierScopedQuery) => Promise<string>
+  semanticSearch: (input: SemanticSearchQuery) => Promise<SemanticSearchResult>
 }
 
 interface DocumentFileSnapshot {
@@ -302,7 +322,7 @@ function resolveReboundDocumentEntries(
       .map((file) => ({ file, score: scoreRebindCandidate(entry, file) }))
       .filter((candidate) => candidate.score > 0)
       .sort((left, right) => right.score - left.score)
-    const best = scored[0]
+    const best = scored[0] ?? null
 
     candidateByEntry.set(
       entry.uuid ?? entry.relativePath,
@@ -315,7 +335,7 @@ function resolveReboundDocumentEntries(
       .map((entry) => ({ entry, score: scoreRebindCandidate(entry, file) }))
       .filter((candidate) => candidate.score > 0)
       .sort((left, right) => right.score - left.score)
-    const best = scored[0]
+    const best = scored[0] ?? null
 
     candidateByFile.set(
       file.relativePath,
@@ -364,6 +384,105 @@ function createDefaultDossierMetadata(entry: DossierRegistryEntry): DossierMetad
     keyReferences: [],
     documents: []
   })
+}
+
+type ReadDossierMetadataResult =
+  | { ok: true; metadata: DossierMetadataFile }
+  | { ok: false; reason: 'no-metadata' | 'unreadable-metadata' | 'invalid-metadata' }
+
+async function readDossierMetadataFile(dossierPath: string): Promise<ReadDossierMetadataResult> {
+  const metadataPath = getDossierMetadataPath(dossierPath)
+  if (!(await pathExists(metadataPath))) {
+    return { ok: false, reason: 'no-metadata' }
+  }
+
+  try {
+    const parsed = JSON.parse(await readFile(metadataPath, 'utf8')) as unknown
+    const result = dossierMetadataFileSchema.safeParse(parsed)
+    return result.success
+      ? { ok: true, metadata: result.data }
+      : { ok: false, reason: 'invalid-metadata' }
+  } catch (error) {
+    console.warn(
+      `[DocumentService] could not read dossier metadata at ${metadataPath}:`,
+      error instanceof Error ? error.message : error
+    )
+    return { ok: false, reason: 'unreadable-metadata' }
+  }
+}
+
+async function writeDossierMetadataFile(
+  dossierPath: string,
+  metadata: DossierMetadataFile
+): Promise<void> {
+  const metadataPath = getDossierMetadataPath(dossierPath)
+  await atomicWrite(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`)
+}
+
+/**
+ * Strict read-or-init: returns the parsed metadata, creates a default when the
+ * file is missing, and throws when it exists but is unreadable or invalid.
+ * Callers on the write path use this to avoid silently clobbering corrupt data.
+ */
+async function loadOrInitDossierMetadata(
+  dossierPath: string,
+  registryEntry: DossierRegistryEntry
+): Promise<DossierMetadataFile> {
+  const result = await readDossierMetadataFile(dossierPath)
+  if (result.ok) return result.metadata
+  if (result.reason === 'no-metadata') return createDefaultDossierMetadata(registryEntry)
+  throw new DocumentServiceError(
+    IpcErrorCode.FILE_SYSTEM_ERROR,
+    'Dossier metadata is missing or invalid.'
+  )
+}
+
+// Per-dossier mutex for metadata read-modify-write sections. Multiple code
+// paths (listDocuments, saveMetadata, relocateMetadata) all rewrite the same
+// metadata JSON; without this serialization two parallel writers can each read
+// a stale copy and the slower one's commit erases the faster one's changes —
+// the classic last-writer-wins corruption.
+const dossierMetadataLocks = new Map<string, Promise<unknown>>()
+
+function withDossierMetadataLock<T>(dossierPath: string, operation: () => Promise<T>): Promise<T> {
+  // Queue behind whatever is currently holding the lock. We gate on a
+  // .catch-wrapped copy so a thrown error in one holder doesn't break the
+  // chain for everyone queued after it.
+  const previous = dossierMetadataLocks.get(dossierPath) ?? Promise.resolve()
+  const run = previous.catch(() => undefined).then(operation)
+  const tail = run.catch(() => undefined)
+  dossierMetadataLocks.set(dossierPath, tail)
+  void tail.then(() => {
+    if (dossierMetadataLocks.get(dossierPath) === tail) {
+      dossierMetadataLocks.delete(dossierPath)
+    }
+  })
+  return run
+}
+
+async function getSearchCachePath(filePath: string, cacheDir: string): Promise<string> {
+  return isPlainTextDocument(filePath)
+    ? ensurePlainTextDocumentCache(filePath, cacheDir)
+    : getDocumentContentCachePath(cacheDir, filePath)
+}
+
+async function indexSearchableDocument(args: {
+  filePath: string
+  cacheDir: string
+  relativePath: string
+  embeddingConfig?: EmbeddingServiceConfig
+}): Promise<void> {
+  const cachePath = await getSearchCachePath(args.filePath, args.cacheDir)
+  const outcome = await indexDocumentEmbeddings(cachePath, {
+    embeddingConfig: args.embeddingConfig,
+    dim: DEFAULT_EMBEDDING_DIM
+  })
+
+  if (outcome.status === 'skipped') {
+    console.debug(
+      `[DocumentService] embeddings skipped for ${args.relativePath}: ${outcome.reason}`
+    )
+  }
 }
 
 async function loadStoredDocumentMetadata(
@@ -616,7 +735,10 @@ function resolveMsgReaderConstructor(moduleValue: unknown): MsgReaderConstructor
     break
   }
 
-  throw new Error('MsgReader constructor could not be resolved.')
+  throw new DocumentServiceError(
+    IpcErrorCode.FILE_SYSTEM_ERROR,
+    'MsgReader constructor could not be resolved.'
+  )
 }
 
 async function defaultParseOutlookMessage(buffer: Buffer): Promise<ParsedEmailPreview> {
@@ -787,8 +909,6 @@ export function createDocumentService(options: DocumentServiceOptions): Document
         )
       }
 
-      const metadataPath = getDossierMetadataPath(dossierPath)
-      const metadataByRelativePath = await loadStoredDocumentMetadata(dossierPath)
       const domainPath = await resolveActiveDomainPath(options.stateFilePath)
       const registry = await loadRegistry(domainPath)
       const registryEntry = resolveRegistryEntryByRef(registry, input.dossierId)
@@ -797,6 +917,8 @@ export function createDocumentService(options: DocumentServiceOptions): Document
         throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'This dossier is not registered.')
       }
 
+      // Walk the filesystem before acquiring the metadata lock — directory
+      // traversal + stats can be slow and has no interaction with metadata.
       const filePaths = await collectFiles(dossierPath)
       const fileSnapshots = await withConcurrencyLimit(
         filePaths.map((filePath) => async () => {
@@ -812,71 +934,71 @@ export function createDocumentService(options: DocumentServiceOptions): Document
         }),
         STAT_CONCURRENCY_LIMIT
       )
-      const reboundEntries = resolveReboundDocumentEntries(
-        metadataByRelativePath.values(),
-        fileSnapshots
-      )
-      const normalizedEntries: StoredDocumentMetadata[] = []
-      const documents = await Promise.all(
-        fileSnapshots.map(async (snapshot) => {
-          const storedMetadata =
-            metadataByRelativePath.get(snapshot.relativePath) ??
-            reboundEntries.get(snapshot.relativePath)
-          const normalizedMetadata = normalizeStoredDocumentEntry(
-            storedMetadata ??
-              storedDocumentMetadataSchema.parse({
-                uuid: randomUUID(),
-                relativePath: snapshot.relativePath,
-                filename: snapshot.filename,
-                byteLength: snapshot.byteLength,
-                modifiedAt: snapshot.modifiedAt,
-                description: undefined,
-                tags: []
-              }),
-            snapshot.relativePath,
-            snapshot
-          )
-          normalizedEntries.push(normalizedMetadata)
 
-          return {
-            id: snapshot.relativePath,
-            uuid: normalizedMetadata.uuid,
-            dossierId: registryEntry.id,
-            filename: snapshot.filename,
-            byteLength: snapshot.byteLength,
-            relativePath: snapshot.relativePath,
-            modifiedAt: snapshot.modifiedAt,
-            description: normalizedMetadata.description,
-            tags: normalizedMetadata.tags ?? [],
-            textExtraction: await getDocumentExtractionStatus(dossierPath, snapshot.relativePath)
-          } satisfies DocumentRecord
-        })
-      )
+      // Read-modify-write under the per-dossier lock so concurrent writers
+      // (saveMetadata, another listDocuments) can't clobber each other's
+      // updates between our read and our write.
+      return withDossierMetadataLock(dossierPath, async () => {
+        const metadataByRelativePath = await loadStoredDocumentMetadata(dossierPath)
+        const reboundEntries = resolveReboundDocumentEntries(
+          metadataByRelativePath.values(),
+          fileSnapshots
+        )
+        const normalizedEntries: StoredDocumentMetadata[] = []
+        const documents = await Promise.all(
+          fileSnapshots.map(async (snapshot) => {
+            const storedMetadata =
+              metadataByRelativePath.get(snapshot.relativePath) ??
+              reboundEntries.get(snapshot.relativePath)
+            const normalizedMetadata = normalizeStoredDocumentEntry(
+              storedMetadata ??
+                storedDocumentMetadataSchema.parse({
+                  uuid: randomUUID(),
+                  relativePath: snapshot.relativePath,
+                  filename: snapshot.filename,
+                  byteLength: snapshot.byteLength,
+                  modifiedAt: snapshot.modifiedAt,
+                  description: undefined,
+                  tags: []
+                }),
+              snapshot.relativePath,
+              snapshot
+            )
+            normalizedEntries.push(normalizedMetadata)
 
-      const nextDocuments = normalizedEntries.sort((left, right) =>
-        left.relativePath.localeCompare(right.relativePath)
-      )
-      const currentEntries = [...metadataByRelativePath.values()].sort((left, right) =>
-        left.relativePath.localeCompare(right.relativePath)
-      )
+            return {
+              id: snapshot.relativePath,
+              uuid: normalizedMetadata.uuid,
+              dossierId: registryEntry.id,
+              filename: snapshot.filename,
+              byteLength: snapshot.byteLength,
+              relativePath: snapshot.relativePath,
+              modifiedAt: snapshot.modifiedAt,
+              description: normalizedMetadata.description,
+              tags: normalizedMetadata.tags ?? [],
+              textExtraction: await getDocumentExtractionStatus(dossierPath, snapshot.relativePath)
+            } satisfies DocumentRecord
+          })
+        )
 
-      if (JSON.stringify(nextDocuments) !== JSON.stringify(currentEntries)) {
-        const currentPayload = (await pathExists(metadataPath))
-          ? (JSON.parse(await readFile(metadataPath, 'utf8')) as unknown)
-          : null
-        const currentMetadata =
-          currentPayload !== null
-            ? dossierMetadataFileSchema.parse(currentPayload)
-            : createDefaultDossierMetadata(registryEntry)
-        const nextMetadata = dossierMetadataFileSchema.parse({
-          ...currentMetadata,
-          documents: nextDocuments
-        })
+        const nextDocuments = normalizedEntries.sort((left, right) =>
+          left.relativePath.localeCompare(right.relativePath)
+        )
+        const currentEntries = [...metadataByRelativePath.values()].sort((left, right) =>
+          left.relativePath.localeCompare(right.relativePath)
+        )
 
-        await atomicWrite(metadataPath, `${JSON.stringify(nextMetadata, null, 2)}\n`)
-      }
+        if (JSON.stringify(nextDocuments) !== JSON.stringify(currentEntries)) {
+          const currentMetadata = await loadOrInitDossierMetadata(dossierPath, registryEntry)
+          const nextMetadata = dossierMetadataFileSchema.parse({
+            ...currentMetadata,
+            documents: nextDocuments
+          })
+          await writeDossierMetadataFile(dossierPath, nextMetadata)
+        }
 
-      return documents.sort((left, right) => left.relativePath.localeCompare(right.relativePath))
+        return documents.sort((left, right) => left.relativePath.localeCompare(right.relativePath))
+      })
     },
 
     getPreview: async (input): Promise<DocumentPreview> => {
@@ -1032,7 +1154,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
       return getDocumentExtractionStatus(dossierPath, relativePath)
     },
 
-    extractContent: async (input): Promise<DocumentExtractedContent> => {
+    extractContent: async (input, onProgress): Promise<DocumentExtractedContent> => {
       const dossierPath = await resolveRegisteredDossierRoot({ dossierId: input.dossierId })
       const relativePath = validateDocumentRelativePath(input.documentId)
       const filePath = join(dossierPath, relativePath)
@@ -1060,8 +1182,22 @@ export function createDocumentService(options: DocumentServiceOptions): Document
       let result: Awaited<ReturnType<typeof extractDocumentText>>
 
       try {
-        result = await extractDocumentText(filePath, cacheDir, options.tessDataPath)
+        if (input.readCacheOnly) {
+          const cached = await readCachedDocumentText(filePath, cacheDir)
+          if (!cached) {
+            throw new DocumentServiceError(
+              IpcErrorCode.NOT_FOUND,
+              'The extracted text cache is not available.'
+            )
+          }
+          result = cached
+        } else {
+          result = await extractDocumentText(filePath, cacheDir, options.tessDataPath, onProgress)
+        }
       } catch (error) {
+        if (error instanceof DocumentServiceError) {
+          throw error
+        }
         const message = error instanceof Error ? error.message : String(error)
         console.warn(
           `[DocumentService] Extraction failed for "${relativePath}", storing empty extracted content: ${message}`
@@ -1080,6 +1216,21 @@ export function createDocumentService(options: DocumentServiceOptions): Document
       }
 
       const status = await getDocumentExtractionStatus(dossierPath, relativePath)
+
+      // Post-extraction hook: trigger the embeddings indexing pass in the
+      // background. Fire-and-forget — failures are logged inside the indexer
+      // and the user-facing extract call must not wait on model inference.
+      void indexSearchableDocument({
+        filePath,
+        cacheDir,
+        relativePath,
+        embeddingConfig: options.embeddingConfig
+      }).catch((error) => {
+        console.warn(
+          `[DocumentService] embeddings failed for ${relativePath}:`,
+          error instanceof Error ? error.message : error
+        )
+      })
 
       return {
         documentId: relativePath,
@@ -1101,7 +1252,6 @@ export function createDocumentService(options: DocumentServiceOptions): Document
     saveMetadata: async (input): Promise<DocumentRecord> => {
       const parsed = documentMetadataUpdateSchema.parse(input)
       const dossierPath = await resolveRegisteredDossierRoot({ dossierId: parsed.dossierId })
-      const metadataPath = getDossierMetadataPath(dossierPath)
       const domainPath = dirname(dossierPath)
       const registry = await loadRegistry(domainPath)
       const registryEntry = resolveRegistryEntryByRef(registry, parsed.dossierId)
@@ -1113,64 +1263,48 @@ export function createDocumentService(options: DocumentServiceOptions): Document
       const canonicalDossierId = registryEntry.id
       const relativePath = validateDocumentRelativePath(parsed.documentId)
       const snapshot = await createDocumentFileSnapshot(dossierPath, relativePath)
-      const currentStoredMetadata = await loadStoredDocumentMetadata(dossierPath)
-      const nextEntry = storedDocumentMetadataSchema.parse({
-        uuid: currentStoredMetadata.get(relativePath)?.uuid ?? randomUUID(),
-        relativePath,
-        filename: snapshot.filename,
-        byteLength: snapshot.byteLength,
-        modifiedAt: snapshot.modifiedAt,
-        description: parsed.description,
-        tags: parsed.tags
-      })
 
-      const currentPayload = (await pathExists(metadataPath))
-        ? (JSON.parse(await readFile(metadataPath, 'utf8')) as unknown)
-        : null
-
-      let currentMetadata: ReturnType<typeof dossierMetadataFileSchema.parse>
-
-      if (currentPayload !== null) {
-        const parsed2 = dossierMetadataFileSchema.safeParse(currentPayload)
-
-        if (!parsed2.success) {
-          throw new DocumentServiceError(
-            IpcErrorCode.FILE_SYSTEM_ERROR,
-            'Dossier metadata is missing or invalid.'
-          )
-        }
-
-        currentMetadata = parsed2.data
-      } else {
-        currentMetadata = createDefaultDossierMetadata(registryEntry)
-      }
-
-      const documentsByRelativePath = new Map(
-        currentMetadata.documents.map((entry) => [entry.relativePath, entry])
-      )
-      documentsByRelativePath.set(relativePath, nextEntry)
-
-      const nextMetadata = dossierMetadataFileSchema.parse({
-        ...currentMetadata,
-        documents: [...documentsByRelativePath.values()].sort((left, right) =>
-          left.relativePath.localeCompare(right.relativePath)
+      return withDossierMetadataLock(dossierPath, async () => {
+        const currentMetadata = await loadOrInitDossierMetadata(dossierPath, registryEntry)
+        const existingEntry = currentMetadata.documents.find(
+          (entry) => entry.relativePath === relativePath
         )
-      })
+        const nextEntry = storedDocumentMetadataSchema.parse({
+          uuid: existingEntry?.uuid ?? randomUUID(),
+          relativePath,
+          filename: snapshot.filename,
+          byteLength: snapshot.byteLength,
+          modifiedAt: snapshot.modifiedAt,
+          description: parsed.description,
+          tags: parsed.tags
+        })
 
-      await atomicWrite(metadataPath, `${JSON.stringify(nextMetadata, null, 2)}\n`)
+        const documentsByRelativePath = new Map(
+          currentMetadata.documents.map((entry) => [entry.relativePath, entry])
+        )
+        documentsByRelativePath.set(relativePath, nextEntry)
 
-      return buildDocumentRecord({
-        dossierId: canonicalDossierId,
-        dossierPath,
-        relativePath,
-        metadata: nextEntry
+        const nextMetadata = dossierMetadataFileSchema.parse({
+          ...currentMetadata,
+          documents: [...documentsByRelativePath.values()].sort((left, right) =>
+            left.relativePath.localeCompare(right.relativePath)
+          )
+        })
+
+        await writeDossierMetadataFile(dossierPath, nextMetadata)
+
+        return buildDocumentRecord({
+          dossierId: canonicalDossierId,
+          dossierPath,
+          relativePath,
+          metadata: nextEntry
+        })
       })
     },
 
     relocateMetadata: async (input): Promise<DocumentRecord> => {
       const parsed = documentRelocationInputSchema.parse(input)
       const dossierPath = await resolveRegisteredDossierRoot({ dossierId: parsed.dossierId })
-      const metadataPath = getDossierMetadataPath(dossierPath)
       const domainPath = dirname(dossierPath)
       const registry = await loadRegistry(domainPath)
       const registryEntry = resolveRegistryEntryByRef(registry, parsed.dossierId)
@@ -1182,82 +1316,146 @@ export function createDocumentService(options: DocumentServiceOptions): Document
       const canonicalDossierId = registryEntry.id
       const targetRelativePath = validateDocumentRelativePath(parsed.toDocumentId)
       const targetSnapshot = await createDocumentFileSnapshot(dossierPath, targetRelativePath)
-      const currentPayload = (await pathExists(metadataPath))
-        ? (JSON.parse(await readFile(metadataPath, 'utf8')) as unknown)
-        : null
 
-      let currentMetadata: ReturnType<typeof dossierMetadataFileSchema.parse>
+      return withDossierMetadataLock(dossierPath, async () => {
+        const currentMetadata = await loadOrInitDossierMetadata(dossierPath, registryEntry)
 
-      if (currentPayload !== null) {
-        const parsedMetadata = dossierMetadataFileSchema.safeParse(currentPayload)
+        const matchingEntry = currentMetadata.documents.find(
+          (entry) => entry.uuid === parsed.documentUuid
+        )
 
-        if (!parsedMetadata.success) {
+        if (!matchingEntry) {
+          throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'This document was not found.')
+        }
+
+        if (parsed.fromDocumentId && matchingEntry.relativePath !== parsed.fromDocumentId) {
           throw new DocumentServiceError(
-            IpcErrorCode.FILE_SYSTEM_ERROR,
-            'Dossier metadata is missing or invalid.'
+            IpcErrorCode.NOT_FOUND,
+            'The document no longer matches the expected previous location.'
           )
         }
 
-        currentMetadata = parsedMetadata.data
-      } else {
-        currentMetadata = createDefaultDossierMetadata(registryEntry)
-      }
-
-      const matchingEntry = currentMetadata.documents.find(
-        (entry) => entry.uuid === parsed.documentUuid
-      )
-
-      if (!matchingEntry) {
-        throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'This document was not found.')
-      }
-
-      if (parsed.fromDocumentId && matchingEntry.relativePath !== parsed.fromDocumentId) {
-        throw new DocumentServiceError(
-          IpcErrorCode.NOT_FOUND,
-          'The document no longer matches the expected previous location.'
+        const conflictingEntry = currentMetadata.documents.find(
+          (entry) => entry.relativePath === targetRelativePath && entry.uuid !== parsed.documentUuid
         )
-      }
 
-      const conflictingEntry = currentMetadata.documents.find(
-        (entry) => entry.relativePath === targetRelativePath && entry.uuid !== parsed.documentUuid
-      )
+        if (conflictingEntry) {
+          throw new DocumentServiceError(
+            IpcErrorCode.VALIDATION_FAILED,
+            'Another document is already registered at the target location.'
+          )
+        }
 
-      if (conflictingEntry) {
-        throw new DocumentServiceError(
-          IpcErrorCode.VALIDATION_FAILED,
-          'Another document is already registered at the target location.'
+        const nextEntry = normalizeStoredDocumentEntry(
+          { ...matchingEntry, relativePath: targetRelativePath },
+          targetRelativePath,
+          targetSnapshot
         )
-      }
 
-      const nextEntry = normalizeStoredDocumentEntry(
-        {
-          ...matchingEntry,
-          relativePath: targetRelativePath
-        },
-        targetRelativePath,
-        targetSnapshot
-      )
+        const nextDocuments = currentMetadata.documents
+          .filter(
+            (entry) =>
+              entry.uuid !== parsed.documentUuid && entry.relativePath !== targetRelativePath
+          )
+          .concat(nextEntry)
+          .sort((left, right) => left.relativePath.localeCompare(right.relativePath))
 
-      const nextDocuments = currentMetadata.documents
-        .filter(
-          (entry) => entry.uuid !== parsed.documentUuid && entry.relativePath !== targetRelativePath
-        )
-        .concat(nextEntry)
-        .sort((left, right) => left.relativePath.localeCompare(right.relativePath))
+        const nextMetadata = dossierMetadataFileSchema.parse({
+          ...currentMetadata,
+          documents: nextDocuments
+        })
 
-      const nextMetadata = dossierMetadataFileSchema.parse({
-        ...currentMetadata,
-        documents: nextDocuments
+        await writeDossierMetadataFile(dossierPath, nextMetadata)
+
+        return buildDocumentRecord({
+          dossierId: canonicalDossierId,
+          dossierPath,
+          relativePath: targetRelativePath,
+          metadata: nextEntry
+        })
+      })
+    },
+
+    semanticSearch: async (input): Promise<SemanticSearchResult> => {
+      const parsed = dossierScopedQuerySchema.parse({ dossierId: input.dossierId })
+      const dossierPath = await resolveRegisteredDossierRoot(parsed)
+      const cacheDir = getDossierContentCachePath(dossierPath)
+
+      const documents = await listDocumentsForSemanticSearch(dossierPath, cacheDir)
+      const hits = await searchDossier({
+        documents,
+        query: input.query,
+        topK: input.topK,
+        embeddingConfig: options.embeddingConfig,
+        dim: DEFAULT_EMBEDDING_DIM
       })
 
-      await atomicWrite(metadataPath, `${JSON.stringify(nextMetadata, null, 2)}\n`)
+      return {
+        dossierId: input.dossierId,
+        query: input.query,
+        hits: hits.map((hit) => ({
+          documentId: hit.documentId,
+          filename: hit.displayName ?? basename(hit.documentId),
+          charStart: hit.charStart,
+          charEnd: hit.charEnd,
+          score: hit.score,
+          snippet: hit.snippet
+        }))
+      }
+    }
+  }
+}
 
-      return buildDocumentRecord({
-        dossierId: canonicalDossierId,
-        dossierPath,
-        relativePath: targetRelativePath,
-        metadata: nextEntry
+async function listDocumentsForSemanticSearch(
+  dossierPath: string,
+  cacheDir: string
+): Promise<IndexedDocument[]> {
+  // Walk the dossier directory looking for extractable documents. The
+  // semanticSearch path deliberately does not consume listDocuments here —
+  // embeddings exist irrespective of metadata state, and we want to search
+  // every indexed cache entry whose source file still lives in the dossier.
+  const documents: IndexedDocument[] = []
+
+  async function walk(current: string, relPrefix: string): Promise<void> {
+    let entries
+    try {
+      entries = await readdir(current, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue
+      const rel = relPrefix ? `${relPrefix}${sep}${entry.name}` : entry.name
+      const absolute = join(current, entry.name)
+      if (entry.isDirectory()) {
+        if (entry.name === ORDICAB_DIRECTORY_NAME) continue
+        await walk(absolute, rel)
+        continue
+      }
+      if (!entry.isFile()) continue
+      if (!isDocumentTextExtractable(absolute)) continue
+      const cachePath = await getSearchCachePath(absolute, cacheDir)
+      // Asymmetric lazy indexing: plain-text formats (.txt/.md/…) are cheap
+      // enough to extract + embed on demand at search time, so we build the
+      // cache right here if it's missing. Binary formats (PDF/DOCX/…) require
+      // the heavyweight extractor and explicit user action via extractContent
+      // — their cache is produced by the normal extraction pipeline, and
+      // unindexed binary docs are silently skipped by searchDossier (fail-open).
+      if (isPlainTextDocument(absolute)) {
+        await indexSearchableDocument({
+          filePath: absolute,
+          cacheDir,
+          relativePath: rel
+        })
+      }
+      documents.push({
+        documentId: rel,
+        displayName: entry.name,
+        cachePath
       })
     }
   }
+
+  await walk(dossierPath, '')
+  return documents
 }

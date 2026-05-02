@@ -43,6 +43,11 @@ import { KNOWN_FIRST_NAMES } from './fakegen'
 export const NAME_TOKEN_RE =
   "(?:[A-ZÁÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ][a-záàâäéèêëîïôöùûüç]+|[A-ZÁÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ]['’][A-ZÁÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ][a-záàâäéèêëîïôöùûüç]+)(?:[-'’][A-ZÁÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ][a-záàâäéèêëîïôöùûüç]+)*"
 
+// Title-Case (NAME_TOKEN_RE) OR ALL-CAPS run. Used wherever a name span needs
+// to match either the standard "John Smith" form or the ALL-CAPS "JOHN SMITH"
+// form found in legal documents and form fields.
+export const NAME_TOKEN_OR_ALLCAPS = `(?:${NAME_TOKEN_RE}|[A-ZÁÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ]{2,}(?:-[A-ZÁÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ]{2,})*)`
+
 // ── Honorific titles ───────────────────────────────────────────────────────
 //
 // Honorifics are civility titles that immediately precede a person name.
@@ -85,8 +90,10 @@ export const HONORIFICS_FR: ReadonlySet<string> = new Set([
 export const HONORIFICS_EN: ReadonlySet<string> = new Set([
   // Full forms
   'Mister',
+  'Master',
   'Mistress', // archaic but still appears in legal documents
   'Miss',
+  'Madam',
   'Sir',
   'Dame',
   'Lord',
@@ -96,6 +103,7 @@ export const HONORIFICS_EN: ReadonlySet<string> = new Set([
   'Reverend',
   'Honourable',
   'Honorable',
+  'Justice',
   'Captain',
   'Major',
   'Colonel',
@@ -117,14 +125,19 @@ export const HONORIFICS_EN: ReadonlySet<string> = new Set([
   'Mr',
   'Mrs.',
   'Mrs',
+  'Miss.',
   'Ms.',
   'Ms',
+  'Mx.',
+  'Mx',
   'Prof.',
   'Prof',
   'Rev.',
   'Rev',
   'Hon.',
   'Hon',
+  'Honble.',
+  'Honble',
   'Capt.',
   'Capt',
   'Maj.',
@@ -175,6 +188,19 @@ const NON_NAME_WORDS: ReadonlySet<string> = new Set([
   'Batiment',
   'Appartement',
   'Immeuble',
+  'Street',
+  'Road',
+  'Lane',
+  'Drive',
+  'Way',
+  'Court',
+  'Close',
+  'Crescent',
+  'Gardens',
+  'Grove',
+  'Building',
+  'Apartment',
+  'Suite',
   // Court / legal labels
   'Audience',
   'Cabinet',
@@ -195,6 +221,27 @@ const NON_NAME_WORDS: ReadonlySet<string> = new Set([
   'Rep',
   'Tél',
   'Tel',
+  'Chambers',
+  'Registry',
+  'Clerk',
+  'Hearing',
+  'Judgment',
+  'Judgement',
+  'Order',
+  'Decision',
+  'Notice',
+  'Motion',
+  'Petition',
+  'Complaint',
+  'Answer',
+  'Brief',
+  'Claim',
+  'Party',
+  'Schedule',
+  'Exhibit',
+  'Appendix',
+  'Preamble',
+  'Witness',
   // Financial / document field labels
   'Total',
   'Net',
@@ -215,6 +262,12 @@ const NON_NAME_WORDS: ReadonlySet<string> = new Set([
   'Reference',
   'Date',
   'Objet',
+  'Amount',
+  'Income',
+  'Pension',
+  'Statement',
+  'Number',
+  'Subject',
   // Pronouns / determiners sometimes Title-Cased
   'Son',
   'Sa',
@@ -234,6 +287,20 @@ const NON_NAME_WORDS: ReadonlySet<string> = new Set([
   'Une',
   'Des',
   'Du',
+  'The',
+  'A',
+  'An',
+  'This',
+  'That',
+  'These',
+  'Those',
+  'His',
+  'Her',
+  'Its',
+  'Our',
+  'Their',
+  'My',
+  'Your',
   // Misc document words
   'Doc',
   'Pièce',
@@ -241,7 +308,21 @@ const NON_NAME_WORDS: ReadonlySet<string> = new Set([
   'Annexe',
   'Note',
   'Page',
-  'Dossier'
+  'Dossier',
+  'File',
+  'Record',
+  'Document',
+  'Documents',
+  'Template',
+  'Module',
+  'Service',
+  'Version',
+  'Department',
+  'Office',
+  'Operations',
+  'Relations',
+  'Compliance',
+  'Administration'
 ])
 
 const NON_PERSON_ROLE_TOKENS: ReadonlySet<string> = new Set([
@@ -258,6 +339,12 @@ const NON_PERSON_ROLE_TOKENS: ReadonlySet<string> = new Set([
   'Procureure',
   'Avocat',
   'Avocate',
+  'Plaignant',
+  'Plaignante',
+  'Défendeur',
+  'Défenderesse',
+  'Requérant',
+  'Requérante',
   'Client',
   'Cliente',
   'Support',
@@ -271,6 +358,31 @@ const NON_PERSON_ROLE_TOKENS: ReadonlySet<string> = new Set([
   'Mayor',
   'Judge',
   'Director',
+  'Justice',
+  'Attorney',
+  'Lawyer',
+  'Solicitor',
+  'Barrister',
+  'Counsel',
+  'Notary',
+  'Bailiff',
+  'Clerk',
+  'Plaintiff',
+  'Defendant',
+  'Claimant',
+  'Respondent',
+  'Appellant',
+  'Appellee',
+  'Petitioner',
+  'Applicant',
+  'Witness',
+  'Customer',
+  'Operations',
+  'Relations',
+  'Compliance',
+  'Administration',
+  'Department',
+  'Office',
   'Client',
   'Support',
   'Accounting',
@@ -297,7 +409,8 @@ const NON_PERSON_ROLE_TOKENS: ReadonlySet<string> = new Set([
 //   FR : "M. Dupont", "Mme Martin", "Maître Lefebvre", "Docteur Renard",
 //        "Monsieur Jean Dupont", "Mme. Marie-Claire Fontaine"
 //   EN : "Mr. Smith", "Mrs. Johnson", "Miss Emily Brown", "Sir Arthur Lewis",
-//        "Dr. Watson", "Prof. Moriarty", "Professor Elizabeth Turner"
+//        "Dr. Watson", "Prof. Moriarty", "Professor Elizabeth Turner",
+//        "Reverend Samuel Price", "Hon. Robert Miles", "Captain John Reed"
 
 export const TITLE_ANCHORED_RE = new RegExp(
   // ── French titles (longest first to avoid prefix shadowing) ──
@@ -307,9 +420,11 @@ export const TITLE_ANCHORED_RE = new RegExp(
     'Mlle\\.?|Mme\\.?|Me\\.?|Pr\\.?|Dr\\.?|M\\.' + // abbreviations (dot optional except M.)
     '|' +
     // ── English titles (longest first) ──
-    'Professor|Mister|Mistress|Doctor|' + // full forms
-    'Miss|Sir|' +
-    'Mrs\\.?|Mr\\.?|Ms\\.?|Prof\\.?' + // abbreviations (dot optional)
+    'Archbishop|Honourable|Honorable|Professor|Reverend|Mistress|Commander|Lieutenant|Corporal|' +
+    'Admiral|General|Colonel|Captain|Venerable|Justice|Mister|Master|Madam|Doctor|Bishop|Father|' +
+    'Brother|Sister|Canon|Major|Dame|Lord|Lady|Miss|Sir|' + // full forms
+    'Honble\\.?|Capt\\.?|Cmdr\\.?|Prof\\.?|Rev\\.?|Hon\\.?|Mrs\\.?|Mr\\.?|Ms\\.?|Mx\\.?|Maj\\.?|' +
+    'Col\\.?|Gen\\.?|Adm\\.?|Sgt\\.?|Lt\\.?|Cpl\\.?' + // abbreviations (dot optional)
     ')' +
     // One mandatory space/newline, then 1–4 name tokens separated by horizontal
     // whitespace only ([ \t]+, not \s+) so the match never crosses a line boundary
@@ -418,7 +533,7 @@ function isLikelyPersonNameParts(parts: string[]): boolean {
 
   const hasKnownFirstName = filteredParts.some((part) => KNOWN_FIRST_NAMES.has(part))
   const roleTokenCount = filteredParts.filter((part) => NON_PERSON_ROLE_TOKENS.has(part)).length
-  const lastPart = filteredParts[filteredParts.length - 1]
+  const lastPart = filteredParts[filteredParts.length - 1] ?? ''
 
   // Reject obvious role / department phrases such as "Madame La Présidente"
   // or "Mr. Support Client", but keep common single-token surname forms.

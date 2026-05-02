@@ -20,7 +20,7 @@ import type {
 } from '@shared/domain/dossier'
 
 import { dossierIdSchema } from './dossierId'
-import { storedDocumentMetadataSchema } from './documentMetadata'
+import { storedDocumentMetadataSchema } from './document'
 import { keyDateSchema } from './keyDate'
 import { keyReferenceSchema } from './keyReference'
 

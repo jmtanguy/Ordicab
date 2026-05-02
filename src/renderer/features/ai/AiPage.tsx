@@ -15,9 +15,10 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { getOrdicabApi } from '@renderer/stores/ipc'
 import { useAiStore } from '@renderer/stores/aiStore'
 import { useDossierStore } from '@renderer/stores/dossierStore'
+import { useUiStore } from '@renderer/stores/uiStore'
+import { useToast } from '@renderer/contexts/ToastContext'
 import { getRemoteToolModelDetails, inferRemoteProviderKind } from '@shared/ai/remoteProviders'
 import { AiDialog } from '../settings/AiSettings'
 import { DelegatedReference } from '../delegated/DelegatedReference'
@@ -457,11 +458,12 @@ export function MarkdownBubble({ text }: { text: string }): React.JSX.Element {
 
     const headingMatch = line.match(/^(#{1,6})\s+(.+)$/)
     if (headingMatch) {
-      const level = Math.min(headingMatch[1].length, 6)
+      const [, hashes = '', heading = ''] = headingMatch
+      const level = Math.min(hashes.length, 6)
       const HeadingTag = `h${level}` as keyof React.JSX.IntrinsicElements
       blocks.push(
         <HeadingTag key={nextKey()} className="ai-markdown-heading">
-          {renderInlineMarkdown(headingMatch[2])}
+          {renderInlineMarkdown(heading)}
         </HeadingTag>
       )
       index += 1
@@ -620,7 +622,7 @@ export function MarkdownBubble({ text }: { text: string }): React.JSX.Element {
 
         if (!currentMatch) break
 
-        items.push(currentMatch[1])
+        items.push(currentMatch[1] ?? '')
         index += 1
       }
 
@@ -715,6 +717,9 @@ export function AiPage({
   const resolveClarification = useAiStore((s) => s.resolveClarification)
   const subscribeToIntentEvents = useAiStore((s) => s.subscribeToIntentEvents)
   const subscribeToTextTokens = useAiStore((s) => s.subscribeToTextTokens)
+  const subscribeToReflections = useAiStore((s) => s.subscribeToReflections)
+  const reflections = useAiStore((s) => s.reflections)
+  const streamingMessageId = useAiStore((s) => s.streamingMessageId)
   const checkConnection = useAiStore((s) => s.checkConnection)
   const setSelectedModel = useAiStore((s) => s.setSelectedModel)
   const setActiveDossierId = useAiStore((s) => s.setActiveDossierId)
@@ -724,6 +729,8 @@ export function AiPage({
   const saveSettings = useAiStore((s) => s.saveSettings)
 
   const dossiers = useDossierStore((s) => s.dossiers)
+  const openFolder = useUiStore((state) => state.openFolder)
+  const { showToast } = useToast()
 
   // Dossier context for the AI — initialized from the active dashboard dossier,
   // but overrideable by the user directly in the AI panel.
@@ -774,6 +781,7 @@ export function AiPage({
 
   useEffect(() => subscribeToIntentEvents(), [subscribeToIntentEvents])
   useEffect(() => subscribeToTextTokens(), [subscribeToTextTokens])
+  useEffect(() => subscribeToReflections(), [subscribeToReflections])
 
   useEffect(() => {
     if ((mode === 'local' || mode === 'remote') && availableModels.length === 0) {
@@ -783,7 +791,7 @@ export function AiPage({
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, commandLoading])
+  }, [messages, commandLoading, reflections.length])
 
   // Auto-resize textarea
   useEffect(() => {
@@ -838,6 +846,13 @@ export function AiPage({
           selectedModel
         )
       : null
+
+  const hasModelInfoToShow = !!(
+    selectedRemoteModelDetails &&
+    (selectedRemoteModelDetails.comment ||
+      selectedRemoteModelDetails.costPerformance ||
+      selectedRemoteModelDetails.pricing)
+  )
 
   const costPerformanceLabel = (value: 'low' | 'balanced' | 'high'): string => {
     if (value === 'low') return 'Low cost'
@@ -911,10 +926,13 @@ export function AiPage({
                       <div className="ai-file-action">
                         <button
                           onClick={() => {
-                            const api = getOrdicabApi()
-                            if (api && msg.filePath) {
-                              void api.app.openFolder({ path: msg.filePath })
-                            }
+                            const path = msg.filePath
+                            if (!path) return
+                            void openFolder(path).then((result) => {
+                              if (!result.success) {
+                                showToast(result.error, 'error')
+                              }
+                            })
                           }}
                           className="ai-open-file-btn"
                         >
@@ -946,12 +964,28 @@ export function AiPage({
             )
           })}
 
-          {commandLoading && (
+          {commandLoading && !streamingMessageId && (
             <div className="ai-row ai-row--assistant">
               <div className="ai-avatar ai-avatar--assistant">
                 <IconSparkle />
               </div>
               <div className="ai-bubble ai-bubble--loading">
+                {reflections.length > 0 &&
+                  (() => {
+                    const latest = reflections[reflections.length - 1]
+                    if (!latest) return null
+                    return (
+                      <div className="ai-loading-reflections">
+                        <div
+                          key={latest.id}
+                          className="ai-loading-reflection ai-loading-reflection--active"
+                        >
+                          <div className="ai-reflection-header">{t('ai.panel.reflection')}</div>
+                          <MarkdownBubble text={latest.text} />
+                        </div>
+                      </div>
+                    )
+                  })()}
                 <TypingDots />
               </div>
             </div>
@@ -1043,7 +1077,7 @@ export function AiPage({
                             </option>
                           ))}
                         </select>
-                        {selectedRemoteModelDetails && (
+                        {hasModelInfoToShow && (
                           <button
                             type="button"
                             onClick={() => setShowModelInfo((v) => !v)}
@@ -1054,14 +1088,28 @@ export function AiPage({
                             <IconInfo />
                           </button>
                         )}
-                        {selectedRemoteModelDetails && showModelInfo && (
+                        {hasModelInfoToShow && showModelInfo && selectedRemoteModelDetails && (
                           <div className="absolute bottom-9 right-0 z-20 w-72 rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-[11px] text-slate-200 shadow-xl">
-                            <div className="font-medium text-slate-100">
-                              {costPerformanceLabel(selectedRemoteModelDetails.costPerformance)}
-                            </div>
-                            <div className="mt-1 text-slate-300">
-                              {selectedRemoteModelDetails.comment}
-                            </div>
+                            {selectedRemoteModelDetails.costPerformance && (
+                              <div className="font-medium text-slate-100">
+                                {costPerformanceLabel(selectedRemoteModelDetails.costPerformance)}
+                              </div>
+                            )}
+                            {selectedRemoteModelDetails.comment && (
+                              <div className="mt-1 text-slate-300">
+                                {selectedRemoteModelDetails.comment}
+                              </div>
+                            )}
+                            {selectedRemoteModelDetails.pricing && (
+                              <div className="mt-2 border-t border-slate-700/70 pt-2 text-slate-400">
+                                {t('ai.page.model_pricing', {
+                                  input:
+                                    selectedRemoteModelDetails.pricing.inputEurPer10k.toFixed(3),
+                                  output:
+                                    selectedRemoteModelDetails.pricing.outputEurPer10k.toFixed(3)
+                                })}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>

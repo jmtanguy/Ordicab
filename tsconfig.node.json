@@ -6,7 +6,6 @@
     "src/preload/**/*",
     "src/shared/**/*",
     "src/renderer/i18n/**/*",
-    "src/renderer/schemas/**/*",
     "src/renderer/stores/**/*",
     "src/**/*.test.ts",
     "vitest.config.ts"
@@ -15,6 +14,12 @@
     "composite": true,
     "types": ["node", "electron-vite/node", "vitest/globals"],
     "baseUrl": ".",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "paths": {
       "@/*": ["src/renderer/*"],
       "@renderer/*": ["src/renderer/*"],

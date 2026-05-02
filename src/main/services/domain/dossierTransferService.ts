@@ -19,6 +19,7 @@ import type {
   DossierAiLocalePaths,
   DossierAiImportSourceFile,
   DossierDetail,
+  DossierSummary,
   ImportedProductionFileReport,
   EntityProfile,
   TemplateRecord
@@ -37,14 +38,14 @@ import { templateRoutineCatalog } from '@shared/templateRoutines'
 import { RAW_TAG_PATTERN } from '@shared/templateContent/html'
 import { labelToKey, normalizeTagPath } from '@shared/templateContent'
 
-import { dossierMetadataFileSchema, entityProfileSchema } from '@renderer/schemas'
+import { dossierMetadataFileSchema, entityProfileSchema } from '@shared/validation'
 import {
   readCachedDocumentText,
   updateCachedDocumentText
 } from '../../lib/aiEmbedded/documentContentService'
-import { extractStructuredDocumentAnalysis } from '../../lib/aiEmbedded/documentStructuredAnalysis'
 import { PiiMapping } from '../../lib/aiEmbedded/pii/piiMapping'
 import { PiiPseudonymizer } from '../../lib/aiEmbedded/pii/piiPseudonymizer'
+import { buildPiiPseudonymizer } from '../../lib/aiEmbedded/pii/piiContextBuilder'
 import {
   getDomainEntityPath,
   getDomainTemplateContentPath,
@@ -74,6 +75,7 @@ interface DocumentServiceLike {
 
 interface DossierServiceLike {
   getDossier(input: { dossierId: string }): Promise<DossierDetail>
+  listRegisteredDossiers(): Promise<DossierSummary[]>
 }
 
 export interface DossierTransferServiceOptions {
@@ -82,6 +84,18 @@ export interface DossierTransferServiceOptions {
   dossierService: DossierServiceLike
   getActiveLocale: () => AppLocale
   getDomainPath: () => Promise<string>
+  /**
+   * User-defined extra sensitive terms from AI Settings (`ai.piiWordlist`).
+   * Aligning with the embedded assistant ensures the export pseudonymizer
+   * widens (and narrows via allowlist) detection identically to live chats.
+   */
+  getPiiWordlist?: () => Promise<string[]>
+  /**
+   * Absolute path to the bundled NER model directory. When null/undefined the
+   * pseudonymizer falls back to regex-only detection — same default as the
+   * embedded assistant when no model is bundled.
+   */
+  nerModelPath?: string | null
 }
 
 export interface DossierTransferService {
@@ -126,6 +140,22 @@ interface ExportedRoutineEntry {
 
 function toDirectoryLanguage(locale: AppLocale): DossierAiDirectoryLanguage {
   return locale === 'fr' ? 'fr' : 'en'
+}
+
+function formatCurrentDate(locale: DossierAiDirectoryLanguage): string {
+  const options: Intl.DateTimeFormatOptions = {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  }
+  const resolvedLocale = locale === 'en' ? 'en-US' : 'fr-FR'
+
+  try {
+    return new Date().toLocaleDateString(resolvedLocale, options)
+  } catch {
+    return new Date().toLocaleDateString('fr-FR', options)
+  }
 }
 
 function getLocalePaths(locale: DossierAiDirectoryLanguage): DossierAiLocalePaths {
@@ -375,43 +405,6 @@ function resolveKnownRoutinesInText(content: string, context: TemplateContext): 
   })
 }
 
-function toPiiContext(
-  dossier: DossierDetail,
-  contacts: ContactRecord[]
-): ConstructorParameters<typeof PiiPseudonymizer>[0] {
-  return {
-    contacts: contacts.map((contact) => ({
-      id: contact.uuid,
-      role: contact.role,
-      gender: contact.gender,
-      firstName: contact.firstName,
-      lastName: contact.lastName,
-      displayName: contact.displayName,
-      email: contact.email,
-      phone: contact.phone,
-      addressLine: contact.addressLine,
-      addressLine2: contact.addressLine2,
-      zipCode: contact.zipCode,
-      city: contact.city,
-      institution: contact.institution,
-      socialSecurityNumber: getContactManagedFieldValue(contact, 'socialSecurityNumber'),
-      maidenName: getContactManagedFieldValue(contact, 'maidenName'),
-      occupation: getContactManagedFieldValue(contact, 'occupation'),
-      information: contact.information
-    })),
-    keyDates: dossier.keyDates.map((entry) => ({
-      label: entry.label,
-      value: entry.date,
-      note: entry.note
-    })),
-    keyRefs: dossier.keyReferences.map((entry) => ({
-      label: entry.label,
-      value: entry.value,
-      note: entry.note
-    }))
-  }
-}
-
 function pseudonymizeJsonString(pseudonymizer: PiiPseudonymizer | null, value: unknown): string {
   const raw = `${JSON.stringify(value, null, 2)}\n`
   return pseudonymizer ? `${JSON.stringify(pseudonymizer.pseudonymizeJson(value), null, 2)}\n` : raw
@@ -547,18 +540,14 @@ function applyTransformationsToDocx(
   }
 }
 
-async function summarizeForIndexing(
+function summarizeForIndexing(
   text: string,
   fallbackName: string
-): Promise<{ description: string; tags: string[] }> {
+): { description: string; tags: string[] } {
   const normalized = text.replace(/\s+/g, ' ').trim()
-  const analysis = extractStructuredDocumentAnalysis(normalized)
   const firstSentence = normalized.slice(0, 240).trim()
   const description = firstSentence || `Imported production file ${fallbackName}.`
-  const tags = [...new Set(['imported', ...analysis.suggestedTags])]
-    .sort((left, right) => left.localeCompare(right))
-    .slice(0, 5)
-  return { description, tags }
+  return { description, tags: ['imported'] }
 }
 
 export function createDossierTransferService(
@@ -625,8 +614,28 @@ export function createDossierTransferService(
     const contentExportPath = join(ordicabExportPath, 'content')
     const templatesExportPath = join(aiPath, paths.templatesName)
     const productionExportPath = join(aiPath, paths.productionName)
+    // Aligned with aiService's pseudonymizer: same allowlist (entity managed
+    // fields, template names, current date), wordlist (user terms, dossier
+    // names, contact custom fields), locale, and NER config — so the export
+    // pseudonymizes the same tokens the live assistant would.
+    const [piiWordlist, dossiers] = input.anonymize
+      ? await Promise.all([
+          options.getPiiWordlist?.().catch(() => [] as string[]) ?? Promise.resolve([]),
+          options.dossierService.listRegisteredDossiers().catch(() => [] as DossierSummary[])
+        ])
+      : [[] as string[], [] as DossierSummary[]]
     const pseudonymizer = input.anonymize
-      ? new PiiPseudonymizer(toPiiContext(dossier, contacts))
+      ? buildPiiPseudonymizer({
+          contacts,
+          dossierDetail: dossier,
+          entityProfile: entity,
+          dossiers,
+          templates,
+          piiWordlist,
+          currentDate: formatCurrentDate(locale),
+          locale: locale === 'fr' ? 'fr' : 'en',
+          nerModelPath: options.nerModelPath
+        })
       : null
     const routineInventory = buildRoutineInventory(
       createTransferTemplateContext(dossier, contacts, entity),
@@ -812,7 +821,7 @@ export function createDossierTransferService(
     const files = allFiles
       .filter((absolutePath) => {
         const rel = relative(importRootPath, absolutePath)
-        const topLevel = rel.split('/')[0]
+        const topLevel = rel.split('/')[0] ?? ''
         return !excludedTopLevel.has(topLevel)
       })
       .map(

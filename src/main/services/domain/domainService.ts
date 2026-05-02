@@ -1,6 +1,7 @@
 import { readFile, stat } from 'node:fs/promises'
 
 import type { DomainSelectionResult, DomainStatusSnapshot } from '@shared/types'
+import { IpcErrorCode } from '@shared/types'
 
 import { getDomainMetadataPath, getDomainRegistryPath } from '../../lib/ordicab/ordicabPaths'
 import { atomicWrite } from '../../lib/system/atomicWrite'
@@ -27,10 +28,23 @@ export interface DomainService {
   getStatus: () => Promise<DomainStatusSnapshot>
 }
 
+export class DomainServiceError extends Error {
+  constructor(
+    readonly code: IpcErrorCode,
+    message: string
+  ) {
+    super(message)
+    this.name = 'DomainServiceError'
+  }
+}
+
 async function ensureDomainBootstrap(domainPath: string, now: () => Date): Promise<void> {
   const stats = await stat(domainPath)
   if (!stats.isDirectory()) {
-    throw new Error(`Selected path is not a directory: ${domainPath}`)
+    throw new DomainServiceError(
+      IpcErrorCode.INVALID_INPUT,
+      `Selected path is not a directory: ${domainPath}`
+    )
   }
 
   const metadataPath = getDomainMetadataPath(domainPath)

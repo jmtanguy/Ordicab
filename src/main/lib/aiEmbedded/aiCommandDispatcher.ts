@@ -35,6 +35,7 @@
 import type {
   AiCommandContext,
   AiCommandResult,
+  AppLocale,
   ClarificationRequestIntent,
   ContactRecord,
   ContactUpsertInput,
@@ -46,8 +47,10 @@ import type {
   InternalAiCommand,
   TemplateRecord
 } from '@shared/types'
+import type { SemanticSearchResult } from '@shared/contracts/documents'
 import { getContactManagedFieldValue, getManagedFieldKey } from '@shared/managedFields'
 import { GenerateServiceError } from '../../services/domain/generateService'
+import { migrateDanglingOverrideKeys, resolveDossierTags } from './dossierTagResolver'
 
 export interface ContactServiceLike {
   list(dossierId: string): Promise<ContactRecord[]>
@@ -115,6 +118,11 @@ export interface DocumentServiceLike {
     toDocumentId: string
   }): Promise<unknown>
   resolveRegisteredDossierRoot(input: { dossierId: string }): Promise<string>
+  semanticSearch(input: {
+    dossierId: string
+    query: string
+    topK?: number
+  }): Promise<SemanticSearchResult>
 }
 
 export interface InternalAICommandDispatcherOptions {
@@ -123,6 +131,12 @@ export interface InternalAICommandDispatcherOptions {
   generateService: GenerateServiceLike
   dossierService: DossierServiceLike
   documentService: DocumentServiceLike
+  /**
+   * Resolves the current UI locale at dispatch time. Optional so existing
+   * callers (e.g. tests) can omit it; falls back to French to match the
+   * historical hardcoded behavior.
+   */
+  getLocale?: () => AppLocale
 }
 
 export interface InternalAICommandDispatcher {
@@ -359,8 +373,15 @@ function pickDefined<T extends object>(value: T): Partial<T> {
 export function createInternalAICommandDispatcher(
   options: InternalAICommandDispatcherOptions
 ): InternalAICommandDispatcher {
-  const { contactService, templateService, generateService, dossierService, documentService } =
-    options
+  const {
+    contactService,
+    templateService,
+    generateService,
+    dossierService,
+    documentService,
+    getLocale
+  } = options
+  const resolveLocale = (): AppLocale => getLocale?.() ?? 'fr'
 
   return {
     async dispatch(intent: InternalAiCommand, context: AiCommandContext): Promise<AiCommandResult> {
@@ -443,9 +464,14 @@ export function createInternalAICommandDispatcher(
               context.dossierId ??
               rawRef)
             : rawRef
+          const docs = await documentService.listDocuments({ dossierId })
+          const doc = docs.find((d) => d.id === intent.documentId || d.uuid === intent.documentId)
+          if (!doc) {
+            return { intent, feedback: `Document introuvable: ${intent.documentId}` }
+          }
           const updated = await documentService.saveMetadata({
             dossierId,
-            documentId: intent.documentId,
+            documentId: doc.id,
             description: intent.description,
             tags: intent.tags
           })
@@ -734,14 +760,18 @@ export function createInternalAICommandDispatcher(
           }
           // Validate that templateId exists — the LLM sometimes puts a name instead of an ID.
           // If the ID is unknown, attempt fuzzy match by name/description as fallback.
+          let templateMacros: string[] = []
           {
             const allTemplates = await templateService.list()
             const known = allTemplates.find((t) => t.id === templateId)
-            if (!known) {
+            if (known) {
+              templateMacros = known.macros ?? []
+            } else {
               // Try to fuzzy-match the value the LLM provided as if it were a name
               const fuzzy = findClosestTemplate(templateId, allTemplates)
               if (fuzzy) {
                 templateId = fuzzy.id
+                templateMacros = fuzzy.macros ?? []
               } else {
                 const available = allTemplates.map((t) => t.name).join(', ')
                 return {
@@ -751,38 +781,152 @@ export function createInternalAICommandDispatcher(
               }
             }
           }
-          const input = {
-            dossierId,
-            templateId,
-            primaryContactId: intent.contactId,
-            tagOverrides: intent.tagOverrides
-          } satisfies GenerateDocumentInput
-          try {
-            const result = (await generateService.generateDocument(
-              input
-            )) as GeneratedDocumentResult
-            const filename = result.outputPath.split('/').pop() ?? result.outputPath
-            return {
-              intent,
-              feedback: `Document généré: ${filename}.`,
-              generatedFilePath: result.outputPath,
-              contextUpdate: { pendingTagPaths: undefined }
-            }
-          } catch (err) {
-            if (
-              err instanceof GenerateServiceError &&
-              err.unresolvedTags &&
-              err.unresolvedTags.length > 0
-            ) {
+          // The LLM sometimes emits short keys (`dateDAudience`, `dossier_1`)
+          // instead of the full template path (`dossier.keyDate.audience.long`).
+          // generateService silently ignores unknown keys — the generation
+          // would then ask for the same field again, hiding the cause. Migrate
+          // unique token matches onto their target macro path; drop the rest
+          // and log so the failure mode is no longer silent.
+          const rawOverrides: Record<string, string> = { ...(intent.tagOverrides ?? {}) }
+          const {
+            migrated: baseOverrides,
+            migrations: overrideMigrations,
+            dropped: droppedOverrideKeys
+          } = migrateDanglingOverrideKeys(rawOverrides, templateMacros)
+          if (overrideMigrations.length > 0) {
+            console.log(
+              `[document_generate] migrated ${overrideMigrations.length} override key(s) onto template macros:`,
+              overrideMigrations
+            )
+          }
+          if (droppedOverrideKeys.length > 0) {
+            console.warn(
+              `[document_generate] dropping ${droppedOverrideKeys.length} override key(s) with no matching template macro:`,
+              { dropped: droppedOverrideKeys, templateMacros }
+            )
+          }
+          console.log(
+            `[document_generate] start dossierId=${dossierId} templateId=${templateId} overrideKeys=${JSON.stringify(Object.keys(baseOverrides))}`
+          )
+
+          const buildInput = (overrides: Record<string, string>): GenerateDocumentInput =>
+            ({
+              dossierId,
+              templateId,
+              primaryContactId: intent.contactId,
+              tagOverrides: Object.keys(overrides).length > 0 ? overrides : undefined
+            }) satisfies GenerateDocumentInput
+
+          let mergedOverrides = baseOverrides
+          let hasRetried = false
+
+          const generateOnce = async (): Promise<AiCommandResult> => {
+            try {
+              const result = (await generateService.generateDocument(
+                buildInput(mergedOverrides)
+              )) as GeneratedDocumentResult
+              const filename = result.outputPath.split('/').pop() ?? result.outputPath
+              console.log(
+                `[document_generate] success file=${filename} retried=${hasRetried} mergedKeys=${JSON.stringify(Object.keys(mergedOverrides))}`
+              )
+              const locale = resolveLocale()
+              const successFeedback =
+                locale === 'en'
+                  ? `Document generated: ${filename}.`
+                  : `Document généré: ${filename}.`
+              return {
+                intent,
+                feedback: successFeedback,
+                generatedFilePath: result.outputPath,
+                contextUpdate: { pendingTagPaths: undefined }
+              }
+            } catch (err) {
+              if (
+                !(err instanceof GenerateServiceError) ||
+                !err.unresolvedTags ||
+                err.unresolvedTags.length === 0
+              ) {
+                console.error(
+                  `[document_generate] failed without unresolvedTags err=${err instanceof Error ? err.message : String(err)}`
+                )
+                throw err
+              }
+
+              console.warn(
+                `[document_generate] generateService reported unresolvedTags=${JSON.stringify(err.unresolvedTags)} retried=${hasRetried}`
+              )
+
+              // First pass through the catch: try auto-resolving keyDate / keyRef tags
+              // from the live dossier before bothering the user.
+              if (!hasRetried) {
+                hasRetried = true
+                let dossierDetail: DossierDetail | undefined
+                try {
+                  dossierDetail = await dossierService.getDossier({ dossierId })
+                } catch (loadErr) {
+                  console.warn(
+                    `[document_generate] could not load dossier for auto-resolve: ${loadErr instanceof Error ? loadErr.message : String(loadErr)}`
+                  )
+                }
+                if (dossierDetail) {
+                  const auto = resolveDossierTags({
+                    unresolvedTags: err.unresolvedTags,
+                    keyDates: dossierDetail.keyDates,
+                    keyReferences: dossierDetail.keyReferences
+                  })
+                  console.log(
+                    `[document_generate] auto-resolve resolved=${JSON.stringify(Object.keys(auto.resolvedOverrides))} stillUnresolved=${JSON.stringify(auto.stillUnresolved)} ambiguous=${JSON.stringify(auto.ambiguous)}`
+                  )
+                  if (Object.keys(auto.resolvedOverrides).length > 0) {
+                    mergedOverrides = { ...mergedOverrides, ...auto.resolvedOverrides }
+                    return generateOnce()
+                  }
+                }
+              }
+
+              // Still unresolved after the auto-pass — emit a clarification, enriched with
+              // the dossier's known key dates / references so the user (and the LLM) can pick.
+              let dossierDetail: DossierDetail | undefined
+              try {
+                dossierDetail = await dossierService.getDossier({ dossierId })
+              } catch {
+                // best-effort enrichment
+              }
               const fieldLines = err.unresolvedTags
                 .map((p) => `• ${tagPathToLabel(p)} (\`${p}\`)`)
                 .join('\n')
+              const knownLines: string[] = []
+              if (dossierDetail) {
+                for (const kd of dossierDetail.keyDates) {
+                  knownLines.push(`• ${kd.label}: ${kd.date}`)
+                }
+                for (const kr of dossierDetail.keyReferences) {
+                  knownLines.push(`• ${kr.label}: ${kr.value}`)
+                }
+              }
+              const locale = resolveLocale()
+              const knownHeading =
+                locale === 'en'
+                  ? 'Known dates and references on this dossier:'
+                  : 'Dates et références connues sur le dossier:'
+              const knownBlock = knownLines.length
+                ? `\n${knownHeading}\n${knownLines.join('\n')}`
+                : ''
+              const sampleTag = err.unresolvedTags[0] ?? 'dossier.keyDate.X.long'
+              const question =
+                locale === 'en'
+                  ? `Some template fields need values:\n${fieldLines}${knownBlock}\nEnter the value (e.g. "April 5, 2026", "District Court of Nice"). It will be inserted as-is into the document.\n\n[For the LLM: on the next \`document_generate\` retry, \`tagOverrides\` keys must be EXACTLY the paths listed above between backticks, e.g. \`${sampleTag}\`.]`
+                  : `Certains champs du modèle doivent être renseignés:\n${fieldLines}${knownBlock}\nSaisissez la valeur (ex: "5 avril 2026", "Tribunal de Nice"). Elle sera insérée telle quelle dans le document.\n\n[Pour le LLM: lors de la prochaine relance de \`document_generate\`, les clés de \`tagOverrides\` doivent être EXACTEMENT les chemins listés ci-dessus entre backticks, par ex. \`${sampleTag}\`.]`
+              const cancelLabel = locale === 'en' ? 'Cancel' : 'Annuler'
               const clarification: ClarificationRequestIntent = {
                 type: 'clarification_request',
-                question: `Certains champs du modèle doivent être renseignés:\n${fieldLines}\nSaisissez la valeur (ex: "5 avril 2026", "Tribunal de Nice"). Elle sera insérée telle quelle dans le document.`,
-                options: ['Annuler'],
+                question,
+                options: [cancelLabel],
                 optionIds: ['']
               }
+              console.warn(
+                `[document_generate] emitting clarification for ${err.unresolvedTags.length} unresolved tag(s): ${JSON.stringify(err.unresolvedTags)}`
+              )
               return {
                 intent: clarification,
                 feedback: clarification.question,
@@ -790,8 +934,9 @@ export function createInternalAICommandDispatcher(
                 contextUpdate: { dossierId, templateId, pendingTagPaths: err.unresolvedTags }
               }
             }
-            throw err
           }
+
+          return generateOnce()
         }
 
         case 'dossier_create': {
@@ -949,6 +1094,16 @@ export function createInternalAICommandDispatcher(
           return {
             intent,
             feedback: 'Génération de texte non disponible dans ce mode.'
+          }
+        }
+
+        case 'document_metadata_batch':
+        case 'document_summary_batch': {
+          // Should be handled upstream in aiService where the runtime + PII context live.
+          // Fallback if it reaches here.
+          return {
+            intent,
+            feedback: 'Traitement par lot non disponible dans ce mode.'
           }
         }
 

@@ -8,6 +8,8 @@ import type {
   GenerateServiceLike,
   TemplateServiceLike
 } from '../aiCommandDispatcher'
+import { GenerateServiceError } from '../../../services/domain/generateService'
+import { IpcErrorCode } from '@shared/types/ipcErrors'
 
 const mockContacts: ContactRecord[] = [
   {
@@ -68,7 +70,8 @@ const mockDocumentService = {
   listDocuments: vi.fn().mockResolvedValue([]),
   saveMetadata: vi.fn().mockResolvedValue(undefined),
   relocateMetadata: vi.fn().mockResolvedValue(undefined),
-  resolveRegisteredDossierRoot: vi.fn().mockResolvedValue('/path')
+  resolveRegisteredDossierRoot: vi.fn().mockResolvedValue('/path'),
+  semanticSearch: vi.fn().mockResolvedValue({ dossierId: '', query: '', hits: [] })
 }
 
 function makeServices(overrides?: { contacts?: ContactRecord[]; templates?: TemplateRecord[] }): {
@@ -313,6 +316,78 @@ describe('intentDispatcher', () => {
         expect.objectContaining({ dossierId: 'dos1', templateId: 'tpl1', primaryContactId: 'c1' })
       )
       expect(result.feedback).toContain('doc.docx')
+    })
+
+    it('auto-fills tagOverrides from dossier key dates and retries on unresolved tags', async () => {
+      const services = makeServices()
+      services.dossierService.getDossier = vi.fn().mockResolvedValue({
+        id: 'dos1',
+        name: 'Test',
+        status: 'active',
+        type: '',
+        keyDates: [
+          { id: 'kd1', dossierId: 'dos1', label: "Date d'audience", date: '2026-04-21' },
+          { id: 'kd2', dossierId: 'dos1', label: 'Date de renvoi', date: '2026-06-08' }
+        ],
+        keyReferences: []
+      })
+
+      let callCount = 0
+      services.generateService.generateDocument = vi.fn().mockImplementation(async (input) => {
+        callCount += 1
+        if (callCount === 1) {
+          throw new GenerateServiceError(IpcErrorCode.VALIDATION_FAILED, 'unresolved', [
+            'dossier.keyDate.audience.long',
+            'dossier.keyDate.renvoi.long'
+          ])
+        }
+        return { outputPath: `/output/${callCount}.docx`, tagOverrides: input.tagOverrides }
+      })
+
+      const dispatcher = createInternalAICommandDispatcher(services)
+      const result = await dispatcher.dispatch(
+        { type: 'document_generate', dossierId: 'dos1', templateId: 'tpl1', contactId: 'c1' },
+        { dossierId: 'dos1' }
+      )
+
+      expect(callCount).toBe(2)
+      const secondCall = (services.generateService.generateDocument as ReturnType<typeof vi.fn>)
+        .mock.calls[1]![0]
+      expect(secondCall.tagOverrides).toEqual({
+        'dossier.keyDate.audience.long': '21 avril 2026',
+        'dossier.keyDate.renvoi.long': '8 juin 2026'
+      })
+      expect(result.feedback).toContain('Document généré')
+      expect(result.intent.type).toBe('document_generate')
+    })
+
+    it('falls back to a clarification listing the dossier dates when auto-resolve fails', async () => {
+      const services = makeServices()
+      services.dossierService.getDossier = vi.fn().mockResolvedValue({
+        id: 'dos1',
+        name: 'Test',
+        status: 'active',
+        type: '',
+        keyDates: [{ id: 'kd1', dossierId: 'dos1', label: "Date d'audience", date: '2026-04-21' }],
+        keyReferences: []
+      })
+
+      services.generateService.generateDocument = vi.fn().mockImplementation(async () => {
+        throw new GenerateServiceError(IpcErrorCode.VALIDATION_FAILED, 'unresolved', [
+          'dossier.keyDate.delibere.long'
+        ])
+      })
+
+      const dispatcher = createInternalAICommandDispatcher(services)
+      const result = await dispatcher.dispatch(
+        { type: 'document_generate', dossierId: 'dos1', templateId: 'tpl1', contactId: 'c1' },
+        { dossierId: 'dos1' }
+      )
+
+      expect(result.intent.type).toBe('clarification_request')
+      expect(result.feedback).toContain('Dates et références connues')
+      expect(result.feedback).toContain("Date d'audience: 2026-04-21")
+      expect(result.feedback).toContain('dossier.keyDate.delibere.long')
     })
   })
 

@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { buildAddressFields, parseAddress } from '@shared/addressFormatting'
+import type { AppLocale } from '@shared/contracts/app'
 import {
   createDefaultManagedFieldsConfig,
   getManagedFieldKey,
@@ -9,13 +10,14 @@ import {
   type EntityManagedFieldsConfig,
   type ManagedFieldDefinition
 } from '@shared/managedFields'
+import { normalizeAppLocale } from '@renderer/i18n'
 import {
   entityProfileDraftSchema,
   GENDER_VALUES,
   PROFESSION_VALUES,
   TITLE_VALUES,
   type EntityProfileDraft
-} from '@renderer/schemas'
+} from '@shared/validation'
 import { useEntityStore } from '@renderer/stores'
 import { useToast } from '@renderer/contexts/ToastContext'
 import {
@@ -50,7 +52,7 @@ function capitalizeFirst(value: string): string {
   return value.length === 0 ? value : value.charAt(0).toUpperCase() + value.slice(1)
 }
 
-function createEmptyDraft(): EntityProfileDraft {
+function createEmptyDraft(locale: AppLocale): EntityProfileDraft {
   return {
     firmName: '',
     profession: undefined,
@@ -66,11 +68,11 @@ function createEmptyDraft(): EntityProfileDraft {
     vatNumber: '',
     phone: '',
     email: '',
-    managedFields: normalizeManagedFieldsConfig(undefined, undefined)
+    managedFields: normalizeManagedFieldsConfig(undefined, undefined, locale)
   }
 }
 
-function normalizeDraft(draft: EntityProfileDraft): EntityProfileDraft {
+function normalizeDraft(draft: EntityProfileDraft, locale: AppLocale): EntityProfileDraft {
   // Migrate legacy free-text address to structured fields if new fields are absent
   const parsed =
     !draft.addressLine && !draft.zipCode && !draft.city && draft.address
@@ -91,7 +93,7 @@ function normalizeDraft(draft: EntityProfileDraft): EntityProfileDraft {
     vatNumber: draft.vatNumber ?? '',
     phone: draft.phone ?? '',
     email: draft.email ?? '',
-    managedFields: normalizeManagedFieldsConfig(draft.managedFields, draft.profession)
+    managedFields: normalizeManagedFieldsConfig(draft.managedFields, draft.profession, locale)
   }
 }
 
@@ -299,13 +301,14 @@ export function EntityDialog({
   open: boolean
   onClose: () => void
 }): React.JSX.Element | null {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const currentLocale = useMemo<AppLocale>(() => normalizeAppLocale(i18n.language), [i18n.language])
   const profile = useEntityStore((state) => state.profile)
   const isLoading = useEntityStore((state) => state.isLoading)
   const saveProfile = useEntityStore((state) => state.save)
 
   const { showToast } = useToast()
-  const [values, setValues] = useState<EntityProfileDraft>(createEmptyDraft)
+  const [values, setValues] = useState<EntityProfileDraft>(() => createEmptyDraft(currentLocale))
   const [errors, setErrors] = useState<EntityFormErrors>({})
   const [isSaving, setIsSaving] = useState(false)
   const [activeManagedFieldsTab, setActiveManagedFieldsTab] =
@@ -316,12 +319,12 @@ export function EntityDialog({
 
   useEffect(() => {
     if (open) {
-      setValues(profile ? normalizeDraft(profile) : createEmptyDraft())
+      setValues(profile ? normalizeDraft(profile, currentLocale) : createEmptyDraft(currentLocale))
       setErrors({})
       setActiveManagedFieldsTab('contactRoles')
       setProfessionDefaultsAppliedFor(null)
     }
-  }, [open, profile])
+  }, [open, profile, currentLocale])
 
   // Close dialog on Escape key
   useEffect(() => {
@@ -469,7 +472,10 @@ export function EntityDialog({
                     onClick={() => {
                       setValues((current) => ({
                         ...current,
-                        managedFields: createDefaultManagedFieldsConfig(current.profession)
+                        managedFields: createDefaultManagedFieldsConfig(
+                          current.profession,
+                          currentLocale
+                        )
                       }))
                       setProfessionDefaultsAppliedFor(values.profession ?? null)
                       setActiveManagedFieldsTab('contactRoles')

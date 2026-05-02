@@ -243,6 +243,7 @@ export function DashboardGrid({
           size="xl"
           panelClassName="min-h-[32rem]"
           aria-labelledby="dossier-picker-title"
+          onDismiss={closePicker}
         >
           <div className="space-y-1">
             <h3 id="dossier-picker-title" className="text-lg font-semibold text-slate-50">

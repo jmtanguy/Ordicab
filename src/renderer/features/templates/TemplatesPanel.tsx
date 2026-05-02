@@ -4,9 +4,8 @@ import { useTranslation } from 'react-i18next'
 import type { TemplateDraft, TemplateRecord, TemplateUpdate } from '@shared/types'
 import { IpcErrorCode } from '@shared/types'
 import { getTemplateEditorHtml, isBlankTemplateContent } from '@shared/templateContent'
-import { templateDraftSchema } from '@renderer/schemas'
+import { templateDraftSchema } from '@shared/validation'
 import { useTemplateStore } from '@renderer/stores'
-import { getOrdicabApi } from '@renderer/stores/ipc'
 import { AlertBanner, Button, DialogShell } from '@renderer/components/ui'
 import { useToast } from '@renderer/contexts/ToastContext'
 
@@ -67,6 +66,7 @@ export function TemplatesPanel({
   const importTemplateDocx = useTemplateStore((state) => state.importDocx)
   const openTemplateDocx = useTemplateStore((state) => state.openDocx)
   const removeTemplateDocx = useTemplateStore((state) => state.removeDocx)
+  const subscribeToDocxSynced = useTemplateStore((state) => state.subscribeToDocxSynced)
 
   const [workspace, setWorkspace] = useState<WorkspaceState>(() =>
     initialDossierId ? { view: 'generate', templateId: null } : { view: 'library' }
@@ -78,7 +78,10 @@ export function TemplatesPanel({
   const [isSaving, setIsSaving] = useState(false)
   const [isEditorLoading, setIsEditorLoading] = useState(false)
   const [pendingDocxCreate, setPendingDocxCreate] = useState(false)
-  const [pendingDocxFilePath, setPendingDocxFilePath] = useState<string | null>(null)
+  const [pendingDocxPick, setPendingDocxPick] = useState<{
+    token: string
+    fileName: string
+  } | null>(null)
   const editLoadRequestIdRef = useRef(0)
 
   useEffect(() => {
@@ -91,18 +94,12 @@ export function TemplatesPanel({
 
   // Refresh editor draft when the watched .docx file is saved externally (e.g. in Word)
   useEffect(() => {
-    const api = getOrdicabApi()
-
-    if (!api) {
-      return
-    }
-
-    return api.template.onDocxSynced((event) => {
+    return subscribeToDocxSynced((event) => {
       if (workspace.view === 'edit' && workspace.templateId === event.templateId) {
         setDraft((current) => ({ ...current, content: getTemplateEditorHtml(event.html) }))
       }
     })
-  }, [workspace])
+  }, [workspace, subscribeToDocxSynced])
 
   const activeTemplate =
     workspace.view === 'edit'
@@ -124,7 +121,7 @@ export function TemplatesPanel({
     setIsEditorLoading(false)
     setErrors({})
     setPendingDocxCreate(false)
-    setPendingDocxFilePath(null)
+    setPendingDocxPick(null)
   }
 
   function openEditEditor(template: TemplateRecord): void {
@@ -171,7 +168,7 @@ export function TemplatesPanel({
     }
     setIsEditorLoading(false)
     setPendingDocxCreate(false)
-    setPendingDocxFilePath(null)
+    setPendingDocxPick(null)
     setWorkspace({ view: 'library' })
     setDraft(createEmptyDraft())
     setCreateSourceType('text')
@@ -204,7 +201,7 @@ export function TemplatesPanel({
         return
       }
 
-      if (!pendingDocxFilePath) {
+      if (!pendingDocxPick) {
         // No file picked yet — open the picker now
         await handlePickDocxFile()
         return
@@ -236,7 +233,7 @@ export function TemplatesPanel({
         const created = nextState.templates.find((tmpl) => tmpl.name === draft.name.trim())
         if (!created) return
 
-        await importTemplateDocx(created.id, pendingDocxFilePath)
+        await importTemplateDocx(created.id, pendingDocxPick.token)
 
         const importState = useTemplateStore.getState()
         if (importState.error) {
@@ -366,7 +363,7 @@ export function TemplatesPanel({
     }
 
     if (result.data) {
-      setPendingDocxFilePath(result.data.filePath)
+      setPendingDocxPick({ token: result.data.pickToken, fileName: result.data.fileName })
       setDraft((current) => ({ ...current, content: result.data!.html }))
     }
   }
@@ -421,7 +418,11 @@ export function TemplatesPanel({
       )}
 
       {workspace.view === 'create-choice' ? (
-        <DialogShell size="lg" aria-label={t('templates.createChoice.title')}>
+        <DialogShell
+          size="lg"
+          aria-label={t('templates.createChoice.title')}
+          onDismiss={() => void closeWorkspace()}
+        >
           <div className="flex flex-col gap-6">
             <div className="space-y-2">
               <h3 className="text-base font-semibold text-slate-50">
@@ -477,6 +478,7 @@ export function TemplatesPanel({
               ? t('templates.editor.createTitle')
               : t('templates.editor.editTitle')
           }
+          onDismiss={() => void closeWorkspace()}
         >
           {workspace.view === 'edit' && isEditorLoading ? (
             <div className="flex min-h-0 flex-1 items-center justify-center rounded-2xl border border-white/10 bg-slate-950/40 px-6 py-10 text-sm text-slate-300">
@@ -489,7 +491,7 @@ export function TemplatesPanel({
               value={draft}
               template={activeTemplate}
               preferredSourceType={workspace.view === 'create' ? createSourceType : 'text'}
-              pendingDocxFilePath={pendingDocxFilePath}
+              pendingDocxFileName={pendingDocxPick?.fileName ?? null}
               errors={errors}
               onCancel={() => void closeWorkspace()}
               onChange={updateDraft}
@@ -508,6 +510,7 @@ export function TemplatesPanel({
           size="full"
           panelClassName="min-h-0"
           aria-label={t('templates.macros.title')}
+          onDismiss={() => void closeWorkspace()}
         >
           <div className="flex min-h-0 flex-1 flex-col gap-4">
             <div className="flex items-center gap-3">

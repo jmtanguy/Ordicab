@@ -45,7 +45,7 @@ import {
   entityProfileSchema,
   type DossierMetadataFile,
   templateRecordSchema
-} from '@renderer/schemas'
+} from '@shared/validation'
 import { type DocumentService } from './documentService'
 import { atomicWrite } from '../../lib/system/atomicWrite'
 import { pathExists } from '../../lib/system/domainState'

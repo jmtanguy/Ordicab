@@ -1,4 +1,3 @@
-import type { DocumentStructuredAnalysis } from '../domain/document'
 import type { RemoteProviderKind } from '../ai/remoteProviders'
 
 /**
@@ -109,6 +108,8 @@ export type InternalAiCommandType =
   | 'document_list'
   | 'document_get'
   | 'document_metadata_save'
+  | 'document_metadata_batch'
+  | 'document_summary_batch'
   | 'document_analyze'
   | 'document_relocate'
   | 'dossier_list'
@@ -207,6 +208,19 @@ export interface DocumentMetadataSaveIntent {
   dossierId?: string
   description?: string
   tags: string[]
+}
+
+export interface DocumentMetadataBatchIntent {
+  type: 'document_metadata_batch'
+  dossierId?: string
+  /** Optional explicit list of document UUIDs to process. Omit to target all docs without metadata. */
+  documentIds?: string[]
+}
+
+export interface DocumentSummaryBatchIntent {
+  type: 'document_summary_batch'
+  dossierId?: string
+  documentIds?: string[]
 }
 
 export interface DocumentAnalyzeIntent {
@@ -352,6 +366,8 @@ export type InternalAiCommand =
   | DocumentListIntent
   | DocumentGetIntent
   | DocumentMetadataSaveIntent
+  | DocumentMetadataBatchIntent
+  | DocumentSummaryBatchIntent
   | DocumentAnalyzeIntent
   | DocumentRelocateIntent
   | DossierListIntent
@@ -419,8 +435,6 @@ export interface AiCommandResult {
   entity?: Record<string, unknown>
   /** Path of the generated file — set by document_generate so the UI can offer to open it */
   generatedFilePath?: string
-  /** Structured document facts returned by document_analyze. */
-  documentAnalysis?: DocumentStructuredAnalysis
   /** Debug info: system prompt + tool definitions sent to the LLM for this command */
   debugContext?: string
 }

@@ -126,7 +126,7 @@ export function inferOrdicabDataChangeTarget(
       : null
   }
 
-  if (segments.length >= 3 && segments[1] === ORDICAB_DIRECTORY_NAME) {
+  if (segments.length >= 3 && segments[1] === ORDICAB_DIRECTORY_NAME && segments[0]) {
     return dataType === 'contacts' || dataType === 'dossier'
       ? {
           dossierId: segments[0],
@@ -333,7 +333,7 @@ export function createOrdicabDataWatcher(
       return { scope: 'domain' }
     }
 
-    if (segments.length >= 3 && segments[1] === ORDICAB_DIRECTORY_NAME) {
+    if (segments.length >= 3 && segments[1] === ORDICAB_DIRECTORY_NAME && segments[0]) {
       if (filename !== 'contacts.json' && filename !== 'dossier.json') {
         return null
       }
@@ -344,7 +344,7 @@ export function createOrdicabDataWatcher(
       }
     }
 
-    if (segments.length >= 2 && !hasHiddenSegment(segments)) {
+    if (segments.length >= 2 && !hasHiddenSegment(segments) && segments[0]) {
       return {
         scope: 'dossier-documents',
         dossierId: segments[0]

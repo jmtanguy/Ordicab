@@ -89,6 +89,8 @@ const INTENT_SCHEMA = `
 { "type": "document_list", "dossierId": "<optional dossier id>" }
 { "type": "document_get", "documentId": "<id from document_list result>", "dossierId": "<optional dossier id>" }
 { "type": "document_metadata_save", "documentId": "<id from document_list result>", "dossierId": "<optional dossier id>", "description": "<short description>", "tags": ["<tag1>", "<tag2>"] }
+{ "type": "document_metadata_batch", "dossierId": "<optional dossier id>", "documentIds": ["<optional uuid 1>", "<optional uuid 2>"] }
+{ "type": "document_summary_batch", "dossierId": "<optional dossier id>", "documentIds": ["<optional uuid 1>", "<optional uuid 2>"] }
 { "type": "document_relocate", "documentUuid": "<uuid from document_list result>", "dossierId": "<dossier id>", "fromDocumentId": "<optional previous relative path>", "toDocumentId": "<new relative path inside the same dossier>" }
 { "type": "contact_lookup", "dossierId": "<id from Available Dossiers — omit to use active dossier>", "query": "<optional; tolerated but ignored by runtime>" }
 { "type": "contact_get", "dossierId": "<id from Available Dossiers — omit to use active dossier>", "contactId": "<exact contact id from Available Contacts>" }
@@ -118,9 +120,9 @@ Each marker has the form  [[path]] \`replacement\`  where:
 
 Rules you MUST follow:
 1. Use the \`replacement\` value when referring to the data in natural language prose.
-2. Preserve the full marker [[path]] \`replacement\` exactly as-is in all tool call arguments and structured outputs — never strip the [[path]] prefix.
+2. In tool call arguments and structured outputs, prefer preserving the full marker [[path]] \`replacement\` exactly as-is.
 3. Never attempt to guess, restore, or comment on the original data behind a marker.
-4. If you generate text that repeats an anonymised value you saw earlier, always prefix it with its [[path]] marker.
+4. If you cannot preserve the marker, keep the \`replacement\` text exactly unchanged so Ordicab can decode it.
 5. Do not invent new [[...]] markers. Only use markers that already appear in the conversation.`.trim()
 }
 
@@ -172,6 +174,14 @@ export function buildToolSystemPrompt(context: SystemPromptContext): string {
     'For dossier-content questions (facts, claims, dates, amounts, procedural history), answer only from tool results.' +
       ' Use `document_search` and/or `document_analyze` first; do not invent missing information.'
   )
+  parts.push(
+    'For questions that span the whole dossier ("find X in the documents", "who are the children", "list all dates"), call `document_search` ONCE with a focused query. ' +
+      'Reserve `document_analyze` for ONE specific document the user named, or for re-reading a document already surfaced by `document_search`.'
+  )
+  parts.push(
+    'BAD: list documents, then emit `document_analyze` for every document in parallel — this overflows the tool-call channel and gets truncated. ' +
+      'GOOD: one `document_search` call (or one `document_summary_batch` call when the goal is per-document output).'
+  )
 
   parts.push('')
   parts.push('## Document and text generation workflow')
@@ -203,9 +213,25 @@ export function buildToolSystemPrompt(context: SystemPromptContext): string {
   )
 
   parts.push('')
-  parts.push('## Document metadata workflow')
+  parts.push('## Per-document batch workflows')
   parts.push(
-    'For indexing/metadata tasks: call `document_list`, process docs with `hasMetadata: false` using `document_get`/`document_analyze`, then persist with `document_metadata_save`.'
+    'When the user wants the same operation applied to several documents at once, call ONE of the `*_batch` intents. ' +
+      'Each runs an isolated sub-LLM call per document — never loop `document_get` / `document_analyze` + a single-doc save in the main loop. ' +
+      'Omit `documentIds` to target every document in the dossier (metadata batch defaults to docs missing metadata).'
+  )
+  parts.push(
+    '- `document_metadata_batch` → short description + tags. "Index/organise/tag all documents".'
+  )
+  parts.push(
+    '- `document_summary_batch` → longer narrative summary (2–4 paragraphs) per document, persisted as the description (tags preserved). "Summarise each document".'
+  )
+  parts.push(
+    'Reserve `document_metadata_save` for editing metadata of ONE specific document the user named.'
+  )
+  parts.push(
+    'BAD: 26x `document_analyze` (one per document) followed by 26x `document_metadata_save`. ' +
+      'GOOD: one `document_metadata_batch` call (short tags) OR one `document_summary_batch` call (long summary). ' +
+      'The runtime fans out per-document sub-LLM passes for you — never do it in the main loop.'
   )
 
   if (context.piiEnabled) {
@@ -274,10 +300,17 @@ export function buildSystemPrompt(context: SystemPromptContext): string {
     '- `document_get`: user wants to read details or metadata of a specific document. Requires `documentId` from a prior `document_list` result.'
   )
   parts.push(
-    '- `document_metadata_save`: user wants to save a description and/or tags for a document. Requires `documentId`. ' +
-      'When the user asks to "organise", "index", or "generate metadata" for documents: ' +
-      '(1) emit `document_list` first; (2) for each document with `hasMetadata: false`, emit `document_get` then `document_metadata_save` with inferred description and tags; ' +
-      '(3) process all unindexed documents without asking for confirmation between each one.'
+    '- `document_metadata_save`: user wants to edit description/tags of ONE specific document. Requires `documentId`. ' +
+      'For a single document the user explicitly named.'
+  )
+  parts.push(
+    '- `document_metadata_batch`: user wants to "organise", "index", "tag", or "generate metadata" for several / all documents. ' +
+      'Emit a single `document_metadata_batch` call. Omit `documentIds` to target every document missing metadata in the dossier; ' +
+      'pass explicit `documentIds` only when the user lists specific files. ' +
+      'Do NOT loop through `document_get` / `document_metadata_save` for batch jobs.'
+  )
+  parts.push(
+    '- `document_summary_batch`: user wants a longer narrative summary per document (2–4 paragraphs). Persisted as the description (tags preserved). Distinct from `document_metadata_batch` which is shorter + adds tags.'
   )
   parts.push(
     '- `contact_lookup`: user wants to list or inspect contacts. ' +
@@ -440,8 +473,9 @@ export function buildSystemPrompt(context: SystemPromptContext): string {
   )
   parts.push(
     'User: "Organize the documents" / "Index the documents" / "Generate metadata" → ' +
-      '{ "type": "document_list" }  ← then for each doc without metadata: document_get → document_metadata_save'
+      '{ "type": "document_metadata_batch" }  ← single call; runtime handles per-document sub-LLM passes'
   )
+  parts.push('User: "Summarise each document" → { "type": "document_summary_batch" }')
 
   // Text generation examples
   parts.push(

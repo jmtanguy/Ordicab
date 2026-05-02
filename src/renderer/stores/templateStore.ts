@@ -16,6 +16,7 @@ import type {
   TemplateUpdate
 } from '@shared/types'
 import { IpcErrorCode } from '@shared/types'
+import type { TemplateDocxSyncedEvent } from '@shared/contracts/documents'
 
 import { getOrdicabApi, IPC_NOT_AVAILABLE_ERROR } from './ipc'
 
@@ -32,8 +33,10 @@ interface TemplateStoreActions {
   create: (input: TemplateDraft) => Promise<void>
   update: (input: TemplateUpdate) => Promise<void>
   remove: (id: string) => Promise<void>
-  pickDocxFile: () => Promise<IpcResult<{ filePath: string; html: string } | null>>
-  importDocx: (id: string, filePath?: string) => Promise<void>
+  pickDocxFile: () => Promise<
+    IpcResult<{ pickToken: string; fileName: string; html: string } | null>
+  >
+  importDocx: (id: string, pickToken?: string) => Promise<void>
   openDocx: (id: string) => Promise<IpcResult<null>>
   removeDocx: (id: string) => Promise<void>
   generate: (input: GenerateDocumentInput) => Promise<IpcResult<GeneratedDocumentResult>>
@@ -44,6 +47,11 @@ interface TemplateStoreActions {
     input: SaveGeneratedDocumentInput
   ) => Promise<IpcResult<GeneratedDocumentResult>>
   openGeneratedFile: (path: string) => Promise<void>
+  /**
+   * Subscribes to "DOCX file synced from disk" events. Used by the template
+   * editor to refresh its draft when the user edits the file in Word.
+   */
+  subscribeToDocxSynced: (listener: (event: TemplateDocxSyncedEvent) => void) => () => void
 }
 
 type TemplateStore = TemplateStoreState & TemplateStoreActions
@@ -205,7 +213,7 @@ export const useTemplateStore = create<TemplateStore>()(
 
       return api.template.pickDocxFile()
     },
-    importDocx: async (id, filePath) => {
+    importDocx: async (id, pickToken) => {
       const api = getOrdicabApi()
 
       if (!api) {
@@ -216,7 +224,7 @@ export const useTemplateStore = create<TemplateStore>()(
         return
       }
 
-      const result = await api.template.importDocx(filePath ? { id, filePath } : { id })
+      const result = await api.template.importDocx(pickToken ? { id, pickToken } : { id })
 
       set((state) => {
         if (!result.success) {
@@ -341,6 +349,13 @@ export const useTemplateStore = create<TemplateStore>()(
       }
 
       await api.app.openFolder({ path })
+    },
+    subscribeToDocxSynced: (listener) => {
+      const api = getOrdicabApi()
+      if (!api?.template?.onDocxSynced) {
+        return () => undefined
+      }
+      return api.template.onDocxSynced(listener)
     }
   }))
 )

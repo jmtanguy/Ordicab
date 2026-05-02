@@ -4,8 +4,8 @@ import { join } from 'node:path'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 
-import en from '../locales/en.json'
-import fr from '../locales/fr.json'
+import en from '@shared/i18n/locales/en.json'
+import fr from '@shared/i18n/locales/fr.json'
 
 function getFilesRecursively(rootPath: string): string[] {
   const entries = readdirSync(rootPath)

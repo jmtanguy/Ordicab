@@ -26,5 +26,5 @@ export interface TemplateDeleteInput {
 
 export interface TemplateDocxInput {
   id: string
-  filePath?: string
+  pickToken?: string
 }

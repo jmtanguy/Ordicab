@@ -264,6 +264,7 @@ export function DossierKeyDatesSection({
           aria-label={
             editor.id ? t('dossiers.key_dates_edit_action') : t('dossiers.key_dates_add_action')
           }
+          onDismiss={() => setEditor(null)}
         >
           <div>
             <h3 className="text-lg font-semibold text-slate-50">

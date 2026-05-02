@@ -21,7 +21,7 @@ import {
   dossierAiImportInputSchema,
   dossierScopedQuerySchema,
   type DossierScopedQuery
-} from '@renderer/schemas'
+} from '@shared/validation'
 
 import {
   DossierTransferServiceError,

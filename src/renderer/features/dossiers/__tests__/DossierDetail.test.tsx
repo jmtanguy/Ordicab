@@ -45,7 +45,7 @@ describe('DossierDetail', () => {
             documentWatchStatus={null}
             activePreviewDocumentId={null}
             documentPreviewState={{ status: 'idle', preview: null, error: null }}
-            documentContentState={{ status: 'idle', content: null, error: null }}
+            documentContentState={{ status: 'idle', content: null, error: null, progress: null }}
             onClose={() => undefined}
             onUnregister={async () => true}
             onSave={onSave}
@@ -120,7 +120,12 @@ describe('DossierDetail', () => {
       documentWatchStatus: null,
       activePreviewDocumentId: null,
       documentPreviewState: { status: 'idle' as const, preview: null, error: null },
-      documentContentState: { status: 'idle' as const, content: null, error: null },
+      documentContentState: {
+        status: 'idle' as const,
+        content: null,
+        error: null,
+        progress: null
+      },
       onClose: () => undefined,
       onUnregister: async () => true,
       onSave: async () => true,
@@ -197,7 +202,7 @@ describe('DossierDetail', () => {
             documentWatchStatus={null}
             activePreviewDocumentId={null}
             documentPreviewState={{ status: 'idle', preview: null, error: null }}
-            documentContentState={{ status: 'idle', content: null, error: null }}
+            documentContentState={{ status: 'idle', content: null, error: null, progress: null }}
             onClose={() => undefined}
             onUnregister={async () => true}
             onSave={async () => true}

@@ -18,40 +18,6 @@ export interface DocumentTextExtractionStatus {
   isExtractable: boolean
 }
 
-export type DocumentAnalysisConfidence = 'low' | 'medium' | 'high'
-
-export interface DocumentStructuredParty {
-  name: string
-  kind: 'person' | 'organization'
-  confidence: DocumentAnalysisConfidence
-}
-
-export interface DocumentStructuredDate {
-  raw: string
-  isoDate?: string
-  confidence: DocumentAnalysisConfidence
-}
-
-export interface DocumentStructuredMonetaryAmount {
-  raw: string
-  currency: 'EUR'
-  normalizedAmount?: string
-  confidence: DocumentAnalysisConfidence
-}
-
-export interface DocumentStructuredClause {
-  title: string
-  confidence: DocumentAnalysisConfidence
-}
-
-export interface DocumentStructuredAnalysis {
-  parties: DocumentStructuredParty[]
-  dates: DocumentStructuredDate[]
-  monetaryAmounts: DocumentStructuredMonetaryAmount[]
-  clauses: DocumentStructuredClause[]
-  suggestedTags: string[]
-}
-
 export interface StoredDocumentMetadata {
   uuid?: string
   relativePath: string
@@ -78,6 +44,7 @@ export interface DocumentPreviewInput {
   dossierId: string
   documentId: string
   forceRefresh?: boolean
+  readCacheOnly?: boolean
 }
 
 export interface DocumentExtractedContent {

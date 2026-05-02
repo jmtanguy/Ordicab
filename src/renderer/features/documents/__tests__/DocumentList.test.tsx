@@ -57,7 +57,7 @@ describe('DocumentList', () => {
             preview: unsupportedPreview,
             error: null
           }}
-          contentState={{ status: 'idle', content: null, error: null }}
+          contentState={{ status: 'idle', content: null, error: null, progress: null }}
           onOpenPreview={vi.fn(async () => undefined)}
           onOpenFile={vi.fn()}
           onExtractContent={vi.fn(async () => true)}
@@ -109,7 +109,7 @@ describe('DocumentList', () => {
             preview: emailPreview,
             error: null
           }}
-          contentState={{ status: 'idle', content: null, error: null }}
+          contentState={{ status: 'idle', content: null, error: null, progress: null }}
           onOpenPreview={vi.fn(async () => undefined)}
           onOpenFile={vi.fn()}
           onExtractContent={vi.fn(async () => true)}
@@ -121,5 +121,38 @@ describe('DocumentList', () => {
     expect(markup).toContain('sender@example.com')
     expect(markup).toContain('brief.pdf')
     expect(markup).toContain('Email body')
+  })
+
+  it('renders document tags as manual metadata', async () => {
+    const i18n = await createRendererI18n('en')
+    const markup = renderToStaticMarkup(
+      <I18nextProvider i18n={i18n}>
+        <DocumentList
+          dossierId="dos-1"
+          documents={[
+            createDocument(0, {
+              id: 'autotagged.pdf',
+              filename: 'autotagged.pdf',
+              relativePath: 'autotagged.pdf',
+              tags: ['urgent', 'contrat']
+            })
+          ]}
+          isLoading={false}
+          isSavingMetadata={false}
+          onSaveMetadata={vi.fn(async () => true)}
+          watchStatus={null}
+          activePreviewDocumentId={null}
+          previewState={{ status: 'idle', preview: null, error: null }}
+          contentState={{ status: 'idle', content: null, error: null, progress: null }}
+          onOpenPreview={vi.fn(async () => undefined)}
+          onOpenFile={vi.fn()}
+          onExtractContent={vi.fn(async () => true)}
+        />
+      </I18nextProvider>
+    )
+
+    expect(markup).toContain('>urgent<')
+    expect(markup).toContain('>contrat<')
+    expect(markup).toContain('border-aurora/25')
   })
 })

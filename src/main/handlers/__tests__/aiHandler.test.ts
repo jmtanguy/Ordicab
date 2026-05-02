@@ -12,7 +12,7 @@ beforeEach(() => {
 })
 
 function createIpcMainHarness(): {
-  invoke: (channel: string, input?: unknown) => Promise<unknown>
+  invoke: (channel: string, input?: unknown, event?: unknown) => Promise<unknown>
   ipcMain: {
     handle: (
       channel: string,
@@ -28,14 +28,14 @@ function createIpcMainHarness(): {
         handlers.set(channel, listener)
       }
     },
-    invoke: async (channel, input) => {
+    invoke: async (channel, input, event = {}) => {
       const handler = handlers.get(channel)
 
       if (!handler) {
         throw new Error(`No IPC handler registered for ${channel}`)
       }
 
-      return handler({}, input)
+      return handler(event, input)
     }
   }
 }
@@ -137,7 +137,7 @@ describe('aiHandler', () => {
     const result = await harness.invoke(IPC_CHANNELS.ai.settingsSave, {
       mode: 'remote',
       ollamaEndpoint: 'http://localhost:11434',
-      remoteProvider: 'openai',
+      remoteProvider: 'https://api.openai.com/v1',
       apiKey: 'sk-my-key'
     })
     expect(result).toEqual({ success: true, data: null })
@@ -160,7 +160,7 @@ describe('aiHandler', () => {
     })
     await harness2.invoke(IPC_CHANNELS.ai.settingsSave, {
       mode: 'remote',
-      remoteProvider: 'anthropic',
+      remoteProvider: 'https://api.anthropic.com/v1',
       apiKey: 'sk-super-secret'
     })
     expect(writtenContent).not.toContain('sk-super-secret')
@@ -303,5 +303,100 @@ describe('aiHandler', () => {
     })
     await harness3.invoke(IPC_CHANNELS.ai.cloudProviderStatus, 'not-a-valid-mode')
     expect(checkerNone.checkAvailability).toHaveBeenCalledWith('none')
+  })
+
+  it('ai:execute-command resolves webContents lazily so push events still work after bootstrap', async () => {
+    const harness = createIpcMainHarness()
+    const credentialStore = createCredentialStoreMock()
+    const send = vi.fn()
+    let currentWebContents: { send(channel: string, ...args: unknown[]): void } | null = null
+    const aiService = {
+      executeCommand: vi.fn(
+        async (
+          _input: unknown,
+          onToken?: (token: string) => void,
+          onReflection?: (text: string) => void
+        ) => {
+          onReflection?.('step intermédiaire')
+          onToken?.('token')
+          return {
+            intent: { type: 'direct_response' as const, message: 'Réponse finale' },
+            feedback: 'Réponse finale'
+          }
+        }
+      ),
+      cancelCommand: vi.fn(),
+      resetConversation: vi.fn()
+    }
+
+    registerAiHandlers({
+      ipcMain: harness.ipcMain,
+      credentialStore,
+      stateFilePath,
+      aiService: aiService as never,
+      getWebContents: () => currentWebContents
+    })
+
+    currentWebContents = { send }
+
+    const result = await harness.invoke(IPC_CHANNELS.ai.executeCommand, {
+      command: 'Bonjour',
+      context: {}
+    })
+
+    expect(result).toEqual({
+      success: true,
+      data: {
+        intent: { type: 'direct_response', message: 'Réponse finale' },
+        feedback: 'Réponse finale'
+      }
+    })
+    expect(send).toHaveBeenCalledWith(IPC_CHANNELS.ai.reflection, 'step intermédiaire')
+    expect(send).toHaveBeenCalledWith(IPC_CHANNELS.ai.textToken, 'token')
+    expect(send).toHaveBeenCalledWith(IPC_CHANNELS.ai.intentReceived, {
+      type: 'direct_response',
+      message: 'Réponse finale'
+    })
+  })
+
+  it('ai:execute-command prefers the invoking renderer sender for push events', async () => {
+    const harness = createIpcMainHarness()
+    const credentialStore = createCredentialStoreMock()
+    const senderSend = vi.fn()
+    const fallbackSend = vi.fn()
+    const aiService = {
+      executeCommand: vi.fn(
+        async (
+          _input: unknown,
+          _onToken?: (token: string) => void,
+          onReflection?: (text: string) => void
+        ) => {
+          onReflection?.('step via sender')
+          return {
+            intent: { type: 'direct_response' as const, message: 'Réponse finale' },
+            feedback: 'Réponse finale'
+          }
+        }
+      ),
+      cancelCommand: vi.fn(),
+      resetConversation: vi.fn()
+    }
+
+    registerAiHandlers({
+      ipcMain: harness.ipcMain,
+      credentialStore,
+      stateFilePath,
+      aiService: aiService as never,
+      getWebContents: () => ({ send: fallbackSend })
+    })
+
+    await harness.invoke(
+      IPC_CHANNELS.ai.executeCommand,
+      { command: 'Bonjour', context: {} },
+      { sender: { send: senderSend } }
+    )
+
+    expect(senderSend).toHaveBeenCalledWith(IPC_CHANNELS.ai.reflection, 'step via sender')
+    expect(fallbackSend).not.toHaveBeenCalled()
   })
 })

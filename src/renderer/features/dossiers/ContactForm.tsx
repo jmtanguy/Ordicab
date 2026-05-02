@@ -12,7 +12,7 @@ import {
 } from '@shared/types'
 
 import { Button, Field, Input, Select, Textarea } from '@renderer/components/ui'
-import { TITLE_VALUES } from '@renderer/schemas'
+import { TITLE_VALUES } from '@shared/validation'
 import { useEntityStore } from '@renderer/stores'
 
 import { formatIsoDateForLocaleInput } from './contactDateOfBirth'

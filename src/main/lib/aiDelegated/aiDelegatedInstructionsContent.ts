@@ -11,7 +11,7 @@ import {
   keyReferenceSchema,
   templateRecordSchema,
   type DossierMetadataFile
-} from '@renderer/schemas'
+} from '@shared/validation'
 import {
   delegatedAiActionPayloadSchemas,
   type DelegatedAiAction
@@ -402,7 +402,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
     '2. Treat the process as incremental if the dossier was already organized: add only new elements and fill only missing details, without duplicating existing contacts, key dates, document summaries, or tags.',
     '3. For each relevant document, index it: extract its text content, then persist a concise summary and useful tags with `document.saveMetadata`. Use document category tags from the taxonomy above and include at least one year tag such as `2026` when the document date is clear.',
     '   - If you can read the document directly (plain text, already parsed), extract purpose and content from what you read.',
-    '   - If the document is a binary format you cannot read directly (PDF, DOCX), use `document.analyze` first to get the extracted text locally, then use `result.text` to generate the description and tags before calling `document.saveMetadata`.',
+    '   - If the document is a binary format you cannot read directly (PDF, DOCX, supported images), use `document.analyze` first to get the extracted text locally, then use `result.text` to generate the description and tags before calling `document.saveMetadata`.',
     '   - "Indexing a document" always means: capture text content + generate description and tags via intents/tools.',
     'When the document clearly supports it, include at least one year tag such as `2011` in the document tags, and sort the final `tags` array in alphabetical order before writing the intent.',
     '4. Sort the final `tags` array in alphabetical order before writing the intent.',
@@ -463,7 +463,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
     '- `dossier.upsertKeyReference`',
     '- `dossier.deleteKeyReference`',
     '- `entity.update`',
-    '- `document.analyze` — extract text and structured facts from supported documents locally (plain text, DOCX, digital PDF, scanned PDF via OCR). Returns the raw text for you to summarize.',
+    '- `document.analyze` — extract text and structured facts from supported documents locally (plain text, DOCX, digital PDF, scanned PDF/images via OCR). Returns the raw text for you to summarize.',
     '- `document.saveMetadata`',
     '- `document.relocate`',
     '- `template.create`',
@@ -705,10 +705,10 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
     '#### Indexing a Document (Content Extraction + Metadata)',
     '**"Indexer un document" means: extract its text content locally, then generate a description and tags from that text.**',
     'Use `document.analyze` to have Ordicab extract the full text from any supported document locally (no network, no images sent anywhere).',
-    'Supported formats: `.pdf` (embedded text or scanned OCR), `.docx` (mammoth extraction), `.txt`/`.md` and other plain-text files (direct read).',
+    'Supported formats: `.pdf` (embedded text or scanned OCR), `.jpg`/`.jpeg`/`.png`/`.tif`/`.tiff` (OCR), `.docx` (mammoth extraction), `.txt`/`.md` and other plain-text files (direct read).',
     'The response `result.text` contains the raw extracted text, augmented with existing metadata (description, tags). Use it to write the description and tags yourself, then persist with `document.saveMetadata`.',
     'The response also includes `result.analysis` with detected parties, dates, monetary amounts, clauses, suggested tags, and an overall confidence score.',
-    'The response also includes `result.method`: `direct` (plain text), `docx`, `embedded` (digital PDF), `tesseract` (scanned PDF), or `cached`.',
+    'The response also includes `result.method`: `direct` (plain text), `docx`, `embedded` (digital PDF), `tesseract` (scanned PDF/image OCR), or `cached`.',
     'This two-step workflow applies whenever you need to index a document you cannot read directly:',
     'Step 1 — emit `document.analyze` and wait for the response:',
     toJsonSnippet(

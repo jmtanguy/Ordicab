@@ -384,16 +384,7 @@ describe('DelegatedAiActionProcessor', () => {
       result: {
         documentId: 'incoming-note.txt',
         method: 'direct',
-        text: expect.stringContaining('Madame Alice Martin'),
-        analysis: {
-          parties: expect.arrayContaining([
-            expect.objectContaining({ name: 'Madame Alice Martin', kind: 'person' })
-          ]),
-          monetaryAmounts: expect.arrayContaining([
-            expect.objectContaining({ raw: '1 250,50 euros', currency: 'EUR' })
-          ]),
-          dates: expect.arrayContaining([expect.objectContaining({ isoDate: '2026-04-12' })])
-        }
+        text: expect.stringContaining('Madame Alice Martin')
       },
       nextStep: expect.stringContaining('document.saveMetadata')
     })
@@ -607,7 +598,7 @@ describe('DelegatedAiActionProcessor', () => {
       role: 'Client',
       email: 'camille.martin@example.com'
     })
-    expect(contacts[0].uuid).toBeTruthy()
+    expect(contacts[0]!.uuid).toBeTruthy()
   })
 
   it('merges partial contact fields when updating an existing contact by id', async () => {

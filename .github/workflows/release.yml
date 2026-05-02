@@ -41,6 +41,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Cache the bundled ONNX models under resources/models/ so each release
+      # build reuses them instead of pulling ~645 MB from huggingface.co. The
+      # key includes scripts/prepare-models.mjs, so any change to the bundled
+      # model list (ids, revisions, files) forces a fresh download on the
+      # next run. The OS is scoped separately because cache entries are not
+      # portable across runners, though the model files themselves are.
+      - name: Cache embedded AI models
+        uses: actions/cache@v4
+        with:
+          path: resources/models
+          key: embedded-models-${{ runner.os }}-${{ hashFiles('scripts/prepare-models.mjs') }}
+          restore-keys: |
+            embedded-models-${{ runner.os }}-
+
       - name: Configure macOS signing and notarization env
         if: matrix.os == 'macos-14'
         shell: bash

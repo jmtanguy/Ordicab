@@ -2,8 +2,8 @@ import { readFile } from 'node:fs/promises'
 
 import { APP_LOCALES, type AppLocale } from '@shared/types'
 
-import en from '@renderer/i18n/locales/en.json'
-import fr from '@renderer/i18n/locales/fr.json'
+import en from '@shared/i18n/locales/en.json'
+import fr from '@shared/i18n/locales/fr.json'
 
 import { atomicWrite } from '../system/atomicWrite'
 

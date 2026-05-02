@@ -53,7 +53,10 @@ import {
 } from '@shared/ai/remoteProviders'
 import type { AiDelegatedProviderChecker } from '../lib/aiDelegated/aiDelegatedProviderChecker'
 import { createAiDelegatedProviderChecker } from '../lib/aiDelegated/aiDelegatedProviderChecker'
-import type { CredentialStore } from '../lib/system/credentialStore'
+import {
+  CredentialStoreUnavailableError,
+  type CredentialStore
+} from '../lib/system/credentialStore'
 import type { AiService } from '../services/aiEmbedded/aiService'
 
 interface IpcMainLike {
@@ -219,6 +222,14 @@ function mapAiError(error: unknown, fallbackMessage: string): IpcError {
     }
   }
 
+  if (error instanceof CredentialStoreUnavailableError) {
+    return {
+      success: false,
+      error: error.message,
+      code: IpcErrorCode.AI_RUNTIME_UNAVAILABLE
+    }
+  }
+
   if (
     error instanceof Error &&
     'code' in error &&
@@ -250,6 +261,14 @@ interface WebContentsLike {
   send(channel: string, ...args: unknown[]): void
 }
 
+function resolveEventWebContents(event: unknown): WebContentsLike | null {
+  if (!event || typeof event !== 'object') return null
+  const sender = (event as { sender?: unknown }).sender
+  if (!sender || typeof sender !== 'object') return null
+  if (typeof (sender as { send?: unknown }).send !== 'function') return null
+  return sender as WebContentsLike
+}
+
 export function registerAiHandlers(options: {
   ipcMain: IpcMainLike
   credentialStore: CredentialStore
@@ -258,10 +277,11 @@ export function registerAiHandlers(options: {
   checker?: AiDelegatedProviderChecker
   aiService?: AiService
   webContents?: WebContentsLike
+  getWebContents?: () => WebContentsLike | null | undefined
 }): void {
   const { ipcMain, credentialStore, stateFilePath, onModeChanged } = options
   const checker = options.checker ?? createAiDelegatedProviderChecker()
-  const { aiService, webContents } = options
+  const { aiService, webContents, getWebContents } = options
 
   ipcMain.handle(IPC_CHANNELS.ai.settingsGet, async (): Promise<IpcResult<AiSettingsResponse>> => {
     try {
@@ -476,7 +496,7 @@ export function registerAiHandlers(options: {
 
   ipcMain.handle(
     IPC_CHANNELS.ai.executeCommand,
-    async (_event, input: unknown): Promise<IpcResult<AiCommandResult>> => {
+    async (event, input: unknown): Promise<IpcResult<AiCommandResult>> => {
       try {
         if (!aiService) {
           return {
@@ -486,15 +506,28 @@ export function registerAiHandlers(options: {
           }
         }
         const parsed = aiCommandInputSchema.parse(input)
-        const onToken = webContents
-          ? (token: string) => webContents.send(IPC_CHANNELS.ai.textToken, token)
+        const currentWebContents =
+          resolveEventWebContents(event) ?? getWebContents?.() ?? webContents
+        const onToken = currentWebContents
+          ? (token: string) => currentWebContents.send(IPC_CHANNELS.ai.textToken, token)
           : undefined
-        const result = await aiService.executeCommand(parsed, onToken)
+        const onReflection = currentWebContents
+          ? (text: string) => {
+              console.log(
+                `[aiHandler] sending reflection via IPC: channel=${IPC_CHANNELS.ai.reflection} len=${text.length}`
+              )
+              currentWebContents.send(IPC_CHANNELS.ai.reflection, text)
+            }
+          : undefined
+        console.log(
+          `[aiHandler] executeCommand: webContents=${!!currentWebContents} onReflection=${!!onReflection}`
+        )
+        const result = await aiService.executeCommand(parsed, onToken, onReflection)
         // Push the intent via the separate push channel so the renderer can
         // react immediately (e.g. update lastIntent in aiStore) in addition
         // to receiving it as part of the IpcResult below.
         const intent: InternalAiCommand = result.intent
-        webContents?.send(IPC_CHANNELS.ai.intentReceived, intent)
+        currentWebContents?.send(IPC_CHANNELS.ai.intentReceived, intent)
         return { success: true, data: result }
       } catch (error) {
         return mapAiError(error, 'AI command failed.')

@@ -26,6 +26,7 @@ import type {
   AiCommandInput,
   DocumentAvailabilityEvent,
   DocumentChangeEvent,
+  DocumentExtractProgressEvent,
   InternalAiCommand,
   OrdicabDataChangedEvent,
   TemplateDocxSyncedEvent,
@@ -138,8 +139,16 @@ export function createOrdicabApi(
           IPC_CHANNELS.document.availabilityChanged,
           listener
         ),
+      onExtractProgress: (listener) =>
+        subscribeToEvent<DocumentExtractProgressEvent>(
+          ipcOn,
+          ipcOff,
+          IPC_CHANNELS.document.extractProgress,
+          listener
+        ),
       saveMetadata: (input) => invoke(ipcInvoke, IPC_CHANNELS.document.saveMetadata, input),
-      openFile: (input) => invoke(ipcInvoke, IPC_CHANNELS.document.openFile, input)
+      openFile: (input) => invoke(ipcInvoke, IPC_CHANNELS.document.openFile, input),
+      semanticSearch: (input) => invoke(ipcInvoke, IPC_CHANNELS.document.semanticSearch, input)
     },
     ordicab: {
       onDataChanged: (listener) =>
@@ -199,7 +208,9 @@ export function createOrdicabApi(
           listener
         ),
       onTextToken: (listener: (token: string) => void) =>
-        subscribeToEvent<string>(ipcOn, ipcOff, IPC_CHANNELS.ai.textToken, listener)
+        subscribeToEvent<string>(ipcOn, ipcOff, IPC_CHANNELS.ai.textToken, listener),
+      onReflection: (listener: (text: string) => void) =>
+        subscribeToEvent<string>(ipcOn, ipcOff, IPC_CHANNELS.ai.reflection, listener)
     },
     updater: {
       startDownload: () => invoke(ipcInvoke, IPC_CHANNELS.updater.startDownload),

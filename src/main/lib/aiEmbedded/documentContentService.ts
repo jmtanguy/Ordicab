@@ -6,17 +6,37 @@
  *   .docx                    → mammoth text extraction → cached
  *   .pdf (digital)           → pdfjs-dist embedded text → cached
  *   .pdf (scanned)           → Tesseract.js OCR → cached
+ *   .jpg/.jpeg/.png/.tif/.tiff → Tesseract.js OCR → cached
  *
  * The result (plain text + existing metadata) is intended to be sent to a
  * text-only LLM — no images are transmitted outside the device.
+ *
+ * `any` usage in this file: the four loaders (`tesseract.js`, `pdfjs-dist`,
+ * `mammoth`, `@napi-rs/canvas`) ship without usable type definitions for
+ * the APIs we touch. Each `any` here is confined to an adapter function or
+ * a dynamic-import unwrap and stays out of the cached-content data path —
+ * the values handed back to the rest of the service are typed (string,
+ * Buffer, OcrPage). See ARCHITECTURE.md §8.
  */
 import { readFile, writeFile, mkdir, access, unlink } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { join, basename, extname } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
-import { tmpdir } from 'node:os'
+import { tmpdir, cpus } from 'node:os'
+
+import { IpcErrorCode } from '@shared/types'
 
 import { OCR_COMMON_WORDS, OCR_KEYWORDS, OCR_LANGUAGES } from './ocrLexicon'
+
+export class DocumentContentError extends Error {
+  constructor(
+    readonly code: IpcErrorCode,
+    message: string
+  ) {
+    super(message)
+    this.name = 'DocumentContentError'
+  }
+}
 
 // Minimum count of "readable" characters to consider embedded PDF text usable.
 const READABLE_CHARS_MIN = 50
@@ -34,10 +54,16 @@ const MIN_RECOGNIZED_WORD_RATIO = 0.15
 
 // Plain-text extensions that are read directly without caching.
 const PLAIN_TEXT_EXTENSIONS = new Set(['.txt', '.md', '.csv', '.json', '.xml', '.html', '.htm'])
+const OCR_IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.tif', '.tiff'])
 
 export function isDocumentTextExtractable(filePath: string): boolean {
   const ext = extname(filePath).toLowerCase()
-  return PLAIN_TEXT_EXTENSIONS.has(ext) || ext === '.docx' || ext === '.pdf'
+  return (
+    PLAIN_TEXT_EXTENSIONS.has(ext) ||
+    OCR_IMAGE_EXTENSIONS.has(ext) ||
+    ext === '.docx' ||
+    ext === '.pdf'
+  )
 }
 
 export function isPlainTextDocument(filePath: string): boolean {
@@ -49,7 +75,7 @@ export type ExtractMethod = 'direct' | 'docx' | 'embedded' | 'tesseract' | 'cach
 interface ContentCacheEntry {
   version: 2
   name: string
-  method: Exclude<ExtractMethod, 'direct' | 'cached'>
+  method: Exclude<ExtractMethod, 'cached'>
   extractedAt: string
   text: string
   isEmpty?: boolean
@@ -59,6 +85,16 @@ export interface ExtractResult {
   text: string
   method: ExtractMethod
 }
+
+export type ExtractPhase = 'embedded' | 'ocr'
+
+export interface ExtractProgress {
+  phase: ExtractPhase
+  page: number
+  totalPages: number
+}
+
+export type ExtractProgressCallback = (progress: ExtractProgress) => void
 
 type PdfTextItem = {
   str?: string
@@ -95,29 +131,50 @@ type OcrPage = {
 }
 
 type OcrRotation = 'auto' | 0 | 90 | 180 | 270
+type OcrScheduler = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  addWorker: (worker: any) => void
+  addJob: (
+    action: 'recognize',
+    image: string,
+    options?: Partial<{ rotateAuto: boolean }>,
+    output?: Partial<{ text: boolean; blocks: boolean }>
+  ) => Promise<{ data: OcrPage }>
+  terminate: () => Promise<void>
+}
 
-let structuredClonePatchDepth = 0
-let originalStructuredClone: typeof globalThis.structuredClone | null = null
+// Some PDF/OCR libraries crash when structuredClone clones their `Uint8Array`
+// chunks (the underlying ArrayBuffer is a Buffer subclass that the algorithm
+// trips on). We replace structuredClone with a forwarder for the duration of
+// such calls. The depth counter and the saved original live in this closure
+// so reentrant callers cannot stomp each other and there is no module-level
+// mutable state.
+const structuredClonePatcher = (() => {
+  let depth = 0
+  let original: typeof globalThis.structuredClone | null = null
 
-async function withPatchedStructuredClone<T>(run: () => Promise<T>): Promise<T> {
-  if (structuredClonePatchDepth === 0 && typeof globalThis.structuredClone === 'function') {
-    originalStructuredClone = globalThis.structuredClone
-    globalThis.structuredClone = ((value: unknown) =>
-      originalStructuredClone?.(value)) as typeof globalThis.structuredClone
-  }
+  return async function withPatchedStructuredClone<T>(run: () => Promise<T>): Promise<T> {
+    if (depth === 0 && typeof globalThis.structuredClone === 'function') {
+      original = globalThis.structuredClone
+      globalThis.structuredClone = ((value: unknown) =>
+        original?.(value)) as typeof globalThis.structuredClone
+    }
 
-  structuredClonePatchDepth += 1
+    depth += 1
 
-  try {
-    return await run()
-  } finally {
-    structuredClonePatchDepth -= 1
-    if (structuredClonePatchDepth === 0 && originalStructuredClone) {
-      globalThis.structuredClone = originalStructuredClone
-      originalStructuredClone = null
+    try {
+      return await run()
+    } finally {
+      depth -= 1
+      if (depth === 0 && original) {
+        globalThis.structuredClone = original
+        original = null
+      }
     }
   }
-}
+})()
+
+const withPatchedStructuredClone = structuredClonePatcher
 
 async function pathExists(p: string): Promise<boolean> {
   try {
@@ -139,15 +196,18 @@ async function readCache(cachePath: string): Promise<string | null> {
       [key: string]: unknown
     }
     const version = entry.version
+    // Re-normalize on read so cache files written before the current
+    // normalization rules (or by an older app version) still produce clean
+    // output for downstream PII detection, embeddings, and NER.
     if (version === 1 && typeof entry.text === 'string' && entry.text.length > 0) {
-      return entry.text
+      return normalizeExtractedText(entry.text)
     }
     if (
       version === 2 &&
       typeof entry.text === 'string' &&
       (entry.text.length > 0 || entry.isEmpty === true)
     ) {
-      return entry.text
+      return entry.text.length > 0 ? normalizeExtractedText(entry.text) : entry.text
     }
   } catch {
     // corrupt cache — fall through to re-process
@@ -159,7 +219,7 @@ async function writeCache(
   cachePath: string,
   filePath: string,
   text: string,
-  method: Exclude<ExtractMethod, 'direct' | 'cached'>
+  method: Exclude<ExtractMethod, 'cached'>
 ): Promise<void> {
   const entry: ContentCacheEntry = {
     version: 2,
@@ -203,10 +263,37 @@ export async function markDocumentExtractionEmpty(
 ): Promise<void> {
   const cachePath = cachePathFor(cacheDir, filePath)
   const ext = extname(filePath).toLowerCase()
-  const method: Exclude<ExtractMethod, 'direct' | 'cached'> = ext === '.pdf' ? 'tesseract' : 'docx'
+  const method: Exclude<ExtractMethod, 'direct' | 'cached'> =
+    ext === '.pdf' || OCR_IMAGE_EXTENSIONS.has(ext) ? 'tesseract' : 'docx'
 
   await mkdir(cacheDir, { recursive: true })
   await writeEmptyCache(cachePath, filePath, method)
+}
+
+/**
+ * Plain-text files are normally read directly without using the cache. Some
+ * downstream features, however, need a stable on-disk cache entry to attach
+ * derived artifacts such as embeddings. This helper materializes that cache
+ * lazily only when a caller actually needs it.
+ */
+export async function ensurePlainTextDocumentCache(
+  filePath: string,
+  cacheDir: string
+): Promise<string> {
+  const cachePath = cachePathFor(cacheDir, filePath)
+  if (!isPlainTextDocument(filePath)) {
+    return cachePath
+  }
+
+  const cached = await readCache(cachePath)
+  if (cached !== null) {
+    return cachePath
+  }
+
+  const text = normalizeExtractedText(await readFile(filePath, 'utf8'))
+  await mkdir(cacheDir, { recursive: true })
+  await writeCache(cachePath, filePath, text, 'direct')
+  return cachePath
 }
 
 export function normalizeExtractedText(value: string): string {
@@ -410,6 +497,73 @@ export function resolveAutoDetectedRotation(
   return null
 }
 
+/**
+ * Convert a rendered page canvas to a grayscale, Otsu-binarized canvas.
+ * Black text on a uniform white background recovers dramatically more
+ * characters on faint, yellowed, or unevenly lit scans than feeding the
+ * raw RGB render to Tesseract.
+ */
+function preprocessCanvasForOcr(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sourceCanvas: any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  createCanvas: any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): any {
+  const width = sourceCanvas.width as number
+  const height = sourceCanvas.height as number
+  const ctx = sourceCanvas.getContext('2d')
+  const imageData = ctx.getImageData(0, 0, width, height)
+  const pixels = imageData.data as Uint8ClampedArray
+  const total = width * height
+
+  const histogram = new Uint32Array(256)
+  const gray = new Uint8Array(total)
+  for (let i = 0, j = 0; j < total; i += 4, j++) {
+    // Rec. 601 luma coefficients — standard grayscale conversion.
+    const g = (pixels[i]! * 299 + pixels[i + 1]! * 587 + pixels[i + 2]! * 114 + 500) / 1000
+    const gi = g | 0
+    gray[j] = gi
+    histogram[gi]! += 1
+  }
+
+  // Otsu: find the threshold that maximises between-class variance.
+  let sum = 0
+  for (let t = 0; t < 256; t++) sum += t * histogram[t]!
+  let sumB = 0
+  let wB = 0
+  let maxVariance = -1
+  let threshold = 127
+  for (let t = 0; t < 256; t++) {
+    wB += histogram[t]!
+    if (wB === 0) continue
+    const wF = total - wB
+    if (wF === 0) break
+    sumB += t * histogram[t]!
+    const mB = sumB / wB
+    const mF = (sum - sumB) / wF
+    const variance = wB * wF * (mB - mF) * (mB - mF)
+    if (variance > maxVariance) {
+      maxVariance = variance
+      threshold = t
+    }
+  }
+
+  const targetCanvas = createCanvas(width, height)
+  const targetCtx = targetCanvas.getContext('2d')
+  const output = targetCtx.createImageData(width, height)
+  const out = output.data as Uint8ClampedArray
+  for (let i = 0, j = 0; j < total; i += 4, j++) {
+    const value = gray[j]! < threshold ? 0 : 255
+    out[i] = value
+    out[i + 1] = value
+    out[i + 2] = value
+    out[i + 3] = 255
+  }
+  targetCtx.putImageData(output, 0, 0)
+  return targetCanvas
+}
+
 function rotateCanvasToPng(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   sourceCanvas: any,
@@ -435,13 +589,7 @@ function rotateCanvasToPng(
 }
 
 async function recognizeOcrCandidate(
-  worker: {
-    recognize: (
-      image: string,
-      options?: Partial<{ rotateAuto: boolean }>,
-      output?: Partial<{ text: boolean; blocks: boolean }>
-    ) => Promise<{ data: OcrPage }>
-  },
+  scheduler: OcrScheduler,
   imagePath: string,
   rotation: OcrRotation
 ): Promise<{
@@ -450,7 +598,8 @@ async function recognizeOcrCandidate(
   recognizedWordRatio: number
   detectedRotation: Exclude<OcrRotation, 'auto'> | null
 }> {
-  const result = await worker.recognize(
+  const result = await scheduler.addJob(
+    'recognize',
     imagePath,
     rotation === 'auto' ? { rotateAuto: true } : {},
     { text: true, blocks: true }
@@ -467,6 +616,194 @@ async function recognizeOcrCandidate(
   }
 }
 
+async function createOcrScheduler(
+  workerCount: number,
+  langDataPath: string
+): Promise<OcrScheduler> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { createWorker, createScheduler } = (await import('tesseract.js')) as any
+  const scheduler = createScheduler() as OcrScheduler
+
+  const workers = await Promise.all(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    Array.from({ length: workerCount }, async (): Promise<any> => {
+      const w = await createWorker([...OCR_LANGUAGES], 1, {
+        langPath: langDataPath,
+        cacheMethod: 'readOnly',
+        gzip: false,
+        logger: () => {}
+      })
+      // Tune for single-column scanned letters / administrative documents.
+      // PSM 6 treats the page as one uniform text block and is markedly more
+      // reliable than PSM 3 (auto) on low-quality scans where layout analysis
+      // mis-segments faint or tilted text. Declaring the effective DPI lets
+      // Tesseract calibrate its character classifier against the rendered
+      // resolution (see PDF scale below).
+      await w.setParameters({
+        tessedit_pageseg_mode: '6',
+        user_defined_dpi: '300',
+        preserve_interword_spaces: '1'
+      })
+      return w
+    })
+  )
+  for (const w of workers) scheduler.addWorker(w)
+
+  return scheduler
+}
+
+async function recognizeCanvasText(options: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  canvas: any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  createCanvas: any
+  scheduler: OcrScheduler
+  preferredRotation: Exclude<OcrRotation, 'auto'> | null
+}): Promise<{ text: string; preferredRotation: Exclude<OcrRotation, 'auto'> | null }> {
+  const { canvas, createCanvas, scheduler } = options
+  const candidatePaths = new Map<OcrRotation, string>()
+  const baseTmpPath = join(tmpdir(), `ocr-${randomUUID()}.png`)
+  await writeFile(baseTmpPath, canvas.toBuffer('image/png'))
+  candidatePaths.set('auto', baseTmpPath)
+  candidatePaths.set(0, baseTmpPath)
+
+  let text = ''
+  let preferredRotation = options.preferredRotation
+  try {
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('OCR page timeout')), OCR_PAGE_TIMEOUT_MS)
+    )
+    let best: {
+      text: string
+      score: number
+      recognizedWordRatio: number
+      rotation: OcrRotation
+      detectedRotation: Exclude<OcrRotation, 'auto'> | null
+    } = {
+      text: '',
+      score: 0,
+      recognizedWordRatio: 0,
+      rotation: 'auto',
+      detectedRotation: null
+    }
+    const runCandidate = async (
+      rotation: OcrRotation
+    ): Promise<{
+      text: string
+      score: number
+      recognizedWordRatio: number
+      rotation: OcrRotation
+      detectedRotation: Exclude<OcrRotation, 'auto'> | null
+    }> => {
+      let path = candidatePaths.get(rotation)
+      if (!path) {
+        path = join(tmpdir(), `ocr-${randomUUID()}-${rotation}.png`)
+        await writeFile(
+          path,
+          rotateCanvasToPng(canvas, createCanvas, rotation as Exclude<OcrRotation, 'auto'>)
+        )
+        candidatePaths.set(rotation, path)
+      }
+
+      const candidate = await Promise.race([
+        recognizeOcrCandidate(scheduler, path, rotation),
+        timeoutPromise
+      ])
+      return { ...candidate, rotation }
+    }
+
+    const primaryRotations: OcrRotation[] =
+      preferredRotation === null ? [0, 180] : [preferredRotation]
+
+    for (const rotation of primaryRotations) {
+      const candidate = await runCandidate(rotation)
+      if (candidate.score > best.score) {
+        best = candidate
+      }
+
+      if (
+        shouldAcceptOcrCandidateEarly(
+          candidate.score,
+          candidate.text,
+          candidate.recognizedWordRatio
+        )
+      ) {
+        break
+      }
+
+      if (
+        (rotation === 0 || rotation === 180) &&
+        hasReadableOcrText(candidate.text) &&
+        candidate.score >= MIN_OCR_CANDIDATE_SCORE &&
+        candidate.recognizedWordRatio >= MIN_RECOGNIZED_WORD_RATIO
+      ) {
+        break
+      }
+    }
+
+    if (
+      preferredRotation !== null &&
+      best.score < MIN_OCR_CANDIDATE_SCORE &&
+      best.rotation === preferredRotation
+    ) {
+      for (const rotation of preferredRotation === 180 ? [0, 90, 270] : [180, 90, 270]) {
+        const typedRotation = rotation as OcrRotation
+        const candidate = await runCandidate(typedRotation)
+        if (candidate.score > best.score) {
+          best = candidate
+        }
+
+        if (
+          shouldAcceptOcrCandidateEarly(
+            candidate.score,
+            candidate.text,
+            candidate.recognizedWordRatio
+          )
+        ) {
+          break
+        }
+      }
+    } else if (shouldTrySidewaysRotations(best.score, best.text, best.recognizedWordRatio)) {
+      for (const rotation of [90, 270] as OcrRotation[]) {
+        const candidate = await runCandidate(rotation)
+        if (candidate.score > best.score) {
+          best = candidate
+        }
+
+        if (
+          shouldAcceptOcrCandidateEarly(
+            candidate.score,
+            candidate.text,
+            candidate.recognizedWordRatio
+          )
+        ) {
+          break
+        }
+      }
+    }
+
+    if (best.score >= MIN_OCR_CANDIDATE_SCORE) {
+      text = best.text
+    }
+    if (shouldLockOcrOrientation(best.score, best.text)) {
+      preferredRotation = best.detectedRotation ?? (best.rotation === 'auto' ? 0 : best.rotation)
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (message === 'OCR page timeout') {
+      text = ''
+    } else {
+      throw err
+    }
+  } finally {
+    await Promise.all(
+      [...new Set(candidatePaths.values())].map((path) => unlink(path).catch(() => {}))
+    )
+  }
+
+  return { text: normalizeExtractedText(text), preferredRotation }
+}
+
 /** Extract text from a .docx file using mammoth. */
 async function extractDocxText(filePath: string): Promise<string> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -476,7 +813,10 @@ async function extractDocxText(filePath: string): Promise<string> {
 }
 
 /** Try to extract embedded text from a PDF (digital/born-digital). */
-async function extractPdfEmbeddedText(data: Uint8Array): Promise<string> {
+async function extractPdfEmbeddedText(
+  data: Uint8Array,
+  onProgress?: ExtractProgressCallback
+): Promise<string> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { getDocument } = (await import('pdfjs-dist/legacy/build/pdf.mjs')) as any
   return withPatchedStructuredClone(async () => {
@@ -492,7 +832,9 @@ async function extractPdfEmbeddedText(data: Uint8Array): Promise<string> {
 
     try {
       const texts: string[] = []
-      for (let i = 1; i <= (pdfDoc.numPages as number); i++) {
+      const totalPages = pdfDoc.numPages as number
+      for (let i = 1; i <= totalPages; i++) {
+        onProgress?.({ phase: 'embedded', page: i, totalPages })
         const page = await pdfDoc.getPage(i)
         const content = await page.getTextContent()
         const items = content.items as PdfTextItem[]
@@ -542,11 +884,13 @@ async function extractPdfEmbeddedText(data: Uint8Array): Promise<string> {
 }
 
 /** Render each PDF page to an image and run Tesseract OCR (scanned PDFs). */
-async function runTesseractOcr(data: Uint8Array, langDataPath: string): Promise<string> {
+async function runTesseractOcr(
+  data: Uint8Array,
+  langDataPath: string,
+  onProgress?: ExtractProgressCallback
+): Promise<string> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { getDocument } = (await import('pdfjs-dist/legacy/build/pdf.mjs')) as any
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { createWorker } = (await import('tesseract.js')) as any
   // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
   const { createCanvas } = require('@napi-rs/canvas') as any
 
@@ -563,177 +907,180 @@ async function runTesseractOcr(data: Uint8Array, langDataPath: string): Promise<
 
     const pageCount = Math.min(pdfDoc.numPages as number, DEFAULT_MAX_OCR_PAGES)
 
-    const worker = await createWorker([...OCR_LANGUAGES], 1, {
-      langPath: langDataPath,
-      cacheMethod: 'readOnly',
-      gzip: false,
-      logger: () => {}
-    })
+    // Cap parallelism at 4: beyond that the gain flattens because pdfjs renders
+    // pages sequentially on the main thread, and each worker keeps its own
+    // in-memory copy of the traineddata (~40 MB each).
+    const workerCount = Math.min(4, Math.max(1, cpus().length - 1), pageCount)
+    const scheduler = await createOcrScheduler(workerCount, langDataPath)
 
     try {
-      const texts: string[] = []
+      const pageTexts: string[] = new Array(pageCount).fill('')
+      // Shared across parallel page tasks. Once a high-confidence page locks
+      // an orientation, later-queued pages skip the sideways retries. Pages
+      // already in flight keep testing both orientations — acceptable since
+      // the cost is one extra recognize per page at startup only.
       let preferredRotation: Exclude<OcrRotation, 'auto'> | null = null
+      let completedCount = 0
+
+      // pdfjs is single-threaded per document, so page renders must be
+      // serialized. OCR runs parallelize through the scheduler downstream.
+      let renderQueue: Promise<void> = Promise.resolve()
+
+      const pageJobs: Promise<void>[] = []
       for (let i = 1; i <= pageCount; i++) {
-        const page = await pdfDoc.getPage(i)
-        const viewport = page.getViewport({ scale: 2.0 })
-        const canvasWidth = Math.floor(viewport.width as number)
-        const canvasHeight = Math.floor(viewport.height as number)
-        // Tesseract requires a minimum image width of 3px — skip degenerate pages.
-        if (canvasWidth < 3 || canvasHeight < 3) continue
-        const canvas = createCanvas(canvasWidth, canvasHeight)
-        const ctx = canvas.getContext('2d')
-        await page.render({ canvasContext: ctx, viewport }).promise
-        const candidatePaths = new Map<OcrRotation, string>()
-        const baseTmpPath = join(tmpdir(), `ocr-${randomUUID()}.png`)
-        await writeFile(baseTmpPath, canvas.toBuffer('image/png'))
-        candidatePaths.set('auto', baseTmpPath)
-        candidatePaths.set(0, baseTmpPath)
+        const pageNumber = i
+        const pageIndex = i - 1
 
-        let text = ''
-        try {
-          const timeoutPromise = new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('OCR page timeout')), OCR_PAGE_TIMEOUT_MS)
-          )
-          let best: {
-            text: string
-            score: number
-            recognizedWordRatio: number
-            rotation: OcrRotation
-            detectedRotation: Exclude<OcrRotation, 'auto'> | null
-          } = {
-            text: '',
-            score: 0,
-            recognizedWordRatio: 0,
-            rotation: 'auto',
-            detectedRotation: null
-          }
-          const runCandidate = async (
-            rotation: OcrRotation
-          ): Promise<{
-            text: string
-            score: number
-            recognizedWordRatio: number
-            rotation: OcrRotation
-            detectedRotation: Exclude<OcrRotation, 'auto'> | null
-          }> => {
-            let path = candidatePaths.get(rotation)
-            if (!path) {
-              path = join(tmpdir(), `ocr-${randomUUID()}-${rotation}.png`)
-              await writeFile(
-                path,
-                rotateCanvasToPng(canvas, createCanvas, rotation as Exclude<OcrRotation, 'auto'>)
-              )
-              candidatePaths.set(rotation, path)
+        pageJobs.push(
+          (async () => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            let canvas: any = null
+            const myRender = renderQueue.then(async () => {
+              const page = await pdfDoc.getPage(pageNumber)
+              // scale 3.0 ≈ 300 DPI against a 72 DPI PDF — the resolution
+              // Tesseract is trained against. Smaller values produce
+              // undersized glyphs whose features collapse into each other.
+              const viewport = page.getViewport({ scale: 3.0 })
+              const canvasWidth = Math.floor(viewport.width as number)
+              const canvasHeight = Math.floor(viewport.height as number)
+              // Tesseract requires a minimum image width of 3px — skip degenerate pages.
+              if (canvasWidth < 3 || canvasHeight < 3) return
+              const renderCanvas = createCanvas(canvasWidth, canvasHeight)
+              const renderCtx = renderCanvas.getContext('2d')
+              await page.render({ canvasContext: renderCtx, viewport }).promise
+              // Grayscale + Otsu binarization massively improves OCR on faint,
+              // yellowed, or unevenly lit scans. All rotation candidates reuse
+              // the same preprocessed canvas.
+              canvas = preprocessCanvasForOcr(renderCanvas, createCanvas)
+            })
+            renderQueue = myRender.catch(() => undefined)
+            await myRender
+
+            if (!canvas) return
+
+            const recognized = await recognizeCanvasText({
+              canvas,
+              createCanvas,
+              scheduler,
+              preferredRotation
+            })
+            preferredRotation = recognized.preferredRotation
+            const cleaned = recognized.text
+            if (hasReadableOcrText(cleaned)) {
+              pageTexts[pageIndex] = cleaned
             }
 
-            const candidate = await Promise.race([
-              recognizeOcrCandidate(worker, path, rotation),
-              timeoutPromise
-            ])
-            return { ...candidate, rotation }
-          }
-
-          const primaryRotations: OcrRotation[] =
-            preferredRotation === null ? [0, 180] : [preferredRotation]
-
-          for (const rotation of primaryRotations) {
-            const candidate = await runCandidate(rotation)
-            if (candidate.score > best.score) {
-              best = candidate
-            }
-
-            if (
-              shouldAcceptOcrCandidateEarly(
-                candidate.score,
-                candidate.text,
-                candidate.recognizedWordRatio
-              )
-            ) {
-              break
-            }
-
-            if (
-              (rotation === 0 || rotation === 180) &&
-              hasReadableOcrText(candidate.text) &&
-              candidate.score >= MIN_OCR_CANDIDATE_SCORE &&
-              candidate.recognizedWordRatio >= MIN_RECOGNIZED_WORD_RATIO
-            ) {
-              break
-            }
-          }
-
-          if (
-            preferredRotation !== null &&
-            best.score < MIN_OCR_CANDIDATE_SCORE &&
-            best.rotation === preferredRotation
-          ) {
-            for (const rotation of preferredRotation === 180 ? [0, 90, 270] : [180, 90, 270]) {
-              const typedRotation = rotation as OcrRotation
-              const candidate = await runCandidate(typedRotation)
-              if (candidate.score > best.score) {
-                best = candidate
-              }
-
-              if (
-                shouldAcceptOcrCandidateEarly(
-                  candidate.score,
-                  candidate.text,
-                  candidate.recognizedWordRatio
-                )
-              ) {
-                break
-              }
-            }
-          } else if (shouldTrySidewaysRotations(best.score, best.text, best.recognizedWordRatio)) {
-            for (const rotation of [90, 270] as OcrRotation[]) {
-              const candidate = await runCandidate(rotation)
-              if (candidate.score > best.score) {
-                best = candidate
-              }
-
-              if (
-                shouldAcceptOcrCandidateEarly(
-                  candidate.score,
-                  candidate.text,
-                  candidate.recognizedWordRatio
-                )
-              ) {
-                break
-              }
-            }
-          }
-
-          if (best.score >= MIN_OCR_CANDIDATE_SCORE) {
-            text = best.text
-          }
-          if (shouldLockOcrOrientation(best.score, best.text)) {
-            preferredRotation =
-              best.detectedRotation ?? (best.rotation === 'auto' ? 0 : best.rotation)
-          }
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err)
-          if (message === 'OCR page timeout') {
-            text = ''
-          } else {
-            throw err
-          }
-        } finally {
-          await Promise.all(
-            [...new Set(candidatePaths.values())].map((path) => unlink(path).catch(() => {}))
-          )
-        }
-        const cleaned = normalizeExtractedText(text)
-        if (!hasReadableOcrText(cleaned)) {
-          continue
-        }
-        if (cleaned) texts.push(cleaned)
+            completedCount += 1
+            onProgress?.({ phase: 'ocr', page: completedCount, totalPages: pageCount })
+          })()
+        )
       }
-      return normalizeExtractedText(texts.join('\n\n'))
+
+      await Promise.all(pageJobs)
+
+      return normalizeExtractedText(pageTexts.filter(Boolean).join('\n\n'))
     } finally {
-      await worker.terminate()
+      await scheduler.terminate()
       await loadingTask.destroy()
     }
   })
+}
+
+async function loadRasterImageCanvases(
+  filePath: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  createCanvas: any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  loadImage: any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<any[]> {
+  const ext = extname(filePath).toLowerCase()
+
+  if (ext === '.tif' || ext === '.tiff') {
+    const importedUtif = (await import('utif')) as typeof import('utif') & {
+      default?: typeof import('utif')
+    }
+    const utif = importedUtif.default ?? importedUtif
+    const raw = await readFile(filePath)
+    const arrayBuffer = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength)
+    const directories = utif.decode(arrayBuffer).slice(0, DEFAULT_MAX_OCR_PAGES)
+
+    return directories.flatMap((directory) => {
+      utif.decodeImage(arrayBuffer, directory)
+      const width = directory.width ?? 0
+      const height = directory.height ?? 0
+      if (width < 3 || height < 3) {
+        return []
+      }
+
+      const rgba = utif.toRGBA8(directory)
+      const canvas = createCanvas(width, height)
+      const ctx = canvas.getContext('2d')
+      const imageData = ctx.createImageData(width, height)
+      imageData.data.set(rgba)
+      ctx.putImageData(imageData, 0, 0)
+      return [canvas]
+    })
+  }
+
+  const image = await loadImage(filePath)
+  const width = Math.floor(image.width as number)
+  const height = Math.floor(image.height as number)
+  if (width < 3 || height < 3) {
+    return []
+  }
+
+  const canvas = createCanvas(width, height)
+  const ctx = canvas.getContext('2d')
+  ctx.drawImage(image, 0, 0, width, height)
+  return [canvas]
+}
+
+/** Run Tesseract OCR directly on an image file. */
+async function runTesseractImageOcr(
+  filePath: string,
+  langDataPath: string,
+  onProgress?: ExtractProgressCallback
+): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
+  const { createCanvas, loadImage } = require('@napi-rs/canvas') as any
+  const canvases = await loadRasterImageCanvases(filePath, createCanvas, loadImage)
+  const pageCount = canvases.length
+  if (pageCount === 0) {
+    return ''
+  }
+
+  const workerCount = Math.min(4, Math.max(1, cpus().length - 1), pageCount)
+  const scheduler = await createOcrScheduler(workerCount, langDataPath)
+
+  try {
+    const pageTexts: string[] = new Array(pageCount).fill('')
+    let preferredRotation: Exclude<OcrRotation, 'auto'> | null = null
+    let completedCount = 0
+
+    await Promise.all(
+      canvases.map(async (sourceCanvas, index) => {
+        const canvas = preprocessCanvasForOcr(sourceCanvas, createCanvas)
+        const recognized = await recognizeCanvasText({
+          canvas,
+          createCanvas,
+          scheduler,
+          preferredRotation
+        })
+        preferredRotation = recognized.preferredRotation
+        if (hasReadableOcrText(recognized.text)) {
+          pageTexts[index] = recognized.text
+        }
+
+        completedCount += 1
+        onProgress?.({ phase: 'ocr', page: completedCount, totalPages: pageCount })
+      })
+    )
+
+    return normalizeExtractedText(pageTexts.filter(Boolean).join('\n\n'))
+  } finally {
+    await scheduler.terminate()
+  }
 }
 
 /**
@@ -773,7 +1120,8 @@ export async function updateCachedDocumentText(
 
   const cachePath = cachePathFor(cacheDir, filePath)
   const existingRaw = await readFile(cachePath, 'utf8').catch(() => null)
-  let method: Exclude<ExtractMethod, 'direct' | 'cached'> = ext === '.pdf' ? 'embedded' : 'docx'
+  let method: Exclude<ExtractMethod, 'direct' | 'cached'> =
+    ext === '.pdf' ? 'embedded' : OCR_IMAGE_EXTENSIONS.has(ext) ? 'tesseract' : 'docx'
 
   if (existingRaw) {
     try {
@@ -800,12 +1148,13 @@ export async function updateCachedDocumentText(
  *
  * @param filePath     Absolute path to the document.
  * @param cacheDir     Directory where content cache JSON files are stored.
- * @param langDataPath Directory containing Tesseract traineddata files (required for PDF OCR).
+ * @param langDataPath Directory containing Tesseract traineddata files (required for OCR).
  */
 export async function extractDocumentText(
   filePath: string,
   cacheDir: string,
-  langDataPath?: string
+  langDataPath?: string,
+  onProgress?: ExtractProgressCallback
 ): Promise<ExtractResult> {
   const ext = extname(filePath).toLowerCase()
 
@@ -841,7 +1190,7 @@ export async function extractDocumentText(
 
     // Prefer embedded text first: it is faster, cheaper, and usually more accurate
     // than OCR when the PDF already contains a text layer.
-    const embeddedText = await extractPdfEmbeddedText(data)
+    const embeddedText = await extractPdfEmbeddedText(data, onProgress)
     const readableCount = (embeddedText.match(/[\p{L}\p{N}\s.,;:!?()\-'"]/gu) ?? []).length
     if (readableCount >= READABLE_CHARS_MIN) {
       await mkdir(cacheDir, { recursive: true })
@@ -853,14 +1202,35 @@ export async function extractDocumentText(
       // Only require tessdata at the point where OCR is actually needed.
       // Reason: plain text, DOCX, and digital PDFs should still be analyzable
       // even when OCR resources are unavailable on the current install.
-      throw new Error('OCR data is not configured for scanned PDF extraction.')
+      throw new DocumentContentError(
+        IpcErrorCode.AI_RUNTIME_UNAVAILABLE,
+        'OCR data is not configured for scanned PDF extraction.'
+      )
     }
 
-    const ocrText = await runTesseractOcr(data, langDataPath)
+    const ocrText = await runTesseractOcr(data, langDataPath, onProgress)
     await mkdir(cacheDir, { recursive: true })
     await writeCache(cachePath, filePath, ocrText, 'tesseract')
     return { text: ocrText, method: 'tesseract' }
   }
 
-  throw new Error(`Unsupported file type: ${ext || '(no extension)'}`)
+  // Image: run OCR directly.
+  if (OCR_IMAGE_EXTENSIONS.has(ext)) {
+    if (!langDataPath) {
+      throw new DocumentContentError(
+        IpcErrorCode.AI_RUNTIME_UNAVAILABLE,
+        'OCR data is not configured for image text extraction.'
+      )
+    }
+
+    const ocrText = await runTesseractImageOcr(filePath, langDataPath, onProgress)
+    await mkdir(cacheDir, { recursive: true })
+    await writeCache(cachePath, filePath, ocrText, 'tesseract')
+    return { text: ocrText, method: 'tesseract' }
+  }
+
+  throw new DocumentContentError(
+    IpcErrorCode.INVALID_INPUT,
+    `Unsupported file type: ${ext || '(no extension)'}`
+  )
 }

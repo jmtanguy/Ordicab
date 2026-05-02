@@ -17,15 +17,15 @@ import {
   dossierScopedQuerySchema,
   dossierUnregisterInputSchema,
   dossierUpdateInputSchema
-} from '@renderer/schemas/dossier'
+} from '@shared/validation/dossier'
 import {
   dossierKeyDateDeleteInputSchema,
   dossierKeyDateUpsertInputSchema
-} from '@renderer/schemas/keyDate'
+} from '@shared/validation/keyDate'
 import {
   dossierKeyReferenceDeleteInputSchema,
   dossierKeyReferenceUpsertInputSchema
-} from '@renderer/schemas/keyReference'
+} from '@shared/validation/keyReference'
 
 import {
   DossierRegistryError,

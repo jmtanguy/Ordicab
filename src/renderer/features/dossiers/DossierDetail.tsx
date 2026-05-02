@@ -36,6 +36,7 @@ import { DelegatedPrompt } from '@renderer/components/shell/DelegatedPrompt'
 import { useToast } from '@renderer/contexts/ToastContext'
 import { buildPrompt } from '@renderer/features/delegated/promptTemplates'
 import { DocumentList } from '@renderer/features/documents/DocumentList'
+import { SemanticSearchPanel } from '@renderer/features/documents/SemanticSearchPanel'
 import { cn } from '@renderer/lib/utils'
 import type { DocumentContentState, DocumentPreviewState } from '@renderer/stores'
 
@@ -62,6 +63,7 @@ type SidebarSection =
   | 'echeances'
   | 'references'
   | 'documents'
+  | 'search'
   | 'export'
   | 'import'
 
@@ -493,6 +495,7 @@ function DossierDetailLayout({
 
   const sidebarItems: { id: SidebarSection; label: string }[] = [
     { id: 'documents', label: t('documents.section_title') },
+    { id: 'search', label: t('documents.semantic_search_nav_label') },
     { id: 'contacts', label: t('contacts.sectionTitle') },
     { id: 'echeances', label: t('dossiers.key_dates_title') },
     { id: 'references', label: t('dossiers.key_references_title') },
@@ -706,7 +709,11 @@ function DossierDetailLayout({
         )}
 
         {showDetailsDialog ? (
-          <DialogShell size="md" aria-label={t('dossiers.detail_edit_action')}>
+          <DialogShell
+            size="md"
+            aria-label={t('dossiers.detail_edit_action')}
+            onDismiss={() => setShowDetailsDialog(false)}
+          >
             <div>
               <h3 className="text-lg font-semibold text-slate-50">
                 {t('dossiers.detail_edit_action')}
@@ -808,6 +815,12 @@ function DossierDetailLayout({
                 return onDeleteKeyReference(input)
               }}
             />
+          </div>
+        )}
+
+        {activeSection === 'search' && (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <SemanticSearchPanel dossierId={dossier.id} onOpenDocument={onOpenDocumentPreview} />
           </div>
         )}
 

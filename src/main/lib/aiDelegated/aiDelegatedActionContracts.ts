@@ -13,7 +13,7 @@ import {
   templateDeleteInputSchema,
   templateDraftSchema,
   templateUpdateSchema
-} from '@renderer/schemas'
+} from '@shared/validation'
 
 export const delegatedAiActionPayloadSchemas = {
   'contact.upsert': contactUpsertInputSchema,

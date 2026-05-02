@@ -375,4 +375,37 @@ describe('aiStore', () => {
       history: []
     })
   })
+
+  it('stores reflection events as deduplicated ephemeral messages', () => {
+    let reflectionListener: ((text: string) => void) | null = null
+    ;(globalThis as MutableGlobal).ordicabAPI = {
+      ai: {
+        onReflection: vi.fn((listener: (text: string) => void) => {
+          reflectionListener = listener
+          return () => {
+            reflectionListener = null
+          }
+        })
+      }
+    } as unknown as OrdicabAPI
+
+    const unsubscribe = useAiStore.getState().subscribeToReflections()
+    expect(reflectionListener).toBeTruthy()
+    const emitReflection = (text: string): void => {
+      if (!reflectionListener) {
+        throw new Error('Expected onReflection listener to be registered')
+      }
+      reflectionListener(text)
+    }
+    emitReflection('  étape 1  ')
+    emitReflection('étape 1')
+    emitReflection('étape 2')
+
+    expect(useAiStore.getState().reflections).toEqual([
+      { id: expect.any(String), text: 'étape 1' },
+      { id: expect.any(String), text: 'étape 2' }
+    ])
+
+    unsubscribe()
+  })
 })

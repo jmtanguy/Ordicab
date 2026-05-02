@@ -43,7 +43,8 @@ export function TopNav({ activeTab, versionLabel, onTabChange }: TopNavProps): R
 
     const direction = event.key === 'ArrowRight' ? 1 : -1
     const nextIndex = (tabIndex + direction + tabs.length) % tabs.length
-    onTabChange(tabs[nextIndex].id)
+    const nextTab = tabs[nextIndex]
+    if (nextTab) onTabChange(nextTab.id)
   }
 
   return (

@@ -154,9 +154,25 @@ export class ActionToolExecutor {
     console.log('╚══════════════════════════════════════════════════════════')
     this.lastInlineDispatchResult = { ...dispatchResult, debugContext: '' }
 
+    // The dispatcher mutates intent.type when it can't perform the requested
+    // action (e.g. contact_upsert without an active dossier → clarification_request
+    // asking "Pour quel dossier ?"). Reporting success:true in that case misleads
+    // the LLM into telling the user the contact was added when it was not.
+    const requestedType = actionIntent.type
+    const resolvedType = dispatchResult.intent.type
+    const succeeded = resolvedType === requestedType
     const inlineResult: Record<string, unknown> = {
-      success: true,
+      success: succeeded,
       feedback: dispatchResult.feedback
+    }
+    if (!succeeded && resolvedType === 'clarification_request') {
+      const clarification = dispatchResult.intent as {
+        question?: string
+        options?: string[]
+      }
+      inlineResult.needsClarification = true
+      if (clarification.question) inlineResult.question = clarification.question
+      if (clarification.options) inlineResult.options = clarification.options
     }
     if (dispatchResult.contextUpdate?.templateId) {
       inlineResult.templateId = dispatchResult.contextUpdate.templateId

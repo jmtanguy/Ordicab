@@ -46,6 +46,28 @@ Innovative solution: export a pseudonymized (not anonymized, for better efficien
 
 **Best for:** intensive work requiring the most advanced models while maintaining data privacy during processing.
 
+## Local AI Capabilities
+
+Beyond the four integration modes above, Ordicab ships a small set of ML models that run **inside the application process**, with no network calls. They power features that would otherwise either be missing entirely or require shipping every document to an external API. Everything runs on CPU via ONNX, so there are no GPU prerequisites and no subscription.
+
+The models are bundled with the installer — offline first-run works out of the box.
+
+### Why this matters
+
+Legal and administrative work is built on sensitive client data. The usual path for "smart" features is to call a frontier API — but that means every document, every name, every amount leaves the machine. Ordicab's local models let the product offer those features while keeping the data on-device:
+
+- **Without the local NER**, the pseudonymization step before any frontier-API call would fall back to regex-only detection, which misses most French person and company names. Safely using remote AI would require either weaker privacy guarantees or a paid cloud NER service.
+- **Without the local embeddings**, semantic search ("find the documents that discuss the rent dispute") and efficient RAG would be impossible without shipping either the whole corpus to a vector-DB-as-a-service or every prompt with 100-page attachments.
+
+### Bundled models
+
+| Capability               | Model                                         | Role in the product                                                                                                                                                                                                             |
+| ------------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Named-entity recognition | `Xenova/bert-base-multilingual-cased-ner-hrl` | Detects PERSON / ORG / LOCATION spans in French and English. Feeds the pseudonymizer used before any remote-API call and before frontier-model exports — no raw names ever leave the machine.                                   |
+| Sentence embeddings      | `Xenova/multilingual-e5-small`                | Turns document chunks into vectors so users can search dossiers by meaning rather than exact keywords, and so the embedded AI can retrieve only the top-K relevant passages to send to a remote LLM instead of whole documents. |
+
+Installer size: ~165 MB for the two models combined. In exchange, users get pseudonymization, semantic search, and RAG without any outbound traffic and without any recurring API costs tied to these features.
+
 ## Technical Architecture
 
 Ordicab uses two complementary communication patterns for AI integration, independent of which AI source you choose. Both patterns converge on the same validation and execution layer.

@@ -1,6 +1,5 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { app } from 'electron'
 
 import type { AppLocale, EulaStatus } from '@shared/types'
 
@@ -14,6 +13,21 @@ interface AppStateFile {
     [key: string]: unknown
   }
   [key: string]: unknown
+}
+
+/**
+ * Minimal subset of Electron's `app` that the store needs to locate the
+ * bundled EULA text. Injected so the lib stays free of `electron` imports
+ * (ARCHITECTURE.md §5).
+ */
+export interface AppPathContext {
+  isPackaged: boolean
+  getAppPath(): string
+}
+
+export interface EulaStoreOptions {
+  stateFilePath: string
+  appContext: AppPathContext
 }
 
 const EULA_VERSION = '2026-04-14'
@@ -34,20 +48,20 @@ async function readAppState(stateFilePath: string): Promise<AppStateFile> {
   }
 }
 
-function resolveEulaPath(locale: AppLocale): string {
-  if (app.isPackaged) {
+function resolveEulaPath(appContext: AppPathContext, locale: AppLocale): string {
+  if (appContext.isPackaged) {
     return join(process.resourcesPath, 'legal', `license_${locale}.txt`)
   }
 
-  return join(app.getAppPath(), 'build', `license_${locale}.txt`)
+  return join(appContext.getAppPath(), 'build', `license_${locale}.txt`)
 }
 
-async function readEulaText(locale: AppLocale): Promise<string> {
-  const preferredPath = resolveEulaPath(locale)
+async function readEulaText(appContext: AppPathContext, locale: AppLocale): Promise<string> {
+  const preferredPath = resolveEulaPath(appContext, locale)
   try {
     return await readFile(preferredPath, 'utf8')
   } catch {
-    const fallbackPath = resolveEulaPath(locale === 'fr' ? 'en' : 'fr')
+    const fallbackPath = resolveEulaPath(appContext, locale === 'fr' ? 'en' : 'fr')
     try {
       return await readFile(fallbackPath, 'utf8')
     } catch {
@@ -61,7 +75,9 @@ export interface EulaStore {
   accept(version: string, locale: AppLocale): Promise<EulaStatus>
 }
 
-export function createEulaStore(stateFilePath: string): EulaStore {
+export function createEulaStore(options: EulaStoreOptions): EulaStore {
+  const { stateFilePath, appContext } = options
+
   return {
     async getStatus(locale: AppLocale): Promise<EulaStatus> {
       const state = await readAppState(stateFilePath)
@@ -70,7 +86,7 @@ export function createEulaStore(stateFilePath: string): EulaStore {
       return {
         required: acceptedVersion !== EULA_VERSION,
         version: EULA_VERSION,
-        content: await readEulaText(locale)
+        content: await readEulaText(appContext, locale)
       }
     },
 

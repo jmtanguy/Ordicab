@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createDossierRegistryService } from '../dossierRegistryService'
 import { createDocumentService } from '../documentService'
+import { getDocumentContentCachePath } from '../../../lib/aiEmbedded/documentContentService'
+import { getDossierContentCachePath } from '../../../lib/ordicab/ordicabPaths'
 
 const tempDirs: string[] = []
 
@@ -607,6 +609,56 @@ describe('document service', () => {
     ).resolves.toEqual({ state: 'extracted', isExtractable: true })
   })
 
+  it('reads cached extracted text without re-running extraction when requested', async () => {
+    const { domainPath, stateFilePath } = await createConfiguredDomain()
+    const dossierPath = join(domainPath, 'Client Cached Extraction')
+    const filePath = join(dossierPath, 'cached.docx')
+
+    await mkdir(dossierPath, { recursive: true })
+    await writeFile(filePath, Buffer.from('not-a-zip-docx'))
+
+    const dossierService = createDossierRegistryService({
+      stateFilePath,
+      now: () => new Date('2026-03-14T13:05:00.000Z')
+    })
+    await dossierService.registerDossier({ id: 'Client Cached Extraction' })
+
+    const cacheDir = getDossierContentCachePath(dossierPath)
+    const cachePath = getDocumentContentCachePath(cacheDir, filePath)
+    await mkdir(cacheDir, { recursive: true })
+    await writeFile(
+      cachePath,
+      JSON.stringify(
+        {
+          version: 2,
+          name: 'cached.docx',
+          method: 'docx',
+          extractedAt: '2026-03-14T13:05:00.000Z',
+          text: 'Texte déjà extrait',
+          isEmpty: false
+        },
+        null,
+        2
+      ),
+      'utf8'
+    )
+
+    const service = createDocumentService({ stateFilePath })
+
+    await expect(
+      service.extractContent({
+        dossierId: 'Client Cached Extraction',
+        documentId: 'cached.docx',
+        readCacheOnly: true
+      })
+    ).resolves.toMatchObject({
+      documentId: 'cached.docx',
+      text: 'Texte déjà extrait',
+      method: 'cached',
+      status: { state: 'extracted', isExtractable: true }
+    })
+  })
+
   it('marks markdown files as already extracted because their text is read directly without cache', async () => {
     const { domainPath, stateFilePath } = await createConfiguredDomain()
     const dossierPath = join(domainPath, 'Client Markdown')
@@ -636,5 +688,39 @@ describe('document service', () => {
         documentId: 'Assignation-2026-03-17.md'
       })
     ).resolves.toEqual({ state: 'extracted', isExtractable: true })
+  })
+
+  it('marks supported raster image documents as OCR extractable', async () => {
+    const { domainPath, stateFilePath } = await createConfiguredDomain()
+    const dossierPath = join(domainPath, 'Client Image OCR')
+
+    await mkdir(dossierPath, { recursive: true })
+    await writeFile(join(dossierPath, 'scan.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xd9]))
+    await writeFile(join(dossierPath, 'photo.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+    await writeFile(join(dossierPath, 'multi.tiff'), Buffer.from([0x49, 0x49, 0x2a, 0x00]))
+
+    const dossierService = createDossierRegistryService({
+      stateFilePath,
+      now: () => new Date('2026-03-14T14:00:00.000Z')
+    })
+    await dossierService.registerDossier({ id: 'Client Image OCR' })
+
+    const service = createDocumentService({ stateFilePath })
+    const documents = await service.listDocuments({ dossierId: 'Client Image OCR' })
+
+    expect(documents).toEqual([
+      expect.objectContaining({
+        relativePath: 'multi.tiff',
+        textExtraction: { state: 'extractable', isExtractable: true }
+      }),
+      expect.objectContaining({
+        relativePath: 'photo.png',
+        textExtraction: { state: 'extractable', isExtractable: true }
+      }),
+      expect.objectContaining({
+        relativePath: 'scan.jpg',
+        textExtraction: { state: 'extractable', isExtractable: true }
+      })
+    ])
   })
 })

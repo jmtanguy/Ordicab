@@ -15,9 +15,17 @@ describe('aiSettingsSchema', () => {
     const result = aiSettingsSchema.safeParse({
       mode: 'remote',
       ollamaEndpoint: 'http://localhost:11434',
-      remoteProvider: 'openai'
+      remoteProvider: 'https://api.openai.com/v1'
     })
     expect(result.success).toBe(true)
+  })
+
+  it('rejects a non-http remote provider URL', () => {
+    const result = aiSettingsSchema.safeParse({
+      mode: 'remote',
+      remoteProvider: 'javascript:alert(1)'
+    })
+    expect(result.success).toBe(false)
   })
 
   it('rejects an invalid mode', () => {
@@ -42,7 +50,7 @@ describe('aiSettingsSaveSchema', () => {
     const result = aiSettingsSaveSchema.safeParse({
       mode: 'remote',
       ollamaEndpoint: 'http://localhost:11434',
-      remoteProvider: 'openai',
+      remoteProvider: 'https://api.openai.com/v1',
       apiKey: 'sk-secret'
     })
     expect(result.success).toBe(true)

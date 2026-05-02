@@ -1,13 +1,10 @@
 import type { ContactUpsertInput } from '@shared/types'
-import {
-  getManagedFieldKey,
-  LEGACY_CONTACT_MANAGED_FIELDS,
-  type ManagedFieldDefinition
-} from '@shared/managedFields'
+import { getManagedFieldKey, type ManagedFieldDefinition } from '@shared/managedFields'
+import { getLegacyContactManagedFields } from '@shared/professionDefaults'
 import { setContactManagedFieldValue } from '@shared/types'
 import { labelToKey } from '@shared/templateContent'
 
-import { contactUpsertInputSchema } from '@renderer/schemas'
+import { contactUpsertInputSchema } from '@shared/validation'
 
 import { parseLocaleDateToIso } from './contactDateOfBirth'
 
@@ -75,7 +72,7 @@ export function validateContactFormInput(
     maidenName: input.maidenName
   }
 
-  const customFieldDefinitions = options.customFieldDefinitions ?? LEGACY_CONTACT_MANAGED_FIELDS
+  const customFieldDefinitions = options.customFieldDefinitions ?? getLegacyContactManagedFields()
 
   for (const definition of customFieldDefinitions) {
     const definitionKey = getManagedFieldKey(definition)

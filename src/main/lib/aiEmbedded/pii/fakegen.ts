@@ -7,6 +7,15 @@
  * so the LLM can reason naturally about the pseudonymized text.
  */
 
+import {
+  EN_MONTH_NAMES,
+  EN_MONTH_TO_INDEX,
+  FR_MONTH_NAMES,
+  FR_MONTH_TO_INDEX,
+  expandTwoDigitYear,
+  isValidYMD
+} from './dateNormalization'
+
 export type Locale = 'fr' | 'en'
 export type Gender = 'M' | 'F' | null
 
@@ -18,8 +27,12 @@ function simpleHash(str: string): number {
   return Math.abs(hash)
 }
 
-function pickFrom<T>(pool: readonly T[], key: string): T {
-  return pool[simpleHash(key) % pool.length]!
+function pickFrom<T>(pool: readonly T[], key: string, attempt = 0): T {
+  // `attempt` rotates the deterministic index forward by N positions so callers
+  // can request alternative candidates from the same pool when the primary pick
+  // collides with an already-used fake (e.g. a real first name in the dossier
+  // happened to be deterministically chosen as a fake for someone else).
+  return pool[(simpleHash(key) + attempt) % pool.length]!
 }
 
 const FIRST_NAMES_FR_M = [
@@ -1272,6 +1285,18 @@ const KNOWN_FEMALE_NORMALIZED = new Set(
 
 const KNOWN_MALE_NORMALIZED = new Set([...KNOWN_MALE_FR, ...KNOWN_MALE_EN].map(normalizeNameToken))
 
+const KNOWN_FIRST_NAMES_NORMALIZED = new Set([...KNOWN_FEMALE_NORMALIZED, ...KNOWN_MALE_NORMALIZED])
+
+/**
+ * Case- and diacritic-insensitive known-first-name lookup.
+ * Accepts "SEVERINE", "severine", "Séverine", "séverine" — all resolve to
+ * the same Séverine entry. Used by PII detection to anchor name spans in
+ * legal documents that write surnames in ALL CAPS or lose diacritics via OCR.
+ */
+export function isKnownFirstNameNormalized(token: string): boolean {
+  return KNOWN_FIRST_NAMES_NORMALIZED.has(normalizeNameToken(token))
+}
+
 function inferTokenGender(token: string): Gender {
   const normalized = normalizeNameToken(token)
   if (!normalized) return null
@@ -1315,7 +1340,8 @@ export function inferGender(name: string): Gender {
 export function fakeFirstName(
   original: string,
   locale: Locale = 'fr',
-  gender: Gender = null
+  gender: Gender = null,
+  attempt = 0
 ): string {
   if (locale === 'fr') {
     const pool =
@@ -1324,7 +1350,7 @@ export function fakeFirstName(
         : gender === 'M'
           ? FIRST_NAMES_FR_M
           : [...FIRST_NAMES_FR_M, ...FIRST_NAMES_FR_F]
-    return pickFrom(pool, 'fn_' + original)
+    return pickFrom(pool, 'fn_' + original, attempt)
   }
   const pool =
     gender === 'F'
@@ -1332,11 +1358,11 @@ export function fakeFirstName(
       : gender === 'M'
         ? FIRST_NAMES_EN_M
         : [...FIRST_NAMES_EN_M, ...FIRST_NAMES_EN_F]
-  return pickFrom(pool, 'fn_' + original)
+  return pickFrom(pool, 'fn_' + original, attempt)
 }
 
-export function fakeLastName(original: string, locale: Locale = 'fr'): string {
-  return pickFrom(locale === 'fr' ? LAST_NAMES_FR : LAST_NAMES_EN, 'ln_' + original)
+export function fakeLastName(original: string, locale: Locale = 'fr', attempt = 0): string {
+  return pickFrom(locale === 'fr' ? LAST_NAMES_FR : LAST_NAMES_EN, 'ln_' + original, attempt)
 }
 
 export function fakeEmail(original: string, locale: Locale = 'fr'): string {
@@ -1462,41 +1488,248 @@ export function fakeOccupation(original: string, locale: Locale = 'fr'): string 
   return pickFrom(locale === 'fr' ? JOB_TITLES_FR : JOB_TITLES_EN, 'occ_' + original)
 }
 
+function applyDateOffset(
+  year: number,
+  month: number,
+  day: number,
+  offsetDays: number
+): Date | null {
+  if (!isValidYMD(year, month, day)) return null
+  const date = new Date(Date.UTC(year, month - 1, day))
+  date.setUTCDate(date.getUTCDate() + offsetDays)
+  return date
+}
+
+function applyMonthCase(monthName: string, hint: string): string {
+  if (/^[A-ZÀ-Ÿ]+$/.test(hint)) return monthName.toLocaleUpperCase()
+  if (/^[A-ZÀ-Ÿ]/.test(hint)) return monthName.charAt(0).toLocaleUpperCase() + monthName.slice(1)
+  return monthName
+}
+
 export function fakeDate(original: string): string {
+  const trimmed = original.trim()
   const h = (simpleHash('date_' + original) % 180) + 30
 
-  let date: Date | null = null
-  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(original.trim())
-  const frMatch = /^(\d{2})\/(\d{2})\/(\d{2,4})$/.exec(original.trim())
+  // Numeric formats with any of /, -, ., or single space as the separator.
+  // Two orderings: DD{sep}MM{sep}YYYY (FR/EU default) and YYYY{sep}MM{sep}DD (ISO).
+  // The first 4-digit group disambiguates the ordering. Ambiguous "03/04/2024"
+  // is treated as DD/MM (the FR convention this app targets).
+  const numMatch = /^(\d{1,4})([/\-. ])(\d{1,2})([/\-. ])(\d{2,4})$/.exec(trimmed)
+  if (numMatch) {
+    const a = numMatch[1]!
+    const sep1 = numMatch[2]!
+    const b = numMatch[3]!
+    const sep2 = numMatch[4]!
+    const c = numMatch[5]!
+    const yearFirst = a.length === 4
 
-  if (isoMatch) {
-    date = new Date(`${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`)
-  } else if (frMatch) {
-    const year = frMatch[3]!.length === 2 ? `20${frMatch[3]}` : frMatch[3]
-    date = new Date(`${year}-${frMatch[2]}-${frMatch[1]}`)
+    const year = yearFirst ? parseInt(a, 10) : expandTwoDigitYear(parseInt(c, 10))
+    const month = parseInt(b, 10)
+    const day = parseInt(yearFirst ? c : a, 10)
+    const date = applyDateOffset(year, month, day, h)
+    if (date) {
+      const dStr = String(date.getUTCDate()).padStart(2, '0')
+      const mStr = String(date.getUTCMonth() + 1).padStart(2, '0')
+      const yStr = String(date.getUTCFullYear())
+      if (yearFirst) {
+        return `${yStr}${sep1}${mStr}${sep2}${dStr}`
+      }
+      const yOut = c.length === 2 ? yStr.slice(2) : yStr
+      return `${dStr}${sep1}${mStr}${sep2}${yOut}`
+    }
   }
 
-  if (!date || isNaN(date.getTime())) return original
-  date.setDate(date.getDate() + h)
-
-  if (isoMatch) return date.toISOString().slice(0, 10)
-  if (frMatch) {
-    const d = String(date.getDate()).padStart(2, '0')
-    const m = String(date.getMonth() + 1).padStart(2, '0')
-    const y =
-      frMatch[3]!.length === 2 ? String(date.getFullYear()).slice(2) : String(date.getFullYear())
-    return `${d}/${m}/${y}`
+  const frTextMatch = /^(\d{1,2})(?:er)?\s+([A-Za-zÀ-ÿ]+)\s+(\d{2,4})$/.exec(trimmed)
+  if (frTextMatch) {
+    const monthIdx = FR_MONTH_TO_INDEX[frTextMatch[2]!.toLowerCase()]
+    if (monthIdx !== undefined) {
+      const date = applyDateOffset(
+        expandTwoDigitYear(parseInt(frTextMatch[3]!, 10)),
+        monthIdx,
+        parseInt(frTextMatch[1]!, 10),
+        h
+      )
+      if (date) {
+        const monthName = applyMonthCase(FR_MONTH_NAMES[date.getUTCMonth()]!, frTextMatch[2]!)
+        const year = String(date.getUTCFullYear())
+        const yOut = frTextMatch[3]!.length === 2 ? year.slice(2) : year
+        return `${date.getUTCDate()} ${monthName} ${yOut}`
+      }
+    }
   }
+  const enTextMatch = /^([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{2,4})$/.exec(trimmed)
+  if (enTextMatch) {
+    const monthIdx = EN_MONTH_TO_INDEX[enTextMatch[1]!.toLowerCase()]
+    if (monthIdx !== undefined) {
+      const date = applyDateOffset(
+        expandTwoDigitYear(parseInt(enTextMatch[3]!, 10)),
+        monthIdx,
+        parseInt(enTextMatch[2]!, 10),
+        h
+      )
+      if (date) {
+        const monthName = applyMonthCase(EN_MONTH_NAMES[date.getUTCMonth()]!, enTextMatch[1]!)
+        const year = String(date.getUTCFullYear())
+        const yOut = enTextMatch[3]!.length === 2 ? year.slice(2) : year
+        return `${monthName} ${date.getUTCDate()}, ${yOut}`
+      }
+    }
+  }
+
   return original
 }
 
-export function fakeKeyReference(original: string): string {
-  let seed = simpleHash('ref_' + original)
+/**
+ * Generate a fake URL — preserves scheme/host shape but replaces the path
+ * (which often carries usernames, session tokens, or document IDs).
+ */
+export function fakeUrl(original: string): string {
+  const h = simpleHash('url_' + original)
+  try {
+    const u = new URL(original.startsWith('http') ? original : `https://${original}`)
+    return `${u.protocol}//example.com/r/${(h >>> 0).toString(36)}`
+  } catch {
+    return `https://example.com/r/${(h >>> 0).toString(36)}`
+  }
+}
+
+/**
+ * Generate a fake file path — preserves the OS root but anonymizes the user
+ * directory and the rest of the path. Keeps the leading slash style so the
+ * LLM still recognises the OS family.
+ */
+export function fakeFilePath(original: string): string {
+  const h = (simpleHash('path_' + original) >>> 0).toString(36).slice(0, 6)
+  if (/^[A-Za-z]:[\\/]/.test(original)) {
+    const drive = original.charAt(0).toUpperCase()
+    const sep = original.includes('\\') ? '\\' : '/'
+    return `${drive}:${sep}Users${sep}user${sep}file_${h}`
+  }
+  if (original.startsWith('~/')) return `~/file_${h}`
+  if (original.startsWith('/Users/')) return `/Users/user/file_${h}`
+  if (original.startsWith('/home/')) return `/home/user/file_${h}`
+  return `/path/file_${h}`
+}
+
+/**
+ * Generate fake GPS coordinates inside the documentation range (Null Island
+ * neighbourhood) so the LLM cannot mistake the value for a real location.
+ */
+export function fakeGps(original: string): string {
+  const h = simpleHash('gps_' + original)
+  const lat = ((h % 1000) / 10000).toFixed(6)
+  const lon = (((h >>> 8) % 1000) / 10000).toFixed(6)
+  return `${lat}, ${lon}`
+}
+
+/**
+ * Generate a fake alphanumeric reference while preserving separators, letter
+ * casing, and digit positions. Replaces both digits and letters so embedded
+ * names inside IDs / passport numbers / plates do not leak.
+ */
+export function fakeAlphanumericReference(original: string): string {
+  const LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
+  let seed = simpleHash('alphanum_' + original)
+  const next = (pool: string): string => {
+    seed = (seed * 1664525 + 1013904223) | 0
+    return pool[Math.abs(seed) % pool.length]!
+  }
+
   let result = ''
   for (const ch of original) {
     if (/\d/.test(ch)) {
-      seed = (seed * 1664525 + 1013904223) | 0
-      result += String(Math.abs(seed) % 10)
+      result += next('0123456789')
+    } else if (/[A-ZÀ-Ÿ]/.test(ch)) {
+      result += next(LETTERS)
+    } else if (/[a-zà-ÿ]/.test(ch)) {
+      result += next(LETTERS).toLocaleLowerCase()
+    } else {
+      result += ch
+    }
+  }
+  return result
+}
+
+/**
+ * Generate a fake IPv4 address inside the RFC1918 192.168.0.0/16 private range.
+ * Stays inside reserved space so the LLM cannot mistake it for a real public host.
+ */
+export function fakeIp(original: string): string {
+  const h = simpleHash('ip_' + original)
+  const o3 = h % 256
+  const o4 = ((h >>> 8) % 254) + 1
+  return `192.168.${o3}.${o4}`
+}
+
+/**
+ * Generate a fake MAC address inside the IANA documentation prefix 00:00:5E.
+ */
+export function fakeMac(original: string): string {
+  let seed = simpleHash('mac_' + original)
+  const hexByte = (): string => {
+    seed = (seed * 1664525 + 1013904223) | 0
+    return (Math.abs(seed) % 256).toString(16).padStart(2, '0').toUpperCase()
+  }
+  return `00:00:5E:${hexByte()}:${hexByte()}:${hexByte()}`
+}
+
+/**
+ * Generate a fake BIC. Format: 4 letters (bank) + FR (country) + 2 alphanumeric
+ * (location) + optional 3 alphanumeric (branch). Original length is preserved.
+ */
+export function fakeBic(original: string): string {
+  const LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
+  const ALPHANUM = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  let seed = simpleHash('bic_' + original)
+  const pick = (pool: string): string => {
+    seed = (seed * 1664525 + 1013904223) | 0
+    return pool[Math.abs(seed) % pool.length]!
+  }
+  const trimmed = original.trim()
+  const length = trimmed.length === 11 ? 11 : 8
+  let result = ''
+  for (let i = 0; i < 4; i++) result += pick(LETTERS)
+  result += 'FR'
+  for (let i = 0; i < 2; i++) result += pick(ALPHANUM)
+  if (length === 11) {
+    for (let i = 0; i < 3; i++) result += pick(ALPHANUM)
+  }
+  return result
+}
+
+/**
+ * Generate a synthetic IBAN-like value, preserving grouping separators but not
+ * retaining any alphanumeric account characters from the source. The source's
+ * leading 2-letter country code is preserved so a German IBAN doesn't get
+ * rewritten as French — the LLM otherwise flags the inconsistency.
+ */
+export function fakeIban(original: string): string {
+  const ALPHANUM = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  let seed = simpleHash('iban_' + original)
+  const next = (pool: string): string => {
+    seed = (seed * 1664525 + 1013904223) | 0
+    return pool[Math.abs(seed) % pool.length]!
+  }
+
+  const alnumCount = (original.match(/[A-Za-z0-9]/g) ?? []).length
+  if (alnumCount < 4) return fakeAlphanumericReference(original)
+
+  const compactSource = original.replace(/[^A-Za-z0-9]/g, '')
+  const country =
+    compactSource.length >= 2 && /^[A-Za-z]{2}/.test(compactSource)
+      ? compactSource.slice(0, 2).toUpperCase()
+      : 'FR'
+
+  let compact = country
+  compact += next('0123456789')
+  compact += next('0123456789')
+  while (compact.length < alnumCount) compact += next(ALPHANUM)
+
+  let cursor = 0
+  let result = ''
+  for (const ch of original) {
+    if (/[A-Za-z0-9]/.test(ch)) {
+      result += compact[cursor++] ?? next(ALPHANUM)
     } else {
       result += ch
     }

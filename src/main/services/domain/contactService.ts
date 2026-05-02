@@ -17,7 +17,7 @@ import { readFile } from 'node:fs/promises'
 import type { ContactRecord, ContactUpsertInput } from '@shared/types'
 import { IpcErrorCode } from '@shared/types'
 
-import { contactRecordSchema } from '@renderer/schemas'
+import { contactRecordSchema } from '@shared/validation'
 import type { DocumentService } from './documentService'
 import { pathExists } from '../../lib/system/domainState'
 import { atomicWrite } from '../../lib/system/atomicWrite'
@@ -29,7 +29,7 @@ export interface ContactService {
   delete(dossierId: string, contactId: string): Promise<void>
 }
 
-class ContactServiceError extends Error {
+export class ContactServiceError extends Error {
   constructor(
     readonly code: IpcErrorCode,
     message: string

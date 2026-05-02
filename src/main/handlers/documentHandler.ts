@@ -4,6 +4,7 @@ import {
   IPC_CHANNELS,
   IpcErrorCode,
   type DocumentExtractedContent,
+  type DocumentExtractProgressEvent,
   type DocumentMetadataUpdate,
   type DocumentPreview,
   type DocumentRecord,
@@ -11,14 +12,16 @@ import {
   type DocumentWatchStatus,
   type DossierScopedQuery,
   type IpcError,
-  type IpcResult
+  type IpcResult,
+  type SemanticSearchResult
 } from '@shared/types'
 
 import {
   dossierScopedQuerySchema,
   documentMetadataUpdateSchema,
-  documentPreviewInputSchema
-} from '@renderer/schemas'
+  documentPreviewInputSchema,
+  semanticSearchQuerySchema
+} from '@shared/validation'
 
 import { type DocumentService, DocumentServiceError } from '../services/domain/documentService'
 import { type FileWatcherService } from '../lib/ordicab/FileWatcherService'
@@ -162,12 +165,22 @@ export function registerDocumentHandlers(options: {
 
   options.ipcMain.handle(
     IPC_CHANNELS.document.extractContent,
-    async (_event, input: unknown): Promise<IpcResult<DocumentExtractedContent>> => {
+    async (event, input: unknown): Promise<IpcResult<DocumentExtractedContent>> => {
       const parsed = documentPreviewInputSchema.parse(input)
       try {
         return {
           success: true,
-          data: await options.documentService.extractContent(parsed)
+          data: await options.documentService.extractContent(parsed, (progress) => {
+            if (event.sender.isDestroyed()) return
+            const payload: DocumentExtractProgressEvent = {
+              dossierId: parsed.dossierId,
+              documentId: parsed.documentId,
+              phase: progress.phase,
+              page: progress.page,
+              totalPages: progress.totalPages
+            }
+            event.sender.send(IPC_CHANNELS.document.extractProgress, payload)
+          })
         }
       } catch (error) {
         // DEBUG: log full stack trace to identify the failing document
@@ -213,6 +226,19 @@ export function registerDocumentHandlers(options: {
   )
 
   options.ipcMain.handle(
+    IPC_CHANNELS.document.semanticSearch,
+    async (_event, input: unknown): Promise<IpcResult<SemanticSearchResult>> => {
+      try {
+        const parsed = semanticSearchQuerySchema.parse(input)
+        const data = await options.documentService.semanticSearch(parsed)
+        return { success: true, data }
+      } catch (error) {
+        return mapDocumentError(error, 'Unable to run semantic search.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
     IPC_CHANNELS.document.openFile,
     async (_event, input: unknown): Promise<IpcResult<null>> => {
       try {
@@ -221,9 +247,17 @@ export function registerDocumentHandlers(options: {
           dossierId: parsed.dossierId
         })
         const relativePath = parsed.documentId
-        const { join } = await import('node:path')
+        const { join, resolve, sep } = await import('node:path')
         const filePath = join(dossierPath, relativePath)
-        await options.openPath(filePath)
+        const resolvedDossier = resolve(dossierPath)
+        const resolvedFile = resolve(filePath)
+        if (resolvedFile !== resolvedDossier && !resolvedFile.startsWith(resolvedDossier + sep)) {
+          throw new DocumentServiceError(
+            IpcErrorCode.INVALID_INPUT,
+            'Document path escapes the dossier root.'
+          )
+        }
+        await options.openPath(resolvedFile)
         return { success: true, data: null }
       } catch (error) {
         return mapDocumentError(error, 'Unable to open document.')

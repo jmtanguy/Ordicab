@@ -15,9 +15,11 @@ import type {
 } from '@shared/types'
 
 import { createAiService } from '../aiService'
+import { ActionToolExecutor } from '../actionToolExecutor'
 import type { AiAgentRuntime } from '../../../lib/aiEmbedded/aiSdkAgentRuntime'
 import type { InternalAICommandDispatcher } from '../../../lib/aiEmbedded/aiCommandDispatcher'
 import { getDomainEntityPath } from '../../../lib/ordicab/ordicabPaths'
+import { PiiPseudonymizer } from '../../../lib/aiEmbedded/pii/piiPseudonymizer'
 
 interface PromptTuningScenario {
   name: string
@@ -33,6 +35,7 @@ interface CapturedRuntimeCall {
   context: AiCommandContext
   systemPrompt: string
   toolSystemPrompt: string
+  history?: Array<{ role: 'user' | 'assistant'; content: string }>
   model?: string
   domainPath?: string
 }
@@ -175,6 +178,7 @@ function makeRuntime(intent: InternalAiCommand = { type: 'contact_lookup', query
     appendHistory: vi.fn(),
     resetConversation: vi.fn().mockResolvedValue(undefined),
     generateText: vi.fn().mockResolvedValue('generated text'),
+    generateOneShot: vi.fn().mockResolvedValue('generated text'),
     streamText: vi.fn().mockResolvedValue('generated text'),
     cancelCommand: vi.fn(),
     setLocalLanguageModel: vi.fn(),
@@ -291,7 +295,8 @@ describe('aiService prompt tuning harness', () => {
         listDocuments: vi.fn().mockResolvedValue(DOCUMENTS),
         saveMetadata: vi.fn(),
         relocateMetadata: vi.fn(),
-        resolveRegisteredDossierRoot: vi.fn()
+        resolveRegisteredDossierRoot: vi.fn(),
+        semanticSearch: vi.fn().mockResolvedValue({ dossierId: '', query: '', hits: [] })
       },
       domainService: {
         getStatus: vi.fn().mockResolvedValue({
@@ -417,7 +422,8 @@ describe('aiService prompt tuning harness', () => {
         listDocuments: vi.fn().mockResolvedValue(DOCUMENTS),
         saveMetadata: vi.fn(),
         relocateMetadata: vi.fn(),
-        resolveRegisteredDossierRoot: vi.fn()
+        resolveRegisteredDossierRoot: vi.fn(),
+        semanticSearch: vi.fn().mockResolvedValue({ dossierId: '', query: '', hits: [] })
       },
       domainService: {
         getStatus: vi.fn().mockResolvedValue({
@@ -489,7 +495,8 @@ describe('aiService prompt tuning harness', () => {
         listDocuments: vi.fn().mockResolvedValue(DOCUMENTS),
         saveMetadata: vi.fn(),
         relocateMetadata: vi.fn(),
-        resolveRegisteredDossierRoot: vi.fn()
+        resolveRegisteredDossierRoot: vi.fn(),
+        semanticSearch: vi.fn().mockResolvedValue({ dossierId: '', query: '', hits: [] })
       },
       domainService: {
         getStatus: vi.fn().mockResolvedValue({
@@ -561,6 +568,7 @@ describe('aiService prompt tuning harness', () => {
       appendHistory: vi.fn(),
       resetConversation: vi.fn().mockResolvedValue(undefined),
       generateText: vi.fn().mockResolvedValue('generated text'),
+      generateOneShot: vi.fn().mockResolvedValue('generated text'),
       streamText: vi.fn().mockResolvedValue('generated text'),
       cancelCommand: vi.fn(),
       setLocalLanguageModel: vi.fn(),
@@ -604,7 +612,8 @@ describe('aiService prompt tuning harness', () => {
         listDocuments: vi.fn().mockResolvedValue(DOCUMENTS),
         saveMetadata: vi.fn(),
         relocateMetadata: vi.fn(),
-        resolveRegisteredDossierRoot: vi.fn()
+        resolveRegisteredDossierRoot: vi.fn(),
+        semanticSearch: vi.fn().mockResolvedValue({ dossierId: '', query: '', hits: [] })
       },
       domainService: {
         getStatus: vi.fn().mockResolvedValue({
@@ -677,6 +686,7 @@ describe('aiService prompt tuning harness', () => {
       appendHistory: vi.fn(),
       resetConversation: vi.fn().mockResolvedValue(undefined),
       generateText: vi.fn().mockResolvedValue('generated text'),
+      generateOneShot: vi.fn().mockResolvedValue('generated text'),
       streamText: vi.fn().mockResolvedValue('generated text'),
       cancelCommand: vi.fn(),
       setLocalLanguageModel: vi.fn(),
@@ -720,7 +730,8 @@ describe('aiService prompt tuning harness', () => {
         listDocuments: vi.fn().mockResolvedValue(DOCUMENTS),
         saveMetadata: vi.fn(),
         relocateMetadata: vi.fn(),
-        resolveRegisteredDossierRoot: vi.fn()
+        resolveRegisteredDossierRoot: vi.fn(),
+        semanticSearch: vi.fn().mockResolvedValue({ dossierId: '', query: '', hits: [] })
       },
       domainService: {
         getStatus: vi.fn().mockResolvedValue({
@@ -779,6 +790,7 @@ describe('aiService prompt tuning harness', () => {
       appendHistory: vi.fn(),
       resetConversation: vi.fn().mockResolvedValue(undefined),
       generateText: vi.fn().mockResolvedValue('generated text'),
+      generateOneShot: vi.fn().mockResolvedValue('generated text'),
       streamText: vi.fn().mockResolvedValue('generated text'),
       cancelCommand: vi.fn(),
       setLocalLanguageModel: vi.fn(),
@@ -829,7 +841,8 @@ describe('aiService prompt tuning harness', () => {
         listDocuments: vi.fn().mockResolvedValue(DOCUMENTS),
         saveMetadata: vi.fn(),
         relocateMetadata: vi.fn(),
-        resolveRegisteredDossierRoot: vi.fn()
+        resolveRegisteredDossierRoot: vi.fn(),
+        semanticSearch: vi.fn().mockResolvedValue({ dossierId: '', query: '', hits: [] })
       },
       domainService: {
         getStatus: vi.fn().mockResolvedValue({
@@ -852,6 +865,319 @@ describe('aiService prompt tuning harness', () => {
     expect(result.feedback).toContain('Caroline')
     expect(result.feedback).toContain('Merlin')
     expect(result.feedback).not.toContain('Contact not found')
+
+    vi.useRealTimers()
+  })
+
+  it('uses the mixed NER+regex async pseudonymization path for command, history, and prompts in remote mode', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-27T12:00:00.000Z'))
+
+    const stateFilePath = await writeStateFile('remote')
+    const domainPath = await writeDomainRegistry([
+      {
+        id: 'Client Alpha',
+        uuid: 'uuid-dossier-testcase-a',
+        name: 'Succession TestCase-A'
+      }
+    ])
+
+    const pseudonymizeAsyncSpy = vi
+      .spyOn(PiiPseudonymizer.prototype, 'pseudonymizeAsync')
+      .mockImplementation(async function (this: PiiPseudonymizer, text: string) {
+        return this.pseudonymize(text)
+      })
+    const pseudonymizeAutoAsyncSpy = vi
+      .spyOn(PiiPseudonymizer.prototype, 'pseudonymizeAutoAsync')
+      .mockImplementation(async function (this: PiiPseudonymizer, text: string) {
+        return this.pseudonymizeAuto(text)
+      })
+
+    const runtimeProbe = makeRuntime({
+      type: 'direct_response',
+      message: 'Réponse de test'
+    })
+
+    const service = createAiService({
+      aiAgentRuntime: runtimeProbe.runtime,
+      intentDispatcher: makeDispatcher(),
+      contactService: {
+        list: vi.fn().mockResolvedValue(CONTACTS),
+        upsert: vi.fn(),
+        delete: vi.fn()
+      },
+      templateService: {
+        list: vi.fn().mockResolvedValue(TEMPLATES),
+        getContent: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
+        delete: vi.fn()
+      },
+      dossierService: {
+        listRegisteredDossiers: vi.fn().mockResolvedValue(DOSSIERS),
+        getDossier: vi.fn().mockResolvedValue(DOSSIER_DETAIL),
+        registerDossier: vi.fn().mockResolvedValue(undefined),
+        updateDossier: vi.fn().mockResolvedValue(undefined),
+        upsertKeyDate: vi.fn().mockResolvedValue(undefined),
+        deleteKeyDate: vi.fn().mockResolvedValue(undefined),
+        upsertKeyReference: vi.fn().mockResolvedValue(undefined),
+        deleteKeyReference: vi.fn().mockResolvedValue(undefined)
+      },
+      documentService: {
+        listDocuments: vi.fn().mockResolvedValue(DOCUMENTS),
+        saveMetadata: vi.fn(),
+        relocateMetadata: vi.fn(),
+        resolveRegisteredDossierRoot: vi.fn(),
+        semanticSearch: vi.fn().mockResolvedValue({ dossierId: '', query: '', hits: [] })
+      },
+      domainService: {
+        getStatus: vi.fn().mockResolvedValue({
+          registeredDomainPath: domainPath,
+          isAvailable: true
+        })
+      },
+      localeService: {
+        getLocale: vi.fn().mockReturnValue('fr')
+      },
+      stateFilePath,
+      tessDataPath: '/tmp',
+      nerModelPath: '/tmp/local-models'
+    })
+
+    await service.executeCommand({
+      command: 'Donne le téléphone de John Martin et cet IBAN FR76 1234 5678 9012 3456 7890 123',
+      context: { dossierId: 'dossier-testcase-a' },
+      history: [{ role: 'assistant', content: 'Le contact John Martin a été vu précédemment.' }]
+    })
+
+    const runtimeCall = runtimeProbe.capturedCall
+    expect(runtimeCall).not.toBeNull()
+    expect(runtimeCall?.command).not.toContain('John Martin')
+    expect(runtimeCall?.command).not.toContain('FR76 1234 5678 9012 3456 7890 123')
+    expect(runtimeCall?.history?.[0]?.content).not.toContain('John Martin')
+    expect(runtimeCall?.systemPrompt).not.toContain('John Martin')
+    expect(runtimeCall?.toolSystemPrompt).not.toContain('John Martin')
+    expect(runtimeCall?.toolSystemPrompt).toContain('vendredi 27 mars 2026')
+    expect(pseudonymizeAsyncSpy).toHaveBeenCalled()
+    expect(pseudonymizeAutoAsyncSpy).not.toHaveBeenCalled()
+
+    vi.useRealTimers()
+  })
+
+  it('pseudonymizes document_search query before feeding the tool result back to the model', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-27T12:00:00.000Z'))
+
+    const stateFilePath = await writeStateFile('remote')
+    const domainPath = await writeDomainRegistry([
+      {
+        id: 'Client Alpha',
+        uuid: 'uuid-dossier-testcase-a',
+        name: 'Succession TestCase-A'
+      }
+    ])
+
+    vi.spyOn(PiiPseudonymizer.prototype, 'pseudonymizeAsync').mockImplementation(async function (
+      this: PiiPseudonymizer,
+      text: string
+    ) {
+      return this.pseudonymize(text)
+    })
+    vi.spyOn(PiiPseudonymizer.prototype, 'pseudonymizeAutoAsync').mockImplementation(
+      async function (this: PiiPseudonymizer, text: string) {
+        return this.pseudonymizeAuto(text)
+      }
+    )
+
+    let safeToolResult = ''
+    const runtime: AiAgentRuntime = {
+      sendCommand: vi.fn().mockImplementation(async (payload) => {
+        safeToolResult =
+          (await payload.executeDataTool?.('document_search', {
+            dossierId: 'dossier-testcase-a',
+            query: 'John Martin'
+          })) ?? ''
+        return { type: 'direct_response', message: 'ok' }
+      }),
+      getDebugTrace: vi.fn().mockReturnValue(null),
+      getLastToolLoopEntries: vi.fn().mockReturnValue([]),
+      appendHistory: vi.fn(),
+      resetConversation: vi.fn().mockResolvedValue(undefined),
+      generateText: vi.fn().mockResolvedValue('generated text'),
+      generateOneShot: vi.fn().mockResolvedValue('generated text'),
+      streamText: vi.fn().mockResolvedValue('generated text'),
+      cancelCommand: vi.fn(),
+      setLocalLanguageModel: vi.fn(),
+      setRemoteLanguageModel: vi.fn(),
+      dispose: vi.fn()
+    }
+
+    const service = createAiService({
+      aiAgentRuntime: runtime,
+      intentDispatcher: makeDispatcher(),
+      contactService: {
+        list: vi.fn().mockResolvedValue(CONTACTS),
+        upsert: vi.fn(),
+        delete: vi.fn()
+      },
+      templateService: {
+        list: vi.fn().mockResolvedValue(TEMPLATES),
+        getContent: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
+        delete: vi.fn()
+      },
+      dossierService: {
+        listRegisteredDossiers: vi.fn().mockResolvedValue(DOSSIERS),
+        getDossier: vi.fn().mockResolvedValue(DOSSIER_DETAIL),
+        registerDossier: vi.fn().mockResolvedValue(undefined),
+        updateDossier: vi.fn().mockResolvedValue(undefined),
+        upsertKeyDate: vi.fn().mockResolvedValue(undefined),
+        deleteKeyDate: vi.fn().mockResolvedValue(undefined),
+        upsertKeyReference: vi.fn().mockResolvedValue(undefined),
+        deleteKeyReference: vi.fn().mockResolvedValue(undefined)
+      },
+      documentService: {
+        listDocuments: vi.fn().mockResolvedValue(DOCUMENTS),
+        saveMetadata: vi.fn(),
+        relocateMetadata: vi.fn(),
+        resolveRegisteredDossierRoot: vi.fn(),
+        semanticSearch: vi.fn().mockResolvedValue({
+          dossierId: 'dossier-testcase-a',
+          query: 'John Martin',
+          hits: [
+            {
+              documentId: 'document-note-strategie',
+              filename: 'note-strategie.docx',
+              snippet: 'John Martin conteste la décision.',
+              score: 1.25,
+              charStart: 0,
+              charEnd: 34
+            }
+          ]
+        })
+      },
+      domainService: {
+        getStatus: vi.fn().mockResolvedValue({
+          registeredDomainPath: domainPath,
+          isAvailable: true
+        })
+      },
+      localeService: {
+        getLocale: vi.fn().mockReturnValue('fr')
+      },
+      stateFilePath,
+      tessDataPath: '/tmp',
+      nerModelPath: '/tmp/local-models'
+    })
+
+    await service.executeCommand({
+      command: 'Cherche John Martin',
+      context: { dossierId: 'dossier-testcase-a' }
+    })
+
+    expect(safeToolResult).toContain('"query":"[[contact.client.firstName]]')
+    expect(safeToolResult).not.toContain('"query":"John Martin"')
+
+    vi.useRealTimers()
+  })
+
+  it('stores pseudonymized document_analyze feedback in history in remote PII mode', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-27T12:00:00.000Z'))
+
+    const stateFilePath = await writeStateFile('remote')
+    const domainPath = await writeDomainRegistry([
+      {
+        id: 'Client Alpha',
+        uuid: 'uuid-dossier-testcase-a',
+        name: 'Succession TestCase-A'
+      }
+    ])
+
+    vi.spyOn(PiiPseudonymizer.prototype, 'pseudonymizeAsync').mockImplementation(async function (
+      this: PiiPseudonymizer,
+      text: string
+    ) {
+      return this.pseudonymize(text)
+    })
+    vi.spyOn(ActionToolExecutor.prototype, 'runDocumentAnalysis').mockResolvedValue(
+      JSON.stringify({
+        uuid: 'document-note-strategie',
+        rawContent: 'John Martin habite 12 rue Victor Hugo et appelle le 06 12 34 56 78.',
+        totalChars: 68,
+        charsReturned: 68
+      })
+    )
+
+    const runtimeProbe = makeRuntime({
+      type: 'document_analyze',
+      documentId: 'document-note-strategie',
+      dossierId: 'dossier-testcase-a'
+    })
+
+    const service = createAiService({
+      aiAgentRuntime: runtimeProbe.runtime,
+      intentDispatcher: makeDispatcher(),
+      contactService: {
+        list: vi.fn().mockResolvedValue(CONTACTS),
+        upsert: vi.fn(),
+        delete: vi.fn()
+      },
+      templateService: {
+        list: vi.fn().mockResolvedValue(TEMPLATES),
+        getContent: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
+        delete: vi.fn()
+      },
+      dossierService: {
+        listRegisteredDossiers: vi.fn().mockResolvedValue(DOSSIERS),
+        getDossier: vi.fn().mockResolvedValue(DOSSIER_DETAIL),
+        registerDossier: vi.fn().mockResolvedValue(undefined),
+        updateDossier: vi.fn().mockResolvedValue(undefined),
+        upsertKeyDate: vi.fn().mockResolvedValue(undefined),
+        deleteKeyDate: vi.fn().mockResolvedValue(undefined),
+        upsertKeyReference: vi.fn().mockResolvedValue(undefined),
+        deleteKeyReference: vi.fn().mockResolvedValue(undefined)
+      },
+      documentService: {
+        listDocuments: vi.fn().mockResolvedValue(DOCUMENTS),
+        saveMetadata: vi.fn(),
+        relocateMetadata: vi.fn(),
+        resolveRegisteredDossierRoot: vi.fn(),
+        semanticSearch: vi.fn().mockResolvedValue({ dossierId: '', query: '', hits: [] })
+      },
+      domainService: {
+        getStatus: vi.fn().mockResolvedValue({
+          registeredDomainPath: domainPath,
+          isAvailable: true
+        })
+      },
+      localeService: {
+        getLocale: vi.fn().mockReturnValue('fr')
+      },
+      stateFilePath,
+      tessDataPath: '/tmp',
+      nerModelPath: '/tmp/local-models'
+    })
+
+    const result = await service.executeCommand({
+      command: 'Analyse la note de stratégie',
+      context: { dossierId: 'dossier-testcase-a' }
+    })
+
+    expect(result.feedback).toContain('John Martin')
+    expect(result.feedback).toContain('06 12 34 56 78')
+
+    const appendHistoryMock = runtimeProbe.runtime.appendHistory as ReturnType<typeof vi.fn>
+    const historyEntries = appendHistoryMock.mock.calls[0]?.[0] ?? []
+    const historyPayload = JSON.stringify(historyEntries)
+
+    expect(historyPayload).toContain('document-note-strategie')
+    expect(historyPayload).not.toContain('John Martin')
+    expect(historyPayload).not.toContain('06 12 34 56 78')
+    expect(historyPayload).toContain('[[')
 
     vi.useRealTimers()
   })

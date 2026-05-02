@@ -56,6 +56,42 @@ export interface DocumentContentStatus {
 
 export type DocumentAvailabilityEvent = DocumentWatchStatus
 
+export interface DocumentExtractProgressEvent {
+  dossierId: string
+  documentId: string
+  phase: 'embedded' | 'ocr'
+  page: number
+  totalPages: number
+}
+
+export interface SemanticSearchQuery {
+  dossierId: string
+  query: string
+  /** Maximum hits to return. Defaults to 10 on the service side. */
+  topK?: number
+}
+
+export interface SemanticSearchHit {
+  /** Document relativePath — matches DocumentRecord.id and DocumentRecord.relativePath. */
+  documentId: string
+  /** Document filename for display. */
+  filename: string
+  /** Inclusive character offset into the extracted text. */
+  charStart: number
+  /** Exclusive character offset into the extracted text. */
+  charEnd: number
+  /** Cosine similarity in [-1, 1]. Higher = more relevant. */
+  score: number
+  /** Matched passage text, capped to ~280 chars. */
+  snippet: string
+}
+
+export interface SemanticSearchResult {
+  dossierId: string
+  query: string
+  hits: SemanticSearchHit[]
+}
+
 export type DocumentPreviewSourceType =
   | 'pdf'
   | 'docx'

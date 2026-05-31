@@ -88,33 +88,21 @@ jobs:
       - name: Build release artifacts
         run: ${{ matrix.package_command }}
 
-      - name: Upload packaged artifacts
-        uses: actions/upload-artifact@v5
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: out/make/**
-          if-no-files-found: error
-
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@v5
-        with:
-          pattern: '*-artifacts'
-          path: release-assets
-          merge-multiple: true
-
+      # Publish each platform's installers straight to the GitHub Release.
+      # We deliberately skip the actions/upload-artifact round-trip: artifacts
+      # only ever served as a hand-off to a separate publish job, yet they
+      # consume the Actions storage quota (Electron output is 1000+ files per
+      # platform). Release assets do not count against that quota. Both matrix
+      # jobs target the same tag; action-gh-release creates the release if it
+      # is missing and otherwise appends this job's files to it.
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || github.event.inputs.tag_name }}
           target_commitish: ${{ github.sha }}
           files: |
-            release-assets/**/*.dmg
-            release-assets/**/*.zip
-            release-assets/**/*setup.exe
-            release-assets/**/*.yml
-            release-assets/**/*.blockmap
+            out/make/**/*.dmg
+            out/make/**/*.zip
+            out/make/**/*setup.exe
+            out/make/**/*.yml
+            out/make/**/*.blockmap

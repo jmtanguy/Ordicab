@@ -7,14 +7,7 @@
  * so the LLM can reason naturally about the pseudonymized text.
  */
 
-import {
-  EN_MONTH_NAMES,
-  EN_MONTH_TO_INDEX,
-  FR_MONTH_NAMES,
-  FR_MONTH_TO_INDEX,
-  expandTwoDigitYear,
-  isValidYMD
-} from './dateNormalization'
+import { formatDateLike, parseDateFlexible, isValidYMD } from './dateNormalization'
 
 export type Locale = 'fr' | 'en'
 export type Gender = 'M' | 'F' | null
@@ -1500,83 +1493,26 @@ function applyDateOffset(
   return date
 }
 
-function applyMonthCase(monthName: string, hint: string): string {
-  if (/^[A-ZÀ-Ÿ]+$/.test(hint)) return monthName.toLocaleUpperCase()
-  if (/^[A-ZÀ-Ÿ]/.test(hint)) return monthName.charAt(0).toLocaleUpperCase() + monthName.slice(1)
-  return monthName
-}
-
 export function fakeDate(original: string): string {
-  const trimmed = original.trim()
-  const h = (simpleHash('date_' + original) % 180) + 30
+  const parsed = parseDateFlexible(original)
+  if (!parsed) return original
 
-  // Numeric formats with any of /, -, ., or single space as the separator.
-  // Two orderings: DD{sep}MM{sep}YYYY (FR/EU default) and YYYY{sep}MM{sep}DD (ISO).
-  // The first 4-digit group disambiguates the ordering. Ambiguous "03/04/2024"
-  // is treated as DD/MM (the FR convention this app targets).
-  const numMatch = /^(\d{1,4})([/\-. ])(\d{1,2})([/\-. ])(\d{2,4})$/.exec(trimmed)
-  if (numMatch) {
-    const a = numMatch[1]!
-    const sep1 = numMatch[2]!
-    const b = numMatch[3]!
-    const sep2 = numMatch[4]!
-    const c = numMatch[5]!
-    const yearFirst = a.length === 4
+  const shifted = applyDateOffset(
+    parsed.year,
+    parsed.month,
+    parsed.day,
+    (simpleHash('date_' + original) % 180) + 30
+  )
+  if (!shifted) return original
 
-    const year = yearFirst ? parseInt(a, 10) : expandTwoDigitYear(parseInt(c, 10))
-    const month = parseInt(b, 10)
-    const day = parseInt(yearFirst ? c : a, 10)
-    const date = applyDateOffset(year, month, day, h)
-    if (date) {
-      const dStr = String(date.getUTCDate()).padStart(2, '0')
-      const mStr = String(date.getUTCMonth() + 1).padStart(2, '0')
-      const yStr = String(date.getUTCFullYear())
-      if (yearFirst) {
-        return `${yStr}${sep1}${mStr}${sep2}${dStr}`
-      }
-      const yOut = c.length === 2 ? yStr.slice(2) : yStr
-      return `${dStr}${sep1}${mStr}${sep2}${yOut}`
-    }
-  }
-
-  const frTextMatch = /^(\d{1,2})(?:er)?\s+([A-Za-zÀ-ÿ]+)\s+(\d{2,4})$/.exec(trimmed)
-  if (frTextMatch) {
-    const monthIdx = FR_MONTH_TO_INDEX[frTextMatch[2]!.toLowerCase()]
-    if (monthIdx !== undefined) {
-      const date = applyDateOffset(
-        expandTwoDigitYear(parseInt(frTextMatch[3]!, 10)),
-        monthIdx,
-        parseInt(frTextMatch[1]!, 10),
-        h
-      )
-      if (date) {
-        const monthName = applyMonthCase(FR_MONTH_NAMES[date.getUTCMonth()]!, frTextMatch[2]!)
-        const year = String(date.getUTCFullYear())
-        const yOut = frTextMatch[3]!.length === 2 ? year.slice(2) : year
-        return `${date.getUTCDate()} ${monthName} ${yOut}`
-      }
-    }
-  }
-  const enTextMatch = /^([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{2,4})$/.exec(trimmed)
-  if (enTextMatch) {
-    const monthIdx = EN_MONTH_TO_INDEX[enTextMatch[1]!.toLowerCase()]
-    if (monthIdx !== undefined) {
-      const date = applyDateOffset(
-        expandTwoDigitYear(parseInt(enTextMatch[3]!, 10)),
-        monthIdx,
-        parseInt(enTextMatch[2]!, 10),
-        h
-      )
-      if (date) {
-        const monthName = applyMonthCase(EN_MONTH_NAMES[date.getUTCMonth()]!, enTextMatch[1]!)
-        const year = String(date.getUTCFullYear())
-        const yOut = enTextMatch[3]!.length === 2 ? year.slice(2) : year
-        return `${monthName} ${date.getUTCDate()}, ${yOut}`
-      }
-    }
-  }
-
-  return original
+  return formatDateLike(
+    {
+      year: shifted.getUTCFullYear(),
+      month: shifted.getUTCMonth() + 1,
+      day: shifted.getUTCDate()
+    },
+    original
+  )
 }
 
 /**

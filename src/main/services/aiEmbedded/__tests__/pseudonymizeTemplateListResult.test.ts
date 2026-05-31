@@ -5,7 +5,7 @@ import { pseudonymizeTemplateListResultAsync } from '../dataToolExecutor'
 describe('pseudonymizeTemplateListResultAsync', () => {
   it('keeps the structural macros array verbatim while pseudonymizing human-readable fields', async () => {
     const pseudonymize = async (s: string): Promise<string> =>
-      s === 'Modèle Conseil Pelican' ? '[[custom.dossier_1]] `Cabinet Acme`' : s
+      s === 'Modèle Conseil Pelican' ? 'Cabinet Acme' : s
 
     const input = JSON.stringify({
       templates: [
@@ -23,7 +23,7 @@ describe('pseudonymizeTemplateListResultAsync', () => {
       templates: Array<{ name: string; macros: string[] }>
     }
 
-    expect(parsed.templates[0]!.name).toBe('[[custom.dossier_1]] `Cabinet Acme`')
+    expect(parsed.templates[0]!.name).toBe('Cabinet Acme')
     expect(parsed.templates[0]!.macros).toEqual([
       'dossier.keyDate.audience.long',
       'dossier.keyDate.renvoi.long'

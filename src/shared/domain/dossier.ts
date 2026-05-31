@@ -1,14 +1,31 @@
 import type { StoredDocumentMetadata } from './document'
+import type { DossierBillingItem, DossierFeeAgreement } from './billing'
 
 export const DOSSIER_STATUS_VALUES = ['active', 'pending', 'completed', 'archived'] as const
 
 export type DossierStatus = (typeof DOSSIER_STATUS_VALUES)[number]
+
+export const KEY_DATE_TAG_VALUES = [
+  'cancelled',
+  'postponed',
+  'urgent',
+  'imperative',
+  'important',
+  'to_confirm',
+  'confidential',
+  'to_do'
+] as const
+export type KeyDateTag = (typeof KEY_DATE_TAG_VALUES)[number]
 
 export interface KeyDate {
   id: string
   dossierId: string
   label: string
   date: string
+  time?: string
+  duration?: number
+  tags?: KeyDateTag[]
+  isClosed?: boolean
   note?: string
 }
 
@@ -17,6 +34,10 @@ export interface DossierKeyDateUpsertInput {
   dossierId: string
   label: string
   date: string
+  time?: string
+  duration?: number
+  tags?: KeyDateTag[]
+  isClosed?: boolean
   note?: string
 }
 
@@ -31,6 +52,22 @@ export interface KeyReference {
   label: string
   value: string
   note?: string
+}
+
+/**
+ * Reserved label for the auto-injected key reference that holds the dossier name.
+ * Editing this entry via the references UI updates `metadata.name`.
+ */
+export const DOSSIER_NAME_REFERENCE_LABEL = 'Nom du dossier'
+
+/**
+ * Case-insensitive match used by services and UI to detect the reserved name entry.
+ */
+export function isDossierNameReferenceLabel(label: string): boolean {
+  return (
+    label.trim().toLocaleLowerCase('fr-FR') ===
+    DOSSIER_NAME_REFERENCE_LABEL.toLocaleLowerCase('fr-FR')
+  )
 }
 
 export interface DossierKeyReferenceUpsertInput {
@@ -170,6 +207,8 @@ export interface DossierUpdateInput {
   status: DossierStatus
   type: string
   information?: string
+  juridiction?: string
+  tribunal?: string
 }
 
 export interface DossierSummary {
@@ -189,6 +228,10 @@ export interface DossierDetail extends DossierSummary {
   createdAt?: string
   description?: string
   information?: string
+  juridiction?: string
+  tribunal?: string
+  feeAgreements: DossierFeeAgreement[]
+  billingItems: DossierBillingItem[]
   keyDates: KeyDate[]
   keyReferences: KeyReference[]
 }

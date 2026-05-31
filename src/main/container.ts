@@ -34,14 +34,28 @@ import {
 import { resolveDefaultRemoteModel, type RemoteProviderKind } from '@shared/ai/remoteProviders'
 
 import { createAiService, type AiService } from './services/aiEmbedded/aiService'
-import { warmupNer } from './lib/aiEmbedded/pii/nerDetection'
-import { warmupEmbeddings } from './lib/aiEmbedded/embeddings/embeddingService'
+import {
+  createIndexingQueueService,
+  walkExtractableDocuments,
+  type IndexingQueueService
+} from './services/aiEmbedded/indexingQueueService'
+import { awaitInferenceDrain } from './lib/aiEmbedded/modelRegistry'
+import {
+  createEmbeddingWorkerClient,
+  type EmbeddingWorkerClient
+} from './lib/aiEmbedded/embeddings/embeddingWorkerClient'
+import type { EmbeddingServiceConfig } from './lib/aiEmbedded/embeddings/embeddingService'
 import { createDocumentService, type DocumentService } from './services/domain/documentService'
+import {
+  createCabinetBillingService,
+  type CabinetBillingService
+} from './services/domain/cabinetBillingService'
 import {
   createDossierRegistryService,
   type DossierRegistryService
 } from './services/domain/dossierRegistryService'
 import { createGenerateService, type GenerateService } from './services/domain/generateService'
+import { createInvoiceService, type InvoiceService } from './services/domain/invoiceService'
 import { createContactService, type ContactService } from './services/domain/contactService'
 import { createEntityService, type EntityService } from './services/domain/entityService'
 import { createTemplateService, type TemplateService } from './services/domain/templateService'
@@ -50,6 +64,8 @@ import {
   type DossierTransferService
 } from './services/domain/dossierTransferService'
 import { registerAiHandlers } from './handlers/aiHandler'
+import { registerCabinetBillingHandlers } from './handlers/cabinetBillingHandler'
+import { registerInvoiceHandlers } from './handlers/invoiceHandler'
 import { registerInstructionsHandlers } from './handlers/instructionsHandler'
 import { registerContactHandlers } from './handlers/contactHandler'
 import { registerDossierHandlers } from './handlers/dossierHandler'
@@ -57,7 +73,9 @@ import { registerDossierTransferHandlers } from './handlers/dossierTransferHandl
 import { registerDocumentHandlers } from './handlers/documentHandler'
 import { registerEntityHandlers } from './handlers/entityHandler'
 import { registerGenerateHandlers } from './handlers/generateHandler'
+import { registerIndexingHandlers } from './handlers/indexingHandler'
 import { registerTemplateHandlers } from './handlers/templateHandler'
+import { createAppStateStore, type AppStateStore } from './lib/system/appStateStore'
 import { createCredentialStore, type CredentialStore } from './lib/system/credentialStore'
 import { createDelegatedOriginDeviceStore } from './lib/system/delegatedOriginDeviceStore'
 import { type EulaStore } from './lib/system/eulaStore'
@@ -123,6 +141,20 @@ export interface BuildContainerOptions {
    * changes, docx template syncs and AI streaming tokens.
    */
   getWebContents: () => WebContentsLike | null | undefined
+  /**
+   * Renders an HTML string to PDF written at `outputPath`. Implemented by the
+   * host (`index.ts`) via Electron's BrowserWindow + webContents.printToPDF.
+   * Optional — when absent, on-demand PDF generation throws.
+   */
+  printHtmlToPdf?: (html: string, outputPath: string) => Promise<void>
+  /**
+   * Absolute path to the compiled embedding worker bundle emitted by
+   * electron-vite alongside the main entry. The indexing queue posts batches
+   * to this worker so ONNX inference doesn't block the main thread. When
+   * omitted (or unreadable), indexing falls back to the in-process embedder
+   * which DOES freeze the UI during long catch-ups — set this in production.
+   */
+  embeddingWorkerPath?: string
 }
 
 /**
@@ -142,18 +174,23 @@ export interface AppContainer {
   documentService: DocumentService
   contactService: ContactService
   entityService: EntityService
+  cabinetBillingService: CabinetBillingService
+  invoiceService: InvoiceService
   templateService: TemplateService
   generateService: GenerateService
   dossierTransferService: DossierTransferService
   fileWatcherService: FileWatcherService
+  indexingQueueService: IndexingQueueService
   ordicabDataWatcher: OrdicabDataWatcherLike
   delegatedIntentProcessor: DelegatedAiActionProcessorLike
   instructionsGenerator: InstructionsGeneratorLike
   credentialStore: CredentialStore
   aiService: AiService
   aiLifecycle: AiLifecycle
+  /** Shared owner of app-state.json; reused by host-constructed stores (e.g. eulaStore). */
+  appState: AppStateStore
   /** Tear down all watchers and shut down the Ollama process if it was launched. */
-  dispose(): void
+  dispose(): Promise<void>
 }
 
 interface PersistedAiState {
@@ -202,25 +239,76 @@ function readPersistedAiState(stateFilePath: string): PersistedAiState {
 }
 
 export function buildContainer(opts: BuildContainerOptions): AppContainer {
-  const credentialStore = createCredentialStore(opts.safeStorage, opts.stateFilePath)
+  // Single owner of app-state.json, shared by every consumer so concurrent
+  // namespace writes are serialised instead of clobbering each other.
+  const appState = createAppStateStore(opts.stateFilePath)
+
+  const credentialStore = createCredentialStore(opts.safeStorage, appState)
 
   const dossierService = createDossierRegistryService({
     stateFilePath: opts.stateFilePath,
-    now: () => new Date()
+    now: () => new Date(),
+    onDossierRegistered: (dossierId, dossierPath) => {
+      void subscribeQueueToFileEvents(dossierId, dossierPath).catch((error) => {
+        console.error('[Container] Failed to subscribe file events for registered dossier.', error)
+      })
+      void indexingQueueService
+        .enqueueDossierBatch(dossierId, {
+          reason: 'initial-registration',
+          trackInitialComplete: true
+        })
+        .catch((error) => {
+          console.error(
+            '[Container] Failed to enqueue initial batch for registered dossier.',
+            error
+          )
+        })
+    },
+    onDossierUnregistered: (dossierId) => {
+      indexingQueueService.cancelDossier(dossierId)
+      void unsubscribeQueueFromFileEvents(dossierId).catch((error) => {
+        console.error(
+          '[Container] Failed to unsubscribe file events for unregistered dossier.',
+          error
+        )
+      })
+    }
   })
 
-  // Kick off model load in the background so the first user prompt that
-  // triggers pseudonymizeAsync() doesn't pay the cold-start cost. Failures
-  // degrade silently to regex-only detection.
-  if (opts.modelsPath) {
-    void warmupNer({ enabled: true, modelPath: opts.modelsPath })
-    void warmupEmbeddings({ modelPath: opts.modelsPath })
+  // Model warmup intentionally removed: loading @huggingface/transformers
+  // pipelines runs an internal ONNX warmup inference whose callback is
+  // delivered via libuv from CFRunLoop on macOS, outside a V8 HandleScope →
+  // fatal crash. Accept the cold-start cost on first AI command / search
+  // instead. NER and embeddings remain available; only the 2-3 s first-call
+  // latency increases.
+  const modelWarmupPromise = Promise.resolve()
+
+  // Spin up the embedding worker before any service that may need to embed.
+  // Without a worker, semantic search and snippet refinement fall back to the
+  // in-process embedBatch which is prone to HandleScope crashes in Electron's
+  // CFRunLoop integration on macOS arm64.
+  let embeddingWorkerClient: EmbeddingWorkerClient | null = null
+  if (opts.embeddingWorkerPath) {
+    embeddingWorkerClient = createEmbeddingWorkerClient({
+      workerPath: opts.embeddingWorkerPath,
+      defaultConfig: opts.modelsPath ? { modelPath: opts.modelsPath } : undefined
+    })
+  } else {
+    console.warn(
+      '[Container] No embeddingWorkerPath provided — embedding inference will run on the main thread and may freeze the UI during indexing.'
+    )
   }
+
+  const workerEmbedder = embeddingWorkerClient
+    ? (texts: string[], config?: EmbeddingServiceConfig) =>
+        embeddingWorkerClient!.embedBatch(texts, config)
+    : undefined
 
   const documentService = createDocumentService({
     stateFilePath: opts.stateFilePath,
     tessDataPath: opts.tessDataPath,
-    embeddingConfig: opts.modelsPath ? { modelPath: opts.modelsPath } : undefined
+    embeddingConfig: opts.modelsPath ? { modelPath: opts.modelsPath } : undefined,
+    embedder: workerEmbedder
   })
 
   const generateService = createGenerateService({
@@ -228,7 +316,7 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
     documentService
   })
 
-  const delegatedOriginDeviceStore = createDelegatedOriginDeviceStore(opts.stateFilePath)
+  const delegatedOriginDeviceStore = createDelegatedOriginDeviceStore(appState)
   const instructionsGenerator = createInstructionsGenerator({
     domainService: opts.domainService,
     documentService,
@@ -237,6 +325,15 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
 
   const contactService = createContactService({ documentService })
   const entityService = createEntityService({ domainService: opts.domainService })
+  const cabinetBillingService = createCabinetBillingService({ domainService: opts.domainService })
+
+  const invoiceService = createInvoiceService({
+    domainService: opts.domainService,
+    dossierRegistryService: dossierService,
+    generateService,
+    contactService,
+    printHtmlToPdf: opts.printHtmlToPdf
+  })
 
   const dossierTransferService = createDossierTransferService({
     contactService,
@@ -279,6 +376,73 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
   })
 
   const fileWatcherService = createFileWatcherService()
+
+  // ---- Background indexing queue ----
+  // Unsubscribe callbacks keyed by dossierId — used to clean up the boot-level
+  // file event subscriptions when a dossier is unregistered.
+  const fileEventUnsubs = new Map<string, () => Promise<void>>()
+
+  const indexingQueueService = createIndexingQueueService({
+    // One worker by default — see DEFAULT_CONCURRENCY in indexingQueueService.
+    // Even with the embedding off-loaded to a worker thread, extract still does
+    // OCR/PDF orchestration on the main thread, so parallel jobs would compete.
+    concurrency: 1,
+    statusDebounceMs: 250,
+    embeddingConfig: opts.modelsPath ? { modelPath: opts.modelsPath } : undefined,
+    embedder: workerEmbedder,
+    extractContent: ({ dossierId, documentId }) =>
+      documentService.extractContent({ dossierId, documentId }).then(() => undefined),
+    resolveDossierPath: async (dossierId) => {
+      try {
+        return await documentService.resolveRegisteredDossierRoot({ dossierId })
+      } catch {
+        return null
+      }
+    },
+    listIndexableDocuments: async (dossierId) => {
+      try {
+        const dossierPath = await documentService.resolveRegisteredDossierRoot({ dossierId })
+        return await walkExtractableDocuments(dossierPath)
+      } catch {
+        return null
+      }
+    },
+    emit: (event) => {
+      const window = opts.getWebContents()
+      if (!window || (window.isDestroyed?.() ?? false)) return
+      if (event.kind === 'status') {
+        window.send(IPC_CHANNELS.indexing.status, event.snapshot)
+      } else if (event.kind === 'dossier-initial-complete') {
+        window.send(IPC_CHANNELS.indexing.dossierInitialComplete, event.payload)
+      }
+    },
+    isEnabled: () => true
+  })
+
+  async function subscribeQueueToFileEvents(dossierId: string, dossierPath: string): Promise<void> {
+    if (fileEventUnsubs.has(dossierId)) return
+    const { unsubscribe } = await fileWatcherService.subscribeFileEvents({
+      dossierId,
+      dossierPath,
+      listener: (event) => {
+        if (event.kind === 'unlink') return
+        indexingQueueService.enqueueOne({
+          dossierId: event.dossierId,
+          relativePath: event.relativePath,
+          absolutePath: event.absolutePath,
+          reason: event.kind === 'add' ? 'file-add' : 'file-change'
+        })
+      }
+    })
+    fileEventUnsubs.set(dossierId, unsubscribe)
+  }
+
+  async function unsubscribeQueueFromFileEvents(dossierId: string): Promise<void> {
+    const unsub = fileEventUnsubs.get(dossierId)
+    if (!unsub) return
+    fileEventUnsubs.delete(dossierId)
+    await unsub()
+  }
 
   // ---- AI mode lifecycle (closure-encapsulated mutable state) ----
   const persisted = readPersistedAiState(opts.stateFilePath)
@@ -373,6 +537,7 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
     templateService,
     dossierService,
     documentService,
+    invoiceService,
     domainService: opts.domainService,
     localeService: opts.mainI18n,
     stateFilePath: opts.stateFilePath,
@@ -428,6 +593,41 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
   void ordicabDataWatcher.watchActiveDomain().catch((error) => {
     console.error('[Container] Failed to initialize Ordicab data watcher.', error)
   })
+
+  // Subscribe the indexing queue to file events for all already-registered
+  // dossiers, then run a startup catch-up pass (silent — no toast).
+  //
+  // The catch-up is deferred so the renderer finishes its initial paint
+  // before we start chewing on documents. Without this delay the user's
+  // first interactions can feel sluggish on cold start while the
+  // embedding worker is still warming up. 5s is empirical: long enough
+  // for the splash/onboarding to settle, short enough that newly added
+  // documents still get indexed promptly on relaunch.
+  const STARTUP_CATCHUP_DELAY_MS = 5_000
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const registered = await dossierService.listRegisteredDossiers()
+        const dossierIds: string[] = []
+        await Promise.all(
+          registered.map(async (summary) => {
+            dossierIds.push(summary.id)
+            try {
+              const dossierPath = await documentService.resolveRegisteredDossierRoot({
+                dossierId: summary.id
+              })
+              await subscribeQueueToFileEvents(summary.id, dossierPath)
+            } catch {
+              // Dossier root unavailable at boot — the watcher will handle recovery.
+            }
+          })
+        )
+        await indexingQueueService.runStartupCatchUp(dossierIds)
+      } catch (error) {
+        console.error('[Container] Failed during indexing boot catch-up.', error)
+      }
+    })()
+  }, STARTUP_CATCHUP_DELAY_MS)
   if (delegatedEnabled) {
     void delegatedIntentProcessor.watchActiveDomain().catch((error) => {
       console.error('[Container] Failed to initialize delegated intent processor.', error)
@@ -435,10 +635,20 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
   }
   // One-shot boot migration of legacy templates.json (inline content) — see
   // templateService.migrateLegacyTemplatesIfNeeded for shape and idempotency.
+  // Then seed the essential default templates if the domain is empty (idempotent).
   // Deliberately fire-and-forget: the IPC list path stays a pure read.
-  void templateService.migrateLegacyTemplatesIfNeeded().catch((error) => {
-    console.error('[Container] Failed to migrate legacy templates on startup.', error)
-  })
+  void (async () => {
+    try {
+      await templateService.migrateLegacyTemplatesIfNeeded()
+    } catch (error) {
+      console.error('[Container] Failed to migrate legacy templates on startup.', error)
+    }
+    try {
+      await templateService.seedDefaultTemplatesIfEmpty()
+    } catch (error) {
+      console.error('[Container] Failed to seed default templates on startup.', error)
+    }
+  })()
   void (async () => {
     const domainStatus = await opts.domainService.getStatus()
     if (!domainStatus.registeredDomainPath || !domainStatus.isAvailable) {
@@ -514,20 +724,34 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
     documentService,
     contactService,
     entityService,
+    cabinetBillingService,
+    invoiceService,
     templateService,
     generateService,
     dossierTransferService,
     fileWatcherService,
+    indexingQueueService,
     ordicabDataWatcher,
     delegatedIntentProcessor,
     instructionsGenerator,
     credentialStore,
     aiService,
     aiLifecycle,
-    dispose: () => {
-      void fileWatcherService.disposeAll()
-      void ordicabDataWatcher.dispose()
-      void delegatedIntentProcessor.dispose()
+    appState,
+    dispose: async () => {
+      // Drain all in-process ONNX operations before tearing down the
+      // environment. @huggingface/transformers runs an internal warmup
+      // inference inside pipeline(), and any pending callback fires into a
+      // dead V8 isolate during Node.js shutdown → SIGSEGV / HandleScope crash.
+      await modelWarmupPromise
+      await awaitInferenceDrain()
+      await Promise.allSettled([
+        indexingQueueService.dispose(),
+        embeddingWorkerClient?.dispose(),
+        fileWatcherService.disposeAll(),
+        ordicabDataWatcher.dispose(),
+        delegatedIntentProcessor.dispose()
+      ])
       aiAgentRuntime.dispose()
       ollamaProcessManager?.shutdown()
     }
@@ -642,6 +866,25 @@ export function registerAllHandlers(opts: RegisterAllHandlersOptions): void {
         }
       }
       await opts.openExternal(value.url)
+      return { success: true, data: null }
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.app.writeClipboard,
+    async (_event, input: unknown): Promise<IpcResult<null>> => {
+      const value = (input ?? {}) as { text?: unknown; html?: unknown }
+      const text = typeof value.text === 'string' ? value.text : undefined
+      const html = typeof value.html === 'string' ? value.html : undefined
+      if (text === undefined && html === undefined) {
+        return {
+          success: false,
+          error: 'Empty clipboard payload.',
+          code: IpcErrorCode.INVALID_INPUT
+        }
+      }
+      const { clipboard } = await import('electron')
+      clipboard.write({ text: text ?? '', html: html ?? text ?? '' })
       return { success: true, data: null }
     }
   )
@@ -774,6 +1017,9 @@ export function registerAllHandlers(opts: RegisterAllHandlersOptions): void {
                 error
               )
             })
+          void container.templateService.seedDefaultTemplatesIfEmpty().catch((error) => {
+            console.error('[Main] Failed to seed default templates after domain selection.', error)
+          })
         }
         return { success: true, data: result }
       } catch (error) {
@@ -833,6 +1079,17 @@ export function registerAllHandlers(opts: RegisterAllHandlersOptions): void {
 
   registerEntityHandlers({ ipcMain, entityService: container.entityService })
 
+  registerCabinetBillingHandlers({
+    ipcMain,
+    cabinetBillingService: container.cabinetBillingService
+  })
+
+  registerInvoiceHandlers({
+    ipcMain,
+    invoiceService: container.invoiceService,
+    openPath: opts.openPath
+  })
+
   registerTemplateHandlers({
     ipcMain,
     templateService: container.templateService,
@@ -840,7 +1097,13 @@ export function registerAllHandlers(opts: RegisterAllHandlersOptions): void {
     openPath: opts.openPath
   })
 
-  registerGenerateHandlers({ ipcMain, generateService: container.generateService })
+  registerGenerateHandlers({
+    ipcMain,
+    generateService: container.generateService,
+    dossierRegistryService: container.dossierService,
+    invoiceService: container.invoiceService,
+    contactService: container.contactService
+  })
 
   registerInstructionsHandlers({
     ipcMain,
@@ -848,10 +1111,15 @@ export function registerAllHandlers(opts: RegisterAllHandlersOptions): void {
     documentService: container.documentService
   })
 
+  registerIndexingHandlers({
+    ipcMain,
+    indexingQueueService: container.indexingQueueService
+  })
+
   registerAiHandlers({
     ipcMain,
     credentialStore: container.credentialStore,
-    stateFilePath: opts.stateFilePath,
+    appState: container.appState,
     onModeChanged: (settings) => container.aiLifecycle.applyModeChange(settings),
     aiService: container.aiService,
     getWebContents: () => opts.getWebContents() ?? null

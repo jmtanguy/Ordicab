@@ -49,6 +49,8 @@ function createDossierDetail(overrides: Partial<DossierDetail> = {}): DossierDet
     nextUpcomingKeyDate: '2026-04-01',
     nextUpcomingKeyDateLabel: 'Hearing date',
     registeredAt: '2026-03-01T09:00:00.000Z',
+    feeAgreements: [],
+    billingItems: [],
     keyDates: [
       {
         id: 'kd-1',
@@ -144,9 +146,11 @@ async function createServiceFixture(
     ...createDossierDetail(options.dossier),
     documents: []
   })
-  await writeJson(
-    join(dossierPath, '.ordicab', 'contacts.json'),
-    options.contacts ?? [createContact()]
+  const contacts = options.contacts ?? [createContact()]
+  await Promise.all(
+    contacts.map((contact) =>
+      writeJson(join(dossierPath, '.ordicab', 'contacts', `${contact.uuid}.json`), contact)
+    )
   )
 
   const service = createGenerateService({
@@ -480,6 +484,95 @@ describe('generateService', () => {
       code: IpcErrorCode.UNKNOWN,
       message: expect.stringContaining('Invalid tag in Word template:')
     } satisfies Partial<GenerateServiceError>)
+  })
+
+  it('resolves new entity/dossier routines and the date.today+N alias', async () => {
+    const { service } = await createServiceFixture(
+      createTemplate({
+        content: [
+          '<p><span data-template-tag-path="entity.barreau">{{entity.barreau}}</span></p>',
+          '<p><span data-template-tag-path="entity.toque">{{entity.toque}}</span></p>',
+          '<p><span data-template-tag-path="entity.avocat.titre">{{entity.avocat.titre}}</span></p>',
+          '<p><span data-template-tag-path="dossier.juridiction">{{dossier.juridiction}}</span></p>',
+          '<p><span data-template-tag-path="dossier.tribunal">{{dossier.tribunal}}</span></p>',
+          '<p><span data-template-tag-path="date.today">{{date.today}}</span></p>',
+          '<p><span data-template-tag-path="date.todayFr">{{date.todayFr}}</span></p>',
+          '<p><span data-template-tag-path="date.today+15">{{date.today+15}}</span></p>',
+          '<p><span data-template-tag-path="date.today+15.formatted">{{date.today+15.formatted}}</span></p>'
+        ].join('')
+      }),
+      {
+        entity: { barreau: 'Paris', toque: 'P0123' },
+        dossier: { juridiction: 'Tribunal judiciaire', tribunal: 'Tribunal judiciaire de Paris' }
+      }
+    )
+
+    const result = await service.previewDocument({
+      dossierId: 'Client Alpha',
+      templateId: 'tpl-1'
+    })
+
+    expect(result.draftHtml).toContain('Paris')
+    expect(result.draftHtml).toContain('P0123')
+    expect(result.draftHtml).toContain('Maître')
+    expect(result.draftHtml).toContain('Tribunal judiciaire')
+    expect(result.draftHtml).toContain('2026-03-15')
+    expect(result.draftHtml).toContain('15/03/2026')
+    // date.today+15 → ISO 2026-03-30 (bare) + FR 30/03/2026 (.formatted)
+    expect(result.draftHtml).toContain('2026-03-30')
+    expect(result.draftHtml).toContain('30/03/2026')
+    expect(result.unresolvedTags).toEqual([])
+  })
+
+  it('resolves dossier key references directly and rejects legacy keyRef/reference paths', async () => {
+    const { service } = await createServiceFixture(
+      createTemplate({
+        content: [
+          '<p><span data-template-tag-path="dossier.juridiction">{{dossier.juridiction}}</span></p>',
+          '<p><span data-template-tag-path="dossier.tribunal">{{dossier.tribunal}}</span></p>',
+          '<p><span data-template-tag-path="dossier.nRg">{{dossier.nRg}}</span></p>',
+          '<p><span data-template-tag-path="dossier.reference.nRg">{{dossier.reference.nRg}}</span></p>',
+          '<p><span data-template-tag-path="dossier.keyRef.nRg">{{dossier.keyRef.nRg}}</span></p>'
+        ].join('')
+      }),
+      {
+        dossier: {
+          keyReferences: [
+            {
+              id: 'kr-juridiction',
+              dossierId: 'Client Alpha',
+              label: 'Juridiction',
+              value: 'Tribunal judiciaire',
+              note: ''
+            },
+            {
+              id: 'kr-tribunal',
+              dossierId: 'Client Alpha',
+              label: 'Tribunal',
+              value: 'Tribunal judiciaire de Paris',
+              note: ''
+            },
+            {
+              id: 'kr-rg',
+              dossierId: 'Client Alpha',
+              label: 'N° RG',
+              value: '24/00321',
+              note: ''
+            }
+          ]
+        }
+      }
+    )
+
+    const result = await service.previewDocument({
+      dossierId: 'Client Alpha',
+      templateId: 'tpl-1'
+    })
+
+    expect(result.draftHtml).toContain('Tribunal judiciaire')
+    expect(result.draftHtml).toContain('Tribunal judiciaire de Paris')
+    expect(result.draftHtml).toContain('24/00321')
+    expect(result.unresolvedTags).toEqual(['dossier.reference.nRg', 'dossier.keyRef.nRg'])
   })
 
   it('saves a reviewed draft using the requested output format and filename', async () => {

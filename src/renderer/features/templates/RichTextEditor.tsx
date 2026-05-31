@@ -192,7 +192,7 @@ function ToolbarButton({
       title={label}
       aria-label={label}
       className={cn(
-        'h-8 w-8 p-0 border border-white/10 bg-slate-900/70 text-slate-300 hover:bg-slate-800 hover:text-slate-100',
+        'h-8 w-8 p-0 border border-[#e5e3da] bg-[#f4f3ee] text-[#1a1a1a] hover:bg-[#e4e1d5] hover:text-[#1a1a1a]',
         isActive && 'border-aurora/45 bg-aurora/10 text-aurora-soft'
       )}
       onClick={onClick}
@@ -221,7 +221,7 @@ function ToolbarTextButton({
       title={label}
       aria-label={label}
       className={cn(
-        'h-8 px-2 border border-white/10 bg-slate-900/70 text-slate-300 hover:bg-slate-800 hover:text-slate-100 font-bold text-xs',
+        'h-8 px-2 border border-[#e5e3da] bg-[#f4f3ee] text-[#1a1a1a] hover:bg-[#e4e1d5] hover:text-[#1a1a1a] font-bold text-xs',
         isActive && 'border-aurora/45 bg-aurora/10 text-aurora-soft'
       )}
       onClick={onClick}
@@ -234,7 +234,7 @@ function ToolbarTextButton({
 // ── Toolbar separator ──────────────────────────────────────────────────────────
 
 function ToolbarSep(): React.JSX.Element {
-  return <span className="h-5 w-px bg-white/10" aria-hidden="true" />
+  return <span className="h-5 w-px bg-[#e4e1d5]" aria-hidden="true" />
 }
 
 // ── RichTextEditor ────────────────────────────────────────────────────────────
@@ -361,7 +361,7 @@ export function RichTextEditor({
 
   if (!editor) {
     return (
-      <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-6 text-sm text-slate-300">
+      <div className="rounded-xl border border-[#e5e3da] bg-[#f4f3ee] px-4 py-6 text-sm text-[#1a1a1a]">
         {t('templates.loading')}
       </div>
     )
@@ -375,14 +375,14 @@ export function RichTextEditor({
           documentPreview
             ? 'border-0 bg-white'
             : isReadOnly
-              ? 'border border-white/8 bg-slate-950/30 opacity-80'
-              : 'border border-white/15'
+              ? 'border border-[#e5e3da] bg-white opacity-80'
+              : 'border border-[#d1cfc6]'
         )}
       >
         {/* Toolbar — dark */}
         <div
           className={cn(
-            'flex shrink-0 flex-wrap items-center gap-1.5 border-b border-white/10 bg-slate-900 px-3 py-2',
+            'flex shrink-0 flex-wrap items-center gap-1.5 border-b border-[#e5e3da] bg-[#f4f3ee] px-3 py-2',
             isReadOnly && 'hidden'
           )}
         >
@@ -390,7 +390,7 @@ export function RichTextEditor({
           <select
             aria-label={t('templates.richText.fontFamily')}
             title={t('templates.richText.fontFamily')}
-            className="h-8 rounded-lg border border-white/10 bg-slate-800 px-2 py-0 text-xs text-slate-200 focus:outline-none"
+            className="h-8 rounded-lg border border-[#e5e3da] bg-[#e4e1d5] px-2 py-0 text-xs text-[#1a1a1a] focus:outline-none"
             value={editor.getAttributes('textStyle').fontFamily ?? ''}
             onChange={(event) => {
               const nextValue = event.target.value
@@ -413,7 +413,7 @@ export function RichTextEditor({
           <select
             aria-label={t('templates.richText.fontSize')}
             title={t('templates.richText.fontSize')}
-            className="h-8 w-20 rounded-lg border border-white/10 bg-slate-800 px-2 py-0 text-xs text-slate-200 focus:outline-none"
+            className="h-8 w-20 rounded-lg border border-[#e5e3da] bg-[#e4e1d5] px-2 py-0 text-xs text-[#1a1a1a] focus:outline-none"
             value={editor.getAttributes('textStyle').fontSize ?? ''}
             onChange={(event) => {
               const nextValue = event.target.value
@@ -434,7 +434,7 @@ export function RichTextEditor({
 
           {/* Color */}
           <label
-            className="flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-slate-800 px-2 text-xs text-slate-300 cursor-pointer"
+            className="flex h-8 items-center gap-1.5 rounded-lg border border-[#e5e3da] bg-[#e4e1d5] px-2 text-xs text-[#1a1a1a] cursor-pointer"
             title={t('templates.richText.color')}
           >
             <svg

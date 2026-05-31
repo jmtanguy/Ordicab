@@ -1,16 +1,18 @@
 /**
- * dossierTagResolver — fuzzy-resolves unresolved `dossier.keyDate.*` / `dossier.keyRef.*`
- * template paths against the active dossier's actual key dates and references.
+ * dossierTagResolver — fuzzy-resolves unresolved `dossier.keyDate.*` and direct
+ * `dossier.<reference>` template paths against the active dossier's actual key dates
+ * and references.
  *
  * Templates are often authored with simplified keys (e.g. `dossier.keyDate.audience.long`)
  * while the dossier stores entries with longer labels ("Date d'audience"), which `labelToKey`
  * converts to `dateDAudience`. The strict resolver in generateService cannot match these,
  * so document generation fails with `unresolvedTags`.
  *
- * This helper bridges that gap: for each unresolved keyDate/keyRef path, it looks for a
- * unique entry whose label tokens contain the slug. When found, it produces a value
- * formatted according to the variant (`long` | `short` | `formatted` | none) so the
- * dispatcher can retry `document_generate` with `tagOverrides` automatically.
+ * This helper bridges that gap: for each unresolved chronology/reference path, it looks
+ * for a unique entry whose label tokens contain the slug. When found, it produces a
+ * value formatted according to the variant (`long` | `short` | `formatted` | `label` |
+ * none) so the dispatcher can retry `document_generate` with `tagOverrides`
+ * automatically.
  *
  * Used by: aiCommandDispatcher.ts (document_generate catch-and-retry path)
  */
@@ -31,7 +33,22 @@ export interface ResolveDossierTagsResult {
 }
 
 const KEY_DATE_PATH = /^dossier\.keyDate\.([^.]+)(?:\.([^.]+))?$/
-const KEY_REF_PATH = /^dossier\.keyRef\.([^.]+)(?:\.([^.]+))?$/
+const DIRECT_DOSSIER_REFERENCE_PATH = /^dossier\.([^.]+)$/
+const RESERVED_DOSSIER_KEYS = new Set([
+  'createdAt',
+  'createdAtFormatted',
+  'createdAtLong',
+  'createdAtShort',
+  'feeAgreement',
+  'juridiction',
+  'keyDate',
+  'name',
+  'nom',
+  'status',
+  'statut',
+  'tribunal',
+  'type'
+])
 
 function stripAccents(value: string): string {
   return value.normalize('NFD').replace(/\p{Mn}/gu, '')
@@ -149,7 +166,8 @@ export function migrateDanglingOverrideKeys(
   return { migrated, migrations, dropped }
 }
 
-function formatDateValue(isoDate: string, variant: string | undefined): string {
+function formatDateValue(label: string, isoDate: string, variant: string | undefined): string {
+  if (variant === 'label') return label
   if (!isoDate) return ''
   const date = new Date(isoDate.length === 10 ? `${isoDate}T12:00:00` : isoDate)
   if (Number.isNaN(date.getTime())) return isoDate
@@ -174,7 +192,7 @@ function formatDateValue(isoDate: string, variant: string | undefined): string {
 }
 
 /**
- * Tries to fill missing `dossier.keyDate.*` / `dossier.keyRef.*` overrides from the live
+ * Tries to fill missing `dossier.keyDate.*` / direct `dossier.<reference>` overrides from the live
  * dossier data. Returns a partition: tags that resolved cleanly, tags that remain
  * unresolved, and tags that matched several entries (left for the caller to surface).
  */
@@ -191,7 +209,7 @@ export function resolveDossierTags(input: ResolveDossierTagsInput): ResolveDossi
       const [, slug = '', variant] = dateMatch
       const candidates = keyDates.filter((entry) => entryMatchesSlug(entry.label, slug))
       if (candidates.length === 1) {
-        const formatted = formatDateValue(candidates[0]!.date, variant)
+        const formatted = formatDateValue(candidates[0]!.label, candidates[0]!.date, variant)
         if (formatted) {
           resolvedOverrides[tag] = formatted
           continue
@@ -203,8 +221,8 @@ export function resolveDossierTags(input: ResolveDossierTagsInput): ResolveDossi
       continue
     }
 
-    const refMatch = tag.match(KEY_REF_PATH)
-    if (refMatch) {
+    const refMatch = tag.match(DIRECT_DOSSIER_REFERENCE_PATH)
+    if (refMatch && !RESERVED_DOSSIER_KEYS.has(refMatch[1] ?? '')) {
       const [, slug = ''] = refMatch
       const candidates = keyReferences.filter((entry) => entryMatchesSlug(entry.label, slug))
       if (candidates.length === 1) {

@@ -2,6 +2,12 @@ import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 
 import {
+  type DossierBillingItemDeleteInput,
+  type DossierBillingItemUpsertInput,
+  type DossierFeeAgreementArchiveInput,
+  type DossierFeeAgreementDeleteInput,
+  type DossierFeeAgreementSetActiveInput,
+  type DossierFeeAgreementUpsertInput,
   type DossierKeyDateDeleteInput,
   type DossierKeyDateUpsertInput,
   type DossierKeyReferenceDeleteInput,
@@ -11,10 +17,11 @@ import {
   type DossierEligibleFolder,
   type DossierStatus,
   type DossierSummary,
-  type DossierUpdateInput
+  type IpcResult,
+  type KeyDate
 } from '@shared/types'
 
-import { getOrdicabApi, IPC_NOT_AVAILABLE_ERROR } from './ipc'
+import { getOrdicabApi, requireApi, safeLocalStorageGet, safeLocalStorageSet } from './ipc'
 
 interface DossierNotice {
   kind: 'registered' | 'unregistered'
@@ -23,9 +30,14 @@ interface DossierNotice {
 
 interface DossierDetailNotice {
   kind:
-    | 'saved'
     | 'key-date-saved'
     | 'key-date-deleted'
+    | 'fee-agreement-saved'
+    | 'fee-agreement-deleted'
+    | 'fee-agreement-archived'
+    | 'fee-agreement-activated'
+    | 'billing-item-saved'
+    | 'billing-item-deleted'
     | 'key-reference-saved'
     | 'key-reference-deleted'
   dossierName: string
@@ -33,8 +45,23 @@ interface DossierDetailNotice {
 
 export type DossierStatusFilter = 'all' | DossierStatus
 export type DossierSortMode = 'alphabetical' | 'next-key-date' | 'last-opened'
+export type DossierViewMode = 'cards' | 'table'
+
+export interface ChronologyEntry {
+  dossierId: string
+  dossierName: string
+  keyDate: KeyDate
+  /**
+   * UUIDs of the billing items that source this key date. Empty when the date
+   * has not been billed yet. Stored as an array (rather than a boolean) so the
+   * UI can navigate from a chronology row to the underlying billing item(s).
+   */
+  billingItemIds: string[]
+}
 
 const DOSSIER_SORT_MODE_STORAGE_KEY = 'dossiers-sort-mode'
+const DOSSIER_VIEW_MODE_STORAGE_KEY = 'dossiers-view-mode'
+const DOSSIER_STATUS_FILTER_STORAGE_KEY = 'dossiers-status-filter'
 
 interface DossierStoreState {
   dossiers: DossierSummary[]
@@ -51,6 +78,9 @@ interface DossierStoreState {
   detailNotice: DossierDetailNotice | null
   statusFilter: DossierStatusFilter
   sortMode: DossierSortMode
+  viewMode: DossierViewMode
+  chronologyEntries: ChronologyEntry[] | null
+  isChronologyLoading: boolean
 }
 
 interface DossierStoreActions {
@@ -59,14 +89,21 @@ interface DossierStoreActions {
   openDetail: (id: string) => Promise<void>
   loadDetail: (id: string) => Promise<void>
   register: (id: string) => Promise<boolean>
-  saveDetail: (input: DossierUpdateInput) => Promise<boolean>
   upsertKeyDate: (input: DossierKeyDateUpsertInput) => Promise<boolean>
   deleteKeyDate: (input: DossierKeyDateDeleteInput) => Promise<boolean>
+  upsertFeeAgreement: (input: DossierFeeAgreementUpsertInput) => Promise<boolean>
+  deleteFeeAgreement: (input: DossierFeeAgreementDeleteInput) => Promise<boolean>
+  archiveFeeAgreement: (input: DossierFeeAgreementArchiveInput) => Promise<boolean>
+  setActiveFeeAgreement: (input: DossierFeeAgreementSetActiveInput) => Promise<boolean>
+  upsertBillingItem: (input: DossierBillingItemUpsertInput) => Promise<boolean>
+  deleteBillingItem: (input: DossierBillingItemDeleteInput) => Promise<boolean>
   upsertKeyReference: (input: DossierKeyReferenceUpsertInput) => Promise<boolean>
   deleteKeyReference: (input: DossierKeyReferenceDeleteInput) => Promise<boolean>
   unregister: (id: string) => Promise<boolean>
   setStatusFilter: (filter: DossierStatusFilter) => void
   setSortMode: (mode: DossierSortMode) => void
+  setViewMode: (mode: DossierViewMode) => void
+  loadChronology: () => Promise<void>
   clearNotice: () => void
   clearDetailNotice: () => void
   reset: () => void
@@ -134,32 +171,40 @@ function sortDossiers(dossiers: DossierSummary[], mode: DossierSortMode): Dossie
 }
 
 function getStoredSortMode(): DossierSortMode | null {
-  if (typeof window === 'undefined') {
-    return null
-  }
-
-  try {
-    const value = window.localStorage.getItem(DOSSIER_SORT_MODE_STORAGE_KEY)
-    if (value === 'alphabetical' || value === 'next-key-date' || value === 'last-opened') {
-      return value
-    }
-  } catch {
-    // Ignore storage access failures in non-browser contexts.
-  }
-
+  const value = safeLocalStorageGet(DOSSIER_SORT_MODE_STORAGE_KEY)
+  if (value === 'alphabetical' || value === 'next-key-date' || value === 'last-opened') return value
   return null
 }
 
 function setStoredSortMode(mode: DossierSortMode): void {
-  if (typeof window === 'undefined') {
-    return
-  }
+  safeLocalStorageSet(DOSSIER_SORT_MODE_STORAGE_KEY, mode)
+}
 
-  try {
-    window.localStorage.setItem(DOSSIER_SORT_MODE_STORAGE_KEY, mode)
-  } catch {
-    // Ignore storage access failures in non-browser contexts.
-  }
+function getStoredViewMode(): DossierViewMode | null {
+  const value = safeLocalStorageGet(DOSSIER_VIEW_MODE_STORAGE_KEY)
+  if (value === 'cards' || value === 'table') return value
+  return null
+}
+
+function setStoredViewMode(mode: DossierViewMode): void {
+  safeLocalStorageSet(DOSSIER_VIEW_MODE_STORAGE_KEY, mode)
+}
+
+function getStoredStatusFilter(): DossierStatusFilter | null {
+  const value = safeLocalStorageGet(DOSSIER_STATUS_FILTER_STORAGE_KEY)
+  if (
+    value === 'all' ||
+    value === 'active' ||
+    value === 'pending' ||
+    value === 'completed' ||
+    value === 'archived'
+  )
+    return value
+  return null
+}
+
+function setStoredStatusFilter(filter: DossierStatusFilter): void {
+  safeLocalStorageSet(DOSSIER_STATUS_FILTER_STORAGE_KEY, filter)
 }
 
 function upsertDossierSummary(
@@ -211,483 +256,393 @@ export function selectVisibleDossiers(
 }
 
 export const useDossierStore = create<DossierStore>()(
-  immer((set, get) => ({
-    // IPC calls live in store actions, never in React components.
-    dossiers: [],
-    eligibleFolders: [],
-    isLoading: false,
-    isDetailLoading: false,
-    isSavingDetail: false,
-    error: null,
-    errorCode: null,
-    notice: null,
-    activeDossier: null,
-    detailError: null,
-    detailErrorCode: null,
-    detailNotice: null,
-    statusFilter: 'all',
-    sortMode: getStoredSortMode() ?? 'alphabetical',
-    load: async () => {
-      const api = getOrdicabApi()
-
-      if (!api) {
-        set((state) => {
-          state.error = IPC_NOT_AVAILABLE_ERROR
-          state.errorCode = IpcErrorCode.NOT_FOUND
-        })
-        return
-      }
+  immer((set, get) => {
+    async function saveDossierDetail(
+      request: (
+        api: NonNullable<ReturnType<typeof requireApi>>
+      ) => Promise<IpcResult<DossierDetail>>,
+      kind: DossierDetailNotice['kind']
+    ): Promise<boolean> {
+      const api = requireApi(set, { errorKey: 'detailError', codeKey: 'detailErrorCode' })
+      if (!api) return false
 
       set((state) => {
-        state.isLoading = true
-        state.error = null
-        state.errorCode = null
-        state.notice = null
-      })
-
-      const result = await api.dossier.list()
-
-      set((state) => {
-        state.isLoading = false
-
-        if (!result.success) {
-          state.error = result.error
-          state.errorCode = result.code
-          return
-        }
-
-        state.dossiers = sortDossiers(result.data, state.sortMode)
-        state.errorCode = null
-        state.error = null
-      })
-    },
-    loadEligibleFolders: async () => {
-      const api = getOrdicabApi()
-
-      if (!api) {
-        set((state) => {
-          state.error = IPC_NOT_AVAILABLE_ERROR
-          state.errorCode = IpcErrorCode.NOT_FOUND
-        })
-        return
-      }
-
-      set((state) => {
-        state.isLoading = true
-        state.error = null
-        state.errorCode = null
-        state.notice = null
-      })
-
-      const result = await api.dossier.listEligible()
-
-      set((state) => {
-        state.isLoading = false
-
-        if (!result.success) {
-          state.error = result.error
-          state.errorCode = result.code
-          return
-        }
-
-        state.eligibleFolders = result.data.filter(isVisibleEligibleFolder)
-        state.error = null
-        state.errorCode = null
-      })
-    },
-    openDetail: async (id) => {
-      const api = getOrdicabApi()
-
-      if (!api) {
-        set((state) => {
-          state.detailError = IPC_NOT_AVAILABLE_ERROR
-          state.detailErrorCode = IpcErrorCode.NOT_FOUND
-        })
-        return
-      }
-
-      set((state) => {
-        state.isDetailLoading = true
+        state.isSavingDetail = true
         state.detailError = null
         state.detailErrorCode = null
         state.detailNotice = null
       })
 
-      const result = await api.dossier.open({ dossierId: id })
+      const result = await request(api)
 
-      set((state) => {
-        state.isDetailLoading = false
-
-        if (!result.success) {
+      if (!result.success) {
+        set((state) => {
+          state.isSavingDetail = false
           state.detailError = result.error
           state.detailErrorCode = result.code
-          return
-        }
-
-        state.activeDossier = result.data
-        state.dossiers = upsertDossierSummary(
-          state.dossiers,
-          toSummary(result.data),
-          state.sortMode
-        )
-        state.detailError = null
-        state.detailErrorCode = null
-      })
-    },
-    loadDetail: async (id) => {
-      const api = getOrdicabApi()
-
-      if (!api) {
-        set((state) => {
-          state.detailError = IPC_NOT_AVAILABLE_ERROR
-          state.detailErrorCode = IpcErrorCode.NOT_FOUND
         })
-        return
-      }
 
-      set((state) => {
-        state.isDetailLoading = true
-        state.detailError = null
-        state.detailErrorCode = null
-        state.detailNotice = null
-      })
-
-      const result = await api.dossier.get({ dossierId: id })
-
-      set((state) => {
-        state.isDetailLoading = false
-
-        if (!result.success) {
-          state.detailError = result.error
-          state.detailErrorCode = result.code
-          return
-        }
-
-        state.activeDossier = result.data
-        state.dossiers = upsertDossierSummary(
-          state.dossiers,
-          toSummary(result.data),
-          state.sortMode
-        )
-        state.detailError = null
-        state.detailErrorCode = null
-      })
-    },
-    register: async (id) => {
-      const api = getOrdicabApi()
-
-      if (!api) {
-        set((state) => {
-          state.error = IPC_NOT_AVAILABLE_ERROR
-          state.errorCode = IpcErrorCode.NOT_FOUND
-        })
         return false
       }
 
       set((state) => {
-        state.isLoading = true
-        state.error = null
-        state.errorCode = null
-        state.notice = null
+        applySavedDetail(state, result.data, kind)
       })
 
-      const result = await api.dossier.register({ id })
+      return true
+    }
 
-      if (!result.success) {
+    return {
+      // IPC calls live in store actions, never in React components.
+      dossiers: [],
+      eligibleFolders: [],
+      isLoading: false,
+      isDetailLoading: false,
+      isSavingDetail: false,
+      error: null,
+      errorCode: null,
+      notice: null,
+      activeDossier: null,
+      detailError: null,
+      detailErrorCode: null,
+      detailNotice: null,
+      statusFilter: getStoredStatusFilter() ?? 'all',
+      sortMode: getStoredSortMode() ?? 'alphabetical',
+      viewMode: getStoredViewMode() ?? 'table',
+      chronologyEntries: null,
+      isChronologyLoading: false,
+      load: async () => {
+        const api = requireApi(set)
+        if (!api) return
+
+        set((state) => {
+          state.isLoading = true
+          state.error = null
+          state.errorCode = null
+          state.notice = null
+        })
+
+        const result = await api.dossier.list()
+
         set((state) => {
           state.isLoading = false
-          state.error = result.error
-          state.errorCode = result.code
+
+          if (!result.success) {
+            state.error = result.error
+            state.errorCode = result.code
+            return
+          }
+
+          state.dossiers = sortDossiers(result.data, state.sortMode)
+          state.errorCode = null
+          state.error = null
         })
+      },
+      loadEligibleFolders: async () => {
+        const api = requireApi(set)
+        if (!api) return
 
-        return false
-      }
-
-      set((state) => {
-        state.isLoading = false
-
-        state.dossiers = upsertDossierSummary(state.dossiers, result.data, state.sortMode)
-        state.eligibleFolders = state.eligibleFolders.filter((entry) => entry.id !== id)
-        state.notice = {
-          kind: 'registered',
-          dossierName: result.data.name
-        }
-        state.error = null
-        state.errorCode = null
-      })
-
-      return true
-    },
-    saveDetail: async (input) => {
-      const api = getOrdicabApi()
-
-      if (!api) {
         set((state) => {
-          state.detailError = IPC_NOT_AVAILABLE_ERROR
-          state.detailErrorCode = IpcErrorCode.NOT_FOUND
-        })
-        return false
-      }
-
-      set((state) => {
-        state.isSavingDetail = true
-        state.detailError = null
-        state.detailErrorCode = null
-        state.detailNotice = null
-      })
-
-      const result = await api.dossier.update(input)
-
-      if (!result.success) {
-        set((state) => {
-          state.isSavingDetail = false
-          state.detailError = result.error
-          state.detailErrorCode = result.code
+          state.isLoading = true
+          state.error = null
+          state.errorCode = null
+          state.notice = null
         })
 
-        return false
-      }
+        const result = await api.dossier.listEligible()
 
-      set((state) => {
-        applySavedDetail(state, result.data, 'saved')
-      })
-
-      return true
-    },
-    upsertKeyDate: async (input) => {
-      const api = getOrdicabApi()
-
-      if (!api) {
-        set((state) => {
-          state.detailError = IPC_NOT_AVAILABLE_ERROR
-          state.detailErrorCode = IpcErrorCode.NOT_FOUND
-        })
-        return false
-      }
-
-      set((state) => {
-        state.isSavingDetail = true
-        state.detailError = null
-        state.detailErrorCode = null
-        state.detailNotice = null
-      })
-
-      const result = await api.dossier.upsertKeyDate(input)
-
-      if (!result.success) {
-        set((state) => {
-          state.isSavingDetail = false
-          state.detailError = result.error
-          state.detailErrorCode = result.code
-        })
-
-        return false
-      }
-
-      set((state) => {
-        applySavedDetail(state, result.data, 'key-date-saved')
-      })
-
-      return true
-    },
-    deleteKeyDate: async (input) => {
-      const api = getOrdicabApi()
-
-      if (!api) {
-        set((state) => {
-          state.detailError = IPC_NOT_AVAILABLE_ERROR
-          state.detailErrorCode = IpcErrorCode.NOT_FOUND
-        })
-        return false
-      }
-
-      set((state) => {
-        state.isSavingDetail = true
-        state.detailError = null
-        state.detailErrorCode = null
-        state.detailNotice = null
-      })
-
-      const result = await api.dossier.deleteKeyDate(input)
-
-      if (!result.success) {
-        set((state) => {
-          state.isSavingDetail = false
-          state.detailError = result.error
-          state.detailErrorCode = result.code
-        })
-
-        return false
-      }
-
-      set((state) => {
-        applySavedDetail(state, result.data, 'key-date-deleted')
-      })
-
-      return true
-    },
-    upsertKeyReference: async (input) => {
-      const api = getOrdicabApi()
-
-      if (!api) {
-        set((state) => {
-          state.detailError = IPC_NOT_AVAILABLE_ERROR
-          state.detailErrorCode = IpcErrorCode.NOT_FOUND
-        })
-        return false
-      }
-
-      set((state) => {
-        state.isSavingDetail = true
-        state.detailError = null
-        state.detailErrorCode = null
-        state.detailNotice = null
-      })
-
-      const result = await api.dossier.upsertKeyReference(input)
-
-      if (!result.success) {
-        set((state) => {
-          state.isSavingDetail = false
-          state.detailError = result.error
-          state.detailErrorCode = result.code
-        })
-
-        return false
-      }
-
-      set((state) => {
-        applySavedDetail(state, result.data, 'key-reference-saved')
-      })
-
-      return true
-    },
-    deleteKeyReference: async (input) => {
-      const api = getOrdicabApi()
-
-      if (!api) {
-        set((state) => {
-          state.detailError = IPC_NOT_AVAILABLE_ERROR
-          state.detailErrorCode = IpcErrorCode.NOT_FOUND
-        })
-        return false
-      }
-
-      set((state) => {
-        state.isSavingDetail = true
-        state.detailError = null
-        state.detailErrorCode = null
-        state.detailNotice = null
-      })
-
-      const result = await api.dossier.deleteKeyReference(input)
-
-      if (!result.success) {
-        set((state) => {
-          state.isSavingDetail = false
-          state.detailError = result.error
-          state.detailErrorCode = result.code
-        })
-
-        return false
-      }
-
-      set((state) => {
-        applySavedDetail(state, result.data, 'key-reference-deleted')
-      })
-
-      return true
-    },
-    unregister: async (id) => {
-      const api = getOrdicabApi()
-
-      if (!api) {
-        set((state) => {
-          state.error = IPC_NOT_AVAILABLE_ERROR
-          state.errorCode = IpcErrorCode.NOT_FOUND
-        })
-        return false
-      }
-
-      set((state) => {
-        state.isLoading = true
-        state.error = null
-        state.errorCode = null
-        state.notice = null
-      })
-
-      const dossierName = get().dossiers.find((entry) => entry.id === id)?.name ?? id
-      const result = await api.dossier.unregister({ id })
-
-      if (!result.success) {
         set((state) => {
           state.isLoading = false
-          state.error = result.error
-          state.errorCode = result.code
+
+          if (!result.success) {
+            state.error = result.error
+            state.errorCode = result.code
+            return
+          }
+
+          state.eligibleFolders = result.data.filter(isVisibleEligibleFolder)
+          state.error = null
+          state.errorCode = null
         })
+      },
+      openDetail: async (id) => {
+        const api = requireApi(set, { errorKey: 'detailError', codeKey: 'detailErrorCode' })
+        if (!api) return
 
-        return false
-      }
-
-      set((state) => {
-        state.isLoading = false
-
-        state.dossiers = state.dossiers.filter((entry) => entry.id !== id)
-        if (state.activeDossier?.id === id) {
-          state.activeDossier = null
-          state.detailNotice = null
+        set((state) => {
+          state.isDetailLoading = true
           state.detailError = null
           state.detailErrorCode = null
-        }
-        state.notice = {
-          kind: 'unregistered',
-          dossierName
-        }
-        state.error = null
-        state.errorCode = null
-      })
+          state.detailNotice = null
+          state.chronologyEntries = null
+        })
 
-      return true
-    },
-    setStatusFilter: (filter) => {
-      set((state) => {
-        state.statusFilter = filter
-      })
-    },
-    setSortMode: (mode) => {
-      setStoredSortMode(mode)
-      set((state) => {
-        state.sortMode = mode
-        state.dossiers = sortDossiers(state.dossiers, mode)
-      })
-    },
-    clearNotice: () => {
-      set((state) => {
-        state.notice = null
-      })
-    },
-    clearDetailNotice: () => {
-      set((state) => {
-        state.detailNotice = null
-      })
-    },
-    reset: () => {
-      set((state) => {
-        state.dossiers = []
-        state.eligibleFolders = []
-        state.isLoading = false
-        state.isDetailLoading = false
-        state.isSavingDetail = false
-        state.error = null
-        state.errorCode = null
-        state.notice = null
-        state.activeDossier = null
-        state.detailError = null
-        state.detailErrorCode = null
-        state.detailNotice = null
-        state.statusFilter = 'all'
-        state.sortMode = 'alphabetical'
-      })
+        const result = await api.dossier.open({ dossierId: id })
+
+        set((state) => {
+          state.isDetailLoading = false
+
+          if (!result.success) {
+            state.detailError = result.error
+            state.detailErrorCode = result.code
+            return
+          }
+
+          state.activeDossier = result.data
+          state.dossiers = upsertDossierSummary(
+            state.dossiers,
+            toSummary(result.data),
+            state.sortMode
+          )
+          state.detailError = null
+          state.detailErrorCode = null
+        })
+      },
+      loadDetail: async (id) => {
+        const api = requireApi(set, { errorKey: 'detailError', codeKey: 'detailErrorCode' })
+        if (!api) return
+
+        set((state) => {
+          state.isDetailLoading = true
+          state.detailError = null
+          state.detailErrorCode = null
+          state.detailNotice = null
+        })
+
+        const result = await api.dossier.get({ dossierId: id })
+
+        set((state) => {
+          state.isDetailLoading = false
+
+          if (!result.success) {
+            state.detailError = result.error
+            state.detailErrorCode = result.code
+            return
+          }
+
+          state.activeDossier = result.data
+          state.dossiers = upsertDossierSummary(
+            state.dossiers,
+            toSummary(result.data),
+            state.sortMode
+          )
+          state.detailError = null
+          state.detailErrorCode = null
+        })
+      },
+      register: async (id) => {
+        const api = requireApi(set)
+        if (!api) return false
+
+        set((state) => {
+          state.isLoading = true
+          state.error = null
+          state.errorCode = null
+          state.notice = null
+        })
+
+        const result = await api.dossier.register({ id })
+
+        if (!result.success) {
+          set((state) => {
+            state.isLoading = false
+            state.error = result.error
+            state.errorCode = result.code
+          })
+
+          return false
+        }
+
+        set((state) => {
+          state.isLoading = false
+
+          state.dossiers = upsertDossierSummary(state.dossiers, result.data, state.sortMode)
+          state.eligibleFolders = state.eligibleFolders.filter((entry) => entry.id !== id)
+          state.notice = {
+            kind: 'registered',
+            dossierName: result.data.name
+          }
+          state.error = null
+          state.errorCode = null
+        })
+
+        return true
+      },
+      upsertKeyDate: (input) =>
+        saveDossierDetail((api) => api.dossier.upsertKeyDate(input), 'key-date-saved'),
+      deleteKeyDate: (input) =>
+        saveDossierDetail((api) => api.dossier.deleteKeyDate(input), 'key-date-deleted'),
+      upsertFeeAgreement: (input) =>
+        saveDossierDetail((api) => api.dossier.upsertFeeAgreement(input), 'fee-agreement-saved'),
+      deleteFeeAgreement: (input) =>
+        saveDossierDetail((api) => api.dossier.deleteFeeAgreement(input), 'fee-agreement-deleted'),
+      archiveFeeAgreement: (input) =>
+        saveDossierDetail(
+          (api) => api.dossier.archiveFeeAgreement(input),
+          'fee-agreement-archived'
+        ),
+      setActiveFeeAgreement: (input) =>
+        saveDossierDetail(
+          (api) => api.dossier.setActiveFeeAgreement(input),
+          'fee-agreement-activated'
+        ),
+      upsertBillingItem: (input) =>
+        saveDossierDetail((api) => api.dossier.upsertBillingItem(input), 'billing-item-saved'),
+      deleteBillingItem: (input) =>
+        saveDossierDetail((api) => api.dossier.deleteBillingItem(input), 'billing-item-deleted'),
+      upsertKeyReference: (input) =>
+        saveDossierDetail((api) => api.dossier.upsertKeyReference(input), 'key-reference-saved'),
+      deleteKeyReference: (input) =>
+        saveDossierDetail((api) => api.dossier.deleteKeyReference(input), 'key-reference-deleted'),
+      unregister: async (id) => {
+        const api = requireApi(set)
+        if (!api) return false
+
+        set((state) => {
+          state.isLoading = true
+          state.error = null
+          state.errorCode = null
+          state.notice = null
+        })
+
+        const dossierName = get().dossiers.find((entry) => entry.id === id)?.name ?? id
+        const result = await api.dossier.unregister({ id })
+
+        if (!result.success) {
+          set((state) => {
+            state.isLoading = false
+            state.error = result.error
+            state.errorCode = result.code
+          })
+
+          return false
+        }
+
+        set((state) => {
+          state.isLoading = false
+
+          state.dossiers = state.dossiers.filter((entry) => entry.id !== id)
+          if (state.activeDossier?.id === id) {
+            state.activeDossier = null
+            state.detailNotice = null
+            state.detailError = null
+            state.detailErrorCode = null
+          }
+          state.notice = {
+            kind: 'unregistered',
+            dossierName
+          }
+          state.error = null
+          state.errorCode = null
+        })
+
+        return true
+      },
+      setStatusFilter: (filter) => {
+        setStoredStatusFilter(filter)
+        set((state) => {
+          state.statusFilter = filter
+        })
+      },
+      setSortMode: (mode) => {
+        setStoredSortMode(mode)
+        set((state) => {
+          state.sortMode = mode
+          state.dossiers = sortDossiers(state.dossiers, mode)
+        })
+      },
+      setViewMode: (mode) => {
+        setStoredViewMode(mode)
+        set((state) => {
+          state.viewMode = mode
+        })
+      },
+      loadChronology: async () => {
+        const api = getOrdicabApi()
+        if (!api) return
+
+        const nonClosedDossiers = get().dossiers.filter(
+          (d) => d.status !== 'completed' && d.status !== 'archived'
+        )
+
+        set((state) => {
+          state.isChronologyLoading = true
+        })
+
+        const results = await Promise.all(
+          nonClosedDossiers.map(async (d) => {
+            const result = await api.dossier.get({ dossierId: d.id })
+            return { dossier: d, result }
+          })
+        )
+
+        const entries: ChronologyEntry[] = []
+        for (const { dossier, result } of results) {
+          if (!result.success) continue
+          const billingItemIdsByKeyDate = new Map<string, string[]>()
+          for (const item of result.data.billingItems) {
+            if (!item.sourceKeyDateId) continue
+            const existing = billingItemIdsByKeyDate.get(item.sourceKeyDateId)
+            if (existing) {
+              existing.push(item.id)
+            } else {
+              billingItemIdsByKeyDate.set(item.sourceKeyDateId, [item.id])
+            }
+          }
+          for (const keyDate of result.data.keyDates) {
+            entries.push({
+              dossierId: dossier.id,
+              dossierName: result.data.name,
+              keyDate,
+              billingItemIds: billingItemIdsByKeyDate.get(keyDate.id) ?? []
+            })
+          }
+        }
+
+        entries.sort((a, b) => {
+          const dateCompare = b.keyDate.date.localeCompare(a.keyDate.date)
+          if (dateCompare !== 0) return dateCompare
+          const timeA = a.keyDate.time ?? '00:00'
+          const timeB = b.keyDate.time ?? '00:00'
+          return timeB.localeCompare(timeA)
+        })
+
+        set((state) => {
+          state.chronologyEntries = entries
+          state.isChronologyLoading = false
+        })
+      },
+      clearNotice: () => {
+        set((state) => {
+          state.notice = null
+        })
+      },
+      clearDetailNotice: () => {
+        set((state) => {
+          state.detailNotice = null
+        })
+      },
+      reset: () => {
+        set((state) => {
+          state.dossiers = []
+          state.eligibleFolders = []
+          state.isLoading = false
+          state.isDetailLoading = false
+          state.isSavingDetail = false
+          state.error = null
+          state.errorCode = null
+          state.notice = null
+          state.activeDossier = null
+          state.detailError = null
+          state.detailErrorCode = null
+          state.detailNotice = null
+          state.statusFilter = getStoredStatusFilter() ?? 'all'
+          state.sortMode = getStoredSortMode() ?? 'alphabetical'
+          state.viewMode = getStoredViewMode() ?? 'table'
+          state.chronologyEntries = null
+          state.isChronologyLoading = false
+        })
+      }
     }
-  }))
+  })
 )

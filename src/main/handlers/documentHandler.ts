@@ -1,8 +1,7 @@
-import { ZodError } from 'zod'
-
 import {
   IPC_CHANNELS,
   IpcErrorCode,
+  type IpcError,
   type DocumentExtractedContent,
   type DocumentExtractProgressEvent,
   type DocumentMetadataUpdate,
@@ -11,13 +10,17 @@ import {
   type DocumentTextExtractionStatus,
   type DocumentWatchStatus,
   type DossierScopedQuery,
-  type IpcError,
   type IpcResult,
   type SemanticSearchResult
 } from '@shared/types'
 
 import {
   dossierScopedQuerySchema,
+  documentFileDeleteInputSchema,
+  documentFileRenameInputSchema,
+  documentFolderCreateInputSchema,
+  documentFolderDeleteInputSchema,
+  documentFolderRenameInputSchema,
   documentMetadataUpdateSchema,
   documentPreviewInputSchema,
   semanticSearchQuerySchema
@@ -25,11 +28,7 @@ import {
 
 import { type DocumentService, DocumentServiceError } from '../services/domain/documentService'
 import { type FileWatcherService } from '../lib/ordicab/FileWatcherService'
-
-interface IpcSenderLike {
-  isDestroyed: () => boolean
-  send: (channel: string, payload: unknown) => void
-}
+import { type IpcSenderLike, mapIpcError } from './ipc'
 
 interface IpcMainLike {
   handle: (
@@ -38,29 +37,11 @@ interface IpcMainLike {
   ) => void
 }
 
-function mapDocumentError(error: unknown, fallbackMessage: string): IpcError {
-  if (error instanceof ZodError) {
-    return {
-      success: false,
-      error: 'Invalid document input.',
-      code: IpcErrorCode.VALIDATION_FAILED
-    }
-  }
-
-  if (error instanceof DocumentServiceError) {
-    return {
-      success: false,
-      error: error.message,
-      code: error.code
-    }
-  }
-
-  return {
-    success: false,
-    error: error instanceof Error ? error.message : fallbackMessage,
-    code: IpcErrorCode.FILE_SYSTEM_ERROR
-  }
-}
+const mapDocumentError = (error: unknown, fallback: string): IpcError =>
+  mapIpcError(error, fallback, {
+    validationMessage: 'Invalid document input.',
+    errorClasses: [DocumentServiceError]
+  })
 
 export function registerDocumentHandlers(options: {
   documentService: DocumentService
@@ -234,6 +215,88 @@ export function registerDocumentHandlers(options: {
         return { success: true, data }
       } catch (error) {
         return mapDocumentError(error, 'Unable to run semantic search.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.document.listFolders,
+    async (_event, input: unknown): Promise<IpcResult<string[]>> => {
+      try {
+        const parsed = dossierScopedQuerySchema.parse(input) as DossierScopedQuery
+        return {
+          success: true,
+          data: await options.documentService.listFolders(parsed)
+        }
+      } catch (error) {
+        return mapDocumentError(error, 'Unable to list dossier folders.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.document.createFolder,
+    async (_event, input: unknown): Promise<IpcResult<{ path: string }>> => {
+      try {
+        const parsed = documentFolderCreateInputSchema.parse(input)
+        const path = await options.documentService.createFolder(parsed)
+        return { success: true, data: { path } }
+      } catch (error) {
+        return mapDocumentError(error, 'Unable to create folder.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.document.renameFolder,
+    async (_event, input: unknown): Promise<IpcResult<{ path: string }>> => {
+      try {
+        const parsed = documentFolderRenameInputSchema.parse(input)
+        const path = await options.documentService.renameFolder(parsed)
+        return { success: true, data: { path } }
+      } catch (error) {
+        return mapDocumentError(error, 'Unable to rename folder.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.document.deleteFolder,
+    async (_event, input: unknown): Promise<IpcResult<null>> => {
+      try {
+        const parsed = documentFolderDeleteInputSchema.parse(input)
+        await options.documentService.deleteFolder(parsed)
+        return { success: true, data: null }
+      } catch (error) {
+        return mapDocumentError(error, 'Unable to delete folder.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.document.renameFile,
+    async (_event, input: unknown): Promise<IpcResult<DocumentRecord>> => {
+      try {
+        const parsed = documentFileRenameInputSchema.parse(input)
+        return {
+          success: true,
+          data: await options.documentService.renameFile(parsed)
+        }
+      } catch (error) {
+        return mapDocumentError(error, 'Unable to rename document.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.document.deleteFile,
+    async (_event, input: unknown): Promise<IpcResult<null>> => {
+      try {
+        const parsed = documentFileDeleteInputSchema.parse(input)
+        await options.documentService.deleteFile(parsed)
+        return { success: true, data: null }
+      } catch (error) {
+        return mapDocumentError(error, 'Unable to delete document.')
       }
     }
   )

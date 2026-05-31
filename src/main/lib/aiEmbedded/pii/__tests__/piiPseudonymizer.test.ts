@@ -22,7 +22,7 @@ beforeEach(() => {
 })
 
 describe('PiiPseudonymizer', () => {
-  it('pseudonymizes first name and last name separately instead of collapsing a full contact name into one marker', () => {
+  it('pseudonymizes first name and last name separately instead of collapsing a full contact name', () => {
     const pseudonymizer = new PiiPseudonymizer({
       locale: 'fr',
       contacts: [
@@ -41,12 +41,17 @@ describe('PiiPseudonymizer', () => {
 
     const text = 'Ajouter le contact Jean Dupont, huissier, 42 avenue de la Gare, 75000 Paris'
     const pseudonymized = pseudonymizer.pseudonymize(text)
+    const mapping = pseudonymizer.exportMapping()
+    const firstName = mapping.find((entry) => entry.markerPath === 'contact.huissier.firstName')
+    const lastName = mapping.find((entry) => entry.markerPath === 'contact.huissier.lastName')
 
-    expect(pseudonymized).toContain('[[contact.huissier.firstName]]')
-    expect(pseudonymized).toContain('[[contact.huissier.lastName]]')
-    expect(pseudonymized).not.toContain('[[contact.huissier.displayName]]')
-    expect(pseudonymized).toContain('[[contact.huissier.firstName]]')
-    expect(pseudonymized).toContain('[[contact.huissier.lastName]]')
+    expect(firstName).toBeTruthy()
+    expect(lastName).toBeTruthy()
+    expect(pseudonymized).toContain(firstName!.fakeValue)
+    expect(pseudonymized).toContain(lastName!.fakeValue)
+    expect(pseudonymized).not.toContain('Jean')
+    expect(pseudonymized).not.toContain('Dupont')
+    expect(pseudonymized).not.toContain('[[')
   })
 
   it('keeps allowlisted non-sensitive labels clear while pseudonymizing sensitive values', () => {
@@ -75,10 +80,11 @@ describe('PiiPseudonymizer', () => {
     expect(pseudonymized).toContain('Huissier')
     expect(pseudonymized).toContain("Date d'audience")
     expect(pseudonymized).toContain('N° RG')
-    expect(pseudonymized).toContain('[[contact.huissier.firstName]]')
-    expect(pseudonymized).toContain('[[contact.huissier.lastName]]')
-    expect(pseudonymized).toContain('[[dossier.keyDate.dateDAudience]]')
-    expect(pseudonymized).toContain('[[dossier.keyRef.nRg]]')
+    expect(pseudonymized).not.toContain('Jean')
+    expect(pseudonymized).not.toContain('Dupont')
+    expect(pseudonymized).not.toContain('2026-04-10')
+    expect(pseudonymized).not.toContain('24/01234')
+    expect(pseudonymized).not.toContain('[[')
   })
 
   it('replaces a structural email as a whole token even when its domain contains a known contact lastName', () => {
@@ -86,9 +92,8 @@ describe('PiiPseudonymizer', () => {
     // (not registered as the contact's email) shared its domain part with a
     // seeded contact lastName ("Lefebvre"). The seeded-value pass replaced the
     // lastName INSIDE the email first, breaking the email regex so the email
-    // detector no longer matched. Result: a half-pseudonymized
-    // `karina@[[contact.X.lastName]] \`Aubert\`-avocat.com` leaked the local
-    // part to the LLM and confused the revert pass downstream. The fix is to
+    // detector no longer matched. Result: a half-pseudonymized value leaked
+    // the local part to the LLM and confused the revert pass downstream. The fix is to
     // pre-detect structural patterns (email/URL/phone/...) on the original
     // text and register them as entries before the seeded-value pass runs.
     const pseudonymizer = new PiiPseudonymizer({
@@ -104,8 +109,10 @@ describe('PiiPseudonymizer', () => {
     })
 
     const pseudonymized = pseudonymizer.pseudonymize('Email : karina@Lefebvre-avocat.com')
-    expect(pseudonymized).not.toMatch(/karina@\[\[/)
-    expect(pseudonymized).toMatch(/^Email : \[\[email_\d+\]\] `[^`]+`$/)
+    expect(pseudonymized).not.toContain('karina@')
+    expect(pseudonymized).not.toContain('Lefebvre')
+    expect(pseudonymized).not.toContain('[[')
+    expect(pseudonymizer.revert(pseudonymized)).toBe('Email : karina@Lefebvre-avocat.com')
   })
 
   it('matches seeded values even when the source text drops accents', () => {
@@ -125,9 +132,13 @@ describe('PiiPseudonymizer', () => {
     const text = 'Merci de recontacter marie dubois au sujet du dossier ete 2026.'
     const pseudonymized = pseudonymizer.pseudonymize(text)
 
-    expect(pseudonymized).toContain('[[contact.cliente.firstName]]')
-    expect(pseudonymized).toContain('[[contact.cliente.lastName]]')
-    expect(pseudonymized).toContain('[[dossier.keyRef.referenceEtude]]')
+    expect(pseudonymized).not.toContain('marie')
+    expect(pseudonymized).not.toContain('dubois')
+    expect(pseudonymized).not.toContain('dossier ete 2026')
+    expect(pseudonymized).not.toContain('[[')
+    expect(pseudonymizer.revert(pseudonymized)).toBe(
+      'Merci de recontacter Marie Dubois au sujet du Dossier été 2026.'
+    )
   })
 
   it('does not cascade to a second mapping when one fake first name matches another real first name', () => {
@@ -156,9 +167,9 @@ describe('PiiPseudonymizer', () => {
 
     const pseudonymized = pseudonymizer.pseudonymize('Marie')
 
-    expect(pseudonymized).toContain(`[[${marieEntry!.markerPath}]]`)
-    expect(pseudonymized).toContain(`\`${marieEntry!.fakeValue}\``)
-    expect(pseudonymized).not.toContain(`[[${sophieEntry!.markerPath}]]`)
+    expect(pseudonymized).toContain(marieEntry!.fakeValue)
+    expect(pseudonymized).not.toContain(sophieEntry!.fakeValue)
+    expect(pseudonymized).not.toContain('[[')
   })
 
   it('round-trips a realistic pseudonymized sentence back to the original values', () => {
@@ -189,7 +200,7 @@ describe('PiiPseudonymizer', () => {
     expect(reverted).toBe(original)
   })
 
-  it('reverts markers when the LLM moves a marker-bearing string into an object key slot', () => {
+  it('reverts fake values when the LLM moves a pseudonymized string into an object key slot', () => {
     // Reproduces the document_generate failure where the LLM copied the
     // pseudonymized template macro path (a value-position string from
     // template_list output) into the `tagOverrides` keys.
@@ -215,17 +226,19 @@ describe('PiiPseudonymizer', () => {
     const pseudonymized = pseudonymizer.pseudonymize(
       'ajouter aux contacts Luc Merlin, 2 bd de Cimiez 06100 nice'
     )
-    // Extract the fake city the pseudonymizer produced so the test is independent
-    // of the specific fakeCity output.
-    const postalMatch = /\[\[postalLocation_[^\]]+\]\]\s+`(\d{5})\s+([^`]+)`/.exec(pseudonymized)
-    expect(postalMatch).not.toBeNull()
-    const fakeCity = postalMatch![2]!
+    const mapping = pseudonymizer.exportMapping()
+    const fakeCity = mapping.find((entry) => entry.original === 'nice')?.fakeValue
+    const fakeZip = mapping.find((entry) => entry.original === '06100')?.fakeValue
+
+    expect(fakeCity).toBeTruthy()
+    expect(fakeZip).toBeTruthy()
+    expect(pseudonymized).toContain(fakeCity!)
 
     // Simulate an LLM tool call that only kept the city portion, not the
-    // aggregate marker — revert must still map it back to "nice".
-    expect(pseudonymizer.revert(fakeCity)).toBe('nice')
+    // aggregate value — revert must still map it back to "nice".
+    expect(pseudonymizer.revert(fakeCity!)).toBe('nice')
     // And the zipcode portion must also be revertible on its own.
-    expect(pseudonymizer.revert(postalMatch![1]!)).toBe('06100')
+    expect(pseudonymizer.revert(fakeZip!)).toBe('06100')
   })
 
   it('reuses the seeded city fake when the same city later appears inside a postalLocation aggregate', () => {
@@ -249,29 +262,31 @@ describe('PiiPseudonymizer', () => {
       ]
     })
 
-    // Capture the contact city fake the seeding pass produced.
     const contactSeed = pseudonymizer.pseudonymize('barreau de Nice')
-    const contactCityFake = /\[\[contact\.partieRepresentee\.city\]\]\s+`([^`]+)`/.exec(
-      contactSeed
-    )?.[1]
+    const contactCityFake = pseudonymizer
+      .exportMapping()
+      .find((entry) => entry.original === 'Nice')?.fakeValue
     expect(contactCityFake).toBeTruthy()
+    expect(contactSeed).toContain(contactCityFake!)
 
     // Document text: lowercase "nice" inside a postalLocation. Without the fix
     // this branch calls fakeCity("nice", …) afresh — different hash than
     // fakeCity("Nice", …) — and would yield a different city fake.
     const pseudonymized = pseudonymizer.pseudonymize('cabinet à 25 avenue Victor Hugo, 06000 nice')
-    const postalAggregate = /\[\[postalLocation_[^\]]+\]\]\s+`(\d{5})\s+([^`]+)`/.exec(
-      pseudonymized
-    )
-    expect(postalAggregate).not.toBeNull()
-    const postalCityFake = postalAggregate![2]!
+    const postalCityFake = pseudonymizer
+      .exportMapping()
+      .find((entry) => entry.original === '06000 nice')
+      ?.fakeValue.split(/\s+/)
+      .slice(1)
+      .join(' ')
 
-    // The aggregate must carry the same city fake as the contact marker.
+    // The aggregate must carry the same city fake as the seeded contact city.
     expect(postalCityFake).toBe(contactCityFake)
+    expect(pseudonymized).toContain(contactCityFake!)
 
     // And reverting the bare fake (as if the LLM extracted only the city into
     // a tool argument) maps back to the real "Nice".
-    expect(pseudonymizer.revert(postalCityFake)).toBe('Nice')
+    expect(pseudonymizer.revert(postalCityFake!)).toBe('Nice')
   })
 
   it('keeps the city fake stable across several postalLocations sharing the same city but different zips', () => {
@@ -284,13 +299,19 @@ describe('PiiPseudonymizer', () => {
     const pseudonymized = pseudonymizer.pseudonymize(
       'antenne 1 : 5 rue Foo, 06100 nice. antenne 2 : 8 rue Bar, 06200 nice. antenne 3 : 11 rue Baz, 06300 nice.'
     )
+    expect(pseudonymized).not.toContain('06100 nice')
+    expect(pseudonymized).not.toContain('06200 nice')
+    expect(pseudonymized).not.toContain('06300 nice')
 
-    const aggregateRe = /\[\[postalLocation_[^\]]+\]\]\s+`(\d{5})\s+([^`]+)`/g
-    const aggregates = [...pseudonymized.matchAll(aggregateRe)]
+    const aggregates = pseudonymizer
+      .exportMapping()
+      .filter((entry) => /^06[123]00 nice$/.test(entry.original))
     expect(aggregates).toHaveLength(3)
 
-    const fakeZips = aggregates.map((m) => m[1]!)
-    const fakeCities = aggregates.map((m) => m[2]!)
+    const fakeZips = ['06100', '06200', '06300'].map(
+      (zip) => pseudonymizer.exportMapping().find((entry) => entry.original === zip)!.fakeValue
+    )
+    const fakeCities = aggregates.map((entry) => entry.fakeValue.split(/\s+/).slice(1).join(' '))
 
     // Distinct real zips → distinct fake zips, each independently revertible.
     expect(new Set(fakeZips).size).toBe(3)
@@ -324,8 +345,8 @@ describe('PiiPseudonymizer', () => {
     const pseudonymizer = new PiiPseudonymizer({ locale: 'fr', priorEntries })
     const out = pseudonymizer.pseudonymize('Maître Pillot représente la partie.')
 
-    expect(out).toContain('`ZZQuintard`')
-    expect(out).toContain('[[name_5]]')
+    expect(out).toContain('ZZQuintard')
+    expect(out).not.toContain('[[')
     expect(pseudonymizer.revert(out)).toBe('Maître Pillot représente la partie.')
   })
 
@@ -346,19 +367,17 @@ describe('PiiPseudonymizer', () => {
     const pseudonymizer = new PiiPseudonymizer({ locale: 'fr', priorEntries })
     const out = pseudonymizer.pseudonymize('Maître Pillot représente la partie.')
 
-    // The Pillot marker in the new turn must NOT carry the reserved fake.
-    const pillotMatch = [...out.matchAll(/\[\[(name_[^\]]+)\]\]\s+`([^`]+)`/g)].find(
-      (m) => m[1] !== 'name_99'
-    )
-    expect(pillotMatch).toBeTruthy()
-    expect(pillotMatch![2]).not.toBe(reservedFake)
+    const pillotEntry = pseudonymizer.exportMapping().find((entry) => entry.original === 'Pillot')
+    expect(pillotEntry).toBeTruthy()
+    expect(out).toContain(pillotEntry!.fakeValue)
+    expect(pillotEntry!.fakeValue).not.toBe(reservedFake)
     // Reverting still works: bare fake → "Pillot".
-    expect(pseudonymizer.revert(pillotMatch![2]!)).toBe('Pillot')
+    expect(pseudonymizer.revert(pillotEntry!.fakeValue)).toBe('Pillot')
   })
 
   it('NER capitalization hint routes a lowercase PER mention through the regex layer as per-token spans', async () => {
     // NER used to bundle "luc merlin" into a single PER span and the
-    // pseudonymizer would emit one marker with a concatenated "FakeFirst
+    // pseudonymizer would emit a concatenated "FakeFirst
     // FakeLast" payload — the LLM then had to split that aggregate itself and
     // revert() couldn't remap the halves independently. The new approach uses
     // NER only as a position oracle: it capitalizes the region so that
@@ -377,17 +396,16 @@ describe('PiiPseudonymizer', () => {
 
     const pseudonymized = await pseudonymizer.pseudonymizeAsync(text)
 
-    const markerMatches = [...pseudonymized.matchAll(/\[\[(name_[^\]]+)\]\]\s+`([^`]+)`/g)]
-    expect(markerMatches).toHaveLength(2)
-    // Each marker wraps a single-token fake value (no more bundled
-    // "FakeFirst FakeLast" identity).
-    for (const m of markerMatches) {
-      expect(m[2]!.split(/\s+/).filter(Boolean)).toHaveLength(1)
+    const entries = pseudonymizer
+      .exportMapping()
+      .filter((entry) => entry.original === 'luc' || entry.original === 'merlin')
+    expect(entries).toHaveLength(2)
+    for (const entry of entries) {
+      expect(entry.fakeValue.split(/\s+/).filter(Boolean)).toHaveLength(1)
+      expect(pseudonymized).toContain(entry.fakeValue)
+      expect(pseudonymizer.revert(entry.fakeValue)).toBe(entry.original)
     }
-
-    const [first, second] = markerMatches
-    expect(pseudonymizer.revert(first![2]!)).toBe('luc')
-    expect(pseudonymizer.revert(second![2]!)).toBe('merlin')
+    expect(pseudonymized).not.toContain('[[')
     expect(pseudonymizer.revert(pseudonymized)).toBe(text)
   })
 
@@ -395,7 +413,7 @@ describe('PiiPseudonymizer', () => {
     // "Skywalker" is not in KNOWN_FIRST_NAMES, so detectCapitalized's
     // known-first-name anchor fails even after capitalization. The NER
     // fallback splits the region into per-token name spans so each component
-    // still gets its own marker (no bundled identity leaks through).
+    // still gets its own fake value (no bundled identity leaks through).
     const text = 'contact anakin skywalker'
     const fakePipe = vi.fn(async () => [
       { entity: 'B-PER', score: 0.95, index: 2, word: 'anakin' },
@@ -410,15 +428,101 @@ describe('PiiPseudonymizer', () => {
 
     const pseudonymized = await pseudonymizer.pseudonymizeAsync(text)
 
-    const markerMatches = [...pseudonymized.matchAll(/\[\[(name_[^\]]+)\]\]\s+`([^`]+)`/g)]
-    expect(markerMatches).toHaveLength(2)
-    for (const m of markerMatches) {
-      expect(m[2]!.split(/\s+/).filter(Boolean)).toHaveLength(1)
+    const entries = pseudonymizer
+      .exportMapping()
+      .filter((entry) => entry.original === 'anakin' || entry.original === 'skywalker')
+    expect(entries).toHaveLength(2)
+    for (const entry of entries) {
+      expect(entry.fakeValue.split(/\s+/).filter(Boolean)).toHaveLength(1)
+      expect(pseudonymized).toContain(entry.fakeValue)
     }
+    expect(pseudonymized).not.toContain('[[')
     expect(pseudonymizer.revert(pseudonymized)).toBe(text)
   })
 
-  it('keeps same-role contacts reversible even when the LLM drops markers and returns only fake values', () => {
+  it('never registers a function-word stopword as a name when NER over-tags a region', async () => {
+    // Regression: the multilingual NER model routinely over-extends a PER
+    // region across French function words. The fallback split then registered
+    // "de" / "la" as `name_N` entries, and replaceSeededValues substituted
+    // every later occurrence of those words — corrupting the whole conversation
+    // and persisting across turns via the decode ledger.
+    const text = 'avocat de la skywalker'
+    const fakePipe = vi.fn(async () => [
+      { entity: 'B-PER', score: 0.95, index: 1, word: 'de' },
+      { entity: 'I-PER', score: 0.95, index: 2, word: 'la' },
+      { entity: 'I-PER', score: 0.95, index: 3, word: 'skywalker' }
+    ])
+    pipelineSpy.mockResolvedValue(fakePipe)
+
+    const pseudonymizer = new PiiPseudonymizer({
+      locale: 'fr',
+      ner: { enabled: true, minScore: 0.5 }
+    })
+
+    const pseudonymized = await pseudonymizer.pseudonymizeAsync(text)
+
+    // The real surname is still pseudonymized…
+    const skywalkerEntry = pseudonymizer
+      .exportMapping()
+      .find((entry) => entry.original === 'skywalker')
+    expect(skywalkerEntry).toBeTruthy()
+    expect(pseudonymized).toContain(skywalkerEntry!.fakeValue)
+    expect(pseudonymizer.revert(skywalkerEntry!.fakeValue)).toBe('skywalker')
+    // …but the function words are left untouched in clear text.
+    expect(pseudonymized).toContain('avocat de la ')
+    expect(pseudonymizer.revert(pseudonymized)).toBe(text)
+  })
+
+  it('still emits the uncovered name tokens of a NER region the regex layer only partially covered', async () => {
+    // Old behaviour: if ANY regex span overlapped the NER region, the WHOLE
+    // region was dropped — so an OCR-garbled surname next to a regex-caught
+    // token leaked. The coverage check is now per-token.
+    const text = 'le contact Charpentier Skywalker arrive'
+    const fakePipe = vi.fn(async () => [
+      { entity: 'B-PER', score: 0.95, index: 2, word: 'Charpentier' },
+      { entity: 'I-PER', score: 0.95, index: 3, word: 'Skywalker' }
+    ])
+    pipelineSpy.mockResolvedValue(fakePipe)
+
+    // The wordlist makes the regex layer claim "Charpentier" (as a `custom`
+    // span), leaving "Skywalker" as the uncovered tail of the NER region.
+    const pseudonymizer = new PiiPseudonymizer({
+      locale: 'fr',
+      wordlist: ['Charpentier'],
+      ner: { enabled: true, minScore: 0.5 }
+    })
+
+    const pseudonymized = await pseudonymizer.pseudonymizeAsync(text)
+
+    expect(pseudonymized).not.toContain('Charpentier')
+    expect(pseudonymized).not.toContain('Skywalker')
+    expect(pseudonymized).not.toContain('[[')
+    expect(pseudonymizer.revert(pseudonymized)).toBe(text)
+  })
+
+  it('drops a toxic stopword prior entry on import but keeps legitimate ones', () => {
+    // A `name_N` counter entry whose original is a function word can only come
+    // from a past detection bug — importing it would re-arm replaceSeededValues
+    // to substitute that word again. Semantic-path entries are always kept.
+    const priorEntries = [
+      { original: 'de', markerPath: 'name_2', fakeValue: 'Moreau' },
+      { original: 'Pillot', markerPath: 'name_5', fakeValue: 'ZZQuintard' },
+      { original: 'Paris', markerPath: 'contact.client.city', fakeValue: 'Lyon' }
+    ]
+
+    const pseudonymizer = new PiiPseudonymizer({ locale: 'fr', priorEntries })
+    const out = pseudonymizer.pseudonymize('Maître Pillot, de Paris, défend de la partie.')
+
+    // Toxic "de" → "Moreau" entry was dropped: "de" stays in clear text.
+    expect(out).not.toContain('Moreau')
+    expect(out).toContain(' de la partie')
+    // Legitimate prior entries survive.
+    expect(out).toContain('ZZQuintard')
+    expect(out).toContain('Lyon')
+    expect(out).not.toContain('[[')
+  })
+
+  it('keeps same-role contacts reversible from fake values alone', () => {
     const pseudonymizer = new PiiPseudonymizer({
       locale: 'fr',
       contacts: [
@@ -488,8 +592,9 @@ describe('PiiPseudonymizer', () => {
     const pseudonymizedAnswer = pseudonymizer.pseudonymize(answer)
 
     expect(pseudonymizedQuestion).toContain('Voulez-vous vraiment supprimer le contact')
-    expect(pseudonymizedQuestion).toMatch(/\[\[contact_[a-z0-9]+\.firstName\]\]/)
-    expect(pseudonymizedQuestion).toMatch(/\[\[contact_[a-z0-9]+\.lastName\]\]/)
+    expect(pseudonymizedQuestion).not.toContain('Alex')
+    expect(pseudonymizedQuestion).not.toContain('Bernard')
+    expect(pseudonymizedQuestion).not.toContain('[[')
     expect(pseudonymizedAnswer).toBe('Oui')
   })
 
@@ -575,7 +680,7 @@ describe('PiiPseudonymizer', () => {
 
     expect(entry).toBeDefined()
     expect(entry?.fakeValue).not.toBe(unsafeFake)
-    expect(pseudonymizer.pseudonymize(primary)).not.toContain(`\`${unsafeFake}\``)
+    expect(pseudonymizer.pseudonymize(primary)).not.toContain(unsafeFake)
   })
 
   it('never uses another PII span from the same input as a fake value', () => {
@@ -588,10 +693,10 @@ describe('PiiPseudonymizer', () => {
 
     expect(entry).toBeDefined()
     expect(entry?.fakeValue).not.toBe(unsafeFake)
-    expect(out).not.toContain(`\`${unsafeFake}\``)
+    expect(out).not.toContain(unsafeFake)
   })
 
-  it('falls back to an opaque reversible marker instead of leaving PII in clear text', () => {
+  it('falls back to an opaque reversible fake instead of leaving PII in clear text', () => {
     const pseudonymizer = new PiiPseudonymizer({ locale: 'fr' })
     const mapping = pseudonymizer['mapping']
     const originalAdd = mapping.add.bind(mapping)
@@ -603,7 +708,8 @@ describe('PiiPseudonymizer', () => {
 
     const out = pseudonymizer.pseudonymize('Contact: jean.dupont@example.com')
 
-    expect(out).toContain('[[fallback.email_')
+    expect(out).toContain('PII_email_')
+    expect(out).not.toContain('[[')
     expect(out).not.toContain('jean.dupont@example.com')
     expect(pseudonymizer.revert(out)).toBe('Contact: jean.dupont@example.com')
   })
@@ -629,9 +735,10 @@ describe('PiiPseudonymizer', () => {
 
     const out = pseudonymizer.pseudonymize(text)
 
-    expect(out).toContain('[[name_')
     expect(out).not.toContain('MONTALBAN')
     expect(out).not.toContain('RIVERA')
+    expect(out).not.toContain('[[')
+    expect(pseudonymizer.revert(out)).toBe(text)
   })
 
   it('pseudonymizeAsync falls back to regex-only when NER is disabled', async () => {
@@ -648,9 +755,347 @@ describe('PiiPseudonymizer', () => {
     })
     const text = 'Email: jean.dupont@example.com, téléphone 06 12 34 56 78'
     const out = await p.pseudonymizeAsync(text)
-    expect(out).toContain('[[email')
-    expect(out).toContain('[[phone')
     expect(out).not.toContain('jean.dupont@example.com')
     expect(out).not.toContain('06 12 34 56 78')
+    expect(out).not.toContain('[[')
+    expect(p.revert(out)).toBe(text)
+  })
+
+  // ── Structural PII round-trips ──────────────────────────────────────────────
+  // Each case asserts the three properties that the marker-free pipeline relies
+  // on: (1) the real value never reaches the model-facing text, (2) the fake
+  // keeps the type's shape without echoing the original digits, and (3) the
+  // pseudonymize → revert round-trip is exact (revert now works off the bare
+  // fake value alone — there is no [[marker]] fallback anymore).
+  describe('structural PII pseudonymization', () => {
+    it('pseudonymizes a French phone number into another plausible mobile and round-trips', () => {
+      const p = new PiiPseudonymizer({ locale: 'fr' })
+      const text = 'Téléphone : 06 12 34 56 78'
+
+      const out = p.pseudonymize(text)
+      const fake = p.exportMapping().find((e) => e.original === '06 12 34 56 78')?.fakeValue
+
+      expect(fake).toBeTruthy()
+      expect(out).not.toContain('06 12 34 56 78')
+      expect(out).toContain(fake!)
+      // Still shaped like a French mobile: 0[67] then four space-separated pairs.
+      expect(fake!).toMatch(/^0[67]( \d{2}){4}$/)
+      expect(p.revert(out)).toBe(text)
+    })
+
+    it('preserves the separator style of a dotted phone number', () => {
+      const p = new PiiPseudonymizer({ locale: 'fr' })
+      const text = 'Tel 01.45.67.89.10'
+
+      const out = p.pseudonymize(text)
+      expect(out).not.toContain('01.45.67.89.10')
+      expect(p.revert(out)).toBe(text)
+    })
+
+    it('pseudonymizes a French social-security number without leaking any original digit group', () => {
+      const p = new PiiPseudonymizer({ locale: 'fr' })
+      const ssn = '1 85 12 75 116 001 42'
+      const text = `Numéro de sécurité sociale : ${ssn}`
+
+      const out = p.pseudonymize(text)
+      const fake = p.exportMapping().find((e) => e.original === ssn)?.fakeValue
+
+      expect(fake).toBeTruthy()
+      expect(out).not.toContain(ssn)
+      // Gender digit + same grouping pattern, but none of the real groups survive.
+      expect(fake!).toMatch(/^[12]( \d{2}){2} \d{2} \d{3} \d{3} \d{2}$/)
+      expect(fake!).not.toContain('85 12')
+      expect(fake!).not.toContain('116 001')
+      expect(p.revert(out)).toBe(text)
+    })
+
+    it('pseudonymizes a space-free NIR and round-trips it', () => {
+      const p = new PiiPseudonymizer({ locale: 'fr' })
+      const text = 'NIR 185127511600142'
+
+      const out = p.pseudonymize(text)
+      const fake = p.exportMapping().find((e) => e.original === '185127511600142')?.fakeValue
+
+      expect(fake).toBeTruthy()
+      expect(out).not.toContain('185127511600142')
+      expect(fake!).toMatch(/^[12]\d{14}$/)
+      expect(p.revert(out)).toBe(text)
+    })
+
+    it('pseudonymizes a seeded contact zip code into another zip in the same department', () => {
+      const p = new PiiPseudonymizer({
+        locale: 'fr',
+        contacts: [{ id: 'c-1', role: 'client', zipCode: '75008' }]
+      })
+
+      const fake = p.exportMapping().find((e) => e.original === '75008')?.fakeValue
+      expect(fake).toBeTruthy()
+      // French zips keep their 2-digit department prefix, so the fake still reads
+      // as a Paris (75) code while differing from the original.
+      expect(fake!).toMatch(/^75\d{3}$/)
+      expect(fake).not.toBe('75008')
+
+      const out = p.pseudonymize('Le client habite dans le 75008.')
+      expect(out).not.toContain('75008')
+      expect(out).toContain(fake!)
+      expect(p.revert(out)).toBe('Le client habite dans le 75008.')
+    })
+
+    it('keeps the zip department prefix when a zip+city appears as a postalLocation', () => {
+      const p = new PiiPseudonymizer({ locale: 'fr' })
+      const text = 'cabinet à 25 avenue Victor Hugo, 06000 nice'
+
+      const out = p.pseudonymize(text)
+      const zipFake = p.exportMapping().find((e) => e.original === '06000')?.fakeValue
+      const cityFake = p.exportMapping().find((e) => e.original === 'nice')?.fakeValue
+
+      expect(zipFake).toBeTruthy()
+      expect(cityFake).toBeTruthy()
+      expect(zipFake!).toMatch(/^06\d{3}$/)
+      expect(out).not.toContain('06000 nice')
+      // City fake is a real French city name (≥4 chars so the bare-fake revert
+      // pass can still resolve it) and is not the original.
+      expect(cityFake!.length).toBeGreaterThanOrEqual(4)
+      expect(cityFake!.toLowerCase()).not.toBe('nice')
+      expect(p.revert(out)).toBe(text)
+    })
+
+    it('pseudonymizes a known contact city in prose and round-trips it', () => {
+      const p = new PiiPseudonymizer({
+        locale: 'fr',
+        contacts: [{ id: 'c-1', role: 'client', city: 'Marseille' }]
+      })
+
+      const fake = p.exportMapping().find((e) => e.original === 'Marseille')?.fakeValue
+      expect(fake).toBeTruthy()
+      expect(fake).not.toBe('Marseille')
+
+      const out = p.pseudonymize('Audience au tribunal de Marseille.')
+      expect(out).not.toContain('Marseille')
+      expect(out).toContain(fake!)
+      expect(p.revert(out)).toBe('Audience au tribunal de Marseille.')
+    })
+
+    it('pseudonymizes a labelled IBAN and strips every original account group', () => {
+      const p = new PiiPseudonymizer({ locale: 'fr' })
+      const iban = 'FR76 3000 6000 0112 3456 7890 189'
+      const text = `IBAN : ${iban}`
+
+      const out = p.pseudonymize(text)
+      const fake = p.exportMapping().find((e) => e.original === iban)?.fakeValue
+
+      expect(fake).toBeTruthy()
+      expect(out).not.toContain(iban)
+      // Country code preserved, grouping preserved, but no original group remains.
+      expect(fake!.startsWith('FR')).toBe(true)
+      expect(fake!).not.toContain('3000')
+      expect(fake!).not.toContain('3456')
+      expect(p.revert(out)).toBe(text)
+    })
+
+    it('pseudonymizes a labelled BIC into a valid-shaped BIC and round-trips it', () => {
+      const p = new PiiPseudonymizer({ locale: 'fr' })
+      const text = 'BIC : BNPAFRPPXXX'
+
+      const out = p.pseudonymize(text)
+      const fake = p.exportMapping().find((e) => e.original === 'BNPAFRPPXXX')?.fakeValue
+
+      expect(fake).toBeTruthy()
+      expect(out).not.toContain('BNPAFRPPXXX')
+      // 11-char BIC: 6 letters + 2 alphanumerics + 3 alphanumerics.
+      expect(fake!).toMatch(/^[A-Z]{6}[A-Z0-9]{2}[A-Z0-9]{3}$/)
+      expect(p.revert(out)).toBe(text)
+    })
+
+    it('pseudonymizes a labelled tax id and a driver licence and round-trips both', () => {
+      const p = new PiiPseudonymizer({ locale: 'fr' })
+      const text = 'Numéro fiscal : 12 34 567 890 123. Permis n° 123456789012.'
+
+      const out = p.pseudonymize(text)
+      expect(out).not.toContain('12 34 567 890 123')
+      expect(out).not.toContain('123456789012')
+      expect(p.revert(out)).toBe(text)
+    })
+
+    it('pseudonymizes a French vehicle registration plate and round-trips it', () => {
+      const p = new PiiPseudonymizer({ locale: 'fr' })
+      const text = 'Immatriculation : AB-123-CD'
+
+      const out = p.pseudonymize(text)
+      const fake = p.exportMapping().find((e) => e.original === 'AB-123-CD')?.fakeValue
+
+      expect(fake).toBeTruthy()
+      expect(out).not.toContain('AB-123-CD')
+      // Same SIV plate shape (LL-DDD-LL), separators preserved.
+      expect(fake!).toMatch(/^[A-Z]{2}-\d{3}-[A-Z]{2}$/)
+      expect(p.revert(out)).toBe(text)
+    })
+
+    it('pseudonymizes a credit-card number without echoing any original digit run', () => {
+      const p = new PiiPseudonymizer({ locale: 'fr' })
+      const card = '4970 1012 3456 7890'
+      const text = `Carte bancaire ${card}`
+
+      const out = p.pseudonymize(text)
+      const fake = p.exportMapping().find((e) => e.original === card)?.fakeValue
+
+      expect(fake).toBeTruthy()
+      expect(out).not.toContain(card)
+      expect(fake!).toMatch(/^\d{4} \d{4} \d{4} \d{4}$/)
+      expect(fake!).not.toContain('4970')
+      expect(fake!).not.toContain('7890')
+      expect(p.revert(out)).toBe(text)
+    })
+
+    it('pseudonymizes IP and MAC addresses into reserved ranges and round-trips them', () => {
+      const p = new PiiPseudonymizer({ locale: 'fr' })
+      const text = 'Connexion depuis 192.168.1.55 via la carte 01:23:45:67:89:AB.'
+
+      const out = p.pseudonymize(text)
+      const ipFake = p.exportMapping().find((e) => e.original === '192.168.1.55')?.fakeValue
+      const macFake = p.exportMapping().find((e) => e.original === '01:23:45:67:89:AB')?.fakeValue
+
+      expect(ipFake).toBeTruthy()
+      expect(macFake).toBeTruthy()
+      expect(out).not.toContain('192.168.1.55')
+      expect(out).not.toContain('01:23:45:67:89:AB')
+      // IP stays in the private 192.168/16 range; MAC stays in the IANA doc prefix.
+      expect(ipFake!).toMatch(/^192\.168\.\d{1,3}\.\d{1,3}$/)
+      expect(macFake!.startsWith('00:00:5E:')).toBe(true)
+      expect(p.revert(out)).toBe(text)
+    })
+
+    it('pseudonymizes a URL into a synthetic URL and round-trips it', () => {
+      const p = new PiiPseudonymizer({ locale: 'fr' })
+      const url = 'https://cabinet-dupont.example.fr/dossier/42'
+      const text = `Voir ${url}`
+
+      const out = p.pseudonymize(text)
+      expect(out).not.toContain('cabinet-dupont')
+      expect(out).toMatch(/https?:\/\//)
+      expect(p.revert(out)).toBe(text)
+    })
+
+    it('pseudonymizes a labelled medical identifier and round-trips it', () => {
+      const p = new PiiPseudonymizer({ locale: 'fr' })
+      const text = 'Médecin RPPS : 10003456789'
+
+      const out = p.pseudonymize(text)
+      expect(out).not.toContain('10003456789')
+      expect(p.revert(out)).toBe(text)
+    })
+
+    it('shifts a birth date to another date while keeping the format and round-trips it', () => {
+      const p = new PiiPseudonymizer({ locale: 'fr' })
+      const text = 'née le 24/03/1990'
+
+      const out = p.pseudonymize(text)
+      const fake = p.exportMapping().find((e) => e.original === '24/03/1990')?.fakeValue
+
+      expect(fake).toBeTruthy()
+      expect(out).not.toContain('24/03/1990')
+      // Same DD/MM/YYYY shape, different day.
+      expect(fake!).toMatch(/^\d{2}\/\d{2}\/\d{4}$/)
+      expect(fake).not.toBe('24/03/1990')
+      expect(p.revert(out)).toBe(text)
+    })
+
+    it('round-trips a dense multi-type identity block exactly', () => {
+      const p = new PiiPseudonymizer({ locale: 'fr' })
+      const text = [
+        'Téléphone 06 12 34 56 78,',
+        'IBAN FR76 3000 6000 0112 3456 7890 189,',
+        'née le 24/03/1990,',
+        'IP 192.168.1.55,',
+        'plaque AB-123-CD.'
+      ].join(' ')
+
+      const out = p.pseudonymize(text)
+
+      for (const real of [
+        '06 12 34 56 78',
+        'FR76 3000 6000 0112 3456 7890 189',
+        '24/03/1990',
+        '192.168.1.55',
+        'AB-123-CD'
+      ]) {
+        expect(out).not.toContain(real)
+      }
+      expect(out).not.toContain('[[')
+      expect(p.revert(out)).toBe(text)
+    })
+
+    it('redacts every PII type in a realistic free-text sentence mixing names with structural data', () => {
+      // The hardest case for the marker-free pipeline: identity (name) + address
+      // + several structural types woven into one natural French sentence, with
+      // no field labels to anchor on. Everything must be redacted and the whole
+      // sentence must round-trip from the bare fakes alone.
+      const p = new PiiPseudonymizer({ locale: 'fr' })
+      const text =
+        'Monsieur Jean Dupont, né le 24/03/1990, demeurant 12 rue des Lilas 75008 Paris, ' +
+        'joignable au 06 12 34 56 78 ou à jean.dupont@example.com, a réglé par carte 4970 1012 3456 7890.'
+
+      const out = p.pseudonymize(text)
+
+      for (const real of [
+        'Jean',
+        'Dupont',
+        '24/03/1990',
+        '12 rue des Lilas',
+        '75008',
+        'Paris',
+        '06 12 34 56 78',
+        'jean.dupont@example.com',
+        '4970 1012 3456 7890'
+      ]) {
+        expect(out).not.toContain(real)
+      }
+      expect(out).not.toContain('[[')
+      // "Monsieur" is an honorific, not PII — it must stay readable for the model.
+      expect(out).toContain('Monsieur')
+      expect(p.revert(out)).toBe(text)
+    })
+
+    it('round-trips a mixed-PII sentence using the seeded contact context', () => {
+      // Same data also lives in the contact context (as it would in production):
+      // the seeded values and the inline detection must agree so the round-trip
+      // is exact even though the same identity appears twice.
+      const p = new PiiPseudonymizer({
+        locale: 'fr',
+        contacts: [
+          {
+            id: 'c-1',
+            role: 'client',
+            firstName: 'Jean',
+            lastName: 'Dupont',
+            email: 'jean.dupont@example.com',
+            phone: '06 12 34 56 78',
+            addressLine: '12 rue des Lilas',
+            zipCode: '75008',
+            city: 'Paris'
+          }
+        ]
+      })
+
+      const text =
+        'Merci de rappeler Jean Dupont au 06 12 34 56 78 ; il habite 12 rue des Lilas, 75008 Paris ' +
+        '(courriel jean.dupont@example.com).'
+
+      const out = p.pseudonymize(text)
+
+      for (const real of [
+        'Jean',
+        'Dupont',
+        '06 12 34 56 78',
+        '12 rue des Lilas',
+        '75008',
+        'Paris',
+        'jean.dupont@example.com'
+      ]) {
+        expect(out).not.toContain(real)
+      }
+      expect(out).not.toContain('[[')
+      expect(p.revert(out)).toBe(text)
+    })
   })
 })

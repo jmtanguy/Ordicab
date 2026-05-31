@@ -4,6 +4,7 @@ export const IPC_CHANNELS = {
     getLocale: 'app:getLocale',
     setLocale: 'app:setLocale',
     openExternal: 'app:openExternal',
+    writeClipboard: 'app:writeClipboard',
     openFolder: 'app:openFolder',
     eulaStatus: 'app:eula-status',
     eulaAccept: 'app:eula-accept'
@@ -19,11 +20,16 @@ export const IPC_CHANNELS = {
     open: 'dossier:open',
     register: 'dossier:register',
     unregister: 'dossier:unregister',
-    update: 'dossier:update',
     upsertKeyDate: 'dossier:upsertKeyDate',
     deleteKeyDate: 'dossier:deleteKeyDate',
     upsertKeyReference: 'dossier:upsertKeyReference',
     deleteKeyReference: 'dossier:deleteKeyReference',
+    upsertFeeAgreement: 'dossier:upsertFeeAgreement',
+    deleteFeeAgreement: 'dossier:deleteFeeAgreement',
+    archiveFeeAgreement: 'dossier:archiveFeeAgreement',
+    setActiveFeeAgreement: 'dossier:setActiveFeeAgreement',
+    upsertBillingItem: 'dossier:upsertBillingItem',
+    deleteBillingItem: 'dossier:deleteBillingItem',
     pickExportRoot: 'dossier:export:pick-root',
     analyzeAiExport: 'dossier:export:analyze',
     exportForAi: 'dossier:export:run',
@@ -38,10 +44,37 @@ export const IPC_CHANNELS = {
   },
   entity: {
     get: 'entity:get',
-    update: 'entity:update'
+    update: 'entity:update',
+    importDefaultTemplate: 'entity:default-template:import',
+    openDefaultTemplate: 'entity:default-template:open',
+    removeDefaultTemplate: 'entity:default-template:remove'
+  },
+  cabinetBilling: {
+    get: 'cabinet-billing:get',
+    upsertService: 'cabinet-billing:service:upsert',
+    deleteService: 'cabinet-billing:service:delete',
+    setDefaultService: 'cabinet-billing:service:set-default'
+  },
+  invoice: {
+    list: 'invoice:list',
+    get: 'invoice:get',
+    create: 'invoice:create',
+    cancel: 'invoice:cancel',
+    markPaid: 'invoice:mark-paid',
+    createCreditNote: 'invoice:credit-note:create',
+    createCorrectiveInvoice: 'invoice:corrective:create',
+    addPayment: 'invoice:payment:add',
+    updatePayment: 'invoice:payment:update',
+    deletePayment: 'invoice:payment:delete',
+    exportCsv: 'invoice:export-csv',
+    openDocument: 'invoice:open-document',
+    openPdf: 'invoice:open-pdf',
+    getSettings: 'invoice:settings:get',
+    updateSettings: 'invoice:settings:update'
   },
   document: {
     list: 'document:list',
+    listFolders: 'document:list-folders',
     preview: 'document:preview',
     contentStatus: 'document:content-status',
     extractContent: 'document:extract-content',
@@ -53,10 +86,20 @@ export const IPC_CHANNELS = {
     availabilityChanged: 'document:watch:availability',
     saveMetadata: 'document:metadata:save',
     openFile: 'document:open-file',
-    semanticSearch: 'document:semantic-search'
+    semanticSearch: 'document:semantic-search',
+    createFolder: 'document:folder:create',
+    renameFolder: 'document:folder:rename',
+    deleteFolder: 'document:folder:delete',
+    renameFile: 'document:file:rename',
+    deleteFile: 'document:file:delete'
   },
   ordicab: {
     dataChanged: 'ordicab:data-changed'
+  },
+  indexing: {
+    status: 'indexing:status',
+    dossierInitialComplete: 'indexing:dossier-initial-complete',
+    reindexDossier: 'indexing:reindex-dossier'
   },
   template: {
     list: 'template:list',
@@ -68,6 +111,8 @@ export const IPC_CHANNELS = {
     importDocx: 'template:import-docx',
     openDocx: 'template:open-docx',
     removeDocx: 'template:remove-docx',
+    applyCabinetDefaultDocx: 'template:apply-cabinet-default-docx',
+    applyCabinetDocxToAllExisting: 'template:apply-cabinet-docx-to-all-existing',
     docxSynced: 'template:docx-synced'
   },
   generate: {
@@ -75,6 +120,7 @@ export const IPC_CHANNELS = {
     preview: 'generate:preview',
     save: 'generate:save',
     previewDocx: 'generate:preview-docx',
+    previewInvoiceDocx: 'generate:preview-invoice-docx',
     selectOutputPath: 'generate:select-output-path'
   },
   claudeMd: {
@@ -89,7 +135,6 @@ export const IPC_CHANNELS = {
     executeCommand: 'ai:execute-command',
     cancelCommand: 'ai:cancel-command',
     resetConversation: 'ai:reset-conversation',
-    intentReceived: 'ai:intent-received',
     textToken: 'ai:text-token',
     reflection: 'ai:reflection',
     deleteApiKey: 'ai:delete-api-key',

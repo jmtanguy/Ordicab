@@ -12,7 +12,7 @@
  * (custom user terms, dossier names, contact custom fields), locale, and NER
  * configuration as the live assistant. Without alignment the export would
  * over-pseudonymize tokens that the assistant treats as safe (and vice versa),
- * which breaks marker reversibility on round-trip.
+ * which breaks fake-value reversibility on round-trip.
  */
 
 import type { ContactRecord, DossierDetail, DossierSummary, TemplateRecord } from '@shared/types'
@@ -90,7 +90,7 @@ export function buildPiiContext(input: BuildPiiContextInput): PiiContext {
       // of them gets pseudonymized — which happens when a user adds "dossier"
       // to their PII wordlist or has a contact custom-field value equal to one
       // of these tokens — the clarification messages emitted by the runtime
-      // turn into marker-laden paths the LLM then echoes back as broken
+      // turn into fake path values the LLM then echoes back as broken
       // `tagOverrides` keys, and document generation fails silently.
       'dossier',
       'contact',

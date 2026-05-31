@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type {
   GenerateDocumentInput,
   GeneratePreviewInput,
+  GeneratePreviewInvoiceDocxInput,
   SaveGeneratedDocumentInput,
   SelectOutputPathInput
 } from '@shared/domain/generate'
@@ -40,9 +41,21 @@ export const selectOutputPathInputSchema = z.object({
   defaultFilename: z.string().optional()
 })
 
+export const generatePreviewInvoiceDocxInputSchema = z.object({
+  dossierId: dossierIdSchema,
+  templateId: z.string().min(1),
+  billingItemIds: z.array(z.string().uuid()).min(1),
+  issuedAt: z.string().min(1).optional(),
+  notes: z.string().optional(),
+  tagOverrides: z.record(z.string(), z.string()).optional(),
+  primaryContactId: z.string().min(1).optional(),
+  contactRoleOverrides: z.record(z.string(), z.string()).optional()
+})
+
 export type {
   GenerateDocumentInput,
   GeneratePreviewInput,
+  GeneratePreviewInvoiceDocxInput,
   SaveGeneratedDocumentInput,
   SelectOutputPathInput
 }

@@ -1,10 +1,26 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 
-import type { AppLocale, DomainStatusSnapshot, IpcResult } from '@shared/types'
+import type {
+  AppLocale,
+  DomainStatusSnapshot,
+  DossierFeeAgreement,
+  IpcResult,
+  KeyDate,
+  SourceFeeAgreementBillingKind
+} from '@shared/types'
 import { IpcErrorCode } from '@shared/types'
 import type { EulaStatus } from '@shared/contracts/app'
 import type { OrdicabDataChangedEvent } from '@shared/contracts/documents'
+
+export type PendingBillingConversion =
+  | { dossierId: string; source: 'keyDate'; keyDate: KeyDate }
+  | {
+      dossierId: string
+      source: 'feeAgreement'
+      agreement: DossierFeeAgreement
+      feeAgreementConversionKind: SourceFeeAgreementBillingKind
+    }
 
 import { getOrdicabApi, IPC_NOT_AVAILABLE_ERROR } from './ipc'
 
@@ -29,6 +45,7 @@ interface UiStoreState {
   versionLabel: string
   error: string | null
   isSavingLocale: boolean
+  pendingBillingConversion: PendingBillingConversion | null
 }
 
 interface UiStoreActions {
@@ -38,6 +55,8 @@ interface UiStoreActions {
   clearPendingDomainChange: () => void
   openDossierDetail: (dossierId: string) => void
   closeDossierDetail: () => void
+  requestBillingConversion: (input: PendingBillingConversion) => void
+  consumePendingBillingConversion: () => PendingBillingConversion | null
   persistLocale: (locale: AppLocale) => Promise<boolean>
   /** Reads the EULA status for the requested locale. Components must not call IPC directly. */
   getEulaStatus: (locale: AppLocale) => Promise<IpcResult<EulaStatus>>
@@ -66,6 +85,7 @@ export const useUiStore = create<UiStore>()(
     versionLabel: 'Pending',
     error: null,
     isSavingLocale: false,
+    pendingBillingConversion: null,
     bootstrap: async () => {
       if (useUiStore.getState().versionStatus !== 'idle') return
 
@@ -132,6 +152,23 @@ export const useUiStore = create<UiStore>()(
         state.activeDashboardPanel = 'grid'
         state.activeDossierId = null
       })
+    },
+    requestBillingConversion: (input) => {
+      set((state) => {
+        state.activeDashboardPanel = 'detail'
+        state.activeDossierId = input.dossierId
+        state.pendingBillingConversion = input
+      })
+    },
+    consumePendingBillingConversion: () => {
+      let current: PendingBillingConversion | null = null
+      set((state) => {
+        current = state.pendingBillingConversion as PendingBillingConversion | null
+        if (state.pendingBillingConversion) {
+          state.pendingBillingConversion = null
+        }
+      })
+      return current
     },
     persistLocale: async (locale) => {
       const api = getOrdicabApi()

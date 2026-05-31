@@ -11,6 +11,7 @@ function makeExecutor(dispatchResult: AiCommandResult): ActionToolExecutor {
   const context = {} as AiCommandContext
   return new ActionToolExecutor({
     dossierId: null,
+    dossiers: [],
     documentService,
     intentDispatcher: intentDispatcher as never,
     context
@@ -21,7 +22,7 @@ describe('ActionToolExecutor._dispatchInline', () => {
   it('reports success:true and echoes feedback when the dispatcher executes the requested action', async () => {
     const executor = makeExecutor({
       intent: {
-        type: 'contact_upsert',
+        type: 'contact_create',
         firstName: 'Luc',
         lastName: 'Merlin'
       } as never,
@@ -29,7 +30,7 @@ describe('ActionToolExecutor._dispatchInline', () => {
       entity: { id: 'c-123', firstName: 'Luc', lastName: 'Merlin' }
     })
 
-    const raw = await executor.execute('contact_upsert', { firstName: 'Luc', lastName: 'Merlin' })
+    const raw = await executor.execute('contact_create', { firstName: 'Luc', lastName: 'Merlin' })
     const parsed = JSON.parse(raw)
 
     expect(parsed.success).toBe(true)
@@ -39,7 +40,7 @@ describe('ActionToolExecutor._dispatchInline', () => {
   })
 
   it('reports success:false and surfaces clarification details when the dispatcher swaps the intent to clarification_request', async () => {
-    // contact_upsert without an active dossier → dispatcher returns a
+    // contact_create without an active dossier → dispatcher returns a
     // clarification_request; the LLM must learn that the contact was NOT added
     // instead of claiming success to the user.
     const executor = makeExecutor({
@@ -52,7 +53,7 @@ describe('ActionToolExecutor._dispatchInline', () => {
       feedback: 'Pour quel dossier ?'
     })
 
-    const raw = await executor.execute('contact_upsert', { firstName: 'Luc', lastName: 'Merlin' })
+    const raw = await executor.execute('contact_create', { firstName: 'Luc', lastName: 'Merlin' })
     const parsed = JSON.parse(raw)
 
     expect(parsed.success).toBe(false)

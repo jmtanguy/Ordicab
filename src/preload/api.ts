@@ -27,7 +27,8 @@ import type {
   DocumentAvailabilityEvent,
   DocumentChangeEvent,
   DocumentExtractProgressEvent,
-  InternalAiCommand,
+  IndexingDossierInitialCompleteEvent,
+  IndexingStatusSnapshot,
   OrdicabDataChangedEvent,
   TemplateDocxSyncedEvent,
   OrdicabAPI,
@@ -77,6 +78,7 @@ export function createOrdicabApi(
       getLocale: () => invoke(ipcInvoke, IPC_CHANNELS.app.getLocale),
       setLocale: (input) => invoke(ipcInvoke, IPC_CHANNELS.app.setLocale, input),
       openExternal: (input) => invoke(ipcInvoke, IPC_CHANNELS.app.openExternal, input),
+      writeClipboard: (input) => invoke(ipcInvoke, IPC_CHANNELS.app.writeClipboard, input),
       openFolder: (input) => invoke(ipcInvoke, IPC_CHANNELS.app.openFolder, input),
       eulaStatus: (input) => invoke(ipcInvoke, IPC_CHANNELS.app.eulaStatus, input),
       eulaAccept: (input) => invoke(ipcInvoke, IPC_CHANNELS.app.eulaAccept, input)
@@ -92,9 +94,20 @@ export function createOrdicabApi(
       open: (input) => invoke(ipcInvoke, IPC_CHANNELS.dossier.open, input),
       register: (input) => invoke(ipcInvoke, IPC_CHANNELS.dossier.register, input),
       unregister: (input) => invoke(ipcInvoke, IPC_CHANNELS.dossier.unregister, input),
-      update: (input) => invoke(ipcInvoke, IPC_CHANNELS.dossier.update, input),
       upsertKeyDate: (input) => invoke(ipcInvoke, IPC_CHANNELS.dossier.upsertKeyDate, input),
       deleteKeyDate: (input) => invoke(ipcInvoke, IPC_CHANNELS.dossier.deleteKeyDate, input),
+      upsertFeeAgreement: (input) =>
+        invoke(ipcInvoke, IPC_CHANNELS.dossier.upsertFeeAgreement, input),
+      deleteFeeAgreement: (input) =>
+        invoke(ipcInvoke, IPC_CHANNELS.dossier.deleteFeeAgreement, input),
+      archiveFeeAgreement: (input) =>
+        invoke(ipcInvoke, IPC_CHANNELS.dossier.archiveFeeAgreement, input),
+      setActiveFeeAgreement: (input) =>
+        invoke(ipcInvoke, IPC_CHANNELS.dossier.setActiveFeeAgreement, input),
+      upsertBillingItem: (input) =>
+        invoke(ipcInvoke, IPC_CHANNELS.dossier.upsertBillingItem, input),
+      deleteBillingItem: (input) =>
+        invoke(ipcInvoke, IPC_CHANNELS.dossier.deleteBillingItem, input),
       upsertKeyReference: (input) =>
         invoke(ipcInvoke, IPC_CHANNELS.dossier.upsertKeyReference, input),
       deleteKeyReference: (input) =>
@@ -114,10 +127,39 @@ export function createOrdicabApi(
     },
     entity: {
       get: () => invoke(ipcInvoke, IPC_CHANNELS.entity.get),
-      update: (input) => invoke(ipcInvoke, IPC_CHANNELS.entity.update, input)
+      update: (input) => invoke(ipcInvoke, IPC_CHANNELS.entity.update, input),
+      importDefaultTemplate: () => invoke(ipcInvoke, IPC_CHANNELS.entity.importDefaultTemplate),
+      openDefaultTemplate: () => invoke(ipcInvoke, IPC_CHANNELS.entity.openDefaultTemplate),
+      removeDefaultTemplate: () => invoke(ipcInvoke, IPC_CHANNELS.entity.removeDefaultTemplate)
+    },
+    cabinetBilling: {
+      get: () => invoke(ipcInvoke, IPC_CHANNELS.cabinetBilling.get),
+      upsertService: (input) => invoke(ipcInvoke, IPC_CHANNELS.cabinetBilling.upsertService, input),
+      deleteService: (input) => invoke(ipcInvoke, IPC_CHANNELS.cabinetBilling.deleteService, input),
+      setDefaultService: (input) =>
+        invoke(ipcInvoke, IPC_CHANNELS.cabinetBilling.setDefaultService, input)
+    },
+    invoice: {
+      list: () => invoke(ipcInvoke, IPC_CHANNELS.invoice.list),
+      get: (invoiceId) => invoke(ipcInvoke, IPC_CHANNELS.invoice.get, invoiceId),
+      create: (input) => invoke(ipcInvoke, IPC_CHANNELS.invoice.create, input),
+      cancel: (input) => invoke(ipcInvoke, IPC_CHANNELS.invoice.cancel, input),
+      markPaid: (input) => invoke(ipcInvoke, IPC_CHANNELS.invoice.markPaid, input),
+      createCreditNote: (input) => invoke(ipcInvoke, IPC_CHANNELS.invoice.createCreditNote, input),
+      createCorrectiveInvoice: (input) =>
+        invoke(ipcInvoke, IPC_CHANNELS.invoice.createCorrectiveInvoice, input),
+      addPayment: (input) => invoke(ipcInvoke, IPC_CHANNELS.invoice.addPayment, input),
+      updatePayment: (input) => invoke(ipcInvoke, IPC_CHANNELS.invoice.updatePayment, input),
+      deletePayment: (input) => invoke(ipcInvoke, IPC_CHANNELS.invoice.deletePayment, input),
+      exportCsv: (input) => invoke(ipcInvoke, IPC_CHANNELS.invoice.exportCsv, input),
+      openDocument: (input) => invoke(ipcInvoke, IPC_CHANNELS.invoice.openDocument, input),
+      openPdf: (input) => invoke(ipcInvoke, IPC_CHANNELS.invoice.openPdf, input),
+      getSettings: () => invoke(ipcInvoke, IPC_CHANNELS.invoice.getSettings),
+      updateSettings: (input) => invoke(ipcInvoke, IPC_CHANNELS.invoice.updateSettings, input)
     },
     document: {
       list: (input) => invoke(ipcInvoke, IPC_CHANNELS.document.list, input),
+      listFolders: (input) => invoke(ipcInvoke, IPC_CHANNELS.document.listFolders, input),
       preview: (input) => invoke(ipcInvoke, IPC_CHANNELS.document.preview, input),
       contentStatus: (input) => invoke(ipcInvoke, IPC_CHANNELS.document.contentStatus, input),
       extractContent: (input) => invoke(ipcInvoke, IPC_CHANNELS.document.extractContent, input),
@@ -125,6 +167,11 @@ export function createOrdicabApi(
         invoke(ipcInvoke, IPC_CHANNELS.document.clearContentCache, input),
       startWatching: (input) => invoke(ipcInvoke, IPC_CHANNELS.document.startWatching, input),
       stopWatching: (input) => invoke(ipcInvoke, IPC_CHANNELS.document.stopWatching, input),
+      createFolder: (input) => invoke(ipcInvoke, IPC_CHANNELS.document.createFolder, input),
+      renameFolder: (input) => invoke(ipcInvoke, IPC_CHANNELS.document.renameFolder, input),
+      deleteFolder: (input) => invoke(ipcInvoke, IPC_CHANNELS.document.deleteFolder, input),
+      renameFile: (input) => invoke(ipcInvoke, IPC_CHANNELS.document.renameFile, input),
+      deleteFile: (input) => invoke(ipcInvoke, IPC_CHANNELS.document.deleteFile, input),
       onDidChange: (listener) =>
         subscribeToEvent<DocumentChangeEvent>(
           ipcOn,
@@ -159,6 +206,24 @@ export function createOrdicabApi(
           listener
         )
     },
+    indexing: {
+      getStatus: () => invoke(ipcInvoke, IPC_CHANNELS.indexing.status),
+      reindexDossier: (input) => invoke(ipcInvoke, IPC_CHANNELS.indexing.reindexDossier, input),
+      onStatus: (listener) =>
+        subscribeToEvent<IndexingStatusSnapshot>(
+          ipcOn,
+          ipcOff,
+          IPC_CHANNELS.indexing.status,
+          listener
+        ),
+      onDossierInitialComplete: (listener) =>
+        subscribeToEvent<IndexingDossierInitialCompleteEvent>(
+          ipcOn,
+          ipcOff,
+          IPC_CHANNELS.indexing.dossierInitialComplete,
+          listener
+        )
+    },
     template: {
       list: () => invoke(ipcInvoke, IPC_CHANNELS.template.list),
       getContent: (input) => invoke(ipcInvoke, IPC_CHANNELS.template.getContent, input),
@@ -169,6 +234,10 @@ export function createOrdicabApi(
       importDocx: (input) => invoke(ipcInvoke, IPC_CHANNELS.template.importDocx, input),
       openDocx: (input) => invoke(ipcInvoke, IPC_CHANNELS.template.openDocx, input),
       removeDocx: (input) => invoke(ipcInvoke, IPC_CHANNELS.template.removeDocx, input),
+      applyCabinetDefaultDocx: (input) =>
+        invoke(ipcInvoke, IPC_CHANNELS.template.applyCabinetDefaultDocx, input),
+      applyCabinetDocxToAllExisting: () =>
+        invoke(ipcInvoke, IPC_CHANNELS.template.applyCabinetDocxToAllExisting),
       onDocxSynced: (listener) =>
         subscribeToEvent<TemplateDocxSyncedEvent>(
           ipcOn,
@@ -182,6 +251,8 @@ export function createOrdicabApi(
       preview: (input) => invoke(ipcInvoke, IPC_CHANNELS.generate.preview, input),
       save: (input) => invoke(ipcInvoke, IPC_CHANNELS.generate.save, input),
       previewDocx: (input) => invoke(ipcInvoke, IPC_CHANNELS.generate.previewDocx, input),
+      previewInvoiceDocx: (input) =>
+        invoke(ipcInvoke, IPC_CHANNELS.generate.previewInvoiceDocx, input),
       selectOutputPath: (input) => invoke(ipcInvoke, IPC_CHANNELS.generate.selectOutputPath, input)
     },
     claudeMd: {
@@ -200,13 +271,6 @@ export function createOrdicabApi(
         invoke(ipcInvoke, IPC_CHANNELS.ai.executeCommand, input),
       cancelCommand: () => invoke(ipcInvoke, IPC_CHANNELS.ai.cancelCommand),
       resetConversation: () => invoke(ipcInvoke, IPC_CHANNELS.ai.resetConversation),
-      onIntentReceived: (listener: (event: InternalAiCommand) => void) =>
-        subscribeToEvent<InternalAiCommand>(
-          ipcOn,
-          ipcOff,
-          IPC_CHANNELS.ai.intentReceived,
-          listener
-        ),
       onTextToken: (listener: (token: string) => void) =>
         subscribeToEvent<string>(ipcOn, ipcOff, IPC_CHANNELS.ai.textToken, listener),
       onReflection: (listener: (text: string) => void) =>

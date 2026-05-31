@@ -1,6 +1,8 @@
-export type ContactGender = 'M' | 'F' | 'N' | undefined
+import type { Gender } from './domain/gender'
 
-export interface SalutationFields {
+type ContactGender = Gender | undefined
+
+interface SalutationFields {
   salutation: string
   salutationFull: string
   dear: string

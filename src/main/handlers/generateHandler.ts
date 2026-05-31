@@ -1,61 +1,50 @@
 import { dialog } from 'electron'
-import { ZodError } from 'zod'
 
 import {
   IPC_CHANNELS,
   IpcErrorCode,
+  type IpcError,
   type DocxPreviewResult,
   type GeneratedDraftResult,
   type GeneratedDocumentResult,
-  type IpcError,
   type IpcResult
 } from '@shared/types'
+import { previewInvoiceNumber } from '@shared/domain/invoiceNumbering'
 
 import {
   generateDocumentInputSchema,
   generatePreviewInputSchema,
+  generatePreviewInvoiceDocxInputSchema,
   saveGeneratedDocumentInputSchema,
   selectOutputPathInputSchema,
   type GenerateDocumentInput,
   type GeneratePreviewInput,
+  type GeneratePreviewInvoiceDocxInput,
   type SaveGeneratedDocumentInput,
   type SelectOutputPathInput
 } from '@shared/validation'
 import { type GenerateService, GenerateServiceError } from '../services/domain/generateService'
+import type { DossierRegistryService } from '../services/domain/dossierRegistryService'
+import type { InvoiceService } from '../services/domain/invoiceService'
+import type { ContactService } from '../services/domain/contactService'
+import { buildInvoiceTemplateInputFromBillingItems } from '../services/domain/invoiceTemplateInput'
+import { type IpcMainLike, mapIpcError } from './ipc'
 
-interface IpcMainLike {
-  handle: (
-    channel: string,
-    listener: (_event: unknown, input?: unknown) => Promise<unknown>
-  ) => void
-}
-
-function mapGenerateError(error: unknown, fallbackMessage: string): IpcError {
-  if (error instanceof ZodError) {
-    return {
-      success: false,
-      error: 'Invalid document generation input.',
-      code: IpcErrorCode.VALIDATION_FAILED
-    }
-  }
-
-  if (error instanceof GenerateServiceError) {
-    return {
-      success: false,
-      error: error.message,
-      code: error.code
-    }
-  }
-
-  return {
-    success: false,
-    error: error instanceof Error ? error.message : fallbackMessage,
-    code: IpcErrorCode.FILE_SYSTEM_ERROR
-  }
-}
+const mapGenerateError = (error: unknown, fallback: string): IpcError =>
+  mapIpcError(error, fallback, {
+    validationMessage: 'Invalid document generation input.',
+    errorClasses: [GenerateServiceError]
+  })
 
 export function registerGenerateHandlers(options: {
   generateService: GenerateService
+  /**
+   * Services required for `generate:preview-invoice-docx`. Optional so legacy tests
+   * that only exercise the document/preview channels can omit them.
+   */
+  dossierRegistryService?: DossierRegistryService
+  invoiceService?: InvoiceService
+  contactService?: ContactService
   ipcMain: IpcMainLike
   showSaveDialog?: typeof dialog.showSaveDialog
 }): void {
@@ -124,6 +113,75 @@ export function registerGenerateHandlers(options: {
         }
       } catch (error) {
         return mapGenerateError(error, 'Unable to preview .docx template tags.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.generate.previewInvoiceDocx,
+    async (_event, input: unknown): Promise<IpcResult<DocxPreviewResult>> => {
+      try {
+        const { dossierRegistryService, invoiceService, contactService } = options
+        if (!dossierRegistryService || !invoiceService || !contactService) {
+          return {
+            success: false,
+            error: 'Invoice preview is not available in this context.',
+            code: IpcErrorCode.NOT_FOUND
+          }
+        }
+        const parsed = generatePreviewInvoiceDocxInputSchema.parse(
+          input
+        ) as GeneratePreviewInvoiceDocxInput
+
+        const dossier = await dossierRegistryService.getDossier({
+          dossierId: parsed.dossierId
+        })
+        const items = parsed.billingItemIds.map((id) => {
+          const found = dossier.billingItems.find((entry) => entry.id === id)
+          if (!found) {
+            throw new GenerateServiceError(
+              IpcErrorCode.NOT_FOUND,
+              `Billing item ${id} was not found in dossier ${parsed.dossierId}.`
+            )
+          }
+          return found
+        })
+
+        const settings = await invoiceService.getSettings()
+        const contacts = await contactService.list(parsed.dossierId).catch(() => [])
+        const issuedAtIso = (parsed.issuedAt ?? new Date().toISOString().slice(0, 10)).slice(0, 10)
+        const issuedAtDate = new Date(`${issuedAtIso}T12:00:00`)
+        const previewNumber = (() => {
+          try {
+            return previewInvoiceNumber(settings, issuedAtDate)
+          } catch {
+            return 'FAC-PREVIEW'
+          }
+        })()
+
+        const invoiceContext = buildInvoiceTemplateInputFromBillingItems({
+          items,
+          dossier,
+          contacts,
+          settings,
+          number: previewNumber,
+          issuedAt: issuedAtIso,
+          notes: parsed.notes
+        })
+
+        return {
+          success: true,
+          data: await options.generateService.previewDocxDocument({
+            dossierId: parsed.dossierId,
+            templateId: parsed.templateId,
+            tagOverrides: parsed.tagOverrides,
+            primaryContactId: parsed.primaryContactId,
+            contactRoleOverrides: parsed.contactRoleOverrides,
+            invoiceContext
+          })
+        }
+      } catch (error) {
+        return mapGenerateError(error, 'Unable to preview invoice template tags.')
       }
     }
   )

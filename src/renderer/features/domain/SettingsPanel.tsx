@@ -2,16 +2,15 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import type { AppLocale, DomainStatusSnapshot } from '@shared/types'
-import { buildAddressFields } from '@shared/addressFormatting'
 
 import { Button, Card } from '@renderer/components/ui'
 import type { AsyncLocaleAction, AsyncVoidAction } from '@renderer/features/actions'
 import { useAiStore } from '@renderer/stores/aiStore'
-import { useEntityStore } from '@renderer/stores'
-
-import { EntityDialog } from './EntityPanel'
 import { AiDialog } from '../settings/AiSettings'
 import { LanguageDialog } from '../settings/LanguageSettings'
+import { InvoiceSettingsDialog } from '@renderer/features/invoices/InvoiceSettingsSection'
+import { useInvoiceSettingsSummary } from '@renderer/features/invoices/useInvoiceSettingsSummary'
+import { useInvoiceStore } from '@renderer/stores/invoiceStore'
 
 interface SettingsPanelProps {
   status: DomainStatusSnapshot
@@ -38,6 +37,24 @@ function IconGlobe(): React.JSX.Element {
     >
       <circle cx="7.5" cy="7.5" r="6" />
       <path d="M7.5 1.5C5.9 3.8 5 5.6 5 7.5S5.9 11.2 7.5 13.5M7.5 1.5C9.1 3.8 10 5.6 10 7.5S9.1 11.2 7.5 13.5M1.5 7.5h12" />
+    </svg>
+  )
+}
+
+function IconInvoice(): React.JSX.Element {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 15 15"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 1.5h6l2.5 2.5V13L9.5 11.5 7.5 13 5.5 11.5 3 13z" />
+      <path d="M5.5 5.5h4M5.5 8h4" />
     </svg>
   )
 }
@@ -80,27 +97,9 @@ function IconChevron(): React.JSX.Element {
 
 function SectionLabel({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
-    <p className="px-0.5 text-[10.5px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+    <p className="px-0.5 text-[10.5px] font-semibold uppercase tracking-[0.2em] text-[#8a8a85]">
       {children}
     </p>
-  )
-}
-
-function DetailField({
-  label,
-  value
-}: {
-  label: string
-  value?: string
-}): React.JSX.Element | null {
-  if (!value) return null
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-        {label}
-      </span>
-      <span className="text-sm text-slate-100">{value}</span>
-    </div>
   )
 }
 
@@ -118,16 +117,16 @@ function PrefRow({ icon, title, value, onClick }: PrefRowProps): React.JSX.Eleme
     <button
       type="button"
       onClick={onClick}
-      className="group flex w-full items-center gap-4 px-5 py-4 text-left transition-colors duration-150 hover:bg-white/3 active:bg-white/5"
+      className="group flex w-full items-center gap-4 px-5 py-4 text-left transition-colors duration-150 hover:bg-[#f4f3ee] active:bg-[#f4f3ee]"
     >
-      <span className="shrink-0 text-slate-500">{icon}</span>
+      <span className="shrink-0 text-[#8a8a85]">{icon}</span>
 
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-slate-200">{title}</p>
-        <p className="mt-0.5 truncate text-xs text-slate-500">{value}</p>
+        <p className="text-sm font-medium text-[#1a1a1a]">{title}</p>
+        <p className="mt-0.5 truncate text-xs text-[#8a8a85]">{value}</p>
       </div>
 
-      <span className="shrink-0 text-slate-600 transition-transform duration-150 group-hover:translate-x-0.5">
+      <span className="shrink-0 text-[#5c5c5a] transition-transform duration-150 group-hover:translate-x-0.5">
         <IconChevron />
       </span>
     </button>
@@ -135,7 +134,7 @@ function PrefRow({ icon, title, value, onClick }: PrefRowProps): React.JSX.Eleme
 }
 
 function PrefRowDivider(): React.JSX.Element {
-  return <div className="mx-5 h-px bg-white/5" />
+  return <div className="mx-5 h-px bg-[#f4f3ee]" />
 }
 
 // ─── Main component ────────────────────────────────────────────────────────────
@@ -152,18 +151,18 @@ export function SettingsPanel({
 
   const [confirmingChange, setConfirmingChange] = useState(false)
   const [langOpen, setLangOpen] = useState(false)
-  const [entityOpen, setEntityOpen] = useState(false)
   const [aiOpen, setAiOpen] = useState(false)
+  const [invoiceOpen, setInvoiceOpen] = useState(false)
 
   const loadSettings = useAiStore((s) => s.loadSettings)
   const aiSettings = useAiStore((s) => s.settings)
-  const loadProfile = useEntityStore((s) => s.load)
-  const entityProfile = useEntityStore((s) => s.profile)
+  const loadInvoiceSettings = useInvoiceStore((s) => s.loadSettings)
+  const invoiceSummary = useInvoiceSettingsSummary()
 
   useEffect(() => {
     void loadSettings()
-    void loadProfile()
-  }, [loadSettings, loadProfile])
+    void loadInvoiceSettings()
+  }, [loadSettings, loadInvoiceSettings])
 
   const localeLabel =
     currentLocale === 'fr'
@@ -184,82 +183,14 @@ export function SettingsPanel({
 
   const isDomainConfigured = Boolean(status.registeredDomainPath)
 
-  const entityDisplayName = [
-    entityProfile?.title,
-    entityProfile?.firstName,
-    entityProfile?.lastName
-  ]
-    .filter(Boolean)
-    .join(' ')
-
   return (
     <section className="flex min-h-[calc(100vh-8.5rem)] flex-col gap-8 pb-8">
       {/* ── Page header ─────────────────────────────────────────────────── */}
-      <div className="border-b border-white/6 pb-6">
-        <h1 className="text-xl font-semibold tracking-tight text-slate-50">
+      <div className="border-b border-[#e5e3da] pb-6">
+        <h1 className="text-xl font-semibold tracking-tight text-[#1a1a1a]">
           {t('settings.section_title')}
         </h1>
-        <p className="mt-1 text-sm text-slate-400">{t('settings.section_subtitle')}</p>
-      </div>
-
-      {/* ── Entity ──────────────────────────────────────────────────────── */}
-      <div className="space-y-3">
-        <SectionLabel>{t('entity.section_title')}</SectionLabel>
-
-        <Card className="space-y-5">
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-1">
-              <p className="text-sm font-semibold text-slate-100">
-                {entityProfile?.firmName ?? t('entity.emptyHint')}
-              </p>
-              {entityProfile ? (
-                <p className="text-xs text-slate-500">{t('entity.section_summary')}</p>
-              ) : null}
-            </div>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setEntityOpen(true)}>
-              {t('entity.editButton')}
-            </Button>
-          </div>
-
-          {entityProfile ? (
-            <div className="border-t border-white/6 pt-4 space-y-4">
-              {/* Row 1 — identité */}
-              <div className="grid grid-cols-3 gap-x-8 gap-y-4">
-                {entityProfile.profession ? (
-                  <DetailField
-                    label={t('entity.form.profession')}
-                    value={t(`entity.profession.${entityProfile.profession}`)}
-                  />
-                ) : null}
-                {entityDisplayName ? (
-                  <DetailField label={t('entity.form.name')} value={entityDisplayName} />
-                ) : null}
-                {/* Adresse — pleine largeur */}
-                {(entityProfile.addressLine ??
-                entityProfile.zipCode ??
-                entityProfile.city ??
-                entityProfile.address) ? (
-                  <DetailField
-                    label={t('entity.form.address')}
-                    value={
-                      (entityProfile.addressLine ?? entityProfile.zipCode ?? entityProfile.city)
-                        ? buildAddressFields(entityProfile).addressFormatted
-                        : buildAddressFields({ addressLine: entityProfile.address })
-                            .addressFormatted
-                    }
-                  />
-                ) : null}
-              </div>
-
-              {/* Row 2 — contact */}
-              <div className="grid grid-cols-3 gap-x-8 gap-y-4">
-                <DetailField label={t('entity.form.phone')} value={entityProfile.phone} />
-                <DetailField label={t('entity.form.email')} value={entityProfile.email} />
-                <DetailField label={t('entity.form.vatNumber')} value={entityProfile.vatNumber} />
-              </div>
-            </div>
-          ) : null}
-        </Card>
+        <p className="mt-1 text-sm text-[#5c5c5a]">{t('settings.section_subtitle')}</p>
       </div>
 
       {/* ── Preferences (Language + AI) ──────────────────────────────────── */}
@@ -280,6 +211,13 @@ export function SettingsPanel({
             value={aiValue}
             onClick={() => setAiOpen(true)}
           />
+          <PrefRowDivider />
+          <PrefRow
+            icon={<IconInvoice />}
+            title={t('settings.invoice_label', { defaultValue: 'Facturation' })}
+            value={invoiceSummary}
+            onClick={() => setInvoiceOpen(true)}
+          />
         </Card>
       </div>
 
@@ -294,17 +232,17 @@ export function SettingsPanel({
                 className={[
                   'inline-block h-2 w-2 shrink-0 rounded-full ring-2',
                   isDomainConfigured
-                    ? 'bg-emerald-400 ring-emerald-400/20'
-                    : 'bg-amber-400 ring-amber-400/20'
+                    ? 'bg-[#5c8a4e] ring-[#5c8a4e]/20'
+                    : 'bg-[#b88800] ring-[#b88800]/20'
                 ].join(' ')}
               />
               <div>
-                <p className="text-sm font-semibold text-slate-100">
+                <p className="text-sm font-semibold text-[#1a1a1a]">
                   {isDomainConfigured
                     ? t('dashboard.path_label_active')
                     : t('domain.status_value_unconfigured')}
                 </p>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-[#8a8a85]">
                   {t('dashboard.dossiers_value_detected', { count: status.dossierCount })}
                 </p>
               </div>
@@ -317,18 +255,18 @@ export function SettingsPanel({
             ) : null}
           </div>
 
-          <div className="rounded-xl border border-white/[0.07] bg-slate-950/40 px-4 py-3">
-            <code className="block break-all text-xs leading-relaxed text-slate-300">
+          <div className="rounded-xl border border-[#e5e3da] bg-white px-4 py-3">
+            <code className="block break-all text-xs leading-relaxed text-[#1a1a1a]">
               {status.registeredDomainPath ?? '—'}
             </code>
           </div>
 
           {confirmingChange ? (
-            <div className="space-y-3 rounded-xl border border-amber-300/30 bg-amber-300/[0.07] p-4">
-              <p className="text-sm font-semibold text-amber-100">
+            <div className="space-y-3 rounded-xl border border-[#e8d5a3] bg-[#fbf5e3] p-4">
+              <p className="text-sm font-semibold text-[#7a5a00]">
                 {t('dashboard.change_domain_confirm_title')}
               </p>
-              <p className="text-xs leading-relaxed text-amber-200/70">
+              <p className="text-xs leading-relaxed text-[#7a5a00]">
                 {t('dashboard.change_domain_confirm_body')}
               </p>
               <div className="flex flex-wrap gap-2 pt-1">
@@ -358,8 +296,8 @@ export function SettingsPanel({
         isSaving={isSavingLocale}
         onChangeLocale={onChangeLocale}
       />
-      <EntityDialog open={entityOpen} onClose={() => setEntityOpen(false)} />
       <AiDialog open={aiOpen} onClose={() => setAiOpen(false)} />
+      <InvoiceSettingsDialog open={invoiceOpen} onClose={() => setInvoiceOpen(false)} />
     </section>
   )
 }

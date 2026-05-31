@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { labelToKey, normalizeTagPath } from '../templateContent'
+import { extractSmartTagPaths, labelToKey, normalizeTagPath } from '../templateContent'
 
 describe('templateContent labelToKey', () => {
   it('normalizes uppercase labels to lowercase-first camel case', () => {
@@ -45,8 +45,12 @@ describe('templateContent normalizeTagPath — address aliases', () => {
     expect(normalizeTagPath('entity.codePostal')).toBe('entity.zipCode')
   })
 
-  it('translates entite.ville to entity.city (root alias)', () => {
-    expect(normalizeTagPath('entite.ville')).toBe('entity.city')
+  it('translates cabinet.nomCabinet to entity.firmName (canonical FR root alias)', () => {
+    expect(normalizeTagPath('cabinet.nomCabinet')).toBe('entity.firmName')
+  })
+
+  it('translates cabinet.ville to entity.city (canonical FR root alias)', () => {
+    expect(normalizeTagPath('cabinet.ville')).toBe('entity.city')
   })
 
   it('passes through canonical paths unchanged', () => {
@@ -55,6 +59,25 @@ describe('templateContent normalizeTagPath — address aliases', () => {
     expect(normalizeTagPath('contact.firstNames')).toBe('contact.firstNames')
     expect(normalizeTagPath('contact.additionalFirstNames')).toBe('contact.additionalFirstNames')
     expect(normalizeTagPath('entity.zipCode')).toBe('entity.zipCode')
+  })
+})
+
+describe('templateContent normalizeTagPath — date offset aliases', () => {
+  it('translates date.j+N to date.today+N', () => {
+    expect(normalizeTagPath('date.j+15')).toBe('date.today+15')
+    expect(normalizeTagPath('date.j+8')).toBe('date.today+8')
+  })
+
+  it('translates FR variant suffixes on date.j+N', () => {
+    expect(normalizeTagPath('date.j+15.formate')).toBe('date.today+15.formatted')
+    expect(normalizeTagPath('date.j+15.texte')).toBe('date.today+15.long')
+    expect(normalizeTagPath('date.j+15.court')).toBe('date.today+15.short')
+    expect(normalizeTagPath('date.j+15.abrege')).toBe('date.today+15.short')
+  })
+
+  it('passes through canonical date.today+N unchanged', () => {
+    expect(normalizeTagPath('date.today+15')).toBe('date.today+15')
+    expect(normalizeTagPath('date.today+15.formatted')).toBe('date.today+15.formatted')
   })
 })
 
@@ -97,5 +120,22 @@ describe('templateContent normalizeTagPath — additional first names alias', ()
     expect(normalizeTagPath('contact.Avocat adverse.prenomsComplementaires')).toBe(
       'contact.avocatAdverse.additionalFirstNames'
     )
+  })
+})
+
+describe('templateContent extractSmartTagPaths — removed routine families', () => {
+  it('filters loops and legacy dossier reference/prestation paths', () => {
+    const paths = extractSmartTagPaths(`
+      {{dossier.nom}}
+      {{#dossier.billingItems}}
+        {{dossier.billingItem.description}}
+      {{/dossier.billingItems}}
+      {{dossier.reference.nRg}}
+      {{dossier.keyRef.nRg}}
+      {{dossier.prestation.audience.libelle}}
+      {{facture.tableauPrestations}}
+    `)
+
+    expect(paths).toEqual(['dossier.nom', 'facture.tableauPrestations'])
   })
 })

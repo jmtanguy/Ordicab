@@ -31,12 +31,12 @@ export function DocumentMetadataPanel({
   return (
     <>
       <div>
-        <h3 className="text-lg font-semibold text-slate-50">
+        <h3 className="text-lg font-semibold text-[#1a1a1a]">
           {hasSavedMetadata
             ? t('documents.metadata_edit_title')
             : t('documents.metadata_add_title')}
         </h3>
-        <p className="mt-1 text-sm text-slate-300">{document.filename}</p>
+        <p className="mt-1 text-sm text-[#1a1a1a]">{document.filename}</p>
       </div>
 
       {feedback === 'error' ? (
@@ -98,7 +98,7 @@ export function DocumentMetadataPanel({
               }}
               placeholder={t('documents.metadata_tags_placeholder')}
             />
-            <p className="text-xs text-slate-500">{t('documents.metadata_tags_hint')}</p>
+            <p className="text-xs text-[#8a8a85]">{t('documents.metadata_tags_hint')}</p>
           </Field>
         </div>
 

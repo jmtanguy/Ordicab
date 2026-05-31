@@ -6,15 +6,16 @@ import { type AppLocale, IpcErrorCode, type OrdicabDataChangedEvent } from '@sha
 import { normalizeAppLocale } from '@renderer/i18n'
 import { DomainDashboard } from '@renderer/features/domain/DomainDashboard'
 import { EntityDialog } from '@renderer/features/domain/EntityPanel'
+import { FolderPickerDialog } from '@renderer/features/dossiers/FolderPickerDialog'
 import { EulaDialog } from '@renderer/features/legal/EulaDialog'
 import { OnboardingPage } from '@renderer/features/onboarding/OnboardingPage'
 import { AlertBanner } from '@renderer/components/ui'
 import {
+  useCabinetBillingStore,
   useContactStore,
   type DocumentContentState,
   type DocumentPreviewState,
   useDocumentStore,
-  useDossierTransferStore,
   selectVisibleDossiers,
   useDomainStore,
   useDossierStore,
@@ -24,7 +25,7 @@ import {
 } from '@renderer/stores'
 
 import { AuroraBackground } from './AuroraBackground'
-import { TopNav, type TopNavTab } from './TopNav'
+import { Sidebar, type DossierSection, type SidebarDestination } from './Sidebar'
 import { UpdateBanner } from './UpdateBanner'
 
 function mapStatus(status: 'idle' | 'loading' | 'ready' | 'error'): 'loading' | 'ready' | 'error' {
@@ -72,11 +73,14 @@ const IDLE_DOCUMENT_CONTENT_STATE: DocumentContentState = {
   progress: null
 }
 const ORDICAB_WARNING_TIMEOUT_MS = 6_000
+const DEFAULT_DOSSIER_SECTION: DossierSection = 'echeances'
 
 export default function AppShell(): React.JSX.Element {
   const { t, i18n } = useTranslation()
-  const [activeTab, setActiveTab] = useState<TopNavTab>('dossiers')
-  const [generateDossierId, setGenerateDossierId] = useState<string | null>(null)
+  const [activeDestination, setActiveDestination] = useState<SidebarDestination>('dossiers')
+  const [activeSection, setActiveSection] = useState<DossierSection>(DEFAULT_DOSSIER_SECTION)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [isPickerOpen, setIsPickerOpen] = useState(false)
   const [ordicabSyncWarning, setOrdicabSyncWarning] = useState<string | null>(null)
   const [showEntityOnboardingDialog, setShowEntityOnboardingDialog] = useState(false)
   const [isEulaRequired, setIsEulaRequired] = useState(false)
@@ -113,7 +117,6 @@ export default function AppShell(): React.JSX.Element {
   const dossierDetailLoading = useDossierStore((state) => state.isDetailLoading)
   const dossierSaving = useDossierStore((state) => state.isSavingDetail)
   const dossierError = useDossierStore((state) => state.error)
-  const dossierErrorCode = useDossierStore((state) => state.errorCode)
   const dossierNotice = useDossierStore((state) => state.notice)
   const activeDossier = useDossierStore((state) => state.activeDossier)
   const dossierDetailError = useDossierStore((state) => state.detailError)
@@ -121,13 +124,19 @@ export default function AppShell(): React.JSX.Element {
   const dossierSortMode = useDossierStore((state) => state.sortMode)
   const dossierStatusFilter = useDossierStore((state) => state.statusFilter)
   const loadDossiers = useDossierStore((state) => state.load)
+  const loadChronology = useDossierStore((state) => state.loadChronology)
   const openDossierRecord = useDossierStore((state) => state.openDetail)
   const loadDossierDetail = useDossierStore((state) => state.loadDetail)
   const loadEligibleFolders = useDossierStore((state) => state.loadEligibleFolders)
   const registerDossier = useDossierStore((state) => state.register)
-  const saveDossierDetail = useDossierStore((state) => state.saveDetail)
   const upsertDossierKeyDate = useDossierStore((state) => state.upsertKeyDate)
   const deleteDossierKeyDate = useDossierStore((state) => state.deleteKeyDate)
+  const upsertDossierFeeAgreement = useDossierStore((state) => state.upsertFeeAgreement)
+  const deleteDossierFeeAgreement = useDossierStore((state) => state.deleteFeeAgreement)
+  const archiveDossierFeeAgreement = useDossierStore((state) => state.archiveFeeAgreement)
+  const setActiveDossierFeeAgreement = useDossierStore((state) => state.setActiveFeeAgreement)
+  const upsertDossierBillingItem = useDossierStore((state) => state.upsertBillingItem)
+  const deleteDossierBillingItem = useDossierStore((state) => state.deleteBillingItem)
   const upsertDossierKeyReference = useDossierStore((state) => state.upsertKeyReference)
   const deleteDossierKeyReference = useDossierStore((state) => state.deleteKeyReference)
   const setDossierSortMode = useDossierStore((state) => state.setSortMode)
@@ -136,6 +145,8 @@ export default function AppShell(): React.JSX.Element {
   const clearDossierNotice = useDossierStore((state) => state.clearNotice)
   const resetDossiers = useDossierStore((state) => state.reset)
   const entityProfile = useEntityStore((state) => state.profile)
+  const loadCabinetBillingCatalog = useCabinetBillingStore((state) => state.load)
+  const resetCabinetBillingCatalog = useCabinetBillingStore((state) => state.reset)
   const contactsByDossierId = useContactStore((state) => state.contactsByDossierId)
   const isContactLoading = useContactStore((state) => state.isLoading)
   const contactError = useContactStore((state) => state.error)
@@ -162,26 +173,6 @@ export default function AppShell(): React.JSX.Element {
   const saveDocumentMetadata = useDocumentStore((state) => state.saveMetadata)
   const openDocumentFile = useDocumentStore((state) => state.openFile)
   const extractDocumentContent = useDocumentStore((state) => state.extractContent)
-  const extractPendingDocumentContent = useDocumentStore((state) => state.extractPendingContent)
-  const clearDocumentContentCache = useDocumentStore((state) => state.clearContentCache)
-  const dossierTransferError = useDossierTransferStore((state) => state.error)
-  const dossierTransferLoading = useDossierTransferStore((state) => state.isLoading)
-  const exportRootPath = useDossierTransferStore((state) => state.exportRootPath)
-  const exportAnalysis = useDossierTransferStore((state) => state.exportAnalysis)
-  const importAnalysis = useDossierTransferStore((state) => state.importAnalysis)
-  const exportResult = useDossierTransferStore((state) => state.exportResult)
-  const importResult = useDossierTransferStore((state) => state.importResult)
-  const selectedImportFiles = useDossierTransferStore((state) => state.selectedImportFiles)
-  const isExporting = useDossierTransferStore((state) => state.isExporting)
-  const isImporting = useDossierTransferStore((state) => state.isImporting)
-  const pickExportRoot = useDossierTransferStore((state) => state.pickExportRoot)
-  const analyzeAiExport = useDossierTransferStore((state) => state.analyzeExport)
-  const exportForAi = useDossierTransferStore((state) => state.exportForAi)
-  const pickAndAnalyzeImport = useDossierTransferStore((state) => state.pickAndAnalyzeImport)
-  const toggleImportFile = useDossierTransferStore((state) => state.toggleImportFile)
-  const setAllImportFiles = useDossierTransferStore((state) => state.setAllImportFiles)
-  const importAiProduction = useDossierTransferStore((state) => state.importProduction)
-  const resetDossierTransfer = useDossierTransferStore((state) => state.reset)
 
   useEffect(() => {
     void bootstrap()
@@ -222,7 +213,7 @@ export default function AppShell(): React.JSX.Element {
   }, [applyDomainStatus, refreshStatus])
 
   const handleChangeDomain = useCallback(async () => {
-    setActiveTab('dossiers')
+    setActiveDestination('dossiers')
     goToOnboarding()
   }, [goToOnboarding])
 
@@ -232,24 +223,26 @@ export default function AppShell(): React.JSX.Element {
 
   useEffect(() => {
     if (activeView === 'dashboard' && domainHasLoadedOnce && domainSnapshot.registeredDomainPath) {
-      void loadDossiers()
+      void (async () => {
+        await loadDossiers()
+        void loadChronology()
+      })()
       void loadEntityProfile()
       return
     }
 
     resetDossiers()
+    resetCabinetBillingCatalog()
   }, [
     activeView,
     domainHasLoadedOnce,
     domainSnapshot.registeredDomainPath,
     loadEntityProfile,
+    loadChronology,
     loadDossiers,
+    resetCabinetBillingCatalog,
     resetDossiers
   ])
-
-  useEffect(() => {
-    resetDossierTransfer()
-  }, [activeDossierId, resetDossierTransfer])
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -274,7 +267,6 @@ export default function AppShell(): React.JSX.Element {
     }
   }, [ordicabSyncWarning])
 
-  // Clear stale warning when the active dossier changes (H1 fix)
   useEffect(() => {
     if (!ordicabSyncWarning) {
       return
@@ -293,16 +285,14 @@ export default function AppShell(): React.JSX.Element {
     setOrdicabSyncWarning(t('ordicab.sync.validation_failed'))
   }, [t])
 
-  // Use refs so the subscription is created once and reads current values
-  // without being torn down and recreated on every dossier/tab change (M3 fix)
   const activeDossierIdRef = useRef(activeDossierId)
-  const activeTabRef = useRef(activeTab)
+  const activeDestinationRef = useRef(activeDestination)
   useEffect(() => {
     activeDossierIdRef.current = activeDossierId
   }, [activeDossierId])
   useEffect(() => {
-    activeTabRef.current = activeTab
-  }, [activeTab])
+    activeDestinationRef.current = activeDestination
+  }, [activeDestination])
 
   useEffect(() => {
     const handleOrdicabDataChanged = async (event: OrdicabDataChangedEvent): Promise<void> => {
@@ -312,7 +302,6 @@ export default function AppShell(): React.JSX.Element {
         }
 
         if (event.dossierId !== activeDossierIdRef.current) {
-          // Invalider le cache pour forcer un rechargement frais au prochain open
           invalidateContacts(event.dossierId)
           return
         }
@@ -327,8 +316,8 @@ export default function AppShell(): React.JSX.Element {
       }
 
       if (event.type === 'dossier') {
-        // Toujours rafraîchir la liste (nom, statut, dates clés dans la sidebar)
         await loadDossiers()
+        void loadChronology()
 
         if (!event.dossierId || event.dossierId !== activeDossierIdRef.current) {
           return
@@ -353,7 +342,16 @@ export default function AppShell(): React.JSX.Element {
         return
       }
 
-      // Templates are domain-level — reload regardless of active tab (M1 fix)
+      if (event.type === 'cabinet-billing') {
+        await loadCabinetBillingCatalog()
+
+        if (useCabinetBillingStore.getState().errorCode === IpcErrorCode.VALIDATION_FAILED) {
+          showOrdicabValidationWarning()
+        }
+
+        return
+      }
+
       await loadTemplates()
 
       if (useTemplateStore.getState().errorCode === IpcErrorCode.VALIDATION_FAILED) {
@@ -366,6 +364,8 @@ export default function AppShell(): React.JSX.Element {
     })
   }, [
     invalidateContacts,
+    loadCabinetBillingCatalog,
+    loadChronology,
     loadContacts,
     loadDossierDetail,
     loadDossiers,
@@ -421,6 +421,8 @@ export default function AppShell(): React.JSX.Element {
 
   const handleOpenDossier = useCallback(
     async (id: string) => {
+      setActiveDestination('dossiers')
+      setActiveSection(DEFAULT_DOSSIER_SECTION)
       openDossierDetail(id)
       await Promise.all([
         openDossierRecord(id),
@@ -430,22 +432,42 @@ export default function AppShell(): React.JSX.Element {
     },
     [loadContacts, openDossierDetail, openDossierRecord, openDocumentSession]
   )
-  const handleNavigateToGenerate = useCallback((dossierId: string) => {
-    setGenerateDossierId(dossierId)
-    setActiveTab('modeles')
-  }, [])
-
-  const handleTabChange = useCallback((tab: TopNavTab) => {
-    if (tab !== 'modeles') {
-      setGenerateDossierId(null)
-    }
-    setActiveTab(tab)
-  }, [])
 
   const handleCloseDossier = useCallback(() => {
     closeDossierDetail()
+    setActiveSection(DEFAULT_DOSSIER_SECTION)
     void closeActiveDocumentSession()
   }, [closeActiveDocumentSession, closeDossierDetail])
+
+  const handleSelectDestination = useCallback((destination: SidebarDestination) => {
+    setActiveDestination(destination)
+  }, [])
+
+  const handleUnregisterDossier = useCallback(
+    async (id: string) => {
+      const ok = await unregisterDossier(id)
+      if (ok) {
+        handleCloseDossier()
+      }
+      return ok
+    },
+    [unregisterDossier, handleCloseDossier]
+  )
+
+  const handleOpenPicker = useCallback(() => {
+    setIsPickerOpen(true)
+  }, [])
+
+  const handleClosePicker = useCallback(() => {
+    setIsPickerOpen(false)
+  }, [])
+
+  const handleRegisterDossier = useCallback(
+    async (id: string) => {
+      return registerDossier(id)
+    },
+    [registerDossier]
+  )
 
   useEffect(() => {
     if (activeDashboardPanel === 'detail' && activeDossierId) {
@@ -479,13 +501,6 @@ export default function AppShell(): React.JSX.Element {
         IDLE_DOCUMENT_CONTENT_STATE)
       : IDLE_DOCUMENT_CONTENT_STATE
 
-  const domainStatusLabel =
-    activeView === 'dashboard'
-      ? t('domain.status_value_available')
-      : domainHasLoadedOnce && domainSnapshot.registeredDomainPath
-        ? t('domain.status_value_unavailable')
-        : t('domain.status_value_unconfigured')
-
   const isDashboardView = domainHasLoadedOnce && activeView === 'dashboard'
   const domainStatus = mapDomainStatus({
     activeView,
@@ -497,7 +512,7 @@ export default function AppShell(): React.JSX.Element {
   void mapStatus(versionStatus)
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-deep-space text-slate-100">
+    <main className="relative flex h-screen overflow-hidden bg-deep-space text-[#1a1a1a]">
       <AuroraBackground />
 
       <UpdateBanner />
@@ -520,124 +535,113 @@ export default function AppShell(): React.JSX.Element {
         onClose={() => setShowEntityOnboardingDialog(false)}
       />
 
-      {isDashboardView ? (
-        <TopNav
-          activeTab={activeTab}
-          domainStatus={domainStatus}
-          domainStatusLabel={domainStatusLabel}
-          versionLabel={versionLabel}
-          onTabChange={handleTabChange}
-        />
-      ) : null}
+      <FolderPickerDialog
+        open={isPickerOpen}
+        isLoading={dossierLoading}
+        eligibleFolders={eligibleFolders}
+        onLoadEligibleFolders={loadEligibleFolders}
+        onRegister={handleRegisterDossier}
+        onDismiss={handleClosePicker}
+      />
 
-      <div
-        className={`relative w-full ${
-          isDashboardView && activeTab === 'delegated'
-            ? 'flex flex-col overflow-hidden'
-            : isDashboardView
-              ? 'px-6 py-6 xl:py-8'
-              : 'mx-auto max-w-7xl px-5 md:px-8 flex min-h-screen flex-col justify-center py-8 md:py-12'
-        }`}
-        style={
-          isDashboardView && activeTab === 'delegated'
-            ? { height: 'calc(100vh - 3.5rem)' }
-            : undefined
-        }
-      >
-        {isDashboardView && ordicabSyncWarning ? (
-          <AlertBanner role="status" tone="warning" className="mb-4">
-            {ordicabSyncWarning}
-          </AlertBanner>
-        ) : null}
-        {isDashboardView ? (
-          <DomainDashboard
-            activeTab={activeTab}
-            templatesInitialDossierId={generateDossierId}
-            onNavigateToGenerate={handleNavigateToGenerate}
-            status={domainSnapshot}
-            isLoading={domainLoading}
-            isDossierLoading={dossierLoading}
-            isDossierDetailLoading={dossierDetailLoading}
-            isDossierSaving={dossierSaving}
-            isSavingLocale={isSavingLocale}
-            activeDashboardPanel={activeDashboardPanel}
-            activeDossierId={activeDossierId}
-            currentLocale={normalizeAppLocale(i18n.resolvedLanguage)}
-            dossiers={dossiers}
-            eligibleFolders={eligibleFolders}
+      {isDashboardView ? (
+        <>
+          <Sidebar
+            destination={activeDestination}
             activeDossier={activeDossier}
-            dossierError={dossierError}
-            dossierErrorCode={dossierErrorCode}
-            dossierNotice={dossierNotice}
-            dossierDetailError={dossierDetailError}
-            dossierDetailNotice={dossierDetailNotice}
-            contacts={contacts}
-            contactsIsLoading={isContactLoading}
-            contactsError={contactError}
-            documents={documents}
-            documentIsLoading={isDocumentLoading}
-            documentIsSaving={isSavingDocumentMetadata}
-            documentError={documentError}
-            documentWatchStatus={documentWatchStatus}
-            activePreviewDocumentId={activePreviewDocumentId}
-            documentPreviewState={documentPreviewState}
-            documentContentState={documentContentState}
-            dossierSortMode={dossierSortMode}
-            dossierStatusFilter={dossierStatusFilter}
-            entityName={entityProfile?.firmName ?? null}
-            onChangeDomain={handleChangeDomain}
-            onChangeLocale={handleLocaleChange}
-            onLoadEligibleFolders={loadEligibleFolders}
+            activeDossierId={activeDossierId}
+            activeSection={activeSection}
+            isDetailLoading={dossierDetailLoading}
+            versionLabel={versionLabel}
+            dossiers={dossiers}
+            isDossierLoading={dossierLoading}
+            statusFilter={dossierStatusFilter}
+            sortMode={dossierSortMode}
+            searchQuery={searchQuery}
+            onSelectDestination={handleSelectDestination}
             onOpenDossier={handleOpenDossier}
-            onRegisterDossier={registerDossier}
-            onSaveDossier={saveDossierDetail}
-            onUpsertContact={async (input) => {
-              await upsertContact(input)
-              return useContactStore.getState().error === null
-            }}
-            onDeleteContact={async (input) => {
-              await deleteContact(input)
-              return useContactStore.getState().error === null
-            }}
-            onUpsertDossierKeyDate={upsertDossierKeyDate}
-            onDeleteDossierKeyDate={deleteDossierKeyDate}
-            onUpsertDossierKeyReference={upsertDossierKeyReference}
-            onDeleteDossierKeyReference={deleteDossierKeyReference}
+            onOpenPicker={handleOpenPicker}
+            onSetStatusFilter={setDossierStatusFilter}
+            onSetSortMode={setDossierSortMode}
+            onSetSearchQuery={setSearchQuery}
             onCloseDossier={handleCloseDossier}
-            onSaveDocumentMetadata={saveDocumentMetadata}
-            onOpenDocumentPreview={openDocumentPreview}
-            onOpenDocumentFile={openDocumentFile}
-            onExtractDocumentContent={extractDocumentContent}
-            onExtractPendingDocumentContent={extractPendingDocumentContent}
-            onClearDocumentContentCache={clearDocumentContentCache}
-            onCloseDocumentPreview={() => {
-              if (activeDossierId) {
-                closeDocumentPreview(activeDossierId)
-              }
-            }}
-            dossierTransferError={dossierTransferError}
-            dossierTransferIsLoading={dossierTransferLoading}
-            exportRootPath={exportRootPath}
-            exportAnalysis={exportAnalysis}
-            importAnalysis={importAnalysis}
-            exportResult={exportResult}
-            importResult={importResult}
-            selectedImportFiles={selectedImportFiles}
-            isExporting={isExporting}
-            isImporting={isImporting}
-            onPickExportRoot={pickExportRoot}
-            onAnalyzeAiExport={analyzeAiExport}
-            onExportForAi={exportForAi}
-            onPickAndAnalyzeImport={pickAndAnalyzeImport}
-            onToggleImportFile={toggleImportFile}
-            onSetAllImportFiles={setAllImportFiles}
-            onImportAiProduction={importAiProduction}
-            onSetDossierSortMode={setDossierSortMode}
-            onSetDossierStatusFilter={setDossierStatusFilter}
-            onUnregisterDossier={unregisterDossier}
-            onClearDossierNotice={clearDossierNotice}
+            onSelectSection={setActiveSection}
+            onUnregisterDossier={handleUnregisterDossier}
           />
-        ) : (
+
+          <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+            {ordicabSyncWarning ? (
+              <AlertBanner role="status" tone="warning" className="m-4 mb-0">
+                {ordicabSyncWarning}
+              </AlertBanner>
+            ) : null}
+            <div className="min-h-0 flex-1 overflow-hidden p-6 xl:p-8">
+              <DomainDashboard
+                activeDestination={activeDestination}
+                activeDashboardPanel={activeDashboardPanel}
+                activeDossierId={activeDossierId}
+                activeSection={activeSection}
+                onChangeSection={setActiveSection}
+                status={domainSnapshot}
+                isLoading={domainLoading}
+                isDossierDetailLoading={dossierDetailLoading}
+                isDossierSaving={dossierSaving}
+                isSavingLocale={isSavingLocale}
+                currentLocale={normalizeAppLocale(i18n.resolvedLanguage)}
+                activeDossier={activeDossier}
+                dossierError={dossierError}
+                dossierNotice={dossierNotice}
+                dossierDetailError={dossierDetailError}
+                dossierDetailNotice={dossierDetailNotice}
+                contacts={contacts}
+                contactsIsLoading={isContactLoading}
+                contactsError={contactError}
+                documents={documents}
+                documentIsLoading={isDocumentLoading}
+                documentIsSaving={isSavingDocumentMetadata}
+                documentError={documentError}
+                documentWatchStatus={documentWatchStatus}
+                activePreviewDocumentId={activePreviewDocumentId}
+                documentPreviewState={documentPreviewState}
+                documentContentState={documentContentState}
+                entityName={entityProfile?.firmName ?? null}
+                onChangeDomain={handleChangeDomain}
+                onChangeLocale={handleLocaleChange}
+                onUpsertContact={async (input) => {
+                  await upsertContact(input)
+                  return useContactStore.getState().error === null
+                }}
+                onDeleteContact={async (input) => {
+                  await deleteContact(input)
+                  return useContactStore.getState().error === null
+                }}
+                onUpsertDossierKeyDate={upsertDossierKeyDate}
+                onDeleteDossierKeyDate={deleteDossierKeyDate}
+                onUpsertDossierFeeAgreement={upsertDossierFeeAgreement}
+                onDeleteDossierFeeAgreement={deleteDossierFeeAgreement}
+                onArchiveDossierFeeAgreement={archiveDossierFeeAgreement}
+                onSetActiveDossierFeeAgreement={setActiveDossierFeeAgreement}
+                onUpsertDossierBillingItem={upsertDossierBillingItem}
+                onDeleteDossierBillingItem={deleteDossierBillingItem}
+                onUpsertDossierKeyReference={upsertDossierKeyReference}
+                onDeleteDossierKeyReference={deleteDossierKeyReference}
+                onSaveDocumentMetadata={saveDocumentMetadata}
+                onOpenDocumentPreview={openDocumentPreview}
+                onOpenDocumentFile={openDocumentFile}
+                onExtractDocumentContent={extractDocumentContent}
+                onCloseDocumentPreview={() => {
+                  if (activeDossierId) {
+                    closeDocumentPreview(activeDossierId)
+                  }
+                }}
+                onClearDossierNotice={clearDossierNotice}
+                onOpenDossier={handleOpenDossier}
+              />
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col justify-center px-5 py-8 md:px-8 md:py-12">
           <OnboardingPage
             versionLabel={versionLabel}
             domainStatus={domainStatus}
@@ -645,8 +649,8 @@ export default function AppShell(): React.JSX.Element {
             error={domainError}
             onSelectDomain={handleDomainSelection}
           />
-        )}
-      </div>
+        </div>
+      )}
     </main>
   )
 }

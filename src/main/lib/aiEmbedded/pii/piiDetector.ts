@@ -56,6 +56,11 @@ export interface DetectedSpan {
   end: number
 }
 
+type PatternDef = {
+  re: RegExp
+  type: EntityType
+}
+
 // ── Regex patterns ─────────────────────────────────────────────────────────
 
 const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g
@@ -157,6 +162,14 @@ const PASSPORT_CONTEXT_RE =
 //   12 mars 1981, March 12 1981, January 12, 1981
 const MONTH_NAMES =
   'janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre|january|february|march|april|may|june|july|august|september|october|november|december'
+// Separator between the components of a TEXTUAL date ("16 octobre 2024"). OCR
+// routinely renders the day/month gap as a hyphen or dot ("16-octobre 2024",
+// "16.octobre.2024") instead of a space — those leaked through the old `\s+`
+// gap. A literal month name flanked by a day and a year is a strong enough
+// anchor that widening the separator does not add false positives. Kept in sync
+// with dateNormalization.TEXTUAL_DATE_SEP so a date the detector catches in
+// hyphenated form also parses on the revert side.
+const TEXTUAL_DATE_SEP = '[\\s./-]+'
 const DATE_TOKEN =
   '(?:' +
   // YYYY first — must come before the DD-first alternative because the engine
@@ -164,12 +177,20 @@ const DATE_TOKEN =
   // partially consumed by the DD\d{1,2} prefix.
   '\\d{4}[\\/\\-. ]\\d{1,2}[\\/\\-. ]\\d{1,2}' +
   '|\\d{1,2}[\\/\\-. ]\\d{1,2}[\\/\\-. ]\\d{2,4}' +
-  '|\\d{1,2}(?:er)?\\s+(?:' +
+  '|\\d{1,2}(?:er)?' +
+  TEXTUAL_DATE_SEP +
+  '(?:' +
   MONTH_NAMES +
-  ')\\s+\\d{2,4}' +
+  ')' +
+  TEXTUAL_DATE_SEP +
+  '\\d{2,4}' +
   '|(?:' +
   MONTH_NAMES +
-  ')\\s+\\d{1,2}(?:st|nd|rd|th)?,?\\s+\\d{2,4}' +
+  ')' +
+  TEXTUAL_DATE_SEP +
+  '\\d{1,2}(?:st|nd|rd|th)?,?' +
+  TEXTUAL_DATE_SEP +
+  '\\d{2,4}' +
   ')'
 
 // Birth date — context-anchored only. Generic dates (audience, échéance, etc.)
@@ -260,13 +281,13 @@ const LONG_NUMERIC_RE = /\b\d{8,}\b/g
 // not over-flag ordinary words or already-covered numeric IDs.
 const ALPHANUMERIC_REF_RE = /\b(?=[A-Z0-9/-]*[A-Z])(?=[A-Z0-9/-]*\d)[A-Z0-9][A-Z0-9/-]{5,23}\b/g
 
-const LOOSE_PATTERNS: Array<{ re: RegExp; type: EntityType }> = [
+const LOOSE_PATTERNS: PatternDef[] = [
   { re: DATE_RE, type: 'date' },
   { re: LONG_NUMERIC_RE, type: 'identifier' },
   { re: ALPHANUMERIC_REF_RE, type: 'identifier' }
 ]
 
-const STRUCTURAL_PATTERNS: Array<{ re: RegExp; type: EntityType }> = [
+const STRUCTURAL_PATTERNS: PatternDef[] = [
   // URL must come BEFORE email so a mailto:foo@bar URL claims the full URL span
   // rather than the inner email leaking the wrapping prefix.
   { re: URL_RE, type: 'url' },
@@ -297,7 +318,11 @@ const STRUCTURAL_PATTERNS: Array<{ re: RegExp; type: EntityType }> = [
 // Context-anchored patterns share the same shape: a keyword followed by a
 // captured value. Listed here so each new keyword-anchored detector becomes a
 // one-line addition rather than its own bespoke function.
-const CONTEXT_ANCHORED_PATTERNS: Array<{ re: RegExp; type: EntityType }> = [
+const PASSWORD_PATTERNS: PatternDef[] = [{ re: PASSWORD_CONTEXT_RE, type: 'password' }]
+
+const CONTEXT_ANCHORED_PATTERNS: PatternDef[] = [
+  { re: SIREN_CONTEXT_RE, type: 'companyId' },
+  { re: PASSPORT_CONTEXT_RE, type: 'passport' },
   { re: BIRTH_DATE_CONTEXT_RE, type: 'birthDate' },
   { re: TAX_ID_CONTEXT_RE, type: 'taxId' },
   { re: DRIVER_LICENSE_CONTEXT_RE, type: 'driverLicense' },
@@ -509,6 +534,125 @@ const ALL_CAPS_LEGAL_STOPWORDS = new Set([
   'MISE EN DEMEURE',
   'ASSIGNATION',
   'CONCLUSIONS',
+  // French legal-procedure acronyms & terms — boilerplate that pervades court
+  // documents (frequently OCR'd in ALL CAPS). Never PII; listing them keeps the
+  // capitalization heuristic and the NER fallback from tagging legal jargon as
+  // fake person / company names.
+  'JAF',
+  'CPC',
+  'CPCE',
+  'TGI',
+  'SAUJ',
+  'PORTALIS',
+  'REQUETE',
+  'REQUÊTE',
+  'REQUERANT',
+  'REQUÉRANT',
+  'REQUERANTE',
+  'REQUÉRANTE',
+  'DESISTEMENT',
+  'DÉSISTEMENT',
+  'DESSAISISSEMENT',
+  'RECEPISSE',
+  'RÉCÉPISSÉ',
+  'DEPOT',
+  'DÉPÔT',
+  'GREFFE',
+  'GREFFIER',
+  'GREFFIERE',
+  'GREFFIÈRE',
+  'AUDIENCE',
+  'AUDIENCES',
+  'INSTANCE',
+  'INSTANCES',
+  'DELIBERE',
+  'DÉLIBÉRÉ',
+  'RENVOI',
+  'SIGNIFICATION',
+  'EXPEDITION',
+  'EXPÉDITION',
+  'COPIE',
+  'CERTIFIEE',
+  'CERTIFIÉE',
+  'CONFORME',
+  'AFFAIRE',
+  'AFFAIRES',
+  'FAMILIALE',
+  'FAMILIALES',
+  'JUGE',
+  'JUGES',
+  'BARREAU',
+  'AVOCAT',
+  'AVOCATS',
+  'AVOCATE',
+  'MAITRE',
+  'MAÎTRE',
+  'HUISSIER',
+  'NOTAIRE',
+  'PROCEDURE',
+  'PROCÉDURE',
+  'CIVILE',
+  'PENALE',
+  'PÉNALE',
+  // English legal-procedure acronyms & terms — parallel to the French block
+  // above so the capitalization heuristic and the NER fallback behave
+  // identically on EN-language case files (i18n FR + EN).
+  'FRCP',
+  'DISCONTINUANCE',
+  'WITHDRAWAL',
+  'NONSUIT',
+  'DISMISSAL',
+  'REGISTRY',
+  'REGISTRAR',
+  'CLERK',
+  'HEARING',
+  'HEARINGS',
+  'SESSION',
+  'SITTING',
+  'PROCEEDING',
+  'PROCEEDINGS',
+  'DELIBERATION',
+  'ADJOURNMENT',
+  'REMAND',
+  'CONTINUANCE',
+  'REFERRAL',
+  'SERVICE',
+  'COPY',
+  'CERTIFIED',
+  'ATTORNEY',
+  'ATTORNEYS',
+  'LAWYER',
+  'LAWYERS',
+  'COUNSEL',
+  'SOLICITOR',
+  'SOLICITORS',
+  'BARRISTER',
+  'BARRISTERS',
+  'BAILIFF',
+  'NOTARY',
+  'PROCEDURE',
+  'CRIMINAL',
+  'PENAL',
+  'CASE',
+  'CASES',
+  'MATTER',
+  'MATTERS',
+  'FAMILY',
+  'JUDGE',
+  'JUDGES',
+  'JUSTICE',
+  'AFFIDAVIT',
+  'DEPOSITION',
+  'SUBPOENA',
+  'WRIT',
+  'SUMMONS',
+  'PLEADING',
+  'PLEADINGS',
+  'RULING',
+  'VERDICT',
+  'DOCKET',
+  'FILING',
+  'TRANSCRIPT',
   // English legal / formal document terms
   'WHEREAS',
   'THEREFORE',
@@ -972,10 +1116,38 @@ const CAPITALIZED_STOPWORDS = new Set([
   'Write'
 ])
 
-// HONORIFICS, NAME_TOKEN_RE, and NAME_TOKEN_OR_ALLCAPS are imported from
-// personNameDetection.ts — the shared module that is the single source of truth
-// for FR + EN title/name patterns. They are used here in detectCapitalized and
-// detectSalutationAnchored exactly as before.
+// Normalized (case- and diacritic-insensitive) lookup over the structural
+// stopword sets above. A token in any casing — "la", "La", "LA" — and any
+// diacritic form resolves to the same key, with surrounding punctuation
+// stripped ("de," → "de").
+function normalizeStopwordKey(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/^[^a-z]+|[^a-z]+$/g, '')
+    .trim()
+}
+
+const STOPWORD_KEYS: ReadonlySet<string> = new Set(
+  [...CAPITALIZED_STOPWORDS, ...ALL_CAPS_LEGAL_STOPWORDS].map(normalizeStopwordKey)
+)
+
+/**
+ * True when `token` is a common FR/EN function word or structural document
+ * stopword ("la", "de", "du", "vu", "article", a month name, …) — i.e. never a
+ * person name, regardless of casing or diacritics.
+ *
+ * Name detectors that tokenize a multi-word region into per-token spans MUST
+ * skip these. A single leaked stopword registered as a `name` entry poisons the
+ * whole conversation: `replaceSeededValues` then substitutes every later
+ * occurrence of that word, and the toxic entry persists across turns via the
+ * decode ledger. This is the guard the NER fallback split was missing.
+ */
+export function isStopwordToken(token: string): boolean {
+  const key = normalizeStopwordKey(token)
+  return key.length > 0 && STOPWORD_KEYS.has(key)
+}
 
 // Compiled once at module level to avoid per-call RegExp construction overhead
 const CAPITALIZED_RE = new RegExp(
@@ -1044,6 +1216,11 @@ function detectCapitalized(text: string): DetectedSpan[] {
     // section titles, common abbreviations in EN/FR documents) — skip them entirely.
     // Multi-word all-caps sequences (e.g. "DUPONT MARTIN") still pass through below.
     if (parts.length === 1 && isAllCapsToken(word) && !containsCompanyKeyword) continue
+
+    // A multi-word run whose every token is a structural stopword is document
+    // boilerplate ("JAF ORDONNANCE DE DESISTEMENT"), never a company or a
+    // person — skip it so it is not pseudonymized as parasitic noise.
+    if (!containsCompanyKeyword && parts.every(isStopwordToken)) continue
 
     if (
       allAreAllCaps &&
@@ -1131,65 +1308,33 @@ function detectSalutationAnchored(text: string): DetectedSpan[] {
 //
 // Delegated entirely to personNameDetection.detectTitleAnchoredNames, which
 // covers both FR and EN titles (Mr./Mrs./Ms./Sir/Prof./Doctor in addition to
-// the original FR-only set).  The returned NameSpan[] is structurally identical
+// the original FR-only set). The returned NameSpan[] is structurally identical
 // to DetectedSpan[] with type:'name', so it can be spread directly into the
 // priority merge below.
-//
-// The local TITLE_ANCHORED_RE and detectTitleAnchored function have been removed;
-// use detectTitleAnchoredNames from personNameDetection.ts instead.
 
-// ── Password detection ─────────────────────────────────────────────────────
+// ── Pattern-list span collection ───────────────────────────────────────────
 
-function detectPasswords(text: string): DetectedSpan[] {
+// Run each pattern over `text` and emit one span per match, typed by the
+// pattern. Used for patterns where the entire match is the PII (dates, long
+// numeric runs, structural patterns like email/URL/IBAN).
+function collectWholeMatchSpans(text: string, patterns: PatternDef[]): DetectedSpan[] {
   const spans: DetectedSpan[] = []
-  const re = new RegExp(PASSWORD_CONTEXT_RE.source, 'gi')
-  let m: RegExpExecArray | null
-  while ((m = re.exec(text)) !== null) {
-    const value = m[1]!
-    const start = m.index + m[0]!.lastIndexOf(value)
-    spans.push({ type: 'password', value, start, end: start + value.length })
+  for (const { re: source, type } of patterns) {
+    const re = new RegExp(source.source, source.flags)
+    let m: RegExpExecArray | null
+    while ((m = re.exec(text)) !== null) {
+      spans.push({ type, value: m[0]!, start: m.index, end: m.index + m[0]!.length })
+    }
   }
   return spans
 }
 
-// ── Context-anchored SIREN detection ──────────────────────────────────────
-//
-// A bare 9-digit number is too ambiguous to detect structurally.
-// This pass catches SIREN numbers when they appear with a registry keyword
-// (SIREN, RCS, RM, répertoire des métiers), which is standard in invoices
-// and legal documents.
-
-function detectSiren(text: string): DetectedSpan[] {
+// Like collectWholeMatchSpans, but the PII is capture group 1 (a keyword-
+// anchored value): the anchoring keyword stays in clear text, only the captured
+// value becomes a span. Used for context-anchored and password patterns.
+function collectCapturedValueSpans(text: string, patterns: PatternDef[]): DetectedSpan[] {
   const spans: DetectedSpan[] = []
-  const re = new RegExp(SIREN_CONTEXT_RE.source, 'gi')
-  let m: RegExpExecArray | null
-  while ((m = re.exec(text)) !== null) {
-    const value = m[1]!
-    const start = m.index + m[0]!.lastIndexOf(value)
-    spans.push({ type: 'companyId', value, start, end: start + value.length })
-  }
-  return spans
-}
-
-function detectPassport(text: string): DetectedSpan[] {
-  const spans: DetectedSpan[] = []
-  const re = new RegExp(PASSPORT_CONTEXT_RE.source, 'gi')
-  let m: RegExpExecArray | null
-  while ((m = re.exec(text)) !== null) {
-    const value = m[1]!
-    const start = m.index + m[0]!.lastIndexOf(value)
-    spans.push({ type: 'passport', value, start, end: start + value.length })
-  }
-  return spans
-}
-
-// Generic helper: every context-anchored pattern shares the same shape — a
-// keyword followed by a captured value in group 1. The captured group is the
-// PII; the keyword itself is intentionally left in clear text so the LLM still
-// sees the document structure.
-function detectContextAnchored(text: string): DetectedSpan[] {
-  const spans: DetectedSpan[] = []
-  for (const { re: source, type } of CONTEXT_ANCHORED_PATTERNS) {
+  for (const { re: source, type } of patterns) {
     const re = new RegExp(source.source, source.flags)
     let m: RegExpExecArray | null
     while ((m = re.exec(text)) !== null) {
@@ -1202,21 +1347,23 @@ function detectContextAnchored(text: string): DetectedSpan[] {
   return spans
 }
 
+function detectPasswords(text: string): DetectedSpan[] {
+  return collectCapturedValueSpans(text, PASSWORD_PATTERNS)
+}
+
+// The keyword anchoring each pattern is intentionally left in clear text so the
+// LLM still sees the document structure; only the captured value is redacted.
+function detectContextAnchored(text: string): DetectedSpan[] {
+  return collectCapturedValueSpans(text, CONTEXT_ANCHORED_PATTERNS)
+}
+
 // Loose / fallback detection — runs AFTER detectContextAnchored so that a span
 // already claimed by a more specific detector (birthDate, taxId, identifier
 // behind a keyword) wins via mergeSpans' stable-sort tie-breaking on identical
 // (start, end). Left-over dates and long alphanumeric runs are still redacted
 // rather than leaking through in clear text.
 function detectLoose(text: string): DetectedSpan[] {
-  const spans: DetectedSpan[] = []
-  for (const { re: source, type } of LOOSE_PATTERNS) {
-    const re = new RegExp(source.source, source.flags)
-    let m: RegExpExecArray | null
-    while ((m = re.exec(text)) !== null) {
-      spans.push({ type, value: m[0]!, start: m.index, end: m.index + m[0]!.length })
-    }
-  }
-  return spans
+  return collectWholeMatchSpans(text, LOOSE_PATTERNS)
 }
 
 // ── Wordlist detection ─────────────────────────────────────────────────────
@@ -1264,15 +1411,7 @@ export function mergeSpans(spans: DetectedSpan[]): DetectedSpan[] {
  * structural pattern so the regex layer no longer matches it.
  */
 export function detectStructuralPii(text: string): DetectedSpan[] {
-  const spans: DetectedSpan[] = []
-  for (const { re, type } of STRUCTURAL_PATTERNS) {
-    re.lastIndex = 0
-    let m: RegExpExecArray | null
-    while ((m = re.exec(text)) !== null) {
-      spans.push({ type, value: m[0]!, start: m.index, end: m.index + m[0]!.length })
-    }
-  }
-  return mergeSpans(spans)
+  return mergeSpans(collectWholeMatchSpans(text, STRUCTURAL_PATTERNS))
 }
 
 /**
@@ -1291,19 +1430,8 @@ export function detectStructuralPii(text: string): DetectedSpan[] {
  *   7. Capitalization       — multi-word Title Case with known-name anchor (broad heuristic)
  */
 export function detectPii(text: string, wordlist: string[] = []): DetectedSpan[] {
-  const structural: DetectedSpan[] = []
-
-  for (const { re, type } of STRUCTURAL_PATTERNS) {
-    re.lastIndex = 0
-    let m: RegExpExecArray | null
-    while ((m = re.exec(text)) !== null) {
-      structural.push({ type, value: m[0]!, start: m.index, end: m.index + m[0]!.length })
-    }
-  }
-
+  const structural = collectWholeMatchSpans(text, STRUCTURAL_PATTERNS)
   const passwords = detectPasswords(text)
-  const sirenSpans = detectSiren(text)
-  const passportSpans = detectPassport(text)
   const contextAnchored = detectContextAnchored(text)
   const legalRoleNames = detectNamesInLegalContext(text)
   const loose = detectLoose(text)
@@ -1325,8 +1453,6 @@ export function detectPii(text: string, wordlist: string[] = []): DetectedSpan[]
   //     specific markers above keep their type on identical (start, end).
   return mergeSpans([
     ...passwords,
-    ...sirenSpans,
-    ...passportSpans,
     ...contextAnchored,
     ...structural,
     ...legalRoleNames,

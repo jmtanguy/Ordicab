@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { ContactRecord, DossierDetail, EntityProfile, TemplateRecord } from '@shared/types'
+import type { DossierDetail, EntityProfile, TemplateRecord } from '@shared/types'
 
 import {
   getDomainClaudeMdPath,
@@ -12,7 +12,7 @@ import {
   getDomainTemplateRoutinesPath,
   getDomainTemplatesPath,
   getDossierClaudeMdPath,
-  getDossierContactsPath,
+  getDossierContactsDirectoryPath,
   getDossierMetadataPath
 } from '../../../lib/ordicab/ordicabPaths'
 import { buildDelegatedInstructions } from '../../../lib/aiDelegated/aiDelegatedInstructionsContent'
@@ -50,6 +50,8 @@ function createDossierDetail(overrides: Partial<DossierDetail> = {}): DossierDet
     nextUpcomingKeyDate: '2026-04-01',
     nextUpcomingKeyDateLabel: 'Hearing',
     registeredAt: '2026-03-01T09:00:00.000Z',
+    feeAgreements: [],
+    billingItems: [],
     keyDates: [
       {
         id: 'kd-1',
@@ -72,22 +74,6 @@ function createDossierDetail(overrides: Partial<DossierDetail> = {}): DossierDet
   }
 }
 
-function createContact(overrides: Partial<ContactRecord> = {}): ContactRecord {
-  return {
-    uuid: 'contact-1',
-    dossierId: 'Client Alpha',
-    firstName: 'Camille',
-    lastName: 'Martin',
-    role: 'Client',
-    institution: 'Martin Conseil',
-    addressLine: '12 rue du Palais',
-    city: 'Paris',
-    phone: '+33 1 23 45 67 89',
-    email: 'camille.martin@example.com',
-    ...overrides
-  }
-}
-
 function createTemplate(overrides: Partial<TemplateRecord> = {}): TemplateRecord {
   return {
     id: 'tpl-1',
@@ -104,8 +90,6 @@ function createTemplate(overrides: Partial<TemplateRecord> = {}): TemplateRecord
 function createEntity(overrides: Partial<EntityProfile> = {}): EntityProfile {
   return {
     firmName: 'Cabinet Martin',
-    profession: 'lawyer',
-    title: 'Me',
     firstName: 'Camille',
     lastName: 'Martin',
     address: '1 avenue de Paris',
@@ -140,7 +124,7 @@ async function createFixture(): Promise<{
     ...createDossierDetail(),
     documents: []
   })
-  await writeJson(join(dossierPath, '.ordicab', 'contacts.json'), [createContact()])
+  // contacts are now stored per-file — no pre-population needed for instructions tests
 
   return {
     domainPath,
@@ -213,9 +197,9 @@ describe('InstructionsGenerator', () => {
       expect(domainContent).toContain(getDomainEntityPath(domainPath))
       expect(domainContent).toContain(getDomainTemplatesPath(domainPath))
       expect(domainContent).toContain(join(domainPath, '.ordicab-delegated', 'inbox'))
-      expect(domainContent).toContain(getDossierContactsPath(dossierAlphaPath))
+      expect(domainContent).toContain(getDossierContactsDirectoryPath(dossierAlphaPath))
       expect(domainContent).toContain(getDossierMetadataPath(dossierAlphaPath))
-      expect(domainContent).toContain(getDossierContactsPath(dossierBetaPath))
+      expect(domainContent).toContain(getDossierContactsDirectoryPath(dossierBetaPath))
       expect(domainContent).toContain(getDossierMetadataPath(dossierBetaPath))
 
       // dossier scope - only one dossier
@@ -226,9 +210,9 @@ describe('InstructionsGenerator', () => {
         dossiers: [{ id: 'alpha', folderName: 'Client Alpha', folderPath: dossierAlphaPath }]
       })
 
-      expect(dossierContent).toContain(getDossierContactsPath(dossierAlphaPath))
+      expect(dossierContent).toContain(getDossierContactsDirectoryPath(dossierAlphaPath))
       expect(dossierContent).toContain(getDossierMetadataPath(dossierAlphaPath))
-      expect(dossierContent).not.toContain(getDossierContactsPath(dossierBetaPath))
+      expect(dossierContent).not.toContain(getDossierContactsDirectoryPath(dossierBetaPath))
       expect(dossierContent).not.toContain(getDossierMetadataPath(dossierBetaPath))
       expect(dossierContent).toContain(getDomainEntityPath(domainPath))
       expect(dossierContent).toContain(getDomainTemplatesPath(domainPath))
@@ -297,7 +281,7 @@ describe('InstructionsGenerator', () => {
     expect(content).toContain(getDomainEntityPath(domainPath))
     expect(content).toContain(getDomainTemplatesPath(domainPath))
     expect(content).toContain(getDomainTemplateRoutinesPath(domainPath))
-    expect(content).toContain(getDossierContactsPath(dossierPath))
+    expect(content).toContain(getDossierContactsDirectoryPath(dossierPath))
     expect(content).toContain(getDossierMetadataPath(dossierPath))
     expect(content).toContain('The only allowed write target is the inbox folder:')
     expect(content).not.toContain('Cabinet Martin')

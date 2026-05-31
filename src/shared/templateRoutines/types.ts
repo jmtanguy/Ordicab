@@ -3,7 +3,8 @@ export const TEMPLATE_ROUTINE_GROUPS = [
   'contact',
   'entity',
   'keyDates',
-  'keyRefs',
+  'feeAgreement',
+  'invoice',
   'system'
 ] as const
 
@@ -15,8 +16,14 @@ export interface TemplateRoutineEntry {
   group: TemplateRoutineGroup
   description: string
   descriptionFr?: string
-  subGroup?: 'address' | 'identity' | 'personalInfo' | 'salutation'
+  subGroup?: 'address' | 'identity' | 'personalInfo' | 'salutation' | 'banking' | 'legal' | 'bar'
   example: string
+  /**
+   * Catalog visibility in the TagReferencePanel. Defaults to 'core' (visible).
+   * - 'core': shown to all users
+   * - 'hidden': resolvable but not surfaced in the picker (legacy aliases, backward-compat)
+   */
+  visibility?: 'core' | 'hidden'
 }
 
 export const CONTACT_ROLE_FIELD_ALIASES: Array<{ en: string; fr: string }> = [

@@ -1,9 +1,22 @@
 import { useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import type { TemplateDraft, TemplateRecord } from '@shared/types'
+import {
+  TEMPLATE_DOCUMENT_KIND_VALUES,
+  type TemplateDocumentKind,
+  type TemplateDraft,
+  type TemplateRecord
+} from '@shared/types'
 
-import { AlertBanner, Button, Field, Input } from '@renderer/components/ui'
+import { AlertBanner, Button, Field, Input, Select } from '@renderer/components/ui'
+
+const DOCUMENT_KIND_LABEL: Record<TemplateDocumentKind, string> = {
+  document: 'Document',
+  invoice: 'Facture',
+  creditNote: 'Avoir',
+  correctiveInvoice: 'Facture rectificative'
+}
+import { copyTextToClipboard } from '@renderer/lib/clipboard'
 
 import { RichTextEditor } from './RichTextEditor'
 import { TagReferencePanel } from './TagReferencePanel'
@@ -29,6 +42,9 @@ interface TemplateEditorProps {
   onImportDocx?: () => Promise<void>
   onOpenDocx?: () => Promise<void>
   onRemoveDocx?: () => Promise<void>
+  onApplyCabinetDefaultDocx?: () => Promise<void>
+  /** Whether the cabinet has a default DOCX template — controls availability of the convert action. */
+  cabinetHasDefaultDocx?: boolean
 }
 
 export function TemplateEditor({
@@ -44,7 +60,9 @@ export function TemplateEditor({
   onSubmit,
   onImportDocx,
   onOpenDocx,
-  onRemoveDocx
+  onRemoveDocx,
+  onApplyCabinetDefaultDocx,
+  cabinetHasDefaultDocx
 }: TemplateEditorProps): React.JSX.Element {
   const { t } = useTranslation()
   const tagInsertRef = useRef<((tagPath: string) => void) | null>(null)
@@ -65,14 +83,14 @@ export function TemplateEditor({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex shrink-0 items-start justify-between gap-4">
         <div className="space-y-2">
-          <h3 className="text-base font-semibold text-slate-50">
+          <h3 className="text-base font-semibold text-[#1a1a1a]">
             {mode === 'create'
               ? isDocxCreationFlow
                 ? t('templates.editor.createDocxTitle')
                 : t('templates.editor.createTitle')
               : t('templates.editor.editTitle')}
           </h3>
-          <p className="text-sm text-slate-300">
+          <p className="text-sm text-[#1a1a1a]">
             {isDocxCreationFlow
               ? t('templates.editor.createDocxDescription')
               : t('templates.editor.description')}
@@ -94,7 +112,7 @@ export function TemplateEditor({
         }}
       >
         {/* Name + description row */}
-        <div className="grid shrink-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="grid shrink-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,12rem)]">
           <Field label={t('templates.editor.name')} htmlFor="template-name" error={errors.name}>
             <Input
               id="template-name"
@@ -113,16 +131,33 @@ export function TemplateEditor({
               placeholder={t('templates.editor.descriptionPlaceholder')}
             />
           </Field>
+
+          <Field
+            label={t('templates.editor.documentKind', { defaultValue: 'Type de document' })}
+            htmlFor="template-document-kind"
+          >
+            <Select
+              id="template-document-kind"
+              value={value.documentKind ?? 'document'}
+              onChange={(event) => onChange('documentKind', event.target.value)}
+            >
+              {TEMPLATE_DOCUMENT_KIND_VALUES.map((kind) => (
+                <option key={kind} value={kind}>
+                  {DOCUMENT_KIND_LABEL[kind]}
+                </option>
+              ))}
+            </Select>
+          </Field>
         </div>
 
-        <div className="flex shrink-0 items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-slate-100">
+        <div className="flex shrink-0 items-center justify-between gap-3 rounded-2xl border border-[#e5e3da] bg-white px-4 py-3 text-sm text-[#1a1a1a]">
           {hasDocxSource ? (
             <>
               <div className="flex items-center gap-2">
-                <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-xs font-semibold tracking-[0.12em] text-emerald-200">
+                <span className="rounded-full border border-[#cfe0c5] bg-[#f1f7ec] px-2 py-0.5 text-xs font-semibold tracking-[0.12em] text-[#3c6132]">
                   {t('templates.list.docxBadge')}
                 </span>
-                <span className="text-sm text-slate-300">{t('templates.editor.docxAttached')}</span>
+                <span className="text-sm text-[#1a1a1a]">{t('templates.editor.docxAttached')}</span>
               </div>
               <div className="flex items-center gap-2">
                 <Button type="button" size="sm" onClick={() => void onOpenDocx?.()}>
@@ -132,7 +167,7 @@ export function TemplateEditor({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="border border-rose-400/20 text-rose-300 hover:bg-rose-400/10"
+                  className="border border-[#e8c7c7] text-[#9c2f2f] hover:bg-[#fbf0f0]"
                   onClick={() => {
                     if (window.confirm(t('templates.editor.removeDocxConfirm'))) {
                       void onRemoveDocx?.()
@@ -147,13 +182,13 @@ export function TemplateEditor({
             <div className="flex w-full items-center justify-between gap-3">
               {hasPickedFile ? (
                 <div className="flex items-center gap-2">
-                  <span className="rounded-full border border-sky-400/30 bg-sky-400/10 px-2 py-0.5 text-xs font-semibold tracking-[0.12em] text-sky-200">
+                  <span className="rounded-full border border-aurora/30 bg-aurora/10 px-2 py-0.5 text-xs font-semibold tracking-[0.12em] text-aurora">
                     {t('templates.list.docxBadge')}
                   </span>
-                  <span className="truncate text-xs text-slate-300">{pickedFileName}</span>
+                  <span className="truncate text-xs text-[#1a1a1a]">{pickedFileName}</span>
                 </div>
               ) : (
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-[#5c5c5a]">
                   {t('templates.editor.docxImportHint')}
                 </span>
               )}
@@ -164,9 +199,30 @@ export function TemplateEditor({
               </Button>
             </div>
           ) : mode === 'create' && !template?.id ? (
-            <span className="text-xs text-slate-400">{t('templates.editor.richTextHint')}</span>
+            <span className="text-xs text-[#5c5c5a]">{t('templates.editor.richTextHint')}</span>
           ) : (
-            <div className="flex w-full items-center justify-end">
+            <div className="flex w-full items-center justify-end gap-2">
+              {mode === 'edit' && onApplyCabinetDefaultDocx ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={!cabinetHasDefaultDocx}
+                  title={
+                    cabinetHasDefaultDocx
+                      ? undefined
+                      : t('templates.editor.applyCabinetDocxMissing', {
+                          defaultValue:
+                            "Aucun modèle DOCX cabinet par défaut n'est défini dans la page Cabinet."
+                        })
+                  }
+                  onClick={() => void onApplyCabinetDefaultDocx()}
+                >
+                  {t('templates.editor.applyCabinetDocx', {
+                    defaultValue: 'Convertir en DOCX cabinet'
+                  })}
+                </Button>
+              ) : null}
               <Button type="button" variant="ghost" size="sm" onClick={() => void onImportDocx?.()}>
                 {t('templates.editor.importDocx')}
               </Button>
@@ -175,10 +231,10 @@ export function TemplateEditor({
         </div>
 
         {/* Content — two-column: editor left, tag panel right */}
-        <div className="flex min-h-0 flex-1 flex-col gap-2 text-sm text-slate-100">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 text-sm text-[#1a1a1a]">
           <div className="flex shrink-0 items-center justify-between gap-3">
             <label htmlFor="template-content">{contentLabel}</label>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-[#5c5c5a]">
               {isDocxCreationFlow && !hasPickedFile
                 ? t('templates.editor.createDocxHint')
                 : hasDocxSource || hasPickedFile
@@ -188,12 +244,12 @@ export function TemplateEditor({
           </div>
 
           <div
-            className={`grid min-h-0 flex-1 grid-cols-1 items-stretch gap-4 ${isDocxCreationFlow && !hasPickedFile ? '' : 'grid-cols-1 lg:grid-cols-[minmax(0,1fr)_22rem]'}`}
+            className={`grid min-h-0 flex-1 grid-cols-1 items-stretch gap-4 ${isDocxCreationFlow && !hasPickedFile ? '' : 'grid-cols-1 lg:grid-cols-[minmax(0,1fr)_30rem]'}`}
           >
             <div className="flex min-h-0 flex-col gap-3">
               {isDocxCreationFlow && !hasPickedFile ? (
-                <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 rounded-2xl border border-sky-300/20 bg-sky-300/5 p-8 text-center">
-                  <p className="max-w-xl text-sm text-slate-200">
+                <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 rounded-2xl border border-[#e5e3da] bg-[#eeece3] p-8 text-center">
+                  <p className="max-w-xl text-sm text-[#1a1a1a]">
                     {t('templates.editor.createDocxBody')}
                   </p>
                   <Button type="button" size="sm" onClick={() => void onImportDocx?.()}>
@@ -210,7 +266,7 @@ export function TemplateEditor({
                     readOnly={hasPickedFile || (mode === 'edit' && hasDocxSource)}
                   />
                   {errors.content ? (
-                    <span className="mt-1 block text-xs text-rose-300">{errors.content}</span>
+                    <span className="mt-1 block text-xs text-[#9c2f2f]">{errors.content}</span>
                   ) : null}
                 </div>
               )}
@@ -220,7 +276,7 @@ export function TemplateEditor({
               <TagReferencePanel
                 onInsertTag={
                   mode === 'edit' && hasDocxSource
-                    ? (tag) => void navigator.clipboard.writeText(tag)
+                    ? (tag) => copyTextToClipboard(tag)
                     : (tag) => tagInsertRef.current?.(tag)
                 }
                 referenceMode={mode === 'edit' && hasDocxSource}
@@ -229,7 +285,7 @@ export function TemplateEditor({
           </div>
         </div>
 
-        <div className="flex shrink-0 justify-end gap-2 border-t border-white/10 pt-4">
+        <div className="flex shrink-0 justify-end gap-2 border-t border-[#e5e3da] pt-4">
           <Button type="button" variant="ghost" onClick={onCancel}>
             {t('templates.editor.cancelButton')}
           </Button>

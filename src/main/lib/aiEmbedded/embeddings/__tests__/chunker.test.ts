@@ -17,7 +17,7 @@ describe('chunkText', () => {
 
   it('preserves the charStart/charEnd → slice invariant for every chunk', () => {
     const paragraphs = Array.from({ length: 10 }, (_, i) => `Paragraphe ${i} ` + 'a'.repeat(200))
-    const text = paragraphs.join('<NL>')
+    const text = paragraphs.join('\n\n')
     const chunks = chunkText(text, { maxChars: 500, overlapChars: 50 })
 
     expect(chunks.length).toBeGreaterThan(1)
@@ -31,7 +31,7 @@ describe('chunkText', () => {
     // would be ~800 chars. With maxChars=500 we expect two chunks whose
     // ranges overlap.
     const paragraphs = ['Le demandeur ' + 'x'.repeat(390), 'Le défendeur ' + 'y'.repeat(390)]
-    const text = paragraphs.join('<NL>')
+    const text = paragraphs.join('\n\n')
     const chunks = chunkText(text, { maxChars: 500, overlapChars: 100 })
 
     expect(chunks.length).toBeGreaterThanOrEqual(2)
@@ -60,7 +60,7 @@ describe('chunkText', () => {
 
   it('each chunk stays within maxChars ±1 paragraph size', () => {
     const paragraphs = Array.from({ length: 20 }, (_, i) => `Para ${i} ` + 'z'.repeat(150))
-    const text = paragraphs.join('<NL>')
+    const text = paragraphs.join('\n\n')
     const maxChars = 500
     const chunks = chunkText(text, { maxChars, overlapChars: 50 })
 
@@ -71,15 +71,13 @@ describe('chunkText', () => {
     }
   })
 
-  it('accepts both the normalized <NL> separator and raw double-newlines', () => {
+  it('splits on double-newline paragraph boundaries', () => {
     const a = 'alpha paragraph content'
     const b = 'beta paragraph content'
-    const withNl = chunkText(`${a}<NL>${b}`, { maxChars: 10 })
-    const withDouble = chunkText(`${a}\n\n${b}`, { maxChars: 10 })
+    const chunks = chunkText(`${a}\n\n${b}`, { maxChars: 10 })
 
-    // Both inputs must produce multiple chunks (otherwise the splitter
-    // didn't recognize the separator and the windowing degenerated).
-    expect(withNl.length).toBeGreaterThan(1)
-    expect(withDouble.length).toBeGreaterThan(1)
+    // Multiple chunks expected (otherwise the splitter didn't recognize the
+    // separator and the windowing degenerated).
+    expect(chunks.length).toBeGreaterThan(1)
   })
 })

@@ -4,7 +4,7 @@ import { immer } from 'zustand/middleware/immer'
 import type { EntityProfile, EntityProfileDraft } from '@shared/types'
 import { IpcErrorCode } from '@shared/types'
 
-import { getOrdicabApi, IPC_NOT_AVAILABLE_ERROR } from './ipc'
+import { getOrdicabApi, IPC_NOT_AVAILABLE_ERROR, requireApi } from './ipc'
 
 interface EntityStoreState {
   profile: EntityProfile | null
@@ -16,6 +16,9 @@ interface EntityStoreState {
 interface EntityStoreActions {
   load: () => Promise<void>
   save: (draft: EntityProfileDraft) => Promise<void>
+  importDefaultTemplate: () => Promise<{ imported: boolean; error?: string }>
+  openDefaultTemplate: () => Promise<{ ok: boolean; error?: string }>
+  removeDefaultTemplate: () => Promise<{ ok: boolean; error?: string }>
 }
 
 type EntityStore = EntityStoreState & EntityStoreActions
@@ -28,15 +31,8 @@ export const useEntityStore = create<EntityStore>()(
     error: null,
     errorCode: null,
     load: async () => {
-      const api = getOrdicabApi()
-
-      if (!api) {
-        set((state) => {
-          state.error = IPC_NOT_AVAILABLE_ERROR
-          state.errorCode = IpcErrorCode.NOT_FOUND
-        })
-        return
-      }
+      const api = requireApi(set)
+      if (!api) return
 
       set((state) => {
         state.isLoading = true
@@ -59,15 +55,8 @@ export const useEntityStore = create<EntityStore>()(
       })
     },
     save: async (draft) => {
-      const api = getOrdicabApi()
-
-      if (!api) {
-        set((state) => {
-          state.error = IPC_NOT_AVAILABLE_ERROR
-          state.errorCode = IpcErrorCode.NOT_FOUND
-        })
-        return
-      }
+      const api = requireApi(set)
+      if (!api) return
 
       const result = await api.entity.update(draft)
 
@@ -82,6 +71,60 @@ export const useEntityStore = create<EntityStore>()(
         state.error = null
         state.errorCode = null
       })
+    },
+    importDefaultTemplate: async () => {
+      const api = getOrdicabApi()
+      if (!api) {
+        return { imported: false, error: IPC_NOT_AVAILABLE_ERROR }
+      }
+      const result = await api.entity.importDefaultTemplate()
+      if (!result.success) {
+        set((state) => {
+          state.error = result.error
+          state.errorCode = result.code
+        })
+        return { imported: false, error: result.error }
+      }
+      if (!result.data) {
+        return { imported: false }
+      }
+      set((state) => {
+        state.profile = result.data
+        state.error = null
+        state.errorCode = null
+      })
+      return { imported: true }
+    },
+    openDefaultTemplate: async () => {
+      const api = getOrdicabApi()
+      if (!api) {
+        return { ok: false, error: IPC_NOT_AVAILABLE_ERROR }
+      }
+      const result = await api.entity.openDefaultTemplate()
+      if (!result.success) {
+        return { ok: false, error: result.error }
+      }
+      return { ok: true }
+    },
+    removeDefaultTemplate: async () => {
+      const api = getOrdicabApi()
+      if (!api) {
+        return { ok: false, error: IPC_NOT_AVAILABLE_ERROR }
+      }
+      const result = await api.entity.removeDefaultTemplate()
+      if (!result.success) {
+        set((state) => {
+          state.error = result.error
+          state.errorCode = result.code
+        })
+        return { ok: false, error: result.error }
+      }
+      set((state) => {
+        state.profile = result.data
+        state.error = null
+        state.errorCode = null
+      })
+      return { ok: true }
     }
   }))
 )

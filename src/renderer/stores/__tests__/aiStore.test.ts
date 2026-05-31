@@ -214,9 +214,6 @@ describe('aiStore', () => {
     useAiStore.setState({
       messages: [{ id: 'm1', role: 'user', text: 'Bonjour' }],
       commandLoading: true,
-      commandFeedback: 'ok',
-      commandError: 'err',
-      lastIntent: { type: 'unknown', message: 'x' },
       pendingClarification: { type: 'clarification_request', question: 'Q?', options: ['A'] },
       originalCommand: 'Bonjour',
       clarificationRound: 1,
@@ -229,9 +226,6 @@ describe('aiStore', () => {
     expect(resetConversation).toHaveBeenCalledTimes(1)
     expect(useAiStore.getState().messages).toEqual([])
     expect(useAiStore.getState().commandLoading).toBe(false)
-    expect(useAiStore.getState().commandFeedback).toBeNull()
-    expect(useAiStore.getState().commandError).toBeNull()
-    expect(useAiStore.getState().lastIntent).toBeNull()
     expect(useAiStore.getState().pendingClarification).toBeNull()
     expect(useAiStore.getState().originalCommand).toBeNull()
     expect(useAiStore.getState().clarificationRound).toBe(0)
@@ -244,7 +238,7 @@ describe('aiStore', () => {
     })
   })
 
-  it('passes prior user and assistant messages as history when executing a command', async () => {
+  it('does not send conversation history — the main-process runtime owns it', async () => {
     const executeCommand = vi.fn(async () => ({
       success: true as const,
       data: {
@@ -271,11 +265,7 @@ describe('aiStore', () => {
     expect(executeCommand).toHaveBeenCalledWith({
       command: 'Donne la suite',
       context: { dossierId: 'd1' },
-      model: undefined,
-      history: [
-        { role: 'user', content: 'Bonjour' },
-        { role: 'assistant', content: 'Salut' }
-      ]
+      model: undefined
     })
   })
 
@@ -306,8 +296,7 @@ describe('aiStore', () => {
     expect(executeCommand).toHaveBeenCalledWith({
       command: 'Oui',
       context: { dossierId: 'd1' },
-      model: undefined,
-      history: []
+      model: undefined
     })
   })
 
@@ -338,8 +327,7 @@ describe('aiStore', () => {
     expect(executeCommand).toHaveBeenCalledWith({
       command: 'Oui',
       context: { dossierId: 'd1' },
-      model: undefined,
-      history: []
+      model: undefined
     })
   })
 
@@ -371,8 +359,7 @@ describe('aiStore', () => {
     expect(executeCommand).toHaveBeenCalledWith({
       command: 'supprimer merlin — specifically: Julien Merlin — Huissier (id: uuid-2)',
       context: { dossierId: 'd1' },
-      model: undefined,
-      history: []
+      model: undefined
     })
   })
 
@@ -407,5 +394,63 @@ describe('aiStore', () => {
     ])
 
     unsubscribe()
+  })
+
+  it('setActiveDossierId resets the conversation when switching to a different dossier', async () => {
+    const resetConversation = vi.fn(async () => ({ success: true as const, data: null }))
+    ;(globalThis as MutableGlobal).ordicabAPI = {
+      ai: { resetConversation }
+    } as unknown as OrdicabAPI
+
+    useAiStore.setState({
+      activeDossierId: 'd1',
+      messages: [{ id: 'm1', role: 'user', text: 'Bonjour' }],
+      lastContext: { dossierId: 'd1' }
+    })
+
+    useAiStore.getState().setActiveDossierId('d2')
+
+    // Active dossier + context update synchronously…
+    expect(useAiStore.getState().activeDossierId).toBe('d2')
+    expect(useAiStore.getState().lastContext.dossierId).toBe('d2')
+
+    // …and the stale conversation is cleared (async, via the main-process reset).
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(resetConversation).toHaveBeenCalledTimes(1)
+    expect(useAiStore.getState().messages).toEqual([])
+    expect(useAiStore.getState().lastContext.dossierId).toBe('d2')
+  })
+
+  it('setActiveDossierId does not reset when there is no existing conversation', async () => {
+    const resetConversation = vi.fn(async () => ({ success: true as const, data: null }))
+    ;(globalThis as MutableGlobal).ordicabAPI = {
+      ai: { resetConversation }
+    } as unknown as OrdicabAPI
+
+    useAiStore.setState({ activeDossierId: null, messages: [] })
+
+    useAiStore.getState().setActiveDossierId('d1')
+
+    expect(useAiStore.getState().activeDossierId).toBe('d1')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(resetConversation).not.toHaveBeenCalled()
+  })
+
+  it('setActiveDossierId is a no-op when the dossier id does not change', async () => {
+    const resetConversation = vi.fn(async () => ({ success: true as const, data: null }))
+    ;(globalThis as MutableGlobal).ordicabAPI = {
+      ai: { resetConversation }
+    } as unknown as OrdicabAPI
+
+    useAiStore.setState({
+      activeDossierId: 'd1',
+      messages: [{ id: 'm1', role: 'user', text: 'Bonjour' }]
+    })
+
+    useAiStore.getState().setActiveDossierId('d1')
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(resetConversation).not.toHaveBeenCalled()
+    expect(useAiStore.getState().messages).toHaveLength(1)
   })
 })

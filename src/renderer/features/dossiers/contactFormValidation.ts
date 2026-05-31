@@ -1,6 +1,6 @@
 import type { ContactUpsertInput } from '@shared/types'
 import { getManagedFieldKey, type ManagedFieldDefinition } from '@shared/managedFields'
-import { getLegacyContactManagedFields } from '@shared/professionDefaults'
+import { getDefaultContactFields } from '@shared/professionDefaults'
 import { setContactManagedFieldValue } from '@shared/types'
 import { labelToKey } from '@shared/templateContent'
 
@@ -72,7 +72,7 @@ export function validateContactFormInput(
     maidenName: input.maidenName
   }
 
-  const customFieldDefinitions = options.customFieldDefinitions ?? getLegacyContactManagedFields()
+  const customFieldDefinitions = options.customFieldDefinitions ?? getDefaultContactFields()
 
   for (const definition of customFieldDefinitions) {
     const definitionKey = getManagedFieldKey(definition)

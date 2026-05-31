@@ -1,16 +1,11 @@
 import type { TemplateRoutineEntry, TemplateRoutineGroup } from '@shared/templateRoutines'
-import {
-  CONTACT_ROLE_FIELD_ALIASES,
-  TEMPLATE_ROUTINE_GROUPS,
-  templateRoutineCatalog
-} from '@shared/templateRoutines'
+import { TEMPLATE_ROUTINE_GROUPS, templateRoutineCatalog } from '@shared/templateRoutines'
+import { labelToKey } from '@shared/templateContent'
 import {
   getManagedFieldKey,
   normalizeManagedFieldsConfig,
   type EntityManagedFieldsConfig
 } from '@shared/managedFields'
-import { getLegacyContactManagedFields } from '@shared/professionDefaults'
-import type { Profession } from '@shared/validation'
 import { roleToTagKey } from '../dossiers/rolePresets'
 
 export const TAG_GROUPS = TEMPLATE_ROUTINE_GROUPS
@@ -92,55 +87,16 @@ const CONTACT_ROLE_FIELDS: Array<{
   }
 ]
 
-const MANAGED_CONTACT_FIELD_KEYS = new Set(
-  getLegacyContactManagedFields().map((field) => getManagedFieldKey(field))
-)
-const CONTACT_FIELD_ALIAS_BY_KEY = new Map(CONTACT_ROLE_FIELD_ALIASES.map(({ en, fr }) => [en, fr]))
-const CONTACT_IDENTITY_FIELD_KEYS = new Set([
+const RECOMMENDED_CONTACT_ROLE_FIELDS = new Set([
   'displayName',
-  'title',
-  'firstName',
-  'firstNames',
-  'lastName',
-  'role',
+  'salutationFull',
+  'dear',
+  'addressFormatted',
   'email',
-  'phone',
-  'institution'
-])
-const CONTACT_PERSONAL_INFO_FIELD_KEYS = new Set([
-  'additionalFirstNames',
-  'maidenName',
-  'dateOfBirth',
-  'countryOfBirth',
-  'nationality',
-  'occupation',
-  'socialSecurityNumber'
+  'phone'
 ])
 
-function isStaticManagedContactEntry(entry: TagCatalogEntry): boolean {
-  if (entry.group !== 'contact') {
-    return false
-  }
-
-  const match = /^\{\{contact\.([^.}]+)\}\}$/.exec(entry.tag)
-  return match ? MANAGED_CONTACT_FIELD_KEYS.has(match[1] ?? '') : false
-}
-
-function getContactSubGroup(fieldKey: string): TagCatalogEntry['subGroup'] | undefined {
-  if (CONTACT_IDENTITY_FIELD_KEYS.has(fieldKey)) {
-    return 'identity'
-  }
-
-  if (CONTACT_PERSONAL_INFO_FIELD_KEYS.has(fieldKey)) {
-    return 'personalInfo'
-  }
-
-  return undefined
-}
-
-export const tagCatalog: TagCatalogEntry[] = templateRoutineCatalog.filter(
-  (entry) => !isStaticManagedContactEntry(entry)
-)
+export const tagCatalog: TagCatalogEntry[] = templateRoutineCatalog
 
 /**
  * Returns role-keyed tag entries for the given role labels.
@@ -148,66 +104,96 @@ export const tagCatalog: TagCatalogEntry[] = templateRoutineCatalog.filter(
  */
 export function buildRoleTagEntries(roles: string[]): TagCatalogEntry[] {
   return roles.flatMap((role) =>
-    CONTACT_ROLE_FIELDS.map(({ field, fieldFr, example, subGroup }) => ({
-      tag: `{{contact.${roleToTagKey(role)}.${field}}}`,
-      tagFr: fieldFr ? `{{contact.${roleToTagKey(role)}.${fieldFr}}}` : undefined,
-      group: 'contact' as TagGroup,
-      description: `${field} du contact « ${role} »`,
-      descriptionFr: `${fieldFr ?? field} du contact « ${role} »`,
+    CONTACT_ROLE_FIELDS.filter(({ field }) => RECOMMENDED_CONTACT_ROLE_FIELDS.has(field)).map(
+      ({ field, fieldFr, example, subGroup }) => ({
+        tag: `{{contact.${roleToTagKey(role)}.${field}}}`,
+        tagFr: fieldFr ? `{{contact.${roleToTagKey(role)}.${fieldFr}}}` : undefined,
+        group: 'contact' as TagGroup,
+        description: `${field} du contact « ${role} »`,
+        descriptionFr: `${fieldFr ?? field} du contact « ${role} »`,
+        subGroup,
+        example
+      })
+    )
+  )
+}
+
+function buildFeeAgreementContactTagEntries(
+  role: 'client' | 'signatory',
+  roleFr: string
+): TagCatalogEntry[] {
+  return CONTACT_ROLE_FIELDS.filter(({ field }) => RECOMMENDED_CONTACT_ROLE_FIELDS.has(field)).map(
+    ({ field, fieldFr, example, subGroup }) => ({
+      tag: `{{dossier.feeAgreement.${role}.${field}}}`,
+      tagFr: `{{convention.${roleFr}.${fieldFr ?? field}}}`,
+      group: 'feeAgreement' as TagGroup,
+      description: `${field} du ${role === 'client' ? 'client contractant' : 'signataire'}`,
+      descriptionFr: `${fieldFr ?? field} du ${role === 'client' ? 'client contractant' : 'signataire'}`,
       subGroup,
       example
-    }))
+    })
   )
 }
 
-function buildLocalizedManagedContactTag(path: string, fieldKey: string): string | undefined {
-  const fieldFr = CONTACT_FIELD_ALIAS_BY_KEY.get(fieldKey)
-  return fieldFr ? path.replace(fieldKey, fieldFr) : undefined
-}
-
-function buildManagedContactTagEntries(
+function buildManagedDossierReferenceTagEntries(
   managedFields: EntityManagedFieldsConfig
 ): TagCatalogEntry[] {
-  const primaryEntries = managedFields.contacts.map((definition) => {
-    const fieldKey = getManagedFieldKey(definition)
-    const tag = `{{contact.${fieldKey}}}`
-
+  return managedFields.keyReferences.map((definition) => {
+    const key = labelToKey(definition.label)
+    const tag = `{{dossier.${key}}}`
     return {
       tag,
-      tagFr: buildLocalizedManagedContactTag(tag, fieldKey),
-      group: 'contact' as TagGroup,
-      description: `${definition.label} du contact principal`,
-      descriptionFr: `${definition.label} du contact principal`,
-      subGroup: getContactSubGroup(fieldKey),
-      example: definition.type === 'date' ? '1985-06-15' : definition.label
+      tagFr: tag,
+      group: 'dossier' as TagGroup,
+      description: `Référence dossier « ${definition.label} »`,
+      descriptionFr: `Référence dossier « ${definition.label} »`,
+      example: definition.label
     }
   })
+}
 
-  const roleEntries = Object.entries(managedFields.contactRoleFields).flatMap(
-    ([roleKey, fieldKeys]) =>
-      fieldKeys.flatMap((fieldKey) => {
-        const definition = managedFields.contacts.find(
-          (entry) => getManagedFieldKey(entry) === fieldKey
-        )
-        if (!definition) return []
+// Index of the static contact-level personalInfo entries keyed by their
+// canonical English field key. Default managed contact fields reuse these
+// rich entries (French alias, example, polished description).
+const STATIC_CONTACT_PERSONAL_INFO_BY_KEY = new Map<string, TagCatalogEntry>(
+  templateRoutineCatalog
+    .filter((entry) => entry.group === 'contact' && entry.subGroup === 'personalInfo')
+    .map((entry) => {
+      const match = /^\{\{\s*contact\.([^.]+)\s*\}\}$/.exec(entry.tag)
+      return match ? ([match[1]!, entry] as const) : null
+    })
+    .filter(Boolean) as Array<readonly [string, TagCatalogEntry]>
+)
 
-        const tag = `{{contact.${roleKey}.${getManagedFieldKey(definition)}}}`
+function buildManagedContactFieldTagEntries(
+  managedFields: EntityManagedFieldsConfig
+): TagCatalogEntry[] {
+  return managedFields.contacts.map((definition) => {
+    const englishKey = getManagedFieldKey(definition)
+    const staticEntry = STATIC_CONTACT_PERSONAL_INFO_BY_KEY.get(englishKey)
+    if (staticEntry) return staticEntry
 
-        return [
-          {
-            tag,
-            tagFr: buildLocalizedManagedContactTag(tag, getManagedFieldKey(definition)),
-            group: 'contact' as TagGroup,
-            description: `${definition.label} du contact « ${roleKey} »`,
-            descriptionFr: `${definition.label} du contact « ${roleKey} »`,
-            subGroup: getContactSubGroup(getManagedFieldKey(definition)),
-            example: definition.type === 'date' ? '1985-06-15' : definition.label
-          }
-        ]
-      })
-  )
+    const labelKey = labelToKey(definition.label)
+    const tag = `{{contact.${labelKey}}}`
+    return {
+      tag,
+      tagFr: tag,
+      group: 'contact' as TagGroup,
+      subGroup: 'personalInfo' as const,
+      description: `Primary contact ${definition.label}`,
+      descriptionFr: `${definition.label} du contact principal`,
+      example: definition.label
+    }
+  })
+}
 
-  return [...primaryEntries, ...roleEntries]
+function dedupeTagEntries(entries: TagCatalogEntry[]): TagCatalogEntry[] {
+  const seen = new Set<string>()
+  return entries.filter((entry) => {
+    if (seen.has(entry.tag)) return false
+    seen.add(entry.tag)
+    return true
+  })
 }
 
 /**
@@ -215,12 +201,29 @@ function buildManagedContactTagEntries(
  * derived from the given profession.
  */
 export function getTagCatalog(
-  profession?: Profession | null,
   managedFieldsInput?: EntityManagedFieldsConfig | null
 ): TagCatalogEntry[] {
-  const managedFields = normalizeManagedFieldsConfig(managedFieldsInput, profession)
+  const managedFields = normalizeManagedFieldsConfig(managedFieldsInput)
   const roleEntries = buildRoleTagEntries(managedFields.contactRoles)
-  const managedContactEntries = buildManagedContactTagEntries(managedFields)
+  const managedDossierReferenceEntries = buildManagedDossierReferenceTagEntries(managedFields)
+  const managedContactFieldEntries = buildManagedContactFieldTagEntries(managedFields)
+  const feeAgreementEntries = [
+    ...buildFeeAgreementContactTagEntries('client', 'client'),
+    ...buildFeeAgreementContactTagEntries('signatory', 'signataire')
+  ]
 
-  return [...tagCatalog, ...managedContactEntries, ...roleEntries]
+  // Drop static contact-level personalInfo entries — the picker now sources
+  // them from managedFields.contacts so removing/adding a field in settings
+  // is reflected in the routine dialog.
+  const baseCatalog = tagCatalog.filter(
+    (entry) => !(entry.group === 'contact' && entry.subGroup === 'personalInfo')
+  )
+
+  return dedupeTagEntries([
+    ...baseCatalog,
+    ...managedContactFieldEntries,
+    ...managedDossierReferenceEntries,
+    ...feeAgreementEntries,
+    ...roleEntries
+  ])
 }

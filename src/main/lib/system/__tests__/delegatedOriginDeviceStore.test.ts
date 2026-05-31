@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { createDelegatedOriginDeviceStore } from '../delegatedOriginDeviceStore'
+import { createAppStateStore } from '../appStateStore'
 
 const tempDirs: string[] = []
 
@@ -23,7 +24,7 @@ describe('delegatedOriginDeviceStore', () => {
     const root = await createTempDir()
     const stateFilePath = join(root, 'app-state.json')
 
-    const store = createDelegatedOriginDeviceStore(stateFilePath)
+    const store = createDelegatedOriginDeviceStore(createAppStateStore(stateFilePath))
     const originDeviceId = await store.getOriginDeviceId()
 
     expect(originDeviceId).toBeTruthy()
@@ -33,7 +34,7 @@ describe('delegatedOriginDeviceStore', () => {
     }
     expect(persisted.delegatedAi?.originDeviceId).toBe(originDeviceId)
 
-    const reloadedStore = createDelegatedOriginDeviceStore(stateFilePath)
+    const reloadedStore = createDelegatedOriginDeviceStore(createAppStateStore(stateFilePath))
     await expect(reloadedStore.getOriginDeviceId()).resolves.toBe(originDeviceId)
   })
 })

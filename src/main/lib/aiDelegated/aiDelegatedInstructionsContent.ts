@@ -25,7 +25,7 @@ import {
   getDomainRegistryPath,
   getDomainTemplateRoutinesPath,
   getDomainTemplatesPath,
-  getDossierContactsPath,
+  getDossierContactsDirectoryPath,
   getDossierMetadataPath
 } from '../ordicab/ordicabPaths'
 
@@ -149,7 +149,6 @@ function buildDelegatedExamples(): {
 
   const entity = entityProfileSchema.parse({
     firmName: 'Cabinet Exemple',
-    profession: 'lawyer',
     title: 'Me',
     firstName: 'Alex',
     lastName: 'Dupres',
@@ -207,7 +206,7 @@ export function buildTemplateRoutinesGuide(domainPath: string): string {
     '1. Prefer a routine from this file whenever it already matches the requested data.',
     '2. Do not invent unsupported roots or fields.',
     '3. For role-specific contacts, use `{{contact.<roleKey>.<field>}}` with the Ordicab role key in camelCase.',
-    '4. For key dates and key references, replace `<label>` with the canonical camelCase key derived from the saved label.',
+    '4. For chronology dates, replace `<label>` with the canonical camelCase key derived from the saved label.',
     '5. If the needed data is not supported by these routines, first store it in Ordicab canonical data or ask for clarification before creating template content that depends on it.',
     '',
     '## Date Formatting Principle',
@@ -279,8 +278,8 @@ export function buildTemplateRoutinesGuide(domainPath: string): string {
     '  - Example: `{{contact.opposingCounsel.email}}`',
     '- Key dates: `{{dossier.keyDate.<label>}}`',
     '  - Example: `{{dossier.keyDate.hearingDate}}`',
-    '- Key references: `{{dossier.keyRef.<label>}}`',
-    '  - Example: `{{dossier.keyRef.caseNumber}}`',
+    '- Dossier references are direct dossier fields derived from visible key references, e.g. `{{dossier.nRg}}`, `{{dossier.tribunal}}`, `{{dossier.juridiction}}`.',
+    '- Invoice services must use the complete block `{{invoice.linesTable}}`; do not create billing loops or item selectors.',
     ''
   )
 
@@ -882,7 +881,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
     for (const dossier of params.dossiers) {
       lines.push(
         `- ${dossier.folderName} (${dossier.id}${dossier.uuid ? `, uuid: ${dossier.uuid}` : ''})`,
-        `  - contacts.json: ${getDossierContactsPath(dossier.folderPath)}`,
+        `  - contacts/: ${getDossierContactsDirectoryPath(dossier.folderPath)}`,
         `  - dossier.json: ${getDossierMetadataPath(dossier.folderPath)}`
       )
     }
@@ -946,7 +945,7 @@ export function buildDomainRootAiDelegatedInstructions(input: {
         `- ${basename(dossier.dossierPath)}`,
         `  - Folder: ${dossier.dossierPath}`,
         `  - dossier.json: ${getDossierMetadataPath(dossier.dossierPath)}`,
-        `  - contacts.json: ${getDossierContactsPath(dossier.dossierPath)}`,
+        `  - contacts/: ${getDossierContactsDirectoryPath(dossier.dossierPath)}`,
         `  - documents root: ${dossier.dossierPath}`
       )
     }

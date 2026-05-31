@@ -1,32 +1,3 @@
-/**
- * aiHandler — IPC handler registrations for all AI-related channels.
- *
- * Handles (invoke/response pattern):
- *   ai:settings-get        — read current AI settings from state file.
- *   ai:settings-save       — persist AI settings + optional API key encryption.
- *   ai:delete-api-key      — remove stored API key via credentialStore.
- *   ai:connection-status   — probe Ollama endpoint reachability.
- *   ai:cloud-provider-status — check CLI tool availability for external modes.
- *   ai:execute-command     — run a natural language command through the AI pipeline.
- *   ai:reset-conversation  — clear the current AI conversation state.
- *                            Also pushes ai:intent-received to the renderer after dispatch.
- *
- * All handlers follow the IpcResult<T> contract: never throw, always return
- * { success: true, data } or { success: false, error, code }.
- *
- * The aiService and webContents dependencies are optional so existing tests
- * that don't provide them still pass; the handler returns AI_RUNTIME_UNAVAILABLE
- * if aiService is missing at runtime.
- *
- * Called by: main/index.ts → registerIpcHandlers()
- * Calls:     aiService | credentialStore | externalProviderChecker
- */
-import { readFile } from 'node:fs/promises'
-import { constants } from 'node:fs'
-import { access } from 'node:fs/promises'
-
-import { ZodError } from 'zod'
-
 import {
   IPC_CHANNELS,
   IpcErrorCode,
@@ -36,13 +7,12 @@ import {
   type RemoteConnectionResult,
   type AiSettingsSaveInput,
   type AiSettingsResponse,
-  type InternalAiCommand,
   type IpcError,
   type IpcResult,
   type OllamaConnectionResult
 } from '@shared/types'
 
-import { atomicWrite } from '../lib/system/atomicWrite'
+import type { AppStateStore } from '../lib/system/appStateStore'
 import { aiCommandInputSchema, aiSettingsSaveSchema } from '@shared/validation/ai'
 import {
   normalizeOpenAiCompatibleBaseUrl,
@@ -58,26 +28,7 @@ import {
   type CredentialStore
 } from '../lib/system/credentialStore'
 import type { AiService } from '../services/aiEmbedded/aiService'
-
-interface IpcMainLike {
-  handle: (
-    channel: string,
-    listener: (_event: unknown, input?: unknown) => Promise<unknown>
-  ) => void
-}
-
-interface AppStateFile {
-  ai?: {
-    mode?: string
-    ollamaEndpoint?: string
-    remoteProviderKind?: string
-    remoteProjectRef?: string
-    remoteProvider?: string
-    encryptedApiKey?: string
-    [key: string]: unknown
-  }
-  [key: string]: unknown
-}
+import { type IpcMainLike, type WebContentsLike, mapIpcError, resolveEventWebContents } from './ipc'
 
 const DEFAULT_AI_SETTINGS = {
   mode: 'local' as const,
@@ -185,107 +136,35 @@ async function probeRemoteProvider(input: {
   }
 }
 
-async function pathExists(filePath: string): Promise<boolean> {
-  try {
-    await access(filePath, constants.F_OK)
-    return true
-  } catch {
-    return false
-  }
-}
-
-async function readAppState(stateFilePath: string): Promise<AppStateFile> {
-  if (!(await pathExists(stateFilePath))) {
-    return {}
-  }
-
-  try {
-    const raw = await readFile(stateFilePath, 'utf8')
-    const parsed = JSON.parse(raw) as unknown
-
-    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-      return parsed as AppStateFile
-    }
-
-    return {}
-  } catch {
-    return {}
-  }
-}
-
-function mapAiError(error: unknown, fallbackMessage: string): IpcError {
-  if (error instanceof ZodError) {
-    return {
-      success: false,
-      error: 'Invalid AI settings input.',
-      code: IpcErrorCode.VALIDATION_FAILED
-    }
-  }
-
-  if (error instanceof CredentialStoreUnavailableError) {
-    return {
-      success: false,
-      error: error.message,
-      code: IpcErrorCode.AI_RUNTIME_UNAVAILABLE
-    }
-  }
-
-  if (
-    error instanceof Error &&
-    'code' in error &&
-    typeof (error as { code: unknown }).code === 'string'
-  ) {
-    const code = (error as { code: string }).code
-    if (Object.values(IpcErrorCode).includes(code as IpcErrorCode)) {
-      return {
-        success: false,
-        error: error.message,
-        code: code as IpcErrorCode
-      }
-    }
-  }
-
-  return {
-    success: false,
-    error: error instanceof Error ? error.message : fallbackMessage,
-    code: IpcErrorCode.UNKNOWN
-  }
-}
+const mapAiError = (error: unknown, fallback: string): IpcError =>
+  mapIpcError(error, fallback, {
+    validationMessage: 'Invalid AI settings input.',
+    overrides: [[CredentialStoreUnavailableError, IpcErrorCode.AI_RUNTIME_UNAVAILABLE]],
+    fallbackCode: IpcErrorCode.UNKNOWN
+  })
 
 function getSuffix(key: string | null): string | undefined {
   if (!key || key.length < 4) return undefined
   return key.slice(-4)
 }
 
-interface WebContentsLike {
-  send(channel: string, ...args: unknown[]): void
-}
-
-function resolveEventWebContents(event: unknown): WebContentsLike | null {
-  if (!event || typeof event !== 'object') return null
-  const sender = (event as { sender?: unknown }).sender
-  if (!sender || typeof sender !== 'object') return null
-  if (typeof (sender as { send?: unknown }).send !== 'function') return null
-  return sender as WebContentsLike
-}
-
 export function registerAiHandlers(options: {
   ipcMain: IpcMainLike
   credentialStore: CredentialStore
-  stateFilePath: string
+  appState: AppStateStore
   onModeChanged?: (settings: AiSettingsSaveInput) => void
   checker?: AiDelegatedProviderChecker
   aiService?: AiService
   webContents?: WebContentsLike
   getWebContents?: () => WebContentsLike | null | undefined
 }): void {
-  const { ipcMain, credentialStore, stateFilePath, onModeChanged } = options
+  const { ipcMain, credentialStore, appState, onModeChanged } = options
   const checker = options.checker ?? createAiDelegatedProviderChecker()
   const { aiService, webContents, getWebContents } = options
 
   ipcMain.handle(IPC_CHANNELS.ai.settingsGet, async (): Promise<IpcResult<AiSettingsResponse>> => {
     try {
-      const state = await readAppState(stateFilePath)
+      const state = await appState.read()
       const ai = state.ai
 
       if (!ai || typeof ai.mode === 'undefined') {
@@ -346,19 +225,15 @@ export function registerAiHandlers(options: {
       try {
         const parsed = aiSettingsSaveSchema.parse(input)
 
-        const state = await readAppState(stateFilePath)
-
         const { apiKey, ...settingsToSave } = parsed
 
-        const updated: AppStateFile = {
+        await appState.update((state) => ({
           ...state,
           ai: {
-            ...(typeof state.ai === 'object' && state.ai !== null ? state.ai : {}),
+            ...(state.ai ?? {}),
             ...settingsToSave
           }
-        }
-
-        await atomicWrite(stateFilePath, `${JSON.stringify(updated, null, 2)}\n`)
+        }))
 
         if (apiKey) {
           await credentialStore.saveApiKey('default', apiKey)
@@ -390,7 +265,7 @@ export function registerAiHandlers(options: {
     IPC_CHANNELS.ai.connectionStatus,
     async (): Promise<IpcResult<OllamaConnectionResult>> => {
       try {
-        const state = await readAppState(stateFilePath)
+        const state = await appState.read()
         const endpoint =
           typeof state.ai?.ollamaEndpoint === 'string'
             ? state.ai.ollamaEndpoint
@@ -424,7 +299,7 @@ export function registerAiHandlers(options: {
     IPC_CHANNELS.ai.remoteConnectionStatus,
     async (_event, input: unknown): Promise<IpcResult<RemoteConnectionResult>> => {
       try {
-        const state = await readAppState(stateFilePath)
+        const state = await appState.read()
         const payload =
           typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {}
         const remoteProvider =
@@ -523,11 +398,6 @@ export function registerAiHandlers(options: {
           `[aiHandler] executeCommand: webContents=${!!currentWebContents} onReflection=${!!onReflection}`
         )
         const result = await aiService.executeCommand(parsed, onToken, onReflection)
-        // Push the intent via the separate push channel so the renderer can
-        // react immediately (e.g. update lastIntent in aiStore) in addition
-        // to receiving it as part of the IpcResult below.
-        const intent: InternalAiCommand = result.intent
-        currentWebContents?.send(IPC_CHANNELS.ai.intentReceived, intent)
         return { success: true, data: result }
       } catch (error) {
         return mapAiError(error, 'AI command failed.')

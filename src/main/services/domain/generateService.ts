@@ -16,10 +16,11 @@ import type {
   GeneratePreviewInput,
   GeneratedDocumentResult,
   GeneratedDraftResult,
+  InvoiceTemplateInput,
   SaveGeneratedDocumentInput,
   TemplateRecord
 } from '@shared/types'
-import { IpcErrorCode } from '@shared/types'
+import { IpcErrorCode, isDossierNameReferenceLabel } from '@shared/types'
 import { buildSalutationFields } from '@shared/contactSalutation'
 import { buildAddressFields } from '@shared/addressFormatting'
 import { computeContactDisplayName } from '@shared/computeContactDisplayName'
@@ -36,17 +37,27 @@ import {
   normalizeTagPath,
   RAW_TAG_PATTERN,
   renderSmartTagSpan,
+  shouldExposeTemplateTagPath,
   TAG_SPAN_PATTERN
 } from '@shared/templateContent'
+import { applyVatRate } from '@shared/billingCalculations'
 
 import {
-  contactRecordSchema,
   dossierMetadataFileSchema,
+  ENTITY_TITLE_LONG,
+  ENTITY_TITLE_SHORT,
   entityProfileSchema,
   type DossierMetadataFile,
   templateRecordSchema
 } from '@shared/validation'
 import { type DocumentService } from './documentService'
+import {
+  DEFAULT_INVOICE_LINES_TABLE_HEADERS_FR,
+  INVOICE_LINES_TABLE_SENTINEL,
+  buildInvoiceLinesTableXml,
+  replaceInvoiceLinesTableSentinel,
+  type InvoiceLinesTableRow
+} from './docxLinesTable'
 import { atomicWrite } from '../../lib/system/atomicWrite'
 import { pathExists } from '../../lib/system/domainState'
 import {
@@ -54,9 +65,9 @@ import {
   getDomainTemplateContentPath,
   getDomainTemplateDocxPath,
   getDomainTemplatesPath,
-  getDossierContactsPath,
   getDossierMetadataPath
 } from '../../lib/ordicab/ordicabPaths'
+import { readContactsForDossierPath } from './contactService'
 
 interface DomainServiceLike {
   getStatus: () => Promise<DomainStatusSnapshot>
@@ -78,29 +89,79 @@ export interface GenerateServiceOptions {
   now?: () => Date
 }
 
+interface InvoiceLineTemplateView {
+  date: DateValue
+  label: string
+  description: string
+  quantity: number
+  quantityUnit: string
+  unitPriceHt: string
+  subtotalHt: string
+  discountHt: string
+  totalHt: string
+  totalTtc: string
+  vatRate: string
+}
+
+interface InvoiceTemplateView {
+  documentType: string
+  documentTypeLabel: string
+  number: string
+  issuedAt: DateValue
+  issuedAtFormatted: string
+  issuedAtLong: string
+  issuedAtShort: string
+  dueAt: DateValue
+  dueAtFormatted: string
+  paymentTerms: string
+  correctionReason: string
+  originalInvoices: Array<{ number: string; issuedAt: DateValue }>
+  originalInvoiceNumbers: string
+  notes: string
+  totalHt: string
+  totalVat: string
+  totalTtc: string
+  lines: InvoiceLineTemplateView[]
+  client: { displayName: string; address: string }
+  issuer: {
+    name: string
+    address: string
+    siret: string
+    vatNumber: string
+    iban: string
+    legalFooter: string
+  }
+}
+
 interface TemplateContext {
   app?: {
     content: string
   }
   dossier: {
     name: string
-    reference: string
-    status: string
-    type: string
+    juridiction: string
+    tribunal: string
     createdAt: DateValue
     createdAtFormatted: string
     createdAtLong: string
     createdAtShort: string
+    feeAgreement?: Record<string, unknown>
     keyDate: Record<string, DateValue>
-    keyRef: Record<string, string>
   }
   contact: Record<string, unknown>
   contacts: ContactRecord[]
   entity: Record<string, unknown>
+  invoice?: InvoiceTemplateView
   today: string
   todayFormatted: string
   todayLong: string
   todayShort: string
+  date: {
+    today: string
+    todayFr: string
+    todayLong: string
+    todayShort: string
+  }
   createdAt: DateValue
 }
 
@@ -212,34 +273,6 @@ async function loadDossierMetadata(dossierPath: string): Promise<DossierMetadata
   return result.data
 }
 
-async function loadContacts(contactsPath: string): Promise<ContactRecord[]> {
-  if (!(await pathExists(contactsPath))) {
-    return []
-  }
-
-  let parsed: unknown
-
-  try {
-    parsed = JSON.parse(await readFile(contactsPath, 'utf8')) as unknown
-  } catch {
-    throw new GenerateServiceError(
-      IpcErrorCode.FILE_SYSTEM_ERROR,
-      'Unable to read dossier contacts.'
-    )
-  }
-
-  const result = contactRecordSchema.array().safeParse(parsed)
-
-  if (!result.success) {
-    throw new GenerateServiceError(
-      IpcErrorCode.FILE_SYSTEM_ERROR,
-      'Stored dossier contacts are invalid.'
-    )
-  }
-
-  return result.data
-}
-
 async function loadEntity(entityPath: string): Promise<EntityProfile | null> {
   if (!(await pathExists(entityPath))) {
     return null
@@ -268,19 +301,26 @@ async function loadEntity(entityPath: string): Promise<EntityProfile | null> {
   return result.data as EntityProfile
 }
 
-function toTemplateLookup(
-  entries: Array<{
-    label: string
-    value: string
-  }>
-): Record<string, string> {
-  return entries.reduce<Record<string, string>>((acc, entry) => {
-    acc[labelToKey(entry.label)] = entry.value
-    return acc
-  }, {})
-}
+const DATE_OFFSET_PATTERN = /^date\.today\+(\d+)(?:\.(formatted|long|short))?$/
 
 function resolvePath(input: unknown, path: string): unknown {
+  // Dynamic computed routine: date.today+N(.formatted|long|short)? → today + N days
+  const offsetMatch = DATE_OFFSET_PATTERN.exec(path)
+  if (offsetMatch) {
+    const days = Number.parseInt(offsetMatch[1]!, 10)
+    const variant = offsetMatch[2] as 'formatted' | 'long' | 'short' | undefined
+    const todayIso =
+      typeof input === 'object' && input !== null && 'today' in (input as Record<string, unknown>)
+        ? String((input as Record<string, unknown>).today)
+        : new Date().toISOString().slice(0, 10)
+    const base = new Date(`${todayIso}T12:00:00`)
+    if (!Number.isNaN(base.getTime())) {
+      base.setDate(base.getDate() + days)
+      const value = makeDateValue(base.toISOString().slice(0, 10))
+      return variant ? value[variant] : value
+    }
+  }
+
   return path.split('.').reduce<unknown>((acc, key) => {
     if (acc === null || typeof acc !== 'object') {
       return undefined
@@ -291,6 +331,7 @@ function resolvePath(input: unknown, path: string): unknown {
 }
 
 function hasResolvedPath(input: unknown, path: string): boolean {
+  if (DATE_OFFSET_PATTERN.test(path)) return true
   return path.split('.').every((key) => {
     if (input === null || typeof input !== 'object') {
       return false
@@ -321,6 +362,7 @@ function asHtmlText(value: unknown): string {
  * wherever the value is converted to a string (template rendering, docxtemplater, etc.).
  */
 interface DateValue {
+  readonly label?: string
   readonly formatted: string
   readonly long: string
   readonly short: string
@@ -337,6 +379,57 @@ function makeDateValue(isoDate: string): DateValue {
         short: date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit' })
       }
   return { ...variants, toString: () => isoDate }
+}
+
+function makeKeyDateValue(label: string, isoDate: string): DateValue {
+  return { ...makeDateValue(isoDate), label }
+}
+
+const RESERVED_DOSSIER_REFERENCE_KEYS = new Set([
+  'name',
+  'createdAt',
+  'createdAtFormatted',
+  'createdAtLong',
+  'createdAtShort',
+  'feeAgreement',
+  'keyDate'
+])
+
+function buildDirectDossierReferenceValues(
+  references: Array<{ label: string; value: string }>
+): Record<string, string> {
+  const result: Record<string, string> = {}
+  for (const reference of references) {
+    // The dossier-name reference shadows metadata.name; it is already exposed
+    // via `{{dossier.name}}`/`{{dossier.nom}}`, so we don't duplicate it here.
+    if (isDossierNameReferenceLabel(reference.label)) continue
+    const key = labelToKey(reference.label)
+    if (!key || RESERVED_DOSSIER_REFERENCE_KEYS.has(key)) continue
+    result[key] = reference.value
+  }
+  return result
+}
+
+function buildInvoiceLinesTableHtml(lines: InvoiceLineTemplateView[] | undefined): string {
+  if (!lines || lines.length === 0) return ''
+  const header = ['Date', 'Libellé', 'Quantité', 'Prix unitaire HT', 'Total HT', 'Total TTC']
+  const rows = lines.map((line) => [
+    line.date.formatted,
+    line.label,
+    `${line.quantity}${line.quantityUnit ? ' ' + line.quantityUnit : ''}`.trim(),
+    line.unitPriceHt,
+    line.totalHt,
+    line.totalTtc
+  ])
+  const cells = (values: string[], tag: 'th' | 'td'): string =>
+    values.map((value) => `<${tag}>${escapeHtmlText(value)}</${tag}>`).join('')
+  return [
+    '<table><thead><tr>',
+    cells(header, 'th'),
+    '</tr></thead><tbody>',
+    rows.map((row) => `<tr>${cells(row, 'td')}</tr>`).join(''),
+    '</tbody></table>'
+  ].join('')
 }
 
 function formatDateVariants(isoDate: string): { formatted: string; long: string; short: string } {
@@ -367,6 +460,16 @@ function resolveTemplateHtml(
 
   const replaceTagPath = (path: string): string => {
     const normalizedPath = normalizeTagPath(path.trim())
+
+    if (normalizedPath === 'invoice.linesTable') {
+      const tableHtml = buildInvoiceLinesTableHtml(context.invoice?.lines)
+      if (tableHtml) {
+        resolvedTags[normalizedPath] = '[Tableau des prestations]'
+        return tableHtml
+      }
+      unresolvedTags.add(normalizedPath)
+      return renderSmartTagSpan(normalizedPath)
+    }
 
     if (tagOverrides && normalizedPath in tagOverrides) {
       const overrideValue = tagOverrides[normalizedPath] ?? ''
@@ -501,13 +604,7 @@ async function extractDocxTagPaths(docxSourcePath: string): Promise<string[]> {
       delimiters: { start: '{{', end: '}}' },
       parser: (tag: string) => {
         const trimmed = tag.trim()
-        if (
-          trimmed &&
-          !trimmed.startsWith('#') &&
-          !trimmed.startsWith('/') &&
-          !trimmed.startsWith('@') &&
-          !trimmed.startsWith('app.')
-        ) {
+        if (shouldExposeTemplateTagPath(trimmed)) {
           capturedTags.add(normalizeTagPath(trimmed))
         }
         return { get: () => '' }
@@ -521,6 +618,23 @@ async function extractDocxTagPaths(docxSourcePath: string): Promise<string[]> {
   }
 
   return [...capturedTags]
+}
+
+/** Tag paths that are not resolved from the context but are emitted via post-processing. */
+const MODULE_HANDLED_PATHS = new Set(['invoice.linesTable', 'facture.tableauPrestations'])
+
+function buildInvoiceLinesTableRows(
+  lines: InvoiceLineTemplateView[] | undefined
+): InvoiceLinesTableRow[] {
+  if (!lines || lines.length === 0) return []
+  return lines.map((line) => ({
+    date: line.date.formatted,
+    label: line.label,
+    quantity: `${line.quantity}${line.quantityUnit ? ' ' + line.quantityUnit : ''}`.trim(),
+    unitPriceHt: line.unitPriceHt,
+    totalHt: line.totalHt,
+    totalTtc: line.totalTtc
+  }))
 }
 
 async function generateDocxFromBinary(
@@ -545,6 +659,9 @@ async function generateDocxFromBinary(
       parser: (tag: string) => ({
         get: (scope: unknown) => {
           const normalizedTag = normalizeTagPath(tag.trim())
+          if (MODULE_HANDLED_PATHS.has(normalizedTag)) {
+            return INVOICE_LINES_TABLE_SENTINEL
+          }
           if (tagOverrides && normalizedTag in tagOverrides) {
             const override = tagOverrides[normalizedTag]
             return override !== '' ? override : undefined
@@ -562,6 +679,13 @@ async function generateDocxFromBinary(
     })
 
     doc.render(context)
+
+    const tableRows = buildInvoiceLinesTableRows(context.invoice?.lines)
+    if (tableRows.length > 0) {
+      const tableXml = buildInvoiceLinesTableXml(tableRows, DEFAULT_INVOICE_LINES_TABLE_HEADERS_FR)
+      replaceInvoiceLinesTableSentinel(doc.getZip(), tableXml)
+    }
+
     await atomicWrite(
       outputPath,
       doc.getZip().generate({ type: 'nodebuffer', compression: 'DEFLATE' })
@@ -591,6 +715,28 @@ function buildDocxAppContent(
   return htmlToPlainText(resolved.draftHtml)
 }
 
+function formatCurrencyCents(value: number | undefined): string | undefined {
+  if (typeof value !== 'number') {
+    return undefined
+  }
+
+  return new Intl.NumberFormat('fr-FR', {
+    style: 'currency',
+    currency: 'EUR'
+  }).format(value / 100)
+}
+
+function formatPercentBasisPoints(value: number | undefined): string | undefined {
+  if (typeof value !== 'number') {
+    return undefined
+  }
+
+  return `${(value / 100).toLocaleString('fr-FR', {
+    minimumFractionDigits: value % 100 === 0 ? 0 : 2,
+    maximumFractionDigits: 2
+  })} %`
+}
+
 async function loadGenerationData(
   options: GenerateServiceOptions,
   input: GenerateDocumentInput | GeneratePreviewInput
@@ -602,7 +748,7 @@ async function loadGenerationData(
   const [templates, dossier, contacts, entity] = await Promise.all([
     loadTemplates(getDomainTemplatesPath(domainPath)),
     loadDossierMetadata(dossierPath),
-    loadContacts(getDossierContactsPath(dossierPath)),
+    readContactsForDossierPath(dossierPath),
     loadEntity(getDomainEntityPath(domainPath))
   ])
 
@@ -616,53 +762,112 @@ async function loadGenerationData(
   }
 }
 
+function buildInvoiceTemplateView(input: InvoiceTemplateInput): InvoiceTemplateView {
+  const issuedAtDv = makeDateValue(input.issuedAt)
+  const dueAtDv = makeDateValue(input.dueAt ?? '')
+  const documentType = input.documentType ?? 'invoice'
+  const documentTypeLabel =
+    documentType === 'creditNote'
+      ? 'Avoir'
+      : documentType === 'correctiveInvoice'
+        ? 'Facture rectificative'
+        : 'Facture'
+  const originalInvoices = (input.originalInvoiceRefs ?? []).map((ref) => ({
+    number: ref.number,
+    issuedAt: makeDateValue(ref.issuedAt)
+  }))
+  return {
+    documentType,
+    documentTypeLabel,
+    number: input.number,
+    issuedAt: issuedAtDv,
+    issuedAtFormatted: issuedAtDv.formatted,
+    issuedAtLong: issuedAtDv.long,
+    issuedAtShort: issuedAtDv.short,
+    dueAt: dueAtDv,
+    dueAtFormatted: dueAtDv.formatted,
+    paymentTerms: input.paymentTerms ?? '',
+    correctionReason: input.correctionReason ?? '',
+    originalInvoices,
+    originalInvoiceNumbers: originalInvoices.map((entry) => entry.number).join(', '),
+    notes: input.notes ?? '',
+    totalHt: formatCurrencyCents(input.totalHtCents) ?? '',
+    totalVat: formatCurrencyCents(input.totalVatCents) ?? '',
+    totalTtc: formatCurrencyCents(input.totalTtcCents) ?? '',
+    lines: input.lines.map((line) => ({
+      date: makeDateValue(line.date),
+      label: line.label,
+      description: line.description ?? '',
+      quantity: line.quantity,
+      quantityUnit: line.quantityUnit,
+      unitPriceHt: formatCurrencyCents(line.unitPriceHtCents) ?? '',
+      subtotalHt: formatCurrencyCents(line.subtotalHtCents) ?? '',
+      discountHt: formatCurrencyCents(line.discountHtCents) ?? '',
+      totalHt: formatCurrencyCents(line.totalHtCents) ?? '',
+      totalTtc: formatCurrencyCents(line.totalTtcCents) ?? '',
+      vatRate: formatPercentBasisPoints(line.vatRateBasisPoints) ?? ''
+    })),
+    client: {
+      displayName: input.client?.displayName ?? '',
+      address: input.client?.address ?? ''
+    },
+    issuer: {
+      name: input.issuer?.name ?? '',
+      address: input.issuer?.address ?? '',
+      siret: input.issuer?.siret ?? '',
+      vatNumber: input.issuer?.vatNumber ?? '',
+      iban: input.issuer?.iban ?? '',
+      legalFooter: input.issuer?.legalFooter ?? ''
+    }
+  }
+}
+
 function createTemplateContext(
   dossier: DossierMetadataFile,
   contacts: ContactRecord[],
   entity: EntityProfile | null,
   timestamp: Date,
   contactRoleOverrides?: Record<string, string>,
-  primaryContactId?: string
+  primaryContactId?: string,
+  invoiceInput?: InvoiceTemplateInput
 ): TemplateContext {
-  const managedFields = normalizeManagedFieldsConfig(entity?.managedFields, entity?.profession)
+  const managedFields = normalizeManagedFieldsConfig(entity?.managedFields)
   const getManagedContactTemplateValues = (
     contact: ContactRecord | undefined
   ): Record<string, string> =>
     contact ? getContactManagedFieldTemplateValues(contact, managedFields.contacts) : {}
+  const buildTemplateContactRecord = (
+    contact: ContactRecord | undefined
+  ): Record<string, unknown> =>
+    contact
+      ? {
+          ...contact,
+          ...getContactManagedFieldValues(contact),
+          ...getManagedContactTemplateValues(contact),
+          displayName: computeContactDisplayName(contact),
+          ...buildFirstNameFields(contact),
+          ...buildSalutationFields(
+            contact.gender,
+            contact.lastName,
+            computeContactDisplayName(contact)
+          ),
+          ...buildAddressFields(contact)
+        }
+      : {}
   const primaryContact =
     (primaryContactId
       ? contacts.find((contact) => contact.uuid === primaryContactId)
       : undefined) ??
     contacts[0] ??
     undefined
-  const keyDates = toTemplateLookup(
-    dossier.keyDates.map((entry) => ({
-      label: entry.label,
-      value: entry.date
-    }))
-  )
-  const keyRefs = toTemplateLookup(
-    dossier.keyReferences.map((entry) => ({
-      label: entry.label,
-      value: entry.value
-    }))
-  )
+  const directDossierReferences = buildDirectDossierReferenceValues(dossier.keyReferences)
 
   // Build role-keyed contact map: contact.<roleKey>.<field>
   const contactByRole: Record<string, Record<string, unknown>> = {}
 
   for (const c of contacts) {
     if (c.role) {
-      const displayName = computeContactDisplayName(c)
-      contactByRole[labelToKey(c.role)] = {
-        ...c,
-        ...getContactManagedFieldValues(c),
-        ...getManagedContactTemplateValues(c),
-        displayName,
-        ...buildFirstNameFields(c),
-        ...buildSalutationFields(c.gender, c.lastName, displayName),
-        ...buildAddressFields(c)
-      }
+      contactByRole[labelToKey(c.role)] = buildTemplateContactRecord(c)
     }
   }
 
@@ -672,16 +877,7 @@ function createTemplateContext(
       const matched = contacts.find((c) => c.uuid === contactId)
 
       if (matched) {
-        const displayName = computeContactDisplayName(matched)
-        contactByRole[roleKey] = {
-          ...matched,
-          ...getContactManagedFieldValues(matched),
-          ...getManagedContactTemplateValues(matched),
-          displayName,
-          ...buildFirstNameFields(matched),
-          ...buildSalutationFields(matched.gender, matched.lastName, displayName),
-          ...buildAddressFields(matched)
-        }
+        contactByRole[roleKey] = buildTemplateContactRecord(matched)
       }
     }
   }
@@ -690,55 +886,140 @@ function createTemplateContext(
   const todayIso = timestamp.toISOString().slice(0, 10)
   const todayVariants = formatDateVariants(todayIso)
   const keyDateValues: Record<string, DateValue> = {}
-  for (const [key, iso] of Object.entries(keyDates)) {
-    keyDateValues[key] = makeDateValue(iso)
+  for (const entry of dossier.keyDates) {
+    keyDateValues[labelToKey(entry.label)] = makeKeyDateValue(entry.label, entry.date)
   }
+  const resolveDocumentFilename = (uuid?: string): string | undefined => {
+    if (!uuid) return undefined
+    const match = dossier.documents.find((entry) => entry.uuid === uuid)
+    if (!match) return undefined
+    return match.filename ?? match.relativePath
+  }
+  const feeAgreement =
+    dossier.feeAgreements.find((entry) => entry.isActive) ?? dossier.feeAgreements[0]
+  const feeAgreementClient = feeAgreement?.clientContactUuid
+    ? contacts.find((contact) => contact.uuid === feeAgreement.clientContactUuid)
+    : undefined
+  const feeAgreementSignatory = feeAgreement?.signatoryContactUuid
+    ? contacts.find((contact) => contact.uuid === feeAgreement.signatoryContactUuid)
+    : feeAgreementClient
+  // Computed billing aggregates linked to the active fee agreement.
+  // - retainerPaid: TTC sum of billed items flagged as 'retainer' for this fee agreement
+  // - balanceDue:   TTC of all non-cancelled items not yet billed (status='draft')
+  const feeAgreementRetainerPaidCents = feeAgreement
+    ? dossier.billingItems
+        .filter(
+          (item) =>
+            item.status === 'billed' &&
+            item.sourceFeeAgreementId === feeAgreement.id &&
+            item.sourceFeeAgreementBillingKind === 'retainer'
+        )
+        .reduce((acc, item) => acc + item.totalTtcCents, 0)
+    : 0
+  const feeAgreementBalanceDueCents = feeAgreement
+    ? dossier.billingItems
+        .filter(
+          (item) =>
+            item.status === 'draft' &&
+            (item.sourceFeeAgreementId === feeAgreement.id ||
+              item.sourceFeeAgreementId === undefined)
+        )
+        .reduce((acc, item) => acc + item.totalTtcCents, 0)
+    : 0
+
+  const feeAgreementContext = feeAgreement
+    ? {
+        generatedDocumentFilename:
+          resolveDocumentFilename(feeAgreement.generatedDocumentUuid) ?? '',
+        signedDocumentFilename: resolveDocumentFilename(feeAgreement.signedDocumentUuid) ?? '',
+        status: feeAgreement.status,
+        matterLabel: feeAgreement.matterLabel,
+        scopeDescription: feeAgreement.scopeDescription,
+        billingType: feeAgreement.billingType,
+        sourceServicePresetId: feeAgreement.sourceServicePresetId,
+        flatFeeHt: formatCurrencyCents(feeAgreement.flatFeeHtCents),
+        flatFeeTtc: formatCurrencyCents(
+          applyVatRate(feeAgreement.flatFeeHtCents, feeAgreement.vatRateBasisPoints)
+        ),
+        hourlyRateHt: formatCurrencyCents(feeAgreement.hourlyRateHtCents),
+        hourlyRateTtc: formatCurrencyCents(
+          applyVatRate(feeAgreement.hourlyRateHtCents, feeAgreement.vatRateBasisPoints)
+        ),
+        estimatedHours: feeAgreement.estimatedHours,
+        retainerHt: formatCurrencyCents(feeAgreement.retainerHtCents),
+        retainerTtc: formatCurrencyCents(
+          applyVatRate(feeAgreement.retainerHtCents, feeAgreement.vatRateBasisPoints)
+        ),
+        retainerPaid: formatCurrencyCents(feeAgreementRetainerPaidCents),
+        balanceDue: formatCurrencyCents(feeAgreementBalanceDueCents),
+        successFeePercent: formatPercentBasisPoints(feeAgreement.successFeePercentBasisPoints),
+        successFeeClause: feeAgreement.successFeeClause,
+        discountKind: feeAgreement.discountKind ?? '',
+        discountLabel:
+          feeAgreement.discountKind === 'percent'
+            ? (formatPercentBasisPoints(feeAgreement.discountPercentBasisPoints) ?? '')
+            : feeAgreement.discountKind === 'amount'
+              ? (formatCurrencyCents(feeAgreement.discountAmountHtCents) ?? '')
+              : '',
+        discountPercent: formatPercentBasisPoints(feeAgreement.discountPercentBasisPoints),
+        discountAmountHt: formatCurrencyCents(feeAgreement.discountAmountHtCents),
+        vatRate: formatPercentBasisPoints(feeAgreement.vatRateBasisPoints),
+        paymentTerms: feeAgreement.paymentTerms,
+        expenseTerms: feeAgreement.expenseTerms,
+        terminationTerms: feeAgreement.terminationTerms,
+        sentAt: feeAgreement.sentAt ? makeDateValue(feeAgreement.sentAt) : undefined,
+        signedAt: feeAgreement.signedAt ? makeDateValue(feeAgreement.signedAt) : undefined,
+        notes: feeAgreement.notes,
+        client: buildTemplateContactRecord(feeAgreementClient),
+        signatory: buildTemplateContactRecord(feeAgreementSignatory)
+      }
+    : undefined
 
   return {
     dossier: {
+      ...directDossierReferences,
       name: dossier.name,
-      reference: dossier.id,
-      status: dossier.status,
-      type: dossier.type,
+      juridiction: directDossierReferences.juridiction ?? dossier.juridiction ?? '',
+      tribunal: directDossierReferences.tribunal ?? dossier.tribunal ?? '',
       createdAt: dossierCreatedAt,
       createdAtFormatted: dossierCreatedAt.formatted,
       createdAtLong: dossierCreatedAt.long,
       createdAtShort: dossierCreatedAt.short,
-      keyDate: keyDateValues,
-      keyRef: keyRefs
+      feeAgreement: feeAgreementContext,
+      keyDate: keyDateValues
     },
     // Spread primary contact first for backward-compat (contact.displayName still works).
     // primaryContactId overrides which contact is used for flat tags like {{contact.displayName}}.
     // Role-keyed map is spread last so contact.<role>.<field> paths resolve correctly.
     contact: {
-      ...(primaryContact ?? {}),
-      ...(primaryContact ? getContactManagedFieldValues(primaryContact) : {}),
-      ...getManagedContactTemplateValues(primaryContact),
-      ...(primaryContact
-        ? {
-            displayName: computeContactDisplayName(primaryContact)
-          }
-        : {}),
-      ...buildFirstNameFields(primaryContact),
-      ...buildSalutationFields(
-        primaryContact?.gender,
-        primaryContact?.lastName,
-        primaryContact ? computeContactDisplayName(primaryContact) : ''
-      ),
-      ...(primaryContact ? buildAddressFields(primaryContact) : {}),
+      ...buildTemplateContactRecord(primaryContact),
       ...contactByRole
     },
     contacts,
     entity: {
       ...(entity ?? {}),
       ...buildAddressFields(entity ?? {}),
+      title: ENTITY_TITLE_SHORT,
+      titleLong: ENTITY_TITLE_LONG,
       displayName:
-        [entity?.title, entity?.firstName, entity?.lastName].filter(Boolean).join(' ') || undefined
+        [ENTITY_TITLE_SHORT, entity?.firstName, entity?.lastName].filter(Boolean).join(' ') ||
+        undefined,
+      avocat: {
+        titre: ENTITY_TITLE_LONG
+      }
     },
+    invoice: invoiceInput ? buildInvoiceTemplateView(invoiceInput) : undefined,
     today: todayIso,
     todayFormatted: todayVariants.formatted,
     todayLong: todayVariants.long,
     todayShort: todayVariants.short,
+    // Alias namespace `date.*` for more intuitive usage (date.today, date.todayFr).
+    date: {
+      today: todayIso,
+      todayFr: todayVariants.formatted,
+      todayLong: todayVariants.long,
+      todayShort: todayVariants.short
+    },
     createdAt: makeDateValue(timestamp.toISOString())
   }
 }
@@ -761,7 +1042,8 @@ function buildDraftFromLoadedData(
     loaded.entity,
     timestamp,
     'contactRoleOverrides' in input ? input.contactRoleOverrides : undefined,
-    'primaryContactId' in input ? input.primaryContactId : undefined
+    'primaryContactId' in input ? input.primaryContactId : undefined,
+    'invoiceContext' in input ? input.invoiceContext : undefined
   )
   const tagOverrides = 'tagOverrides' in input ? input.tagOverrides : undefined
   const resolved = resolveTemplateHtml(templateContent, context, tagOverrides)
@@ -811,16 +1093,17 @@ async function saveDocumentMetadataIfProvided(
   input: GenerateDocumentInput,
   dossierPath: string,
   outputPath: string
-): Promise<void> {
-  if (!input.description && (!input.tags || input.tags.length === 0)) return
-  if (!documentService.saveMetadata) return
+): Promise<string | undefined> {
+  if (!input.description && (!input.tags || input.tags.length === 0)) return undefined
+  if (!documentService.saveMetadata) return undefined
   const documentId = relative(dossierPath, outputPath)
-  await documentService.saveMetadata({
+  const record = await documentService.saveMetadata({
     dossierId: input.dossierId,
     documentId,
     description: input.description ?? '',
     tags: input.tags ?? []
   })
+  return record.uuid
 }
 
 export function createGenerateService(options: GenerateServiceOptions): GenerateService {
@@ -851,13 +1134,18 @@ export function createGenerateService(options: GenerateServiceOptions): Generate
         loaded.entity,
         timestamp,
         input.contactRoleOverrides,
-        input.primaryContactId
+        input.primaryContactId,
+        input.invoiceContext
       )
 
       const tagOverrides = input.tagOverrides
       const resolvedTags: Record<string, string> = {}
 
       for (const path of tagPaths) {
+        if (MODULE_HANDLED_PATHS.has(path)) {
+          resolvedTags[path] = '[Tableau des prestations — généré automatiquement]'
+          continue
+        }
         if (tagOverrides && path in tagOverrides) {
           const override = tagOverrides[path]
           if (override && override !== '') resolvedTags[path] = override
@@ -947,10 +1235,12 @@ export function createGenerateService(options: GenerateServiceOptions): Generate
           loaded.entity,
           timestamp,
           input.contactRoleOverrides,
-          input.primaryContactId
+          input.primaryContactId,
+          input.invoiceContext
         )
 
         const unresolvedTags = tagPaths.filter((path) => {
+          if (MODULE_HANDLED_PATHS.has(path)) return false
           if (input.tagOverrides && path in input.tagOverrides) {
             const override = input.tagOverrides[path]
             return override === '' || override === undefined
@@ -977,12 +1267,13 @@ export function createGenerateService(options: GenerateServiceOptions): Generate
         await generateDocxFromBinary(docxSourcePath, context, outputPath, input.tagOverrides)
 
         const result: GeneratedDocumentResult = { outputPath }
-        await saveDocumentMetadataIfProvided(
+        const savedUuid = await saveDocumentMetadataIfProvided(
           options.documentService,
           input,
           loaded.dossierPath,
           result.outputPath
         )
+        if (savedUuid) result.documentUuid = savedUuid
         return result
       }
 
@@ -1003,12 +1294,13 @@ export function createGenerateService(options: GenerateServiceOptions): Generate
         filename: draft.suggestedFilename,
         format: 'docx'
       })
-      await saveDocumentMetadataIfProvided(
+      const savedUuid = await saveDocumentMetadataIfProvided(
         options.documentService,
         input,
         loaded.dossierPath,
         result.outputPath
       )
+      if (savedUuid) result.documentUuid = savedUuid
       return result
     }
   }

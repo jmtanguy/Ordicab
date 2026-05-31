@@ -4,9 +4,8 @@
  *
  * Strategy:
  *   1. Segment on paragraph boundaries first. `normalizeExtractedText`
- *      (documentContentService.ts) already collapses paragraphs into a
- *      single separator ("<NL>"); we also accept the raw "\n\n" form so
- *      callers can pass either the normalized or the raw string.
+ *      (documentContentService.ts) collapses paragraph breaks into a single
+ *      blank line, so we split on `\n\s*\n+`.
  *   2. Pack paragraphs greedily into ~maxChars-long windows. A window is
  *      closed when adding the next paragraph would overflow; the next window
  *      is seeded with the tail of the previous one (overlapChars) so a span
@@ -41,8 +40,8 @@ export interface ChunkOptions {
 
 const DEFAULT_MAX_CHARS = 2000
 const DEFAULT_OVERLAP_CHARS = 200
-// Matches normalizeExtractedText's paragraph separator and the raw form.
-const PARAGRAPH_SPLITTER = /<NL>|\n\s*\n+/
+// Matches normalizeExtractedText's paragraph separator (a blank line).
+const PARAGRAPH_SPLITTER = /\n\s*\n+/
 
 export function chunkText(text: string, opts: ChunkOptions = {}): TextChunk[] {
   const maxChars = Math.max(1, opts.maxChars ?? DEFAULT_MAX_CHARS)

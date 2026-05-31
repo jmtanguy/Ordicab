@@ -108,20 +108,6 @@ export function buildKeyDateOptions(
     }))
 }
 
-export function buildKeyReferenceOptions(
-  detail:
-    | {
-        keyReferences: Array<{ label: string; value: string }>
-      }
-    | null
-    | undefined
-): ComboOption[] {
-  return (detail?.keyReferences ?? []).map((keyReference) => ({
-    label: keyReference.label,
-    value: keyReference.value
-  }))
-}
-
 /** Returns all contact field values for a given tag prefix (e.g. "contact" or "contact.client") */
 export function contactFieldValues(
   contact: ContactRecord | undefined,

@@ -62,3 +62,31 @@ export interface DocumentRelocationInput {
   toDocumentId: string
   fromDocumentId?: string
 }
+
+export interface DocumentFolderCreateInput {
+  dossierId: string
+  parentPath?: string
+  name: string
+}
+
+export interface DocumentFolderRenameInput {
+  dossierId: string
+  fromPath: string
+  newName: string
+}
+
+export interface DocumentFolderDeleteInput {
+  dossierId: string
+  path: string
+}
+
+export interface DocumentFileRenameInput {
+  dossierId: string
+  documentId: string
+  newFilename: string
+}
+
+export interface DocumentFileDeleteInput {
+  dossierId: string
+  documentId: string
+}

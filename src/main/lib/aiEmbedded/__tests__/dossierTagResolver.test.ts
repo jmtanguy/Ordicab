@@ -27,16 +27,16 @@ describe('resolveDossierTags', () => {
     expect(result.resolvedOverrides['dossier.keyDate.audience']).toBe('2026-04-21')
   })
 
-  it('matches a keyRef by token against a longer label', () => {
+  it('matches a direct dossier reference by token against a longer label', () => {
     const result = resolveDossierTags({
-      unresolvedTags: ['dossier.keyRef.rg'],
+      unresolvedTags: ['dossier.rg'],
       keyReferences: [
         { label: 'Numéro RG', value: '24/00321' },
         { label: 'Cabinet', value: 'X' }
       ]
     })
 
-    expect(result.resolvedOverrides['dossier.keyRef.rg']).toBe('24/00321')
+    expect(result.resolvedOverrides['dossier.rg']).toBe('24/00321')
     expect(result.stillUnresolved).toEqual([])
   })
 

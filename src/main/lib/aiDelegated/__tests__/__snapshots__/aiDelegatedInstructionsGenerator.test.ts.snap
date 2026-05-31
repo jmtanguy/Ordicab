@@ -26,7 +26,7 @@ Verify each dossier from its own canonical files before deciding whether to crea
 - Client Alpha
   - Folder: <DOMAIN_PATH>/Client Alpha
   - dossier.json: <DOMAIN_PATH>/Client Alpha/.ordicab/dossier.json
-  - contacts.json: <DOMAIN_PATH>/Client Alpha/.ordicab/contacts.json
+  - contacts/: <DOMAIN_PATH>/Client Alpha/.ordicab/contacts
   - documents root: <DOMAIN_PATH>/Client Alpha
 
 ## Delegated Instructions
@@ -427,8 +427,6 @@ Update the domain entity profile:
   "action": "entity.update",
   "payload": {
     "firmName": "Cabinet Exemple",
-    "profession": "lawyer",
-    "title": "Me",
     "firstName": "Alex",
     "lastName": "Dupres",
     "addressLine": "12 rue du Palais",
@@ -462,7 +460,7 @@ Update the domain entity profile:
       ],
       "contacts": [
         {
-          "label": "Prénoms complémentaires de l'état civil",
+          "label": "Prénoms complémentaires",
           "type": "text"
         },
         {
@@ -506,11 +504,23 @@ Update the domain entity profile:
       ],
       "keyReferences": [
         {
+          "label": "Juridiction",
+          "type": "text"
+        },
+        {
+          "label": "Tribunal",
+          "type": "text"
+        },
+        {
           "label": "N° dossier",
           "type": "text"
         },
         {
           "label": "N° RG",
+          "type": "text"
+        },
+        {
+          "label": "N° Portalis",
           "type": "text"
         },
         {
@@ -815,7 +825,8 @@ Create:
   "payload": {
     "name": "Lettre de mise en demeure",
     "content": "Objet : Mise en demeure\\n\\nBonjour {{contact.displayName}},",
-    "description": "Modele de courrier initial"
+    "description": "Modele de courrier initial",
+    "documentKind": "document"
   }
 }
 \`\`\`
@@ -832,6 +843,7 @@ Update (read \`<domain>/.ordicab/templates/<id>.html\` first, then emit with mod
     "name": "Lettre de mise en demeure",
     "content": "Objet : Mise en demeure\\n\\nBonjour {{contact.displayName}},",
     "description": "Modele de courrier initial",
+    "documentKind": "document",
     "id": "3f84e5b6-3912-49dc-9c7d-8c446df43b0f"
   }
 }
@@ -911,7 +923,7 @@ Worked example for synchronized devices: device A submits the first intent and r
 
 #### Dossier Files
 - Client Alpha (Client Alpha, uuid: dossier-uuid-1)
-  - contacts.json: <DOMAIN_PATH>/Client Alpha/.ordicab/contacts.json
+  - contacts/: <DOMAIN_PATH>/Client Alpha/.ordicab/contacts
   - dossier.json: <DOMAIN_PATH>/Client Alpha/.ordicab/dossier.json
 "
 `;

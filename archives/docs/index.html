@@ -1,0 +1,638 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ordicab | l’outil de pilotage de vos dossiers, augmenté par l’IA</title>
+    <meta
+      name="description"
+      content="Ordicab est l’outil de pilotage de vos dossiers, augmenté par l’IA. Organisez vos dossiers clients, documents, contacts, modèles et assistants IA sur une seule application locale."
+    />
+    <link rel="icon" href="./icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,300&family=DM+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./index.css" />
+  </head>
+  <body>
+    <!-- ── NAVIGATION ─────────────────────────────────────── -->
+    <nav>
+      <div class="inner">
+        <a href="/" class="nav-brand">
+          <img src="./icon.png" alt="Ordicab" />
+          <span>Ordicab</span>
+        </a>
+        <div style="display: flex; align-items: center; gap: 4px">
+          <a href="#features" class="nav-link">Fonctionnalités</a>
+          <a href="#cowork" class="nav-link">IA</a>
+          <a href="./guide/introduction.html" class="nav-link">Documentation</a>
+          <a
+            href="https://github.com/jmtanguy/Ordicab"
+            target="_blank"
+            rel="noopener"
+            class="nav-link"
+            >GitHub</a
+          >
+          <a href="./guide/introduction.html" class="nav-cta nav-mobile-doc" style="margin-left: 8px"
+            >Documentation</a
+          >
+        </div>
+      </div>
+    </nav>
+
+    <!-- ── HERO ───────────────────────────────────────────── -->
+    <section class="hero">
+      <div class="hero-content">
+        <div class="hero-badge">
+          <span class="hero-badge-dot"></span>
+          Bêta — Disponible maintenant
+        </div>
+
+        <div class="hero-title-row">
+          <div class="hero-icon-wrap">
+            <img src="./icon.png" alt="Ordicab" class="hero-icon" />
+          </div>
+          <h1>Ordicab</h1>
+        </div>
+
+        <p class="hero-tagline">
+          L’outil de pilotage de vos dossiers.<br />
+          <em>Avec vos assistants IA à vos côtés.</em>
+        </p>
+
+        <div class="hero-actions">
+          <a href="#" class="btn-primary download-link" data-platform="mac">
+            <svg
+              class="btn-icon"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"
+              />
+            </svg>
+            Télécharger pour Mac
+          </a>
+          <a href="#" class="btn-secondary download-link" data-platform="windows">
+            <svg
+              class="btn-icon"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M3 12V6.75l6-1.32v6.57H3zm17 0V4.5l-8 1.41V12h8zM3 13h6v6.42L3 18V13zm8 .57L19 15v4.5l-8-1.41V13.57z"
+              />
+            </svg>
+            Télécharger pour Windows
+          </a>
+        </div>
+
+        <div class="warning-banner">
+          <div class="warning-banner-icon">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path
+                d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+              />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+          </div>
+          <div class="warning-banner-body">
+            <h4>Version expérimentale — Ne pas utiliser en production</h4>
+            <p>
+              Ce logiciel est une version bêta à des fins de test uniquement.
+              <strong style="color: #fde68a; font-weight: 600"
+                >Ne l'utilisez pas avec des données de travail réelles ou des dossiers de
+                clients.</strong
+              >
+              Des bugs, pertes de données ou comportements inattendus peuvent survenir.
+            </p>
+            <p>
+              L'utilisation des fonctionnalités d'intelligence artificielle (Claude Cowork, etc.)
+              peut impliquer la transmission de données vers des services tiers.
+              <strong style="color: #fde68a; font-weight: 600"
+                >L'utilisateur est seul responsable de la conformité au RGPD</strong
+              >, notamment en ce qui concerne le traitement de données à caractère personnel via des
+              outils et abonnements IA.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── SCREENSHOT ─────────────────────────────────────── -->
+    <section style="padding: 0 0 80px; position: relative; z-index: 1;">
+      <div class="container">
+        <img src="./snap1.png" alt="Capture d'écran Ordicab" style="display:block; width:100%; height:auto;" />
+      </div>
+    </section>
+
+    <!-- ── FEATURES ───────────────────────────────────────── -->
+    <section class="features" id="features">
+      <div class="container">
+        <div class="section-header">
+          <p class="section-label">Fonctionnalités</p>
+          <h2 class="section-title">Les fonctionnalités essentielles</h2>
+          <p class="section-sub">
+            Ordicab est en version bêta. Les briques fondamentales sont là : gestion des dossiers,
+            des documents et des contacts, réunies dans une seule application.
+          </p>
+        </div>
+
+        <div class="features-grid">
+          <div class="feature-card fade-in">
+            <div class="feature-icon-wrap">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path
+                  d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"
+                />
+              </svg>
+            </div>
+            <h3>Gestion des dossiers</h3>
+            <p>
+              Créez et suivez vos affaires en quelques clics : statut, dates importantes, références
+              — tout est centralisé et facile à retrouver.
+            </p>
+          </div>
+
+          <div class="feature-card fade-in" style="transition-delay: 0.08s">
+            <div class="feature-icon-wrap">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+                <polyline points="10 9 9 9 8 9" />
+              </svg>
+            </div>
+            <h3>Espace documents</h3>
+            <p>
+              Consultez vos PDF, courriers et pièces jointes directement dans l'application. Plus
+              besoin d'ouvrir plusieurs logiciels — tout est lisible au même endroit.
+            </p>
+          </div>
+
+          <div class="feature-card fade-in" style="transition-delay: 0.16s">
+            <div class="feature-icon-wrap">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <rect x="3" y="3" width="18" height="18" rx="3" />
+                <path d="M8 12h8M12 8v8" />
+              </svg>
+            </div>
+            <h3>Modèles de documents</h3>
+            <p>
+              Préparez vos courriers types une seule fois, puis générez des documents pré-remplis
+              automatiquement avec les informations du dossier. Un clic suffit.
+            </p>
+          </div>
+
+          <div class="feature-card fade-in" style="transition-delay: 0.24s">
+            <div class="feature-icon-wrap">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+            </div>
+            <h3>Carnet de contacts</h3>
+            <p>
+              Retrouvez instantanément les coordonnées de vos clients, confrères et intervenants.
+              Chaque contact est rattaché à ses dossiers — plus rien ne se perd.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── LOCAL STORAGE ─────────────────────────────────────── -->
+    <section class="local-storage" id="stockage">
+      <div class="container">
+        <div class="local-inner">
+          <div class="local-visual fade-in">
+            <div class="local-diagram">
+              <div class="diag-node diag-node--center">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <rect x="2" y="3" width="20" height="14" rx="2" />
+                  <path d="M8 21h8M12 17v4" />
+                </svg>
+                <span>Ordicab</span>
+              </div>
+              <div class="diag-spokes">
+                <div class="diag-node diag-node--small">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
+                  </svg>
+                  <span>KDrive</span>
+                </div>
+                <div class="diag-node diag-node--small">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
+                  </svg>
+                  <span>OneDrive</span>
+                </div>
+                <div class="diag-node diag-node--small">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
+                  </svg>
+                  <span>Google Drive</span>
+                </div>
+                <div class="diag-node diag-node--small">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <rect x="2" y="3" width="20" height="14" rx="2" />
+                    <path d="M8 21h8M12 17v4" />
+                  </svg>
+                  <span>Mac / PC</span>
+                </div>
+              </div>
+              <div class="diag-label">Vos fichiers · Vos dossiers · Votre contrôle</div>
+            </div>
+          </div>
+
+          <div class="fade-in" style="transition-delay: 0.1s">
+            <p class="section-label">Simple dès le départ</p>
+            <h2 class="section-title">Rien à installer,<br />rien à configurer</h2>
+            <p class="local-desc">
+              Pas de base de données compliquée, pas de serveur à gérer. Ordicab stocke tout dans
+              <strong>un simple dossier sur votre ordinateur</strong> que vous pouvez placer où vous
+              voulez, y compris dans votre drive habituel.
+            </p>
+
+            <div class="local-pills">
+              <div class="local-pill">
+                <div class="local-pill-icon">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                  </svg>
+                </div>
+                <div>
+                  <h4>Données sous votre contrôle</h4>
+                  <p>
+                    Aucun serveur tiers ne stocke vos données. Vous restez propriétaire de vos
+                    fichiers à tout moment.
+                  </p>
+                </div>
+              </div>
+              <div class="local-pill">
+                <div class="local-pill-icon">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
+                  </svg>
+                </div>
+                <div>
+                  <h4>Synchronisé avec votre cloud</h4>
+                  <p>
+                    Utilisez iCloud, OneDrive, Google Drive ou Dropbox comme d'habitude : vos
+                    données se synchronisent toutes seules.
+                  </p>
+                </div>
+              </div>
+              <div class="local-pill">
+                <div class="local-pill-icon">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <rect x="2" y="3" width="20" height="14" rx="2" />
+                    <path d="M8 21h8M12 17v4" />
+                  </svg>
+                </div>
+                <div>
+                  <h4>Du bureau à la maison</h4>
+                  <p>
+                    Travaillez depuis votre Mac au cabinet et votre PC à la maison : tout est à
+                    jour, sans rien à configurer.
+                  </p>
+                </div>
+              </div>
+              <div class="local-pill">
+                <div class="local-pill-icon">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="2" y1="12" x2="22" y2="12" />
+                    <path
+                      d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
+                    />
+                  </svg>
+                </div>
+                <div>
+                  <h4>Fonctionne sans internet</h4>
+                  <p>
+                    En déplacement ou en audience — accédez à vos dossiers même sans connexion. Tout
+                    est disponible hors-ligne.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── COWORK ──────────────────────────────────────────── -->
+    <section class="cowork" id="cowork">
+      <div class="container">
+        <div class="cowork-inner">
+          <div class="fade-in">
+            <h2 class="section-title">Intégration IA flexible<br />adaptée à vos besoins</h2>
+
+            <p class="cowork-desc">
+              Ordicab propose quatre approches d'intégration IA pour traiter vos dossiers.
+              <strong
+                >Choisissez le mode qui convient à vos exigences de sécurité et de capacités</strong
+              >.
+            </p>
+
+            <a
+              href="https://github.com/jmtanguy/Ordicab"
+              target="_blank"
+              rel="noopener"
+              class="cowork-link"
+            >
+              En savoir plus sur GitHub
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <line x1="5" y1="12" x2="19" y2="12" />
+                <polyline points="12 5 19 12 12 19" />
+              </svg>
+            </a>
+          </div>
+
+          <div class="steps fade-in" style="transition-delay: 0.1s">
+            <div class="step">
+              <div class="step-number">01</div>
+              <div class="step-text">
+                <h4>Assistant IA externe (Cowork)</h4>
+                <p>
+                  Intégration avec des assistants IA distants. Vos fichiers sont organisés de
+                  manière optimale pour les agents IA, avec un système d'inbox intelligent et des
+                  intents qui renforcent la robustesse des tâches.
+                </p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-number">02</div>
+              <div class="step-text">
+                <h4>Assistant local sécurisé (Ollama)</h4>
+                <p>
+                  Déployez un assistant IA directement sur votre machine via Ollama. Vos données
+                  restent locales et complètement sécurisées. Le fonctionnement dépend de votre
+                  hardware disponible.
+                </p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-number">03</div>
+              <div class="step-text">
+                <h4>API distantes avec pseudonymisation</h4>
+                <p>
+                  Intégration standard avec des APIs IA. Protection automatique des données
+                  personnelles sensibles par pseudonymisation. Le modèle opère exclusivement dans le
+                  contexte de votre application.
+                </p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-number">04</div>
+              <div class="step-text">
+                <h4>Export pseudonymisé pour modèles frontier</h4>
+                <p>
+                  Solution innovante : exportez un dossier pseudonymisé (et non anonymisé pour une
+                  meilleure efficacité) pour traitement par les meilleurs modèles IA. Réimportez
+                  ensuite le travail complété avec décodage automatique des données.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── DOWNLOAD STRIP ─────────────────────────────────── -->
+    <section class="download-strip">
+      <div class="container">
+        <h2 class="fade-in">Prêt à commencer ?</h2>
+        <p class="fade-in" style="transition-delay: 0.06s">
+          Installation en 2 minutes. Créez votre premier dossier dans la foulée.
+        </p>
+        <div class="download-actions fade-in" style="transition-delay: 0.12s">
+          <a href="#" class="btn-primary download-link" data-platform="mac">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"
+              />
+            </svg>
+            Télécharger pour Mac
+          </a>
+          <a href="#" class="btn-secondary download-link" data-platform="windows">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M3 12V6.75l6-1.32v6.57H3zm17 0V4.5l-8 1.41V12h8zM3 13h6v6.42L3 18V13zm8 .57L19 15v4.5l-8-1.41V13.57z"
+              />
+            </svg>
+            Télécharger pour Windows
+          </a>
+        </div>
+       </div>
+    </section>
+
+    <!-- ── FOOTER ─────────────────────────────────────────── -->
+    <footer>
+      <div class="footer-inner">
+        <a href="#" class="footer-brand">
+          <img src="./icon.png" alt="Ordicab" />
+          <span class="footer-copy">© 2026 Ordicab - JM Tanguy</span>
+        </a>
+        <div class="footer-links">
+          <a href="https://github.com/jmtanguy/Ordicab" target="_blank" rel="noopener"> GitHub </a>
+          <a href="https://github.com/jmtanguy/Ordicab/releases" target="_blank" rel="noopener">
+            Versions
+          </a>
+          <a href="https://github.com/jmtanguy/Ordicab/issues" target="_blank" rel="noopener">
+            Signaler un bug
+          </a>
+        </div>
+      </div>
+    </footer>
+
+    <!-- Scroll-triggered fade-in -->
+    <script>
+      const observer = new IntersectionObserver(
+        (entries) =>
+          entries.forEach((e) => {
+            if (e.isIntersecting) e.target.classList.add('visible')
+          }),
+        { threshold: 0.12 }
+      )
+      document.querySelectorAll('.fade-in').forEach((el) => observer.observe(el))
+    </script>
+
+    <!-- Dynamic Release Downloads -->
+    <script>
+      // Récupère le dernier release depuis l'API GitHub et met à jour les liens
+      async function initializeDownloadLinks() {
+        try {
+          const response = await fetch('https://api.github.com/repos/jmtanguy/Ordicab/releases/latest')
+          const release = await response.json()
+
+          const assetMap = {
+            mac: null,
+            windows: null
+          }
+
+          const isMacInstaller = (name) => name.endsWith('.dmg')
+          const isWindowsInstaller = (name) => name.endsWith('.exe')
+
+          // Trouve uniquement les installateurs finaux pour Mac et Windows
+          release.assets.forEach(asset => {
+            if (isMacInstaller(asset.name)) {
+              assetMap.mac = asset.browser_download_url
+            } else if (isWindowsInstaller(asset.name)) {
+              assetMap.windows = asset.browser_download_url
+            }
+          })
+
+          // Met à jour les liens de téléchargement
+          document.querySelectorAll('.download-link').forEach(link => {
+            const platform = link.dataset.platform
+            if (assetMap[platform]) {
+              link.href = assetMap[platform]
+              link.style.pointerEvents = 'auto'
+            } else {
+              // Fallback vers releases/latest si l'asset spécifique n'est pas trouvé
+              link.href = 'https://github.com/jmtanguy/Ordicab/releases/latest'
+            }
+          })
+        } catch (error) {
+          console.error('Erreur lors de la récupération du dernier release:', error)
+          // Fallback vers releases/latest en cas d'erreur
+          document.querySelectorAll('.download-link').forEach(link => {
+            link.href = 'https://github.com/jmtanguy/Ordicab/releases/latest'
+          })
+        }
+      }
+
+      // Initialise les liens quand le DOM est prêt
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeDownloadLinks)
+      } else {
+        initializeDownloadLinks()
+      }
+    </script>
+  </body>
+</html>

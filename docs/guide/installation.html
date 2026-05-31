@@ -4,23 +4,16 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Installation &amp; mise en route — Ordicab Documentation</title>
-  <meta
-    name="description"
-    content="Installez Ordicab en quelques minutes sur macOS ou Windows et démarrez votre premier domaine."
-  />
+  <meta name="description" content="Téléchargez et installez Ordicab sur Mac ou Windows. Créez votre premier cabinet et votre premier dossier en quelques minutes." />
   <link rel="canonical" href="https://www.ordicab.com/guide/installation.html" />
-  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <meta name="robots" content="index, follow" />
   <meta property="og:type" content="article" />
   <meta property="og:locale" content="fr_FR" />
   <meta property="og:site_name" content="Ordicab" />
   <meta property="og:title" content="Installation &amp; mise en route — Ordicab Documentation" />
-  <meta
-    property="og:description"
-    content="Installez Ordicab en quelques minutes sur macOS ou Windows et démarrez votre premier domaine."
-  />
+  <meta property="og:description" content="Téléchargez et installez Ordicab sur Mac ou Windows. Créez votre premier cabinet et votre premier dossier en quelques minutes." />
   <meta property="og:url" content="https://www.ordicab.com/guide/installation.html" />
-  <meta property="og:image" content="https://www.ordicab.com/snap1.png" />
-  <link rel="icon" href="../icon.png" />
+  <link rel="icon" href="../../resources/icon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -29,20 +22,17 @@
 <body>
 
 <button class="mobile-nav-toggle" type="button" aria-label="Ouvrir le menu de navigation" aria-controls="guide-sidebar" aria-expanded="false" data-guide-nav-toggle>
-  <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-    <line x1="4" y1="7" x2="20" y2="7"/>
-    <line x1="4" y1="12" x2="20" y2="12"/>
-    <line x1="4" y1="17" x2="20" y2="17"/>
+  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <line x1="4" y1="7" x2="20" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <line x1="4" y1="12" x2="20" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <line x1="4" y1="17" x2="20" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
   </svg>
 </button>
 <div class="mobile-nav-overlay" hidden data-guide-nav-overlay></div>
 
 <aside class="sidebar" id="guide-sidebar">
   <div class="sidebar-brand">
-    <a href="../">
-      <span class="name">Ordicab</span>
-      <span class="tagline">Documentation utilisateur</span>
-    </a>
+    <a href="../"><span class="name">Ordicab</span><span class="tagline">Documentation utilisateur</span></a>
   </div>
   <div class="sidebar-section">Démarrage</div>
   <nav>
@@ -52,17 +42,13 @@
   <div class="sidebar-section">Fonctionnalités</div>
   <nav>
     <a href="dossiers.html">Dossiers</a>
-    
-    <a href="modeles.html">Modèles</a>
-    
+    <a href="modeles.html">Modèles de documents</a>
   </nav>
   <div class="sidebar-section">Intelligence artificielle</div>
   <nav>
     <a href="ia-vue-ensemble.html">Vue d'ensemble &amp; comparatif</a>
-    <a href="ia-cowork.html" class="sub">IA Cowork</a>
-    <a href="ia-assistant-local.html" class="sub">Assistant local (Ollama)</a>
-    <a href="ia-assistant-api.html" class="sub">Assistant via API</a>
-    <a href="ia-export-import.html" class="sub">Export IA &amp; Import IA</a>
+    <a href="ia-assistant.html" class="sub">Assistant intégré</a>
+    <a href="ia-cowork.html" class="sub">IA Cowork (agents externes)</a>
   </nav>
 </aside>
 
@@ -70,86 +56,63 @@
   <div class="badge">Démarrage</div>
   <h1>Installation &amp; mise en route</h1>
   <p class="page-lead">
-    Ordicab s'installe en quelques minutes. Ce guide vous emmène du téléchargement jusqu'à l'ajout de vos premiers dossiers.
+    Ordicab s'installe en moins de deux minutes sur Mac et Windows. Aucune dépendance externe n'est requise pour commencer — l'application est autonome.
   </p>
 
-  <h2>1. Téléchargement</h2>
-  <p>Rendez-vous sur <strong>ordicab.app</strong> et téléchargez la version correspondant à votre système&nbsp;:</p>
-  <table>
-    <thead><tr><th>Système</th><th>Fichier</th></tr></thead>
-    <tbody>
-      <tr><td>macOS (Apple Silicon &amp; Intel)</td><td><code>.dmg</code></td></tr>
-      <tr><td>Windows 10/11</td><td><code>.exe</code> (installeur)</td></tr>
-    </tbody>
-  </table>
+  <div class="callout-warn">
+    <strong>Version bêta.</strong> Ne pas utiliser avec des données réelles de clients. Des pertes de données ou comportements inattendus peuvent survenir.
+  </div>
 
-  <h2>2. Installation</h2>
+  <h2>Téléchargement</h2>
+  <p>Rendez-vous sur la page des <a href="https://github.com/jmtanguy/Ordicab/releases/latest" target="_blank" rel="noopener" style="color:var(--teal);">dernières versions GitHub</a> et téléchargez le fichier correspondant à votre système&nbsp;:</p>
+  <ul>
+    <li><strong>Mac (Apple Silicon &amp; Intel)</strong> — fichier <code>.dmg</code></li>
+    <li><strong>Windows (x64)</strong> — fichier <code>.exe</code></li>
+  </ul>
 
-  <h3>macOS</h3>
+  <h2>Installation sur Mac</h2>
   <ol class="step-list">
     <li>Ouvrez le fichier <code>.dmg</code> téléchargé.</li>
-    <li>Faites glisser l'icône Ordicab vers le dossier <strong>Applications</strong>.</li>
-    <li>Au premier lancement, macOS peut vous demander de confirmer l'ouverture d'une application téléchargée depuis Internet — cliquez sur <strong>Ouvrir</strong>.</li>
+    <li>Faites glisser l'icône Ordicab dans le dossier Applications.</li>
+    <li>Au premier lancement, macOS peut afficher un avertissement de sécurité. Ouvrez <strong>Réglages système → Confidentialité &amp; sécurité</strong>, puis cliquez sur <strong>Ouvrir quand même</strong>.</li>
+    <li>L'application est signée et notariée par Apple — vous pouvez confirmer l'ouverture.</li>
   </ol>
 
-  <h3>Windows</h3>
+  <h2>Installation sur Windows</h2>
   <ol class="step-list">
-    <li>Lancez l'installeur <code>.exe</code>.</li>
-    <li>Suivez l'assistant d'installation (les options par défaut conviennent dans la plupart des cas).</li>
-    <li>Ordicab sera disponible dans le menu Démarrer une fois l'installation terminée.</li>
+    <li>Exécutez le fichier <code>.exe</code> téléchargé.</li>
+    <li>Si Windows affiche un avertissement SmartScreen, cliquez sur <strong>Informations complémentaires</strong> puis <strong>Exécuter quand même</strong>. L'application est signée via Azure Trusted Signing.</li>
+    <li>L'installation se lance et crée un raccourci dans le menu Démarrer.</li>
   </ol>
 
-  <div class="callout">
-    <strong>Première ouverture — contrat de licence.</strong><br/>
-    Au tout premier lancement, Ordicab affiche le contrat de licence utilisateur (CLUF). Lisez-le et cliquez sur <strong>Accepter et continuer</strong> pour accéder à l'application.
-  </div>
-
-  <h2>3. Choisir un dossier domaine</h2>
-  <p>La première chose qu'Ordicab vous demande est de désigner votre <strong>dossier domaine</strong>. C'est le répertoire racine qui contient l'ensemble de vos dossiers clients — par exemple <code>Mes Documents/Dossiers clients</code> ou <code>Dropbox/Cabinet</code>.</p>
-
-  <div class="callout">
-    <strong>Comment ça fonctionne&nbsp;?</strong><br/>
-    Chaque <strong>sous-dossier direct</strong> du domaine peut ensuite être enregistré comme dossier dans Ordicab. Si votre domaine est <code>Cabinet/</code> et qu'il contient <code>Cabinet/Dupont/</code> et <code>Cabinet/Martin SCI/</code>, ces deux dossiers pourront être ajoutés à Ordicab.
-  </div>
-
+  <h2>Premier lancement — configurer le cabinet</h2>
+  <p>Au premier démarrage, Ordicab vous guide via un assistant de configuration&nbsp;:</p>
   <ol class="step-list">
-    <li>Au premier lancement, cliquez sur <strong>Sélectionner mon répertoire de travail</strong>.</li>
-    <li>Naviguez jusqu'au dossier qui contient vos dossiers clients et confirmez.</li>
-    <li>Ordicab crée son espace caché <code>.ordicab</code> à la racine de ce dossier. Vos fichiers existants ne sont pas modifiés.</li>
+    <li><strong>Choisissez l'emplacement de vos données.</strong> Ordicab vous demande de sélectionner ou créer un dossier racine sur votre machine. Vous pouvez le placer dans un dossier synchronisé (kDrive, iCloud, OneDrive…) pour un accès multi-poste automatique.</li>
+    <li><strong>Renseignez les informations du cabinet.</strong> Nom, adresse, téléphone, email — ces données alimenteront automatiquement vos modèles de documents et vos conventions.</li>
+    <li><strong>Définissez vos paramètres de facturation.</strong> Taux horaire par défaut, devise, mentions légales sur les factures.</li>
   </ol>
 
-  <p>Vous pourrez changer de domaine à tout moment depuis <strong>Paramètres → Changer de domaine</strong>, sans perdre vos données.</p>
-
-  <h2>4. Configurer votre entité</h2>
-  <p>Avant d'ajouter des dossiers, renseignez le profil de votre cabinet dans <strong>Paramètres → Mon entité</strong>. Ces informations servent ensuite dans les modèles de documents et dans le contexte partagé avec l'IA.</p>
-
-  <p>Complétez a minima&nbsp;:</p>
-  <ul>
-    <li>Nom du cabinet et coordonnées (adresse, téléphone, email)</li>
-    <li>Type d'activité (avocat, architecte, immobilier…) — ce choix adapte les listes de rôles de contacts et de champs proposés par défaut</li>
-  </ul>
-
-  <p>Vous pouvez également configurer&nbsp;:</p>
-  <ul>
-    <li>Les <strong>rôles de contacts</strong> disponibles dans vos dossiers (ex. : client, adversaire, expert…)</li>
-    <li>Les <strong>champs gérés</strong> des contacts et des dossiers (champs personnalisés propres à votre activité)</li>
-    <li>Les <strong>dates clés proposées</strong> par défaut (ex. : Audience, Dépôt de pièces…)</li>
-    <li>Les <strong>références clés proposées</strong> par défaut (ex. : Numéro RG, Référence client…)</li>
-  </ul>
-
-  <h2>5. Ajouter vos premiers dossiers</h2>
-  <p>Depuis l'onglet <strong>Dossiers</strong>, cliquez sur <strong>Enregistrer un dossier</strong>. Une liste des sous-dossiers éligibles de votre domaine s'affiche — sélectionnez ceux que vous souhaitez suivre dans Ordicab et confirmez.</p>
+  <h2>Créer le premier dossier</h2>
+  <ol class="step-list">
+    <li>Dans la vue <strong>Dossiers</strong>, cliquez sur <strong>Nouveau dossier</strong>.</li>
+    <li>Saisissez le nom du dossier (correspond à la référence principale de l'affaire).</li>
+    <li>Choisissez le type de dossier et son statut initial.</li>
+    <li>Le dossier est créé — vous pouvez commencer à y ajouter des contacts, des documents et des notes.</li>
+  </ol>
 
   <div class="callout">
-    <strong>Rappel important.</strong><br/>
-    Ordicab enregistre des dossiers qui <em>existent déjà</em> sur votre disque. Il ne crée pas de nouveaux dossiers. Si un dossier client n'est pas encore présent sur votre machine, créez-le d'abord dans votre explorateur de fichiers habituel, puis revenez dans Ordicab pour l'enregistrer.
+    <strong>Données portables.</strong> Toutes les données Ordicab (métadonnées, notes, conventions, prestations…) sont stockées dans des fichiers JSON dans votre dossier racine. Vous pouvez les sauvegarder, les déplacer et les inspecter à tout moment.
   </div>
 
-  <p style="margin-top:40px;">
-    <a href="dossiers.html" style="color:var(--aurora);text-decoration:none;font-weight:600;">Suivant : Dossiers →</a>
-  </p>
+  <h2>Fonctionnement hors-ligne</h2>
+  <p>Ordicab fonctionne intégralement sans connexion internet. La synchronisation cloud (si vous utilisez kDrive, iCloud, etc.) est gérée par votre service de stockage, pas par l'application. L'IA locale via Ollama fonctionne également hors-ligne une fois les modèles téléchargés.</p>
+  <p>Seules les fonctionnalités qui s'appuient sur une API distante (assistant via API, IA Cowork) nécessitent une connexion.</p>
+
+  <a href="dossiers.html" class="next-link">Suivant : Dossiers →</a>
 </main>
 
 <script src="_layout.js"></script>
+<script src="../lightbox.js"></script>
 </body>
 </html>

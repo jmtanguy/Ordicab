@@ -1,58 +1,58 @@
+import { useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
+
 import type {
   AppLocale,
   ContactDeleteInput,
   ContactRecord,
   ContactUpsertInput,
+  DossierBillingItemDeleteInput,
+  DossierBillingItemUpsertInput,
+  DossierFeeAgreementArchiveInput,
+  DossierFeeAgreementDeleteInput,
+  DossierFeeAgreementSetActiveInput,
+  DossierFeeAgreementUpsertInput,
   DocumentMetadataUpdate,
   DocumentRecord,
   DocumentWatchStatus,
-  DossierAiExportAnalyzeResult,
-  DossierAiExportResult,
-  DossierAiImportAnalyzeResult,
-  DossierAiImportResult,
   DossierDetail,
-  DossierEligibleFolder,
   DossierKeyDateDeleteInput,
   DossierKeyDateUpsertInput,
   DossierKeyReferenceDeleteInput,
   DossierKeyReferenceUpsertInput,
-  DossierStatus,
-  DossierSummary,
-  DomainStatusSnapshot,
-  IpcErrorCode
+  DomainStatusSnapshot
 } from '@shared/types'
 
+import { useToast } from '@renderer/contexts/ToastContext'
 import type { AsyncLocaleAction, AsyncVoidAction } from '@renderer/features/actions'
 import {
   DossierDetail as DossierDetailPanel,
-  type DossierDetailNotice
+  type DossierDetailNotice,
+  type DossierSection
 } from '@renderer/features/dossiers/DossierDetail'
-import { DashboardGrid } from '@renderer/features/dossiers/DashboardGrid'
 import { TemplatesPanel } from '@renderer/features/templates/TemplatesPanel'
-import { AiPage } from '@renderer/features/ai/AiPage'
 import type { DocumentContentState, DocumentPreviewState } from '@renderer/stores'
-import type { DossierSortMode, DossierStatusFilter } from '@renderer/stores/dossierStore'
-import type { TopNavTab } from '@renderer/components/shell/TopNav'
+import type { SidebarDestination } from '@renderer/components/shell/Sidebar'
 
+import { HomeChronologyPanel } from './HomeChronologyPanel'
 import { SettingsPanel } from './SettingsPanel'
+import { CabinetPanel } from './CabinetPanel'
+import { InvoicesDashboard } from '@renderer/features/invoices/InvoicesDashboard'
 
 interface DomainDashboardProps {
-  activeTab: TopNavTab
-  templatesInitialDossierId?: string | null
+  activeDestination: SidebarDestination
+  activeDashboardPanel: 'grid' | 'detail'
+  activeDossierId: string | null
+  activeSection: DossierSection
+  onChangeSection: (section: DossierSection) => void
   status: DomainStatusSnapshot
   isLoading: boolean
-  isDossierLoading: boolean
   isDossierDetailLoading: boolean
   isDossierSaving: boolean
   isSavingLocale: boolean
-  activeDashboardPanel: 'grid' | 'detail'
-  activeDossierId: string | null
   currentLocale: AppLocale
-  dossiers: DossierSummary[]
-  eligibleFolders: DossierEligibleFolder[]
   activeDossier: DossierDetail | null
   dossierError: string | null
-  dossierErrorCode: IpcErrorCode | null
   dossierNotice: { kind: 'registered' | 'unregistered'; dossierName: string } | null
   dossierDetailError: string | null
   dossierDetailNotice: DossierDetailNotice | null
@@ -67,78 +67,44 @@ interface DomainDashboardProps {
   activePreviewDocumentId: string | null
   documentPreviewState: DocumentPreviewState
   documentContentState: DocumentContentState
-  dossierSortMode: DossierSortMode
-  dossierStatusFilter: DossierStatusFilter
   entityName: string | null
   onChangeDomain: AsyncVoidAction
   onChangeLocale: AsyncLocaleAction
-  onLoadEligibleFolders: AsyncVoidAction
-  onOpenDossier: (id: string) => Promise<void>
-  onRegisterDossier: (id: string) => Promise<boolean>
-  onSaveDossier: (input: { id: string; status: DossierStatus; type: string }) => Promise<boolean>
   onUpsertContact: (input: ContactUpsertInput) => Promise<boolean>
   onDeleteContact: (input: ContactDeleteInput) => Promise<boolean>
   onUpsertDossierKeyDate: (input: DossierKeyDateUpsertInput) => Promise<boolean>
   onDeleteDossierKeyDate: (input: DossierKeyDateDeleteInput) => Promise<boolean>
+  onUpsertDossierFeeAgreement: (input: DossierFeeAgreementUpsertInput) => Promise<boolean>
+  onDeleteDossierFeeAgreement: (input: DossierFeeAgreementDeleteInput) => Promise<boolean>
+  onArchiveDossierFeeAgreement: (input: DossierFeeAgreementArchiveInput) => Promise<boolean>
+  onSetActiveDossierFeeAgreement: (input: DossierFeeAgreementSetActiveInput) => Promise<boolean>
+  onUpsertDossierBillingItem: (input: DossierBillingItemUpsertInput) => Promise<boolean>
+  onDeleteDossierBillingItem: (input: DossierBillingItemDeleteInput) => Promise<boolean>
   onUpsertDossierKeyReference: (input: DossierKeyReferenceUpsertInput) => Promise<boolean>
   onDeleteDossierKeyReference: (input: DossierKeyReferenceDeleteInput) => Promise<boolean>
-  onCloseDossier: () => void
-  onNavigateToGenerate?: (dossierId: string) => void
   onSaveDocumentMetadata: (input: DocumentMetadataUpdate) => Promise<boolean>
   onOpenDocumentPreview: (input: { dossierId: string; documentId: string }) => Promise<void>
   onOpenDocumentFile: (input: { dossierId: string; documentId: string }) => Promise<void>
   onExtractDocumentContent: (input: { dossierId: string; documentId: string }) => Promise<boolean>
-  onExtractPendingDocumentContent: (input: { dossierId: string }) => Promise<{
-    attempted: number
-    succeeded: number
-    failed: number
-  }>
   onClearDocumentContentCache?: (input: { dossierId: string }) => Promise<boolean>
-  dossierTransferError: string | null
-  dossierTransferIsLoading: boolean
-  exportRootPath: string | null
-  exportAnalysis: DossierAiExportAnalyzeResult | null
-  importAnalysis: DossierAiImportAnalyzeResult | null
-  exportResult: DossierAiExportResult | null
-  importResult: DossierAiImportResult | null
-  selectedImportFiles: Set<string>
-  isExporting: boolean
-  isImporting: boolean
-  onPickExportRoot: () => Promise<string | null>
-  onAnalyzeAiExport: (dossierId: string) => Promise<DossierAiExportAnalyzeResult | null>
-  onExportForAi: (input: {
-    dossierId: string
-    rootPath: string
-    anonymize: boolean
-  }) => Promise<boolean>
-  onPickAndAnalyzeImport: (dossierId: string) => Promise<DossierAiImportAnalyzeResult | null>
-  onToggleImportFile: (relativePath: string) => void
-  onSetAllImportFiles: (paths: string[], selected: boolean) => void
-  onImportAiProduction: (dossierId: string) => Promise<boolean>
   onCloseDocumentPreview: () => void
-  onSetDossierSortMode: (mode: DossierSortMode) => void
-  onSetDossierStatusFilter: (filter: DossierStatusFilter) => void
-  onUnregisterDossier: (id: string) => Promise<boolean>
   onClearDossierNotice: () => void
+  onOpenDossier: (id: string) => Promise<void>
 }
 
 export function DomainDashboard({
-  activeTab,
-  templatesInitialDossierId,
+  activeDestination,
+  activeDashboardPanel,
+  activeDossierId,
+  activeSection,
+  onChangeSection,
   status,
   isLoading,
-  isDossierLoading,
   isDossierDetailLoading,
   isDossierSaving,
   isSavingLocale,
-  activeDashboardPanel,
-  activeDossierId,
   currentLocale,
-  dossiers,
-  eligibleFolders,
   activeDossier,
-  dossierError,
-  dossierErrorCode,
   dossierNotice,
   dossierDetailError,
   dossierDetailNotice,
@@ -153,53 +119,86 @@ export function DomainDashboard({
   activePreviewDocumentId,
   documentPreviewState,
   documentContentState,
-  dossierSortMode,
-  dossierStatusFilter,
   entityName,
   onChangeDomain,
   onChangeLocale,
-  onLoadEligibleFolders,
-  onOpenDossier,
-  onRegisterDossier,
-  onSaveDossier,
   onUpsertContact,
   onDeleteContact,
   onUpsertDossierKeyDate,
   onDeleteDossierKeyDate,
+  onUpsertDossierFeeAgreement,
+  onDeleteDossierFeeAgreement,
+  onArchiveDossierFeeAgreement,
+  onSetActiveDossierFeeAgreement,
+  onUpsertDossierBillingItem,
+  onDeleteDossierBillingItem,
   onUpsertDossierKeyReference,
   onDeleteDossierKeyReference,
-  onCloseDossier,
-  onNavigateToGenerate,
   onSaveDocumentMetadata,
   onOpenDocumentPreview,
   onOpenDocumentFile,
   onExtractDocumentContent,
-  onExtractPendingDocumentContent,
-  onClearDocumentContentCache,
-  dossierTransferError,
-  dossierTransferIsLoading,
-  exportRootPath,
-  exportAnalysis,
-  importAnalysis,
-  exportResult,
-  importResult,
-  selectedImportFiles,
-  isExporting,
-  isImporting,
-  onPickExportRoot,
-  onAnalyzeAiExport,
-  onExportForAi,
-  onPickAndAnalyzeImport,
-  onToggleImportFile,
-  onSetAllImportFiles,
-  onImportAiProduction,
-  onCloseDocumentPreview,
-  onSetDossierSortMode,
-  onSetDossierStatusFilter,
-  onUnregisterDossier,
-  onClearDossierNotice
+  onClearDossierNotice,
+  onOpenDossier
 }: DomainDashboardProps): React.JSX.Element {
-  if (activeTab === 'parametres') {
+  const { t } = useTranslation()
+  const { showToast } = useToast()
+
+  // Surface register / unregister toasts even though the grid is gone — the
+  // sidebar triggers these mutations and the user needs feedback.
+  useEffect(() => {
+    if (!dossierNotice) return
+    const message =
+      dossierNotice.kind === 'registered'
+        ? t('dossiers.notice_registered', { name: dossierNotice.dossierName })
+        : t('dossiers.notice_unregistered', { name: dossierNotice.dossierName })
+    showToast(message)
+    onClearDossierNotice()
+  }, [dossierNotice, onClearDossierNotice, showToast, t])
+
+  if (activeDashboardPanel === 'detail' && activeDossierId) {
+    return (
+      <DossierDetailPanel
+        dossier={activeDossier}
+        entityName={entityName}
+        isLoading={isDossierDetailLoading}
+        isSaving={isDossierSaving}
+        error={dossierDetailError}
+        notice={dossierDetailNotice}
+        activeSection={activeSection}
+        onChangeSection={onChangeSection}
+        contacts={contacts}
+        contactsIsLoading={contactsIsLoading}
+        contactsError={contactsError}
+        documents={documents}
+        documentIsLoading={documentIsLoading}
+        documentIsSaving={documentIsSaving}
+        documentError={documentError}
+        documentWatchStatus={documentWatchStatus}
+        activePreviewDocumentId={activePreviewDocumentId}
+        documentPreviewState={documentPreviewState}
+        documentContentState={documentContentState}
+        onUpsertContact={onUpsertContact}
+        onDeleteContact={onDeleteContact}
+        onUpsertKeyDate={onUpsertDossierKeyDate}
+        onDeleteKeyDate={onDeleteDossierKeyDate}
+        onUpsertFeeAgreement={onUpsertDossierFeeAgreement}
+        onDeleteFeeAgreement={onDeleteDossierFeeAgreement}
+        onArchiveFeeAgreement={onArchiveDossierFeeAgreement}
+        onSetActiveFeeAgreement={onSetActiveDossierFeeAgreement}
+        onUpsertBillingItem={onUpsertDossierBillingItem}
+        onDeleteBillingItem={onDeleteDossierBillingItem}
+        onUpsertKeyReference={onUpsertDossierKeyReference}
+        onDeleteKeyReference={onDeleteDossierKeyReference}
+        onSaveDocumentMetadata={onSaveDocumentMetadata}
+        onOpenDocumentPreview={onOpenDocumentPreview}
+        onOpenDocumentFile={onOpenDocumentFile}
+        onExtractDocumentContent={onExtractDocumentContent}
+      />
+    )
+  }
+
+  if (activeDestination === 'parametres') {
     return (
       <SettingsPanel
         status={status}
@@ -212,104 +211,18 @@ export function DomainDashboard({
     )
   }
 
-  if (activeTab === 'modeles') {
-    return (
-      <TemplatesPanel
-        domainPath={status.registeredDomainPath}
-        initialDossierId={templatesInitialDossierId}
-      />
-    )
+  if (activeDestination === 'modeles') {
+    return <TemplatesPanel domainPath={status.registeredDomainPath} />
   }
 
-  if (activeTab === 'delegated') {
-    return (
-      <AiPage
-        entityName={entityName}
-        sampleDossierName={activeDossier?.name ?? dossiers[0]?.name ?? null}
-        dossierId={activeDossierId ?? undefined}
-      />
-    )
+  if (activeDestination === 'cabinet') {
+    return <CabinetPanel />
   }
 
-  // Dossiers tab
-  if (activeDashboardPanel === 'detail') {
-    return (
-      <DossierDetailPanel
-        dossier={activeDossier}
-        isLoading={isDossierDetailLoading}
-        isSaving={isDossierSaving}
-        error={dossierDetailError}
-        notice={dossierDetailNotice}
-        contacts={contacts}
-        contactsIsLoading={contactsIsLoading}
-        contactsError={contactsError}
-        documents={documents}
-        documentIsLoading={documentIsLoading}
-        documentIsSaving={documentIsSaving}
-        documentError={documentError}
-        documentWatchStatus={documentWatchStatus}
-        activePreviewDocumentId={activePreviewDocumentId}
-        documentPreviewState={documentPreviewState}
-        documentContentState={documentContentState}
-        onClose={onCloseDossier}
-        onUnregister={onUnregisterDossier}
-        onSave={onSaveDossier}
-        onUpsertContact={onUpsertContact}
-        onDeleteContact={onDeleteContact}
-        onUpsertKeyDate={onUpsertDossierKeyDate}
-        onDeleteKeyDate={onDeleteDossierKeyDate}
-        onUpsertKeyReference={onUpsertDossierKeyReference}
-        onDeleteKeyReference={onDeleteDossierKeyReference}
-        onSaveDocumentMetadata={onSaveDocumentMetadata}
-        onOpenDocumentPreview={onOpenDocumentPreview}
-        onOpenDocumentFile={onOpenDocumentFile}
-        onExtractDocumentContent={onExtractDocumentContent}
-        onExtractPendingDocumentContent={onExtractPendingDocumentContent}
-        onClearDocumentContentCache={onClearDocumentContentCache}
-        onCloseDocumentPreview={onCloseDocumentPreview}
-        onNavigateToGenerate={
-          activeDossierId && onNavigateToGenerate
-            ? () => onNavigateToGenerate(activeDossierId)
-            : undefined
-        }
-        dossierTransferError={dossierTransferError}
-        dossierTransferIsLoading={dossierTransferIsLoading}
-        exportRootPath={exportRootPath}
-        exportAnalysis={exportAnalysis}
-        importAnalysis={importAnalysis}
-        exportResult={exportResult}
-        importResult={importResult}
-        selectedImportFiles={selectedImportFiles}
-        isExporting={isExporting}
-        isImporting={isImporting}
-        onPickExportRoot={onPickExportRoot}
-        onAnalyzeAiExport={onAnalyzeAiExport}
-        onExportForAi={onExportForAi}
-        onPickAndAnalyzeImport={onPickAndAnalyzeImport}
-        onToggleImportFile={onToggleImportFile}
-        onSetAllImportFiles={onSetAllImportFiles}
-        onImportAiProduction={onImportAiProduction}
-      />
-    )
+  if (activeDestination === 'factures') {
+    return <InvoicesDashboard onOpenDossier={onOpenDossier} />
   }
 
-  return (
-    <DashboardGrid
-      dossiers={dossiers}
-      eligibleFolders={eligibleFolders}
-      isLoading={isDossierLoading}
-      error={dossierError}
-      errorCode={dossierErrorCode}
-      notice={dossierNotice}
-      activeDossierId={activeDossierId}
-      statusFilter={dossierStatusFilter}
-      sortMode={dossierSortMode}
-      onLoadEligibleFolders={onLoadEligibleFolders}
-      onOpenDetail={onOpenDossier}
-      onRegister={onRegisterDossier}
-      onSetStatusFilter={onSetDossierStatusFilter}
-      onSetSortMode={onSetDossierSortMode}
-      onClearNotice={onClearDossierNotice}
-    />
-  )
+  // 'dossiers' destination, no dossier opened: show chronology.
+  return <HomeChronologyPanel onOpenDossier={onOpenDossier} />
 }

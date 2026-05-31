@@ -170,8 +170,8 @@ export function ContactForm({
   }, [loadProfile])
 
   const managedFieldsConfig = useMemo(
-    () => normalizeManagedFieldsConfig(profile?.managedFields, profile?.profession),
-    [profile?.managedFields, profile?.profession]
+    () => normalizeManagedFieldsConfig(profile?.managedFields),
+    [profile?.managedFields]
   )
   const managedFieldDefinitions = managedFieldsConfig.contacts
 
@@ -326,20 +326,20 @@ export function ContactForm({
       }}
     >
       <div className="space-y-1">
-        <h3 className="text-lg font-semibold text-slate-50">
+        <h3 className="text-lg font-semibold text-[#1a1a1a]">
           {isEditing ? t('contacts.form.editTitle') : t('contacts.form.addTitle')}
         </h3>
-        <p className="text-sm text-slate-300">{t('contacts.form.requiredHint')}</p>
+        <p className="text-sm text-[#1a1a1a]">{t('contacts.form.requiredHint')}</p>
       </div>
 
       <div className="grid gap-6 py-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
         <div className="flex flex-col gap-3">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          <span className="text-xs font-medium uppercase tracking-wide text-[#8a8a85]">
             {t('contacts.form.identitySection')}
           </span>
 
           <div className="grid grid-cols-[1fr_9rem] gap-3">
-            <div className="relative flex flex-col gap-2 text-sm text-slate-100">
+            <div className="relative flex flex-col gap-2 text-sm text-[#1a1a1a]">
               <label htmlFor="contact-role">{t('contacts.form.role')}</label>
               <input
                 ref={roleInputRef}
@@ -353,10 +353,10 @@ export function ContactForm({
                 }}
                 onFocus={() => setRoleDropdownOpen(true)}
                 onBlur={() => setTimeout(() => setRoleDropdownOpen(false), 150)}
-                className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-aurora focus:ring-2 focus:ring-aurora/35"
+                className="w-full rounded-2xl border border-[#e5e3da] bg-white px-4 py-3 text-sm text-[#1a1a1a] outline-none transition placeholder:text-[#8a8a85] focus:border-aurora focus:ring-2 focus:ring-aurora/35"
               />
               {roleDropdownOpen && filteredRolePresets.length > 0 ? (
-                <ul className="absolute left-0 right-0 top-[calc(100%-0.25rem)] z-10 overflow-hidden rounded-2xl border border-white/10 bg-slate-900 shadow-xl">
+                <ul className="absolute left-0 right-0 top-[calc(100%-0.25rem)] z-10 overflow-hidden rounded-2xl border border-[#e5e3da] bg-[#f4f3ee] shadow-xl">
                   {filteredRolePresets.map((preset) => (
                     <li key={preset}>
                       <button
@@ -367,7 +367,7 @@ export function ContactForm({
                           setRoleDropdownOpen(false)
                           roleInputRef.current?.blur()
                         }}
-                        className="w-full px-4 py-2.5 text-left text-sm text-slate-100 transition hover:bg-aurora/15 hover:text-slate-50"
+                        className="w-full px-4 py-2.5 text-left text-sm text-[#1a1a1a] transition hover:bg-aurora/15 hover:text-[#1a1a1a]"
                       >
                         {capitalizeFirst(preset)}
                       </button>
@@ -375,15 +375,15 @@ export function ContactForm({
                   ))}
                 </ul>
               ) : null}
-              {errors.role ? <span className="text-xs text-rose-300">{errors.role}</span> : null}
+              {errors.role ? <span className="text-xs text-[#9c2f2f]">{errors.role}</span> : null}
               {hasDuplicateRole ? (
-                <span className="text-xs text-amber-300">
+                <span className="text-xs text-[#b88800]">
                   {t('contacts.form.role_duplicate_warning')}
                 </span>
               ) : null}
             </div>
 
-            <div className="relative flex flex-col gap-2 text-sm text-slate-100">
+            <div className="relative flex flex-col gap-2 text-sm text-[#1a1a1a]">
               <label htmlFor="contact-title">{t('contacts.form.title')}</label>
               <input
                 ref={titleInputRef}
@@ -396,13 +396,13 @@ export function ContactForm({
                 }}
                 onFocus={() => setTitleDropdownOpen(true)}
                 onBlur={() => setTimeout(() => setTitleDropdownOpen(false), 150)}
-                className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-3 py-3 text-sm text-slate-100 outline-none transition focus:border-aurora focus:ring-2 focus:ring-aurora/35"
+                className="w-full rounded-2xl border border-[#e5e3da] bg-white px-3 py-3 text-sm text-[#1a1a1a] outline-none transition focus:border-aurora focus:ring-2 focus:ring-aurora/35"
               />
               {titleDropdownOpen &&
               TITLE_VALUES.filter((entry) =>
                 entry.toLowerCase().includes(values.title.toLowerCase())
               ).length > 0 ? (
-                <ul className="absolute left-0 right-0 top-[calc(100%-0.25rem)] z-10 overflow-hidden rounded-2xl border border-white/10 bg-slate-900 shadow-xl">
+                <ul className="absolute left-0 right-0 top-[calc(100%-0.25rem)] z-10 overflow-hidden rounded-2xl border border-[#e5e3da] bg-[#f4f3ee] shadow-xl">
                   {TITLE_VALUES.filter((entry) =>
                     entry.toLowerCase().includes(values.title.toLowerCase())
                   ).map((titleOption) => (
@@ -415,7 +415,7 @@ export function ContactForm({
                           setTitleDropdownOpen(false)
                           titleInputRef.current?.blur()
                         }}
-                        className="w-full px-4 py-2.5 text-left text-sm text-slate-100 transition hover:bg-aurora/15 hover:text-slate-50"
+                        className="w-full px-4 py-2.5 text-left text-sm text-[#1a1a1a] transition hover:bg-aurora/15 hover:text-[#1a1a1a]"
                       >
                         {titleOption}
                       </button>
@@ -427,7 +427,7 @@ export function ContactForm({
           </div>
 
           <div className="grid grid-cols-[8rem_1fr_1fr] gap-3">
-            <label className="flex flex-col gap-2 text-sm text-slate-100" htmlFor="contact-gender">
+            <label className="flex flex-col gap-2 text-sm text-[#1a1a1a]" htmlFor="contact-gender">
               <span>{t('contacts.form.gender')}</span>
               <Select
                 id="contact-gender"
@@ -442,7 +442,7 @@ export function ContactForm({
             </label>
 
             <label
-              className="flex flex-col gap-2 text-sm text-slate-100"
+              className="flex flex-col gap-2 text-sm text-[#1a1a1a]"
               htmlFor="contact-last-name"
             >
               <span>{t('contacts.form.lastName')}</span>
@@ -451,12 +451,12 @@ export function ContactForm({
                 type="text"
                 value={values.lastName}
                 onChange={(event) => updateNameField('lastName', event.target.value)}
-                className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-aurora focus:ring-2 focus:ring-aurora/35"
+                className="w-full rounded-2xl border border-[#e5e3da] bg-white px-4 py-3 text-sm text-[#1a1a1a] outline-none transition placeholder:text-[#8a8a85] focus:border-aurora focus:ring-2 focus:ring-aurora/35"
               />
             </label>
 
             <label
-              className="flex flex-col gap-2 text-sm text-slate-100"
+              className="flex flex-col gap-2 text-sm text-[#1a1a1a]"
               htmlFor="contact-first-name"
             >
               <span>{t('contacts.form.firstName')}</span>
@@ -465,17 +465,17 @@ export function ContactForm({
                 type="text"
                 value={values.firstName}
                 onChange={(event) => updateNameField('firstName', event.target.value)}
-                className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-aurora focus:ring-2 focus:ring-aurora/35"
+                className="w-full rounded-2xl border border-[#e5e3da] bg-white px-4 py-3 text-sm text-[#1a1a1a] outline-none transition placeholder:text-[#8a8a85] focus:border-aurora focus:ring-2 focus:ring-aurora/35"
               />
             </label>
 
             {errors.displayName ? (
-              <span className="col-span-3 -mt-1 text-xs text-rose-300">{errors.displayName}</span>
+              <span className="col-span-3 -mt-1 text-xs text-[#9c2f2f]">{errors.displayName}</span>
             ) : null}
           </div>
 
           <label
-            className="flex flex-col gap-2 text-sm text-slate-100"
+            className="flex flex-col gap-2 text-sm text-[#1a1a1a]"
             htmlFor="contact-institution"
           >
             <span>{t('contacts.form.institution')}</span>
@@ -484,36 +484,36 @@ export function ContactForm({
               type="text"
               value={values.institution}
               onChange={(event) => updateNameField('institution', event.target.value)}
-              className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-aurora focus:ring-2 focus:ring-aurora/35"
+              className="w-full rounded-2xl border border-[#e5e3da] bg-white px-4 py-3 text-sm text-[#1a1a1a] outline-none transition placeholder:text-[#8a8a85] focus:border-aurora focus:ring-2 focus:ring-aurora/35"
             />
           </label>
 
           <div className="grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-2 text-sm text-slate-100" htmlFor="contact-phone">
+            <label className="flex flex-col gap-2 text-sm text-[#1a1a1a]" htmlFor="contact-phone">
               <span>{t('contacts.form.phone')}</span>
               <input
                 id="contact-phone"
                 type="tel"
                 value={values.phone}
                 onChange={(event) => updateField('phone', event.target.value)}
-                className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-aurora focus:ring-2 focus:ring-aurora/35"
+                className="w-full rounded-2xl border border-[#e5e3da] bg-white px-4 py-3 text-sm text-[#1a1a1a] outline-none transition placeholder:text-[#8a8a85] focus:border-aurora focus:ring-2 focus:ring-aurora/35"
               />
             </label>
 
-            <label className="flex flex-col gap-2 text-sm text-slate-100" htmlFor="contact-email">
+            <label className="flex flex-col gap-2 text-sm text-[#1a1a1a]" htmlFor="contact-email">
               <span>{t('contacts.form.email')}</span>
               <input
                 id="contact-email"
                 type="email"
                 value={values.email}
                 onChange={(event) => updateField('email', event.target.value)}
-                className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-aurora focus:ring-2 focus:ring-aurora/35"
+                className="w-full rounded-2xl border border-[#e5e3da] bg-white px-4 py-3 text-sm text-[#1a1a1a] outline-none transition placeholder:text-[#8a8a85] focus:border-aurora focus:ring-2 focus:ring-aurora/35"
               />
-              {errors.email ? <span className="text-xs text-rose-300">{errors.email}</span> : null}
+              {errors.email ? <span className="text-xs text-[#9c2f2f]">{errors.email}</span> : null}
             </label>
           </div>
 
-          <div className="flex flex-col gap-2 text-sm text-slate-100">
+          <div className="flex flex-col gap-2 text-sm text-[#1a1a1a]">
             <span>{t('contacts.form.address')}</span>
             <input
               id="contact-address-line"
@@ -521,7 +521,7 @@ export function ContactForm({
               value={values.addressLine}
               placeholder={t('contacts.form.addressLine_placeholder')}
               onChange={(event) => updateField('addressLine', event.target.value)}
-              className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-aurora focus:ring-2 focus:ring-aurora/35"
+              className="w-full rounded-2xl border border-[#e5e3da] bg-white px-4 py-3 text-sm text-[#1a1a1a] outline-none transition placeholder:text-[#8a8a85] focus:border-aurora focus:ring-2 focus:ring-aurora/35"
             />
             <input
               id="contact-address-line2"
@@ -529,7 +529,7 @@ export function ContactForm({
               value={values.addressLine2}
               placeholder={t('contacts.form.addressLine2_placeholder')}
               onChange={(event) => updateField('addressLine2', event.target.value)}
-              className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-aurora focus:ring-2 focus:ring-aurora/35"
+              className="w-full rounded-2xl border border-[#e5e3da] bg-white px-4 py-3 text-sm text-[#1a1a1a] outline-none transition placeholder:text-[#8a8a85] focus:border-aurora focus:ring-2 focus:ring-aurora/35"
             />
             <div className="grid grid-cols-[7rem_1fr_1fr] gap-2">
               <input
@@ -538,7 +538,7 @@ export function ContactForm({
                 value={values.zipCode}
                 placeholder={t('contacts.form.zipCode_placeholder')}
                 onChange={(event) => updateField('zipCode', event.target.value)}
-                className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-aurora focus:ring-2 focus:ring-aurora/35"
+                className="w-full rounded-2xl border border-[#e5e3da] bg-white px-4 py-3 text-sm text-[#1a1a1a] outline-none transition placeholder:text-[#8a8a85] focus:border-aurora focus:ring-2 focus:ring-aurora/35"
               />
               <input
                 id="contact-city"
@@ -546,7 +546,7 @@ export function ContactForm({
                 value={values.city}
                 placeholder={t('contacts.form.city_placeholder')}
                 onChange={(event) => updateField('city', event.target.value)}
-                className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-aurora focus:ring-2 focus:ring-aurora/35"
+                className="w-full rounded-2xl border border-[#e5e3da] bg-white px-4 py-3 text-sm text-[#1a1a1a] outline-none transition placeholder:text-[#8a8a85] focus:border-aurora focus:ring-2 focus:ring-aurora/35"
               />
               <input
                 id="contact-country"
@@ -554,14 +554,14 @@ export function ContactForm({
                 value={values.country}
                 placeholder={t('contacts.form.country_placeholder')}
                 onChange={(event) => updateField('country', event.target.value)}
-                className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-aurora focus:ring-2 focus:ring-aurora/35"
+                className="w-full rounded-2xl border border-[#e5e3da] bg-white px-4 py-3 text-sm text-[#1a1a1a] outline-none transition placeholder:text-[#8a8a85] focus:border-aurora focus:ring-2 focus:ring-aurora/35"
               />
             </div>
           </div>
         </div>
 
         <div className="flex min-h-0 flex-col gap-3">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          <span className="text-xs font-medium uppercase tracking-wide text-[#8a8a85]">
             {t('contacts.form.personalInfo')}
           </span>
 
@@ -598,14 +598,14 @@ export function ContactForm({
                 </Field>
               ))
             ) : (
-              <p className="md:col-span-2 text-sm text-slate-400">
+              <p className="md:col-span-2 text-sm text-[#5c5c5a]">
                 {t('contacts.form.noManagedFieldsForRole')}
               </p>
             )}
           </div>
 
           <label
-            className="flex min-h-[10rem] grow flex-col gap-2 text-sm text-slate-100"
+            className="flex min-h-[10rem] grow flex-col gap-2 text-sm text-[#1a1a1a]"
             htmlFor="contact-information"
           >
             <span>{t('contacts.form.information')}</span>

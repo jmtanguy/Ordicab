@@ -1,10 +1,23 @@
-export interface ParsedAddress {
+interface ParsedAddress {
   addressLine: string
   addressLine2: string
   zipCode: string
   city: string
   addressFormatted: string
   addressInline: string
+}
+
+const EMPTY_PARSED_ADDRESS: ParsedAddress = {
+  addressLine: '',
+  addressLine2: '',
+  zipCode: '',
+  city: '',
+  addressFormatted: '',
+  addressInline: ''
+}
+
+function joinNonEmpty(parts: Array<string | undefined>, separator: string): string {
+  return parts.filter(Boolean).join(separator)
 }
 
 function splitAddress(raw: string): string[] {
@@ -18,21 +31,14 @@ function splitAddress(raw: string): string[] {
 
 export function parseAddress(raw: string | undefined): ParsedAddress {
   if (!raw) {
-    return {
-      addressLine: '',
-      addressLine2: '',
-      zipCode: '',
-      city: '',
-      addressFormatted: '',
-      addressInline: ''
-    }
+    return { ...EMPTY_PARSED_ADDRESS }
   }
 
   const lines = splitAddress(raw)
   const zipCityLineIdx = lines.findIndex((line) => /\b\d{5}\b/.test(line))
 
   if (zipCityLineIdx === -1) {
-    const normalizedInline = lines.join(', ')
+    const normalizedInline = joinNonEmpty(lines, ', ')
     return {
       addressLine: raw,
       addressLine2: '',
@@ -48,26 +54,18 @@ export function parseAddress(raw: string | undefined): ParsedAddress {
   const city = zipCityLine.replace(/\b\d{5}\b/, '').trim()
   const addressLines = lines.filter((_, index) => index !== zipCityLineIdx)
   const addressLine = addressLines[0] ?? ''
-  const addressLine2 = addressLines.slice(1).join(', ')
-  const combinedAddressLine = [addressLine, addressLine2].filter(Boolean).join(', ')
-  const zipCity = [zipCode, city].filter(Boolean).join(' ').trim()
+  const addressLine2 = joinNonEmpty(addressLines.slice(1), ', ')
+  const combinedAddressLine = joinNonEmpty([addressLine, addressLine2], ', ')
+  const zipCity = joinNonEmpty([zipCode, city], ' ').trim()
 
   return {
     addressLine,
     addressLine2,
     zipCode,
     city,
-    addressFormatted: [combinedAddressLine, zipCity].filter(Boolean).join('\n'),
-    addressInline: [combinedAddressLine, zipCity].filter(Boolean).join(', ')
+    addressFormatted: joinNonEmpty([combinedAddressLine, zipCity], '\n'),
+    addressInline: joinNonEmpty([combinedAddressLine, zipCity], ', ')
   }
-}
-
-export function formatAddressForDisplay(
-  raw: string | undefined,
-  mode: 'inline' | 'multiline' = 'multiline'
-): string {
-  const parsed = parseAddress(raw)
-  return mode === 'inline' ? parsed.addressInline : parsed.addressFormatted
 }
 
 export function buildAddressFields(contact: {
@@ -77,11 +75,10 @@ export function buildAddressFields(contact: {
   city?: string
   country?: string
 }): { addressFormatted: string; addressInline: string } {
-  const combinedAddressLine = [contact.addressLine, contact.addressLine2].filter(Boolean).join(', ')
-  const zipCity = [contact.zipCode, contact.city, contact.country].filter(Boolean).join(' ')
-  const parts = [combinedAddressLine, zipCity].filter(Boolean)
+  const combinedAddressLine = joinNonEmpty([contact.addressLine, contact.addressLine2], ', ')
+  const zipCity = joinNonEmpty([contact.zipCode, contact.city, contact.country], ' ')
   return {
-    addressFormatted: parts.join('\n'),
-    addressInline: parts.join(', ')
+    addressFormatted: joinNonEmpty([combinedAddressLine, zipCity], '\n'),
+    addressInline: joinNonEmpty([combinedAddressLine, zipCity], ', ')
   }
 }

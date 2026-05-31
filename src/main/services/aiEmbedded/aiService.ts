@@ -16,8 +16,7 @@
  *
  * Called by: aiHandler (ai:execute-command IPC handler)
  * Calls:     aiAgentRuntime | intentDispatcher | contactService | templateService
- *            | dossierService | documentService | aiSystemPrompt.buildSystemPrompt()
- *            | aiSystemPrompt.buildToolSystemPrompt()
+ *            | dossierService | documentService | aiSystemPrompt.buildToolSystemPrompt()
  */
 import { readFile } from 'node:fs/promises'
 import { constants } from 'node:fs'
@@ -45,17 +44,18 @@ import {
 } from '../../lib/aiEmbedded/pii/piiMapping'
 import { AiRuntimeError } from '../../lib/aiEmbedded/aiSdkAgentRuntime'
 import type { AiAgentRuntime, AiChatHistoryEntry } from '../../lib/aiEmbedded/aiSdkAgentRuntime'
-import { buildSystemPrompt, buildToolSystemPrompt } from '../../lib/aiEmbedded/aiSystemPrompt'
+import { buildToolSystemPrompt } from '../../lib/aiEmbedded/aiSystemPrompt'
 import type {
   ContactServiceLike,
   InternalAICommandDispatcher,
   TemplateServiceLike
 } from '../../lib/aiEmbedded/aiCommandDispatcher'
-import { getDomainEntityPath, getDomainRegistryPath } from '../../lib/ordicab/ordicabPaths'
+import { getDomainEntityPath } from '../../lib/ordicab/ordicabPaths'
 import { DataToolExecutor, resolveDossierRef } from './dataToolExecutor'
 import type {
   DocumentServiceLike,
-  DossierServiceLike
+  DossierServiceLike,
+  InvoiceServiceLike
 } from '../../lib/aiEmbedded/aiCommandDispatcher'
 import { ActionToolExecutor } from './actionToolExecutor'
 import { createPiiToolGateway, type PiiHelpers } from './piiToolGateway'
@@ -155,6 +155,7 @@ export interface AiServiceOptions {
   templateService: TemplateServiceLike
   dossierService: DossierServiceLike
   documentService: DocumentServiceLike
+  invoiceService: InvoiceServiceLike
   domainService: DomainServiceLike
   localeService: LocaleServiceLike
   stateFilePath: string
@@ -230,53 +231,6 @@ function logToolLoopEntries(
   console.log('╚══════════════════════════════════════════════════════════')
 }
 
-interface RegistryFolderEntry {
-  id: string
-  uuid?: string
-  name: string
-}
-
-async function loadRegistryFolderMap(domainPath: string): Promise<RegistryFolderEntry[]> {
-  try {
-    const raw = await readFile(getDomainRegistryPath(domainPath), 'utf8')
-    const parsed = JSON.parse(raw) as { dossiers?: unknown[] }
-    if (!Array.isArray(parsed.dossiers)) return []
-
-    return parsed.dossiers.flatMap((entry) => {
-      if (
-        typeof entry === 'object' &&
-        entry !== null &&
-        typeof (entry as { id?: unknown }).id === 'string' &&
-        typeof (entry as { name?: unknown }).name === 'string'
-      ) {
-        const record = entry as { id: string; uuid?: unknown; name: string }
-        return [
-          {
-            id: record.id,
-            uuid: typeof record.uuid === 'string' ? record.uuid : undefined,
-            name: record.name
-          }
-        ]
-      }
-      return []
-    })
-  } catch {
-    return []
-  }
-}
-
-function resolvePromptFolderPath(
-  dossier: DossierSummary,
-  registryEntries: RegistryFolderEntry[]
-): string | undefined {
-  return (
-    registryEntries.find((entry) => entry.uuid && dossier.uuid && entry.uuid === dossier.uuid)
-      ?.id ??
-    registryEntries.find((entry) => entry.id === dossier.id)?.id ??
-    registryEntries.find((entry) => entry.name === dossier.name)?.id
-  )
-}
-
 function buildHistoryEntries(
   userCommand: string,
   feedback: string,
@@ -341,13 +295,8 @@ function revertJsonWithPiiEntries(
   entries: MappingSnapshotEntry[],
   currentTurnEntries: MappingSnapshotEntry[] = []
 ): unknown {
-  // Delegated to piiMapping which pre-scans the value tree for marker pairs
-  // and disambiguates bare fakes in sibling fields (e.g. `lastName: "Charpentier"`
-  // resolves to the same original as `email: "x@[[contact_1.lastName]] `Charpentier`-..."`).
-  // currentTurnEntries are passed when the LLM emits ZERO marker forms in the
-  // JSON: the JSON pre-scan finds nothing to disambiguate, but the current
-  // pseudonymization turn (which the LLM was just shown) is internally
-  // unambiguous and overrides any cross-turn fake collision.
+  // Delegated to piiMapping. currentTurnEntries describe the values the LLM
+  // just saw and override stale cross-turn collisions in the decode ledger.
   return revertJsonValueWithMappingEntries(obj, entries, { currentTurnEntries })
 }
 
@@ -362,6 +311,7 @@ export function createAiService(options: AiServiceOptions): AiService {
     templateService,
     dossierService,
     documentService,
+    invoiceService,
     domainService,
     localeService,
     stateFilePath,
@@ -369,7 +319,7 @@ export function createAiService(options: AiServiceOptions): AiService {
   } = options
 
   // Keeps prior-turn mappings only for local decoding. It is never passed back
-  // into PiiPseudonymizer, so it cannot seed or alter markers sent to the LLM.
+  // into PiiPseudonymizer, so it cannot seed or alter values sent to the LLM.
   let piiDecodeLedger: MappingSnapshotEntry[] = []
 
   return {
@@ -429,7 +379,7 @@ export function createAiService(options: AiServiceOptions): AiService {
         .getStatus()
         .catch(() => ({ registeredDomainPath: null as string | null, isAvailable: false }))
 
-      const [dossiers, templates, entityProfile, registryEntries] = await Promise.all([
+      const [dossiers, templates, entityProfile] = await Promise.all([
         dossierService.listRegisteredDossiers().catch(() => [] as DossierSummary[]),
         templateService
           .list()
@@ -444,12 +394,7 @@ export function createAiService(options: AiServiceOptions): AiService {
           .catch(() => []),
         domainStatus.registeredDomainPath
           ? loadEntityProfile(domainStatus.registeredDomainPath).catch(() => null)
-          : Promise.resolve(null as EntityProfile | null),
-        domainStatus.registeredDomainPath
-          ? loadRegistryFolderMap(domainStatus.registeredDomainPath).catch(
-              () => [] as RegistryFolderEntry[]
-            )
-          : Promise.resolve([] as RegistryFolderEntry[])
+          : Promise.resolve(null as EntityProfile | null)
       ])
 
       const dossierId = resolveDossierRef(rawDossierId, dossiers) ?? rawDossierId ?? null
@@ -457,7 +402,6 @@ export function createAiService(options: AiServiceOptions): AiService {
       // Eagerly load contacts, documents, and dossierDetail for the active dossier.
       // Even though the agent now fetches data via tools, these are still needed here for:
       // - PiiPseudonymizer context (contacts + dossierDetail.keyDates/keyReferences)
-      // - buildSystemPrompt dynamic examples (contacts, documents)
       // - text_generate fallback path
       // TODO: consider making this lazy once PII context can be deferred too.
       const [contacts, documents, dossierDetail] = await Promise.all([
@@ -507,7 +451,7 @@ export function createAiService(options: AiServiceOptions): AiService {
       const pseudonymizeAuto = async (text: string): Promise<string> =>
         piiPseudo ? piiPseudo.pseudonymizeAutoAsync(text) : text
       // Merge the current turn's mapping with prior decode-only entries so the
-      // UI can still decode markers echoed back from older turns, without
+      // UI can still decode values echoed back from older turns, without
       // feeding those older entries back into the next pseudonymization pass.
       const currentPiiDecodeEntries = (): MappingSnapshotEntry[] =>
         piiPseudo ? mergePiiDecodeLedger(piiDecodeLedger, piiPseudo.exportMapping()) : []
@@ -529,18 +473,6 @@ export function createAiService(options: AiServiceOptions): AiService {
         }
       }
 
-      // Minimal contact shape for JSON-mode prompt examples (name resolution by the LLM).
-      // Phone and managed fields are intentionally omitted — the LLM resolves names to IDs
-      // only; full contact details are fetched via contact_get when needed.
-      const promptContacts = await Promise.all(
-        contacts.map(async (c: ContactRecord) => ({
-          uuid: c.uuid,
-          name: await pseudonymizeText(`${c.firstName ?? ''} ${c.lastName ?? ''}`.trim()),
-          role: c.role,
-          email: c.email ? await pseudonymizeText(c.email) : c.email
-        }))
-      )
-
       // For buildTextGenerationPrompt which expects id instead of uuid
       const textGenerationContacts = contacts.map((c: ContactRecord) => ({
         id: c.uuid,
@@ -553,37 +485,38 @@ export function createAiService(options: AiServiceOptions): AiService {
         piiPseudo && dossierId
           ? (dossiers.find((d) => d.id === dossierId || d.uuid === dossierId)?.uuid ?? dossierId)
           : (dossierId ?? undefined)
-      const promptDossiers = await Promise.all(
-        dossiers.map(async (d: DossierSummary) => {
-          const folderPath = resolvePromptFolderPath(d, registryEntries) ?? d.id
-          return {
-            id: piiPseudo ? (d.uuid ?? d.id) : d.id,
-            uuid: d.uuid,
-            name: await pseudonymizeText(d.name),
-            status: d.status,
-            type: d.type,
-            folderPath: await pseudonymizeText(folderPath)
-          }
-        })
-      )
+      // id/uuid only: buildToolSystemPrompt resolves the active dossier from this
+      // list but never renders dossier names — no PII reaches the prompt, so no
+      // pseudonymization pass is needed here.
+      const promptDossiers = dossiers.map((d: DossierSummary) => ({
+        id: piiPseudo ? (d.uuid ?? d.id) : d.id,
+        uuid: d.uuid
+      }))
 
-      // SystemPromptContext fed into both prompt builders. Static prompt text is
-      // not sent through the PII detector; only dynamic prompt-example values are
-      // prepared above with the same mapping used for command/history/tool data.
+      // `@<filename>` mentions resolved by the renderer carry the document UUID
+      // for each filename. Pseudonymize the visible filename so it matches the
+      // form the LLM sees in the (sanitized) user message; the UUID is preserved
+      // by the pseudonymizer verbatim.
+      const rawDocumentMentions = input.context.documentMentions ?? []
+      const promptDocumentMentions = piiPseudo
+        ? await Promise.all(
+            rawDocumentMentions.map(async (m) => ({
+              uuid: m.uuid,
+              filename: await pseudonymizeText(m.filename)
+            }))
+          )
+        : rawDocumentMentions
+
+      // SystemPromptContext fed into the tool-mode prompt builder.
       const promptContext = {
         dossierId: activePromptDossierId,
         piiEnabled: runtimeMode === 'remote' && piiEnabled,
         currentDate,
-        contacts: promptContacts,
-        templates,
-        dossiers: promptDossiers
+        locale: appLocale as 'fr' | 'en',
+        dossiers: promptDossiers,
+        documentMentions: promptDocumentMentions
       }
-      // Build two prompt variants from the same context:
-      // standard mode returns JSON intents, while tool mode swaps in native
-      // tool-calling instructions instead of the JSON schema/examples.
-      const systemPrompt = buildSystemPrompt(promptContext)
       const toolSystemPrompt = buildToolSystemPrompt(promptContext)
-      const safeSystemPrompt = systemPrompt
       const safeToolSystemPrompt = toolSystemPrompt
 
       // ── Tag override shortcut ─────────────────────────────────────────────
@@ -607,15 +540,6 @@ export function createAiService(options: AiServiceOptions): AiService {
       }
 
       const intentT0 = Date.now()
-      // console.log('\n╔══ AI REQUEST ════════════════════════════════════════════')
-      // console.log(`║ command    : ${input.command}`)
-      // console.log(`║ model      : ${input.model ?? '(default)'}`)
-      // console.log(`║ mode       : ${runtimeMode}`)
-      // if (input.history && input.history.length > 0) {
-      //   console.log(`║ history    : ${input.history.length} messages`)
-      // }
-      // console.log(`║ systemPrompt (${systemPrompt.length} chars):\n${systemPrompt.split('\n').map(l => `║   ${l}`).join('\n')}`)
-      // console.log('╚══════════════════════════════════════════════════════════')
 
       // DataToolExecutor handles read-only tools (contact_lookup, dossier_get, document_search…).
       // Its results are fed back to the LLM as tool messages; the loop continues after each call.
@@ -626,16 +550,18 @@ export function createAiService(options: AiServiceOptions): AiService {
         templateService,
         documentService,
         dossierService,
+        invoiceService,
         entityProfile
       })
 
-      // ActionToolExecutor handles batchable mutation tools (contact_upsert, contact_delete…).
+      // ActionToolExecutor handles batchable mutation tools (contact_create/contact_update, contact_delete…).
       // Batchable actions are executed inline inside the tool loop — the result is fed back
       // to the LLM so it can chain multiple mutations in one turn (e.g. create several contacts).
       // `lastInlineDispatchResult` tracks the most recently dispatched result so that when the
       // loop ends with a direct_response summary, the inline result's context update is preserved.
       const actionToolExecutor = new ActionToolExecutor({
         dossierId,
+        dossiers,
         locale: appLocale,
         documentService,
         intentDispatcher,
@@ -663,7 +589,7 @@ export function createAiService(options: AiServiceOptions): AiService {
 
       const wrappedOnReflection = onReflection
         ? (text: string): void => {
-            // Revert any markers the model emits so the UI shows natural prose.
+            // Revert any anonymized values the model emits so the UI shows natural prose.
             onReflection(revertPiiText(text))
           }
         : undefined
@@ -671,7 +597,6 @@ export function createAiService(options: AiServiceOptions): AiService {
         {
           command: sanitizedCommand,
           context: input.context,
-          systemPrompt: safeSystemPrompt,
           toolSystemPrompt: safeToolSystemPrompt,
           model: input.model,
           history: sanitizedHistory,
@@ -686,7 +611,7 @@ export function createAiService(options: AiServiceOptions): AiService {
       logToolLoopEntries(aiAgentRuntime.getLastToolLoopEntries(), revertPiiText)
       const intentDebugTrace = aiAgentRuntime.getDebugTrace() ?? undefined
 
-      // Revert any [[markers]] the LLM echoed back in the intent fields
+      // Revert any anonymized values the LLM echoed back in the intent fields.
       const revertedIntent = revertPiiJson(intent)
 
       console.log(`\n╔══ AI INTENT (${Date.now() - intentT0}ms) ${'═'.repeat(40)}`)
@@ -702,7 +627,7 @@ export function createAiService(options: AiServiceOptions): AiService {
       // Build the per-command context once and dispatch to a named handler.
       // Every handler MUST call ctx.commitIntentToHistory exactly once before
       // returning, so subsequent turns inherit conversation history and can
-      // decode markers echoed back from the LLM.
+      // decode anonymized values echoed back from the LLM.
       const commitIntentToHistory = (feedback: string, intentType: string): void => {
         aiAgentRuntime.appendHistory(
           buildHistoryEntries(sanitizedCommand, feedback, aiAgentRuntime.getLastToolLoopEntries()),

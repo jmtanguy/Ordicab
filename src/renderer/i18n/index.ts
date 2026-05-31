@@ -4,10 +4,9 @@ import { initReactI18next } from 'react-i18next'
 import en from '@shared/i18n/locales/en.json'
 import fr from '@shared/i18n/locales/fr.json'
 
-export const SUPPORTED_LOCALES = ['en', 'fr'] as const
+const SUPPORTED_LOCALES = ['en', 'fr'] as const
 
-export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number]
-export type TranslationKey = keyof typeof en
+type SupportedLocale = (typeof SUPPORTED_LOCALES)[number]
 
 const resources = {
   en: { translation: en },
@@ -55,8 +54,5 @@ export async function createRendererI18n(
 
   return i18n
 }
-
-export const resolveSupportedLocale = normalizeAppLocale
-export const initializeI18n = createRendererI18n
 
 export { i18n }

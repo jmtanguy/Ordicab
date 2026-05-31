@@ -7,7 +7,15 @@ declare module 'mammoth' {
     buffer?: Buffer
     path?: string
   }
-  export function convertToHtml(options: ConvertOptions): Promise<ConversionResult>
+  interface ConvertHtmlOptions {
+    styleMap?: string[]
+    ignoreEmptyParagraphs?: boolean
+    transformDocument?: (document: unknown) => unknown
+  }
+  export function convertToHtml(
+    options: ConvertOptions,
+    htmlOptions?: ConvertHtmlOptions
+  ): Promise<ConversionResult>
 }
 
 declare module 'word-extractor' {

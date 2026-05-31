@@ -60,7 +60,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }): Reac
               <button
                 type="button"
                 onClick={() => dismiss(toast.id)}
-                className="shrink-0 rounded-lg p-1 text-slate-400 transition hover:bg-white/10 hover:text-slate-100"
+                className="shrink-0 rounded-lg p-1 text-[#5c5c5a] transition hover:bg-[#e4e1d5] hover:text-[#1a1a1a]"
                 aria-label="Fermer"
               >
                 ✕

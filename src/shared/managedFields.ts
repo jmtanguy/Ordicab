@@ -4,10 +4,8 @@ import {
   getDefaultContactFields,
   getDefaultKeyDateFields,
   getDefaultKeyReferenceFields,
-  getLegacyContactManagedFields,
   getRolePresets,
   isOrganizationRole,
-  type EntityProfession,
   type ManagedFieldDefinition,
   type ManagedFieldValueType
 } from './professionDefaults'
@@ -36,7 +34,7 @@ type ManagedFieldDefinitionInput = Partial<ManagedFieldDefinition> & { key?: str
 const LEGACY_CONTACT_FIELD_KEY_BY_LABEL = new Map(
   (
     [
-      ["Prénoms complémentaires de l'état civil", 'additionalFirstNames'],
+      ['Prénoms complémentaires', 'additionalFirstNames'],
       ['Nom de jeune fille', 'maidenName'],
       ['Date de naissance', 'dateOfBirth'],
       ['Nationalité', 'nationality'],
@@ -104,16 +102,12 @@ function normalizeRoleFieldKeys(
   return normalized
 }
 
-function suggestContactFieldKeysForRole(
-  role: string,
-  profession?: EntityProfession | null,
-  locale: AppLocale = 'fr'
-): string[] {
+function suggestContactFieldKeysForRole(role: string, locale: AppLocale = 'fr'): string[] {
   if (isOrganizationRole(role, locale)) {
     return []
   }
 
-  return getDefaultContactFields(profession, locale).map((field) => getManagedFieldKey(field))
+  return getDefaultContactFields(locale).map((field) => getManagedFieldKey(field))
 }
 
 function normalizeContactRoles(input: string[] | null | undefined): string[] {
@@ -134,32 +128,27 @@ function normalizeContactRoles(input: string[] | null | undefined): string[] {
 }
 
 export function createDefaultManagedFieldsConfig(
-  profession?: EntityProfession | null,
   locale: AppLocale = 'fr'
 ): EntityManagedFieldsConfig {
-  const roles = normalizeContactRoles(getRolePresets(profession, locale))
+  const roles = normalizeContactRoles(getRolePresets(locale))
   const contactRoleFields = Object.fromEntries(
-    roles.map((role) => [
-      roleToTagKey(role),
-      suggestContactFieldKeysForRole(role, profession, locale)
-    ])
+    roles.map((role) => [roleToTagKey(role), suggestContactFieldKeysForRole(role, locale)])
   )
 
   return {
     contactRoles: roles,
-    contacts: getDefaultContactFields(profession, locale),
-    keyDates: getDefaultKeyDateFields(profession, locale),
-    keyReferences: getDefaultKeyReferenceFields(profession, locale),
+    contacts: getDefaultContactFields(locale),
+    keyDates: getDefaultKeyDateFields(locale),
+    keyReferences: getDefaultKeyReferenceFields(locale),
     contactRoleFields
   }
 }
 
 export function normalizeManagedFieldsConfig(
   input: Partial<EntityManagedFieldsConfig> | null | undefined,
-  profession?: EntityProfession | null,
   locale: AppLocale = 'fr'
 ): EntityManagedFieldsConfig {
-  const defaults = createDefaultManagedFieldsConfig(profession, locale)
+  const defaults = createDefaultManagedFieldsConfig(locale)
   const hasCustomContacts = Boolean(
     input && Object.prototype.hasOwnProperty.call(input, 'contacts')
   )
@@ -184,10 +173,7 @@ export function normalizeManagedFieldsConfig(
   )
   const allowedContactKeys = new Set(contacts.map((field) => getManagedFieldKey(field)))
   const defaultContactRoleFields = Object.fromEntries(
-    contactRoles.map((role) => [
-      roleToTagKey(role),
-      suggestContactFieldKeysForRole(role, profession, locale)
-    ])
+    contactRoles.map((role) => [roleToTagKey(role), suggestContactFieldKeysForRole(role, locale)])
   )
 
   return {
@@ -232,7 +218,7 @@ export function getContactManagedFieldValues(
 ): ContactManagedFieldValues {
   const values: ContactManagedFieldValues = { ...(contact?.customFields ?? {}) }
 
-  for (const field of getLegacyContactManagedFields()) {
+  for (const field of getDefaultContactFields()) {
     const value = getContactManagedFieldValue(contact, getManagedFieldKey(field))
     if (value) {
       values[getManagedFieldKey(field)] = value

@@ -1,63 +1,25 @@
 import { dialog } from 'electron'
-import { ZodError } from 'zod'
 
-import {
-  IPC_CHANNELS,
-  IpcErrorCode,
-  type DossierAiExportAnalyzeResult,
-  type DossierAiExportInput,
-  type DossierAiExportResult,
-  type DossierAiImportAnalyzeInput,
-  type DossierAiImportAnalyzeResult,
-  type DossierAiImportInput,
-  type DossierAiImportResult,
-  type IpcError,
-  type IpcResult
-} from '@shared/types'
+import { IPC_CHANNELS, type IpcError, type IpcResult } from '@shared/types'
 
 import {
   dossierAiExportInputSchema,
   dossierAiImportAnalyzeInputSchema,
   dossierAiImportInputSchema,
-  dossierScopedQuerySchema,
-  type DossierScopedQuery
+  dossierScopedQuerySchema
 } from '@shared/validation'
 
 import {
   DossierTransferServiceError,
   type DossierTransferService
 } from '../services/domain/dossierTransferService'
+import { type IpcMainLike, mapIpcError, registerIpcHandler, success } from './ipc'
 
-interface IpcMainLike {
-  handle: (
-    channel: string,
-    listener: (_event: unknown, input?: unknown) => Promise<unknown>
-  ) => void
-}
-
-function mapTransferError(error: unknown, fallbackMessage: string): IpcError {
-  if (error instanceof ZodError) {
-    return {
-      success: false,
-      error: 'Invalid dossier transfer input.',
-      code: IpcErrorCode.VALIDATION_FAILED
-    }
-  }
-
-  if (error instanceof DossierTransferServiceError) {
-    return {
-      success: false,
-      error: error.message,
-      code: error.code
-    }
-  }
-
-  return {
-    success: false,
-    error: error instanceof Error ? error.message : fallbackMessage,
-    code: IpcErrorCode.FILE_SYSTEM_ERROR
-  }
-}
+const mapTransferError = (error: unknown, fallback: string): IpcError =>
+  mapIpcError(error, fallback, {
+    validationMessage: 'Invalid dossier transfer input.',
+    errorClasses: [DossierTransferServiceError]
+  })
 
 export function registerDossierTransferHandlers(options: {
   dossierTransferService: DossierTransferService
@@ -80,45 +42,30 @@ export function registerDossierTransferHandlers(options: {
         const result = await showOpenDialog({
           properties: ['openDirectory', 'createDirectory']
         })
-        return {
-          success: true,
-          data: result.canceled ? null : (result.filePaths[0] ?? null)
-        }
+        return success(result.canceled ? null : (result.filePaths[0] ?? null))
       } catch (error) {
         return mapTransferError(error, 'Unable to pick export directory.')
       }
     }
   )
 
-  options.ipcMain.handle(
-    IPC_CHANNELS.dossier.analyzeAiExport,
-    async (_event, input: unknown): Promise<IpcResult<DossierAiExportAnalyzeResult>> => {
-      try {
-        const parsed = dossierScopedQuerySchema.parse(input) as DossierScopedQuery
-        return {
-          success: true,
-          data: await options.dossierTransferService.analyzeExport(parsed)
-        }
-      } catch (error) {
-        return mapTransferError(error, 'Unable to analyze dossier AI export.')
-      }
-    }
-  )
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.analyzeAiExport,
+    schema: dossierScopedQuerySchema,
+    fallback: 'Unable to analyze dossier AI export.',
+    mapError: mapTransferError,
+    handle: (input) => options.dossierTransferService.analyzeExport(input)
+  })
 
-  options.ipcMain.handle(
-    IPC_CHANNELS.dossier.exportForAi,
-    async (_event, input: unknown): Promise<IpcResult<DossierAiExportResult>> => {
-      try {
-        const parsed = dossierAiExportInputSchema.parse(input) as DossierAiExportInput
-        return {
-          success: true,
-          data: await options.dossierTransferService.exportForAi(parsed)
-        }
-      } catch (error) {
-        return mapTransferError(error, 'Unable to export dossier for AI.')
-      }
-    }
-  )
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.exportForAi,
+    schema: dossierAiExportInputSchema,
+    fallback: 'Unable to export dossier for AI.',
+    mapError: mapTransferError,
+    handle: (input) => options.dossierTransferService.exportForAi(input)
+  })
 
   options.ipcMain.handle(
     IPC_CHANNELS.dossier.pickImportSource,
@@ -127,43 +74,28 @@ export function registerDossierTransferHandlers(options: {
         const result = await showOpenDialog({
           properties: ['openDirectory']
         })
-        return {
-          success: true,
-          data: result.canceled ? null : (result.filePaths[0] ?? null)
-        }
+        return success(result.canceled ? null : (result.filePaths[0] ?? null))
       } catch (error) {
         return mapTransferError(error, 'Unable to pick import directory.')
       }
     }
   )
 
-  options.ipcMain.handle(
-    IPC_CHANNELS.dossier.analyzeAiImport,
-    async (_event, input: unknown): Promise<IpcResult<DossierAiImportAnalyzeResult>> => {
-      try {
-        const parsed = dossierAiImportAnalyzeInputSchema.parse(input) as DossierAiImportAnalyzeInput
-        return {
-          success: true,
-          data: await options.dossierTransferService.analyzeImport(parsed)
-        }
-      } catch (error) {
-        return mapTransferError(error, 'Unable to analyze dossier AI import.')
-      }
-    }
-  )
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.analyzeAiImport,
+    schema: dossierAiImportAnalyzeInputSchema,
+    fallback: 'Unable to analyze dossier AI import.',
+    mapError: mapTransferError,
+    handle: (input) => options.dossierTransferService.analyzeImport(input)
+  })
 
-  options.ipcMain.handle(
-    IPC_CHANNELS.dossier.importAiProduction,
-    async (_event, input: unknown): Promise<IpcResult<DossierAiImportResult>> => {
-      try {
-        const parsed = dossierAiImportInputSchema.parse(input) as DossierAiImportInput
-        return {
-          success: true,
-          data: await options.dossierTransferService.importProduction(parsed)
-        }
-      } catch (error) {
-        return mapTransferError(error, 'Unable to import AI production files.')
-      }
-    }
-  )
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.importAiProduction,
+    schema: dossierAiImportInputSchema,
+    fallback: 'Unable to import AI production files.',
+    mapError: mapTransferError,
+    handle: (input) => options.dossierTransferService.importProduction(input)
+  })
 }

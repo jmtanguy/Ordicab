@@ -120,7 +120,7 @@ describe('SemanticSearchPanel', () => {
     ).toBeTruthy()
   })
 
-  it('renders Ordicab <NL> markers as line breaks in hit previews', async () => {
+  it('renders paragraph breaks in hit previews', async () => {
     useDocumentStore.setState((state) => {
       state.semanticSearchStatesByDossierId['dos-1'] = {
         status: 'ready',
@@ -135,7 +135,7 @@ describe('SemanticSearchPanel', () => {
               charStart: 0,
               charEnd: 24,
               score: 0.9,
-              snippet: 'Ligne 1<NL>Ligne 2'
+              snippet: 'Paragraphe 1\n\nParagraphe 2'
             }
           ]
         },
@@ -146,8 +146,7 @@ describe('SemanticSearchPanel', () => {
     await renderPanel()
 
     expect(
-      screen.getByText((_, element) => element?.textContent === 'Ligne 1\nLigne 2')
+      screen.getByText((_, element) => element?.textContent === 'Paragraphe 1\n\nParagraphe 2')
     ).toBeTruthy()
-    expect(screen.queryByText('Ligne 1<NL>Ligne 2')).toBeNull()
   })
 })

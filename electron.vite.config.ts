@@ -13,6 +13,19 @@ export default defineConfig({
   main: {
     resolve: {
       alias
+    },
+    build: {
+      rollupOptions: {
+        // The embedding pipeline runs in a node:worker_threads worker so its
+        // synchronous ONNX inference doesn't block the Electron main thread
+        // (which serves IPC to the renderer). Emit it as a sibling bundle of
+        // index.js so `new Worker(path.join(__dirname, 'embeddingWorker.js'))`
+        // resolves both in `electron-vite dev` and in the packaged app.
+        input: {
+          index: resolve('src/main/index.ts'),
+          embeddingWorker: resolve('src/main/lib/aiEmbedded/embeddings/embeddingWorker.ts')
+        }
+      }
     }
   },
   preload: {

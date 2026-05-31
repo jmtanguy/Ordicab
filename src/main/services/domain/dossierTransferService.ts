@@ -38,7 +38,12 @@ import { templateRoutineCatalog } from '@shared/templateRoutines'
 import { RAW_TAG_PATTERN } from '@shared/templateContent/html'
 import { labelToKey, normalizeTagPath } from '@shared/templateContent'
 
-import { dossierMetadataFileSchema, entityProfileSchema } from '@shared/validation'
+import {
+  dossierMetadataFileSchema,
+  ENTITY_TITLE_LONG,
+  ENTITY_TITLE_SHORT,
+  entityProfileSchema
+} from '@shared/validation'
 import {
   readCachedDocumentText,
   updateCachedDocumentText
@@ -180,6 +185,14 @@ function sanitizeExportFileStem(relativePath: string): string {
   return relativePath.replace(/[\\/]/g, '__').replace(/[^A-Za-z0-9._-]/g, '_')
 }
 
+async function pseudonymizeForFilesystem(
+  pseudonymizer: PiiPseudonymizer | null,
+  value: string
+): Promise<string> {
+  if (!pseudonymizer || !value) return value
+  return pseudonymizer.pseudonymizeAsync(value)
+}
+
 function sanitizeDirectoryName(name: string): string {
   const normalized = name
     .trim()
@@ -239,15 +252,15 @@ function createOfflineInstructions(options: {
 }): Record<string, string> {
   if (options.locale === 'fr') {
     return {
-      'CLAUDE.md': `# Export IA Ordicab\n\nCet export peut etre utilise pour analyser le dossier, mais aussi pour creer de nouveaux documents a partir des informations et modeles fournis.\nCreez tous les nouveaux fichiers directement a la racine de ce repertoire.\nLisez les donnees du dossier dans \`${options.paths.aiRootName}/ordicab\`, les modeles dans \`${options.paths.aiRootName}/${options.paths.templatesName}\`, et la liste des routines dossier dans \`${options.paths.aiRootName}/ordicab/routines-dossier.json\`.\nQuand une donnee Ordicab correspond a une routine connue, preferez inserer la routine dans le document final plutot qu'une valeur inventee.\nSi une routine est marquee \`missing\`, laissez la routine dans le document final ou demandez la valeur a l'utilisateur. N'inventez jamais une valeur.\nQuand vous voyez un marker \`[[chemin.marker]]\` associe a une valeur visible, traitez cette valeur visible comme la valeur canonique a utiliser pour raisonner, lire les fichiers et rediger votre reponse.\nNe dites jamais que cette valeur est fictive, pseudonymisee, masquee ou absente du dossier partage. Ne cherchez jamais la valeur reelle derriere le marker.\nUtilisez uniquement la valeur visible (sans le marker) dans vos reponses et documents produits. Ne reproduisez jamais le format \`[[chemin.marker]]\` dans les documents generes.\nCette regle s'applique a toutes les reponses, brouillons, analyses et documents intermediaires produits dans cet export.\nN'utilisez jamais le repertoire \`${options.paths.confidentialName}\`.\nSi ce repertoire est visible, avertissez l'utilisateur et demandez-lui de ne partager que le repertoire \`${options.paths.aiRootName}\`.\nLe dossier cible est: ${options.dossierName}.\n`,
-      'AGENTS.md': `# Consignes exportees\n\nCet espace peut servir a rediger et creer de nouveaux documents pour le dossier.\nCreez tous les nouveaux fichiers directement a la racine de ce repertoire.\nQuand une routine Ordicab existe, utilisez-la dans le document final. Si la valeur manque, laissez la routine en place au lieu d'inventer.\nQuand une valeur apparait avec un marker \`[[chemin.marker]]\`, utilisez uniquement la valeur visible dans vos documents et reponses, sans reproduire le marker.\n`,
+      'CLAUDE.md': `# Export IA Ordicab\n\nCet export peut etre utilise pour analyser le dossier, mais aussi pour creer de nouveaux documents a partir des informations et modeles fournis.\nCreez tous les nouveaux fichiers directement a la racine de ce repertoire.\nLisez les donnees du dossier dans \`${options.paths.aiRootName}/ordicab\`, les modeles dans \`${options.paths.aiRootName}/${options.paths.templatesName}\`, et la liste des routines dossier dans \`${options.paths.aiRootName}/ordicab/routines-dossier.json\`.\nQuand une donnee Ordicab correspond a une routine connue, preferez inserer la routine dans le document final plutot qu'une valeur inventee.\nSi une routine est marquee \`missing\`, laissez la routine dans le document final ou demandez la valeur a l'utilisateur. N'inventez jamais une valeur.\nLes donnees personnelles visibles dans cet export peuvent etre pseudonymisees. Traitez les valeurs visibles comme les valeurs canoniques pour raisonner, lire les fichiers et rediger vos reponses.\nNe dites jamais que ces valeurs sont fictives, pseudonymisees, masquees ou absentes du dossier partage. Ne cherchez jamais les valeurs reelles.\nCette regle s'applique a toutes les reponses, brouillons, analyses et documents intermediaires produits dans cet export.\nN'utilisez jamais le repertoire \`${options.paths.confidentialName}\`.\nSi ce repertoire est visible, avertissez l'utilisateur et demandez-lui de ne partager que le repertoire \`${options.paths.aiRootName}\`.\nLe dossier cible est: ${options.dossierName}.\n`,
+      'AGENTS.md': `# Consignes exportees\n\nCet espace peut servir a rediger et creer de nouveaux documents pour le dossier.\nCreez tous les nouveaux fichiers directement a la racine de ce repertoire.\nQuand une routine Ordicab existe, utilisez-la dans le document final. Si la valeur manque, laissez la routine en place au lieu d'inventer.\nLes donnees personnelles visibles peuvent etre pseudonymisees; utilisez les valeurs visibles telles quelles dans vos documents et reponses.\n`,
       '.github/copilot-instructions.md': `N'accedez pas au repertoire ${options.paths.confidentialName}.`
     }
   }
 
   return {
-    'CLAUDE.md': `# Ordicab AI Export\n\nThis export can be used to analyze the dossier, but also to create new documents from the provided data and templates.\nCreate every new file directly at the root of this directory.\nRead dossier data from \`${options.paths.aiRootName}/ordicab\`, templates from \`${options.paths.aiRootName}/${options.paths.templatesName}\`, and the dossier routine inventory from \`${options.paths.aiRootName}/ordicab/dossier-routines.json\`.\nWhen an Ordicab value maps to a known routine, prefer writing the routine in the final user-facing document instead of inventing a value.\nIf a routine is marked \`missing\`, keep the routine in the final document or ask the user for the value. Never invent one.\nWhenever you see a marker \`[[path.marker]]\` attached to a visible value, treat that visible value as the canonical working value for reading the shared files, reasoning, and drafting your response.\nNever say that this value is fake, pseudonymized, masked, or missing from the shared dossier. Never try to recover the real value behind the marker.\nUse only the visible value (without the marker) in your responses and produced documents. Never reproduce the \`[[path.marker]]\` format in generated documents.\nThis rule applies to all responses, drafts, analyses, and intermediate documents produced in this export.\nNever use the \`${options.paths.confidentialName}\` directory.\nIf that directory is visible, warn the user and ask them to share only the \`${options.paths.aiRootName}\` directory.\nTarget dossier: ${options.dossierName}.\n`,
-    'AGENTS.md': `# Exported Instructions\n\nThis workspace can be used to draft and create new dossier documents.\nCreate every new file directly at the root of this directory.\nWhen an Ordicab routine exists, use that routine in the final document. If the value is missing, leave the routine in place instead of inventing data.\nWhenever a value appears with a \`[[path.marker]]\` marker, use the visible value directly in your documents and responses, without reproducing the marker.\n`,
+    'CLAUDE.md': `# Ordicab AI Export\n\nThis export can be used to analyze the dossier, but also to create new documents from the provided data and templates.\nCreate every new file directly at the root of this directory.\nRead dossier data from \`${options.paths.aiRootName}/ordicab\`, templates from \`${options.paths.aiRootName}/${options.paths.templatesName}\`, and the dossier routine inventory from \`${options.paths.aiRootName}/ordicab/dossier-routines.json\`.\nWhen an Ordicab value maps to a known routine, prefer writing the routine in the final user-facing document instead of inventing a value.\nIf a routine is marked \`missing\`, keep the routine in the final document or ask the user for the value. Never invent one.\nPersonal data visible in this export may be pseudonymized. Treat visible values as the canonical working values for reading the shared files, reasoning, and drafting your response.\nNever say that these values are fake, pseudonymized, masked, or missing from the shared dossier. Never try to recover real values.\nThis rule applies to all responses, drafts, analyses, and intermediate documents produced in this export.\nNever use the \`${options.paths.confidentialName}\` directory.\nIf that directory is visible, warn the user and ask them to share only the \`${options.paths.aiRootName}\` directory.\nTarget dossier: ${options.dossierName}.\n`,
+    'AGENTS.md': `# Exported Instructions\n\nThis workspace can be used to draft and create new dossier documents.\nCreate every new file directly at the root of this directory.\nWhen an Ordicab routine exists, use that routine in the final document. If the value is missing, leave the routine in place instead of inventing data.\nPersonal data visible in this export may be pseudonymized; use visible values as-is in your documents and responses.\n`,
     '.github/copilot-instructions.md': `Never access the ${options.paths.confidentialName} directory.`
   }
 }
@@ -268,7 +281,7 @@ async function loadEntityProfile(domainPath: string): Promise<EntityProfile | nu
   const normalized: EntityProfile = {
     ...parsed.data,
     managedFields: parsed.data.managedFields
-      ? normalizeManagedFieldsConfig(parsed.data.managedFields, parsed.data.profession)
+      ? normalizeManagedFieldsConfig(parsed.data.managedFields)
       : undefined
   }
   return normalized
@@ -279,6 +292,19 @@ function toTemplateLookup(
 ): Record<string, string> {
   return entries.reduce<Record<string, string>>((acc, entry) => {
     acc[labelToKey(entry.label)] = entry.value
+    return acc
+  }, {})
+}
+
+function toDirectDossierReferences(
+  entries: Array<{ label: string; value: string }>
+): Record<string, string> {
+  const reserved = new Set(['name', 'keyDate'])
+  return entries.reduce<Record<string, string>>((acc, entry) => {
+    const key = labelToKey(entry.label)
+    if (key && !reserved.has(key)) {
+      acc[key] = entry.value
+    }
     return acc
   }, {})
 }
@@ -310,14 +336,12 @@ function createTransferTemplateContext(
   contacts: ContactRecord[],
   entity: EntityProfile | null
 ): TemplateContext {
-  const managedFields = normalizeManagedFieldsConfig(entity?.managedFields, entity?.profession)
+  const managedFields = normalizeManagedFieldsConfig(entity?.managedFields)
   const primaryContact = contacts[0] ?? undefined
   const keyDates = toTemplateLookup(
     dossier.keyDates.map((entry) => ({ label: entry.label, value: entry.date }))
   )
-  const keyRefs = toTemplateLookup(
-    dossier.keyReferences.map((entry) => ({ label: entry.label, value: entry.value }))
-  )
+  const directDossierReferences = toDirectDossierReferences(dossier.keyReferences)
   const contactByRole: Record<string, Record<string, unknown>> = {}
 
   for (const contact of contacts) {
@@ -339,12 +363,9 @@ function createTransferTemplateContext(
 
   return {
     dossier: {
+      ...directDossierReferences,
       name: dossier.name,
-      reference: dossier.id,
-      status: dossier.status,
-      type: dossier.type,
-      keyDate: keyDates,
-      keyRef: keyRefs
+      keyDate: keyDates
     },
     contact: {
       ...(primaryContact ?? {}),
@@ -366,8 +387,12 @@ function createTransferTemplateContext(
     entity: {
       ...(entity ?? {}),
       ...buildAddressFields(entity ?? {}),
+      title: ENTITY_TITLE_SHORT,
+      titleLong: ENTITY_TITLE_LONG,
       displayName:
-        [entity?.title, entity?.firstName, entity?.lastName].filter(Boolean).join(' ') || undefined
+        [ENTITY_TITLE_SHORT, entity?.firstName, entity?.lastName].filter(Boolean).join(' ') ||
+        undefined,
+      avocat: { titre: ENTITY_TITLE_LONG }
     },
     today: new Date().toISOString().slice(0, 10)
   }
@@ -405,9 +430,13 @@ function resolveKnownRoutinesInText(content: string, context: TemplateContext): 
   })
 }
 
-function pseudonymizeJsonString(pseudonymizer: PiiPseudonymizer | null, value: unknown): string {
-  const raw = `${JSON.stringify(value, null, 2)}\n`
-  return pseudonymizer ? `${JSON.stringify(pseudonymizer.pseudonymizeJson(value), null, 2)}\n` : raw
+async function pseudonymizeJsonString(
+  pseudonymizer: PiiPseudonymizer | null,
+  value: unknown
+): Promise<string> {
+  if (!pseudonymizer) return `${JSON.stringify(value, null, 2)}\n`
+  const pseudonymized = await pseudonymizer.pseudonymizeJsonAsync(value)
+  return `${JSON.stringify(pseudonymized, null, 2)}\n`
 }
 
 function restoreMarkers(
@@ -606,18 +635,14 @@ export function createDossierTransferService(
     const entity = await loadEntityProfile(domainPath)
     const locale = analysis.locale
     const paths = analysis.paths
-    const exportFolderName = `${sanitizeDirectoryName(dossier.name)}__export_${new Date().toISOString().slice(0, 10)}`
-    const exportRootPath = join(input.rootPath, exportFolderName)
-    const aiPath = join(exportRootPath, paths.aiRootName)
-    const confidentialPath = input.anonymize ? join(exportRootPath, paths.confidentialName) : null
-    const ordicabExportPath = join(aiPath, 'ordicab')
-    const contentExportPath = join(ordicabExportPath, 'content')
-    const templatesExportPath = join(aiPath, paths.templatesName)
-    const productionExportPath = join(aiPath, paths.productionName)
     // Aligned with aiService's pseudonymizer: same allowlist (entity managed
     // fields, template names, current date), wordlist (user terms, dossier
     // names, contact custom fields), locale, and NER config — so the export
-    // pseudonymizes the same tokens the live assistant would.
+    // pseudonymizes the same tokens the live assistant would. Call sites below
+    // use the async/NER-aware methods (pseudonymizeAsync, pseudonymizeJsonAsync)
+    // so PER/LOC/ORG mentions outside the contact list (third parties cited in
+    // documents, magistrates, witnesses, …) are also redacted — the sync
+    // counterparts skip NER and would leak those names.
     const [piiWordlist, dossiers] = input.anonymize
       ? await Promise.all([
           options.getPiiWordlist?.().catch(() => [] as string[]) ?? Promise.resolve([]),
@@ -637,6 +662,17 @@ export function createDossierTransferService(
           nerModelPath: options.nerModelPath
         })
       : null
+    // Names exposed in directory or file paths use the same fake values as the
+    // model-facing export. They remain reversible on import via PiiMapping.
+    const exportedDossierName = await pseudonymizeForFilesystem(pseudonymizer, dossier.name)
+    const exportFolderName = `${sanitizeDirectoryName(exportedDossierName)}__export_${new Date().toISOString().slice(0, 10)}`
+    const exportRootPath = join(input.rootPath, exportFolderName)
+    const aiPath = join(exportRootPath, paths.aiRootName)
+    const confidentialPath = input.anonymize ? join(exportRootPath, paths.confidentialName) : null
+    const ordicabExportPath = join(aiPath, 'ordicab')
+    const contentExportPath = join(ordicabExportPath, 'content')
+    const templatesExportPath = join(aiPath, paths.templatesName)
+    const productionExportPath = join(aiPath, paths.productionName)
     const routineInventory = buildRoutineInventory(
       createTransferTemplateContext(dossier, contacts, entity),
       locale
@@ -665,8 +701,14 @@ export function createDossierTransferService(
         continue
       }
 
-      const exportedTextPath = `content/${sanitizeExportFileStem(document.relativePath)}.txt`
-      const exportedText = pseudonymizer ? pseudonymizer.pseudonymize(cached.text) : cached.text
+      const pseudonymizedRelativePath = await pseudonymizeForFilesystem(
+        pseudonymizer,
+        document.relativePath
+      )
+      const exportedTextPath = `content/${sanitizeExportFileStem(pseudonymizedRelativePath)}.txt`
+      const exportedText = pseudonymizer
+        ? await pseudonymizer.pseudonymizeAsync(cached.text)
+        : cached.text
       await writeFile(join(ordicabExportPath, exportedTextPath), `${exportedText}\n`, 'utf8')
       exportedDocuments.push({
         documentId: document.id,
@@ -683,22 +725,42 @@ export function createDossierTransferService(
     const validatedMetadata = metadataJson ? dossierMetadataFileSchema.parse(metadataJson) : null
     await writeFile(
       join(ordicabExportPath, 'dossier.json'),
-      pseudonymizeJsonString(pseudonymizer, validatedMetadata ?? dossier),
+      await pseudonymizeJsonString(pseudonymizer, validatedMetadata ?? dossier),
       'utf8'
     )
     await writeFile(
       join(ordicabExportPath, 'contacts.json'),
-      pseudonymizeJsonString(pseudonymizer, contacts),
+      await pseudonymizeJsonString(pseudonymizer, contacts),
       'utf8'
     )
+    // exportedTextPath already carries the fake value chosen for the
+    // on-disk filename; running it through pseudonymizeJsonAsync again would
+    // detect those fakes as fresh names and allocate new mappings, desyncing
+    // the JSON reference from the actual file. Pseudonymize the rest of each
+    // entry, then re-attach exportedTextPath verbatim from the source array.
+    const exportedTextPaths = exportedDocuments.map((entry) => entry.exportedTextPath)
+    const documentsForJson = exportedDocuments.map((entry) => {
+      const copy: Partial<DossierAiExportDocumentEntry> = { ...entry }
+      delete copy.exportedTextPath
+      return copy
+    })
+    const pseudonymizedDocuments = pseudonymizer
+      ? ((await pseudonymizer.pseudonymizeJsonAsync(documentsForJson)) as Array<
+          Omit<DossierAiExportDocumentEntry, 'exportedTextPath'>
+        >)
+      : (documentsForJson as Array<Omit<DossierAiExportDocumentEntry, 'exportedTextPath'>>)
+    const documentsJson = pseudonymizedDocuments.map((entry, index) => ({
+      ...entry,
+      exportedTextPath: exportedTextPaths[index]!
+    }))
     await writeFile(
       join(ordicabExportPath, 'documents.json'),
-      pseudonymizeJsonString(pseudonymizer, exportedDocuments),
+      `${JSON.stringify(documentsJson, null, 2)}\n`,
       'utf8'
     )
     await writeFile(
       join(ordicabExportPath, locale === 'fr' ? 'routines-dossier.json' : 'dossier-routines.json'),
-      pseudonymizeJsonString(pseudonymizer, routineInventory),
+      await pseudonymizeJsonString(pseudonymizer, routineInventory),
       'utf8'
     )
 
@@ -709,7 +771,7 @@ export function createDossierTransferService(
     })
     await writeFile(
       join(templatesExportPath, 'templates.json'),
-      pseudonymizeJsonString(pseudonymizer, templateIndex),
+      await pseudonymizeJsonString(pseudonymizer, templateIndex),
       'utf8'
     )
 
@@ -727,7 +789,7 @@ export function createDossierTransferService(
         }
         continue
       }
-      const output = pseudonymizer ? pseudonymizer.pseudonymize(html) : html
+      const output = pseudonymizer ? await pseudonymizer.pseudonymizeAsync(html) : html
       await writeFile(join(templatesExportPath, `${template.id}.html`), output, 'utf8')
       if (template.hasDocxSource) {
         const docxPath = getDomainTemplateDocxPath(domainPath, template.id)
@@ -745,7 +807,7 @@ export function createDossierTransferService(
       const routines = await readFile(routinesPath, 'utf8')
       await writeFile(
         join(templatesExportPath, 'template-routines.md'),
-        pseudonymizer ? pseudonymizer.pseudonymize(routines) : routines,
+        pseudonymizer ? await pseudonymizer.pseudonymizeAsync(routines) : routines,
         'utf8'
       )
     }
@@ -755,7 +817,7 @@ export function createDossierTransferService(
       createOfflineInstructions({
         locale,
         paths,
-        dossierName: dossier.name
+        dossierName: exportedDossierName
       })
     )
 

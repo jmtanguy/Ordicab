@@ -36,7 +36,6 @@ describe('createOrdicabApi', () => {
     await api.dossier.get({ dossierId: 'dos-1' })
     await api.dossier.register({ id: 'TestCase-A' })
     await api.dossier.unregister({ id: 'TestCase-A' })
-    await api.dossier.update({ id: 'dos-1', status: 'pending', type: 'Civil litigation' })
     await api.dossier.upsertKeyDate({
       dossierId: 'dos-1',
       label: 'Hearing',
@@ -49,6 +48,15 @@ describe('createOrdicabApi', () => {
       value: 'RG 26/001'
     })
     await api.dossier.deleteKeyReference({ dossierId: 'dos-1', keyReferenceId: 'kr-1' })
+    await api.dossier.upsertFeeAgreement({
+      dossierId: 'dos-1',
+      status: 'draft',
+      matterLabel: 'Prud’hommes',
+      scopeDescription: 'Assistance et représentation',
+      billingType: 'mixed',
+      vatRateBasisPoints: 2000
+    })
+    await api.dossier.deleteFeeAgreement({ dossierId: 'dos-1', feeAgreementId: 'fa-1' })
     await api.contact.list({ dossierId: 'dos-1' })
     await api.contact.upsert({
       dossierId: 'dos-1',
@@ -63,6 +71,15 @@ describe('createOrdicabApi', () => {
       email: 'contact@test-legal-firm.fr',
       phone: '+33 1 98 76 54 32'
     })
+    await api.cabinetBilling.get()
+    await api.cabinetBilling.upsertService({
+      name: 'Convention forfait',
+      usage: 'feeAgreement',
+      billingType: 'flat',
+      vatRateBasisPoints: 2000
+    })
+    await api.cabinetBilling.deleteService({ id: 'svc-1' })
+    await api.cabinetBilling.setDefaultService({ serviceId: 'svc-1' })
     await api.document.list({ dossierId: 'dos-1' })
     await api.document.preview({ dossierId: 'dos-1', documentId: 'doc-1.pdf' })
     await api.document.contentStatus({ dossierId: 'dos-1', documentId: 'doc-1.pdf' })
@@ -119,7 +136,6 @@ describe('createOrdicabApi', () => {
       [IPC_CHANNELS.dossier.get, { dossierId: 'dos-1' }],
       [IPC_CHANNELS.dossier.register, { id: 'TestCase-A' }],
       [IPC_CHANNELS.dossier.unregister, { id: 'TestCase-A' }],
-      [IPC_CHANNELS.dossier.update, { id: 'dos-1', status: 'pending', type: 'Civil litigation' }],
       [
         IPC_CHANNELS.dossier.upsertKeyDate,
         { dossierId: 'dos-1', label: 'Hearing', date: '2026-03-18' }
@@ -130,6 +146,18 @@ describe('createOrdicabApi', () => {
         { dossierId: 'dos-1', label: 'Case number', value: 'RG 26/001' }
       ],
       [IPC_CHANNELS.dossier.deleteKeyReference, { dossierId: 'dos-1', keyReferenceId: 'kr-1' }],
+      [
+        IPC_CHANNELS.dossier.upsertFeeAgreement,
+        {
+          dossierId: 'dos-1',
+          status: 'draft',
+          matterLabel: 'Prud’hommes',
+          scopeDescription: 'Assistance et représentation',
+          billingType: 'mixed',
+          vatRateBasisPoints: 2000
+        }
+      ],
+      [IPC_CHANNELS.dossier.deleteFeeAgreement, { dossierId: 'dos-1', feeAgreementId: 'fa-1' }],
       [IPC_CHANNELS.contact.list, { dossierId: 'dos-1' }],
       [
         IPC_CHANNELS.contact.upsert,
@@ -145,6 +173,18 @@ describe('createOrdicabApi', () => {
           phone: '+33 1 98 76 54 32'
         }
       ],
+      [IPC_CHANNELS.cabinetBilling.get],
+      [
+        IPC_CHANNELS.cabinetBilling.upsertService,
+        {
+          name: 'Convention forfait',
+          usage: 'feeAgreement',
+          billingType: 'flat',
+          vatRateBasisPoints: 2000
+        }
+      ],
+      [IPC_CHANNELS.cabinetBilling.deleteService, { id: 'svc-1' }],
+      [IPC_CHANNELS.cabinetBilling.setDefaultService, { serviceId: 'svc-1' }],
       [IPC_CHANNELS.document.list, { dossierId: 'dos-1' }],
       [IPC_CHANNELS.document.preview, { dossierId: 'dos-1', documentId: 'doc-1.pdf' }],
       [IPC_CHANNELS.document.contentStatus, { dossierId: 'dos-1', documentId: 'doc-1.pdf' }],

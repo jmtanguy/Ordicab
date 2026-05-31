@@ -1,27 +1,47 @@
 /**
  * contactService — service for reading and mutating contacts on the file system.
  *
- * Contacts are stored per-dossier in a JSON file resolved by getDossierContactsPath().
- * This service is used by intentDispatcher and aiService to access contact data
- * directly from the service layer, without going through the contactHandler IPC path.
+ * Contacts are stored per-dossier as individual JSON files under contacts/{uuid}.json,
+ * with a contacts-index.json for fast listing.
  *
- * The existing contactHandler still handles IPC-triggered CRUD from the renderer.
- * This service handles the same operations for AI-initiated commands (server-side).
- *
- * Called by: intentDispatcher (contact_lookup, contact_upsert, contact_delete intents)
+ * Called by: intentDispatcher (contact_lookup, contact_create, contact_update, contact_delete intents)
  *            aiService (context enrichment for system prompt)
  */
 import { randomUUID } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
 
 import type { ContactRecord, ContactUpsertInput } from '@shared/types'
 import { IpcErrorCode } from '@shared/types'
+import { computeContactDisplayName } from '@shared/computeContactDisplayName'
 
-import { contactRecordSchema } from '@shared/validation'
+import { contactIndexSchema, contactRecordSchema } from '@shared/validation'
+import type { ContactIndex, ContactIndexEntry } from '@shared/validation'
 import type { DocumentService } from './documentService'
-import { pathExists } from '../../lib/system/domainState'
-import { atomicWrite } from '../../lib/system/atomicWrite'
-import { getDossierContactsPath } from '../../lib/ordicab/ordicabPaths'
+import {
+  deleteRecord,
+  loadAllRecords,
+  loadIndex,
+  loadRecord,
+  saveIndex,
+  saveRecord
+} from '../../lib/system/perFileStore'
+import {
+  getDossierContactIndexPath,
+  getDossierContactRecordPath,
+  getDossierContactsDirectoryPath
+} from '../../lib/ordicab/ordicabPaths'
+
+const EMPTY_CONTACT_INDEX: ContactIndex = {
+  contacts: [],
+  updatedAt: new Date(0).toISOString()
+}
+
+/**
+ * Reads all contacts for a dossier directly from the per-file storage.
+ * Use this from services that have a dossierPath but no ContactService instance.
+ */
+export async function readContactsForDossierPath(dossierPath: string): Promise<ContactRecord[]> {
+  return loadAllRecords(getDossierContactsDirectoryPath(dossierPath), contactRecordSchema)
+}
 
 export interface ContactService {
   list(dossierId: string): Promise<ContactRecord[]>
@@ -44,77 +64,82 @@ export function createContactService(options: {
 }): ContactService {
   const { documentService } = options
 
-  async function loadContacts(contactsPath: string): Promise<ContactRecord[]> {
-    if (!(await pathExists(contactsPath))) return []
-
-    let raw: string
-    try {
-      raw = await readFile(contactsPath, 'utf8')
-    } catch {
-      throw new ContactServiceError(IpcErrorCode.FILE_SYSTEM_ERROR, 'Unable to read contacts.')
-    }
-
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(raw) as unknown
-    } catch {
-      return []
-    }
-
-    const result = contactRecordSchema.array().safeParse(parsed)
-    return result.success ? result.data : []
+  async function loadIdx(dossierPath: string): Promise<ContactIndex> {
+    return loadIndex(
+      getDossierContactIndexPath(dossierPath),
+      contactIndexSchema,
+      EMPTY_CONTACT_INDEX
+    )
   }
 
-  async function saveContacts(contactsPath: string, contacts: ContactRecord[]): Promise<void> {
-    await atomicWrite(contactsPath, `${JSON.stringify(contacts, null, 2)}\n`)
+  async function saveIdx(dossierPath: string, index: ContactIndex): Promise<void> {
+    return saveIndex(getDossierContactIndexPath(dossierPath), index)
+  }
+
+  async function updateIdx(
+    dossierPath: string,
+    contact: ContactRecord,
+    op: 'upsert' | 'remove'
+  ): Promise<void> {
+    const index = await loadIdx(dossierPath)
+    const entry: ContactIndexEntry = {
+      uuid: contact.uuid,
+      displayName: computeContactDisplayName(contact),
+      role: contact.role,
+      updatedAt: new Date().toISOString()
+    }
+    const filtered = index.contacts.filter((e) => e.uuid !== contact.uuid)
+    await saveIdx(dossierPath, {
+      ...index,
+      contacts: op === 'upsert' ? [...filtered, entry] : filtered,
+      updatedAt: new Date().toISOString()
+    })
   }
 
   return {
     async list(dossierId: string): Promise<ContactRecord[]> {
       const dossierPath = await documentService.resolveRegisteredDossierRoot({ dossierId })
-      const contactsPath = getDossierContactsPath(dossierPath)
-      return loadContacts(contactsPath)
+      return readContactsForDossierPath(dossierPath)
     },
 
     async upsert(input: ContactUpsertInput): Promise<ContactRecord> {
       const dossierPath = await documentService.resolveRegisteredDossierRoot({
         dossierId: input.dossierId
       })
-      const contactsPath = getDossierContactsPath(dossierPath)
-      const contacts = await loadContacts(contactsPath)
 
-      const existingIndex = input.id ? contacts.findIndex((c) => c.uuid === input.id) : -1
-
-      if (input.id && existingIndex === -1) {
-        throw new ContactServiceError(IpcErrorCode.NOT_FOUND, 'Contact not found.')
+      if (input.id) {
+        const existing = await loadRecord(
+          getDossierContactRecordPath(dossierPath, input.id),
+          contactRecordSchema
+        )
+        if (!existing) {
+          throw new ContactServiceError(IpcErrorCode.NOT_FOUND, 'Contact not found.')
+        }
       }
 
       const nextContact = contactRecordSchema.parse({ ...input, uuid: input.id ?? randomUUID() })
-      const nextContacts = [...contacts]
-
-      if (existingIndex >= 0) {
-        nextContacts[existingIndex] = nextContact
-      } else {
-        nextContacts.push(nextContact)
-      }
-
-      await saveContacts(contactsPath, nextContacts)
+      await saveRecord(
+        getDossierContactsDirectoryPath(dossierPath),
+        getDossierContactRecordPath(dossierPath, nextContact.uuid),
+        nextContact
+      )
+      await updateIdx(dossierPath, nextContact, 'upsert')
       return nextContact
     },
 
     async delete(dossierId: string, contactId: string): Promise<void> {
       const dossierPath = await documentService.resolveRegisteredDossierRoot({ dossierId })
-      const contactsPath = getDossierContactsPath(dossierPath)
-      const contacts = await loadContacts(contactsPath)
 
-      if (!contacts.some((c) => c.uuid === contactId)) {
+      const existing = await loadRecord(
+        getDossierContactRecordPath(dossierPath, contactId),
+        contactRecordSchema
+      )
+      if (!existing) {
         throw new ContactServiceError(IpcErrorCode.NOT_FOUND, 'Contact not found.')
       }
 
-      await saveContacts(
-        contactsPath,
-        contacts.filter((c) => c.uuid !== contactId)
-      )
+      await deleteRecord(getDossierContactRecordPath(dossierPath, contactId))
+      await updateIdx(dossierPath, existing, 'remove')
     }
   }
 }

@@ -1,13 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { computeContactDisplayName } from '@shared/computeContactDisplayName'
 import { normalizeManagedFieldsConfig } from '@shared/managedFields'
-import { buildTagPathLocalizer, templateRoutineCatalog } from '@shared/templateRoutines'
 
 import { Button } from '@renderer/components/ui'
 import { cn } from '@renderer/lib/utils'
-import type { ContactRecord, DossierStatus } from '@shared/validation'
 import {
   useContactStore,
   useDossierStore,
@@ -16,25 +13,14 @@ import {
 } from '@renderer/stores'
 
 import { roleToTagKey } from '../dossiers/rolePresets'
+import { ListContainer, PillSelect, SearchField, SectionHeader } from '../dossiers/sectionLayout'
 import { RichTextEditor } from './RichTextEditor'
-import { ComboField, type ComboOption } from './generateDocument/ComboField'
-import {
-  applyKeyDateOverride,
-  buildKeyDateOptions,
-  buildKeyReferenceOptions,
-  contactFieldValues,
-  getFilenameFromPath,
-  parseLocalDateToIso
-} from './generateDocument/tagValueHelpers'
+import { type ComboOption } from './generateDocument/ComboField'
+import { TagFillingStep } from './generateDocument/TagFillingStep'
+import { hydrateAutoSelectedContactTags } from './generateDocument/tagFillingHelpers'
+import { buildKeyDateOptions, getFilenameFromPath } from './generateDocument/tagValueHelpers'
 
 // ── Panel ─────────────────────────────────────────────────────────────────────
-
-const statusBadgeClasses: Record<DossierStatus, string> = {
-  active: 'border-emerald-300/40 bg-emerald-300/15 text-emerald-100',
-  pending: 'border-amber-300/40 bg-amber-300/15 text-amber-100',
-  completed: 'border-sky-300/40 bg-sky-300/15 text-sky-100',
-  archived: 'border-slate-400/40 bg-slate-400/15 text-slate-100'
-}
 
 interface ReviewDraftState {
   html: string
@@ -43,48 +29,48 @@ interface ReviewDraftState {
   resolvedTags: Record<string, string>
 }
 
+type TemplateSortOrder = 'name-asc' | 'name-desc'
+
 interface GenerateDocumentPanelProps {
-  initialTemplateId?: string | null
-  initialDossierId?: string | null
+  /**
+   * Active dossier the document is generated for. The panel is always scoped
+   * to a single dossier (mounted inside DossierDetail's sidebar) — there is no
+   * in-panel dossier override.
+   */
+  dossierId: string
   onBack?: () => void
 }
 
 export function GenerateDocumentPanel({
-  initialTemplateId = null,
-  initialDossierId = null,
+  dossierId,
   onBack
 }: GenerateDocumentPanelProps): React.JSX.Element {
   const { t, i18n } = useTranslation()
-  const localizeTagPath = useMemo(
-    () => buildTagPathLocalizer(templateRoutineCatalog, i18n.language),
-    [i18n.language]
-  )
-  const dossiers = useDossierStore((state) => state.dossiers)
   const templates = useTemplateStore((state) => state.templates)
+  const loadTemplates = useTemplateStore((state) => state.load)
   const generateDocument = useTemplateStore((state) => state.generate)
   const previewDocument = useTemplateStore((state) => state.preview)
   const previewDocxDocument = useTemplateStore((state) => state.previewDocx)
   const selectOutputPath = useTemplateStore((state) => state.selectOutputPath)
   const saveGeneratedDocument = useTemplateStore((state) => state.saveGeneratedDocument)
   const openGeneratedFile = useTemplateStore((state) => state.openGeneratedFile)
-  const loadDossiers = useDossierStore((state) => state.load)
+  const copyToClipboard = useTemplateStore((state) => state.copyToClipboard)
   const loadDetail = useDossierStore((state) => state.loadDetail)
   const profile = useEntityStore((state) => state.profile)
   const loadContacts = useContactStore((state) => state.load)
   const contactsByDossierId = useContactStore((state) => state.contactsByDossierId)
 
+  const selectedDossierId = dossierId
+
   const [step, setStep] = useState<'setup' | 'tags' | 'save'>('setup')
-  const [selectedDossierId, setSelectedDossierId] = useState(initialDossierId ?? '')
-  const [selectedTemplateId, setSelectedTemplateId] = useState(initialTemplateId ?? '')
+  const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<{ filename: string; outputPath: string } | null>(null)
   const [reviewDraft, setReviewDraft] = useState<ReviewDraftState | null>(null)
   const [copied, setCopied] = useState(false)
-  const [dossierFilter, setDossierFilter] = useState('')
-  const [dossierSort, setDossierSort] = useState<'name-asc' | 'name-desc' | 'next-date'>('name-asc')
   const [templateFilter, setTemplateFilter] = useState('')
-  const [templateSort, setTemplateSort] = useState<'name-asc' | 'name-desc'>('name-asc')
+  const [templateSort, setTemplateSort] = useState<TemplateSortOrder>('name-asc')
   // Docx-save step state
   const [docxFilename, setDocxFilename] = useState('')
   const [docxCustomOutputPath, setDocxCustomOutputPath] = useState<string | null>(null)
@@ -94,17 +80,15 @@ export function GenerateDocumentPanel({
   const [tagValues, setTagValues] = useState<Record<string, string>>({})
   const [primaryContactId, setPrimaryContactId] = useState('')
   const [roleContactIds, setRoleContactIds] = useState<Record<string, string>>({})
-  const [openTagSections, setOpenTagSections] = useState<Record<string, boolean>>({})
   const [keyDateOptions, setKeyDateOptions] = useState<ComboOption[]>([])
-  const [keyReferenceOptions, setKeyReferenceOptions] = useState<ComboOption[]>([])
   const managedFieldsConfig = useMemo(
-    () => normalizeManagedFieldsConfig(profile?.managedFields, profile?.profession),
-    [profile?.managedFields, profile?.profession]
+    () => normalizeManagedFieldsConfig(profile?.managedFields),
+    [profile?.managedFields]
   )
 
   useEffect(() => {
-    void loadDossiers()
-  }, [loadDossiers])
+    void loadTemplates()
+  }, [loadTemplates])
 
   // Dismiss success banner when leaving setup (not when arriving at it after a save)
   useEffect(() => {
@@ -112,12 +96,6 @@ export function GenerateDocumentPanel({
       setSuccess(null)
     }
   }, [step])
-
-  useEffect(() => {
-    if (initialTemplateId) {
-      setSelectedTemplateId(initialTemplateId)
-    }
-  }, [initialTemplateId])
 
   useEffect(() => {
     let isCancelled = false
@@ -136,7 +114,6 @@ export function GenerateDocumentPanel({
         }
 
         setKeyDateOptions(buildKeyDateOptions(detail, i18n.resolvedLanguage ?? 'fr'))
-        setKeyReferenceOptions(buildKeyReferenceOptions(detail))
       })
       return () => {
         isCancelled = true
@@ -144,7 +121,6 @@ export function GenerateDocumentPanel({
     }
 
     setKeyDateOptions([])
-    setKeyReferenceOptions([])
 
     return () => {
       isCancelled = true
@@ -162,65 +138,6 @@ export function GenerateDocumentPanel({
     !isSubmitting
 
   const canSave = reviewDraft !== null && reviewDraft.filename.trim().length > 0 && !isSubmitting
-
-  // When a contact is selected for primary, update all contact.* tag values
-  function applyPrimaryContact(
-    contactId: string,
-    currentTagValues: Record<string, string>,
-    contacts: ContactRecord[] = dossierContacts
-  ): Record<string, string> {
-    const contact = contacts.find((c) => c.uuid === contactId)
-    const fields = contactFieldValues(contact, 'contact', managedFieldsConfig.contacts)
-    // Only apply to flat contact.* tags (2 segments)
-    const next = { ...currentTagValues }
-    for (const path of Object.keys(next)) {
-      const parts = path.split('.')
-      if (parts[0] === 'contact' && parts.length === 2) {
-        next[path] = fields[path] ?? ''
-      }
-    }
-    return next
-  }
-
-  // When a contact is selected for a role, update all contact.<roleKey>.* tag values
-  function applyRoleContact(
-    roleKey: string,
-    contactId: string,
-    currentTagValues: Record<string, string>,
-    contacts: ContactRecord[] = dossierContacts
-  ): Record<string, string> {
-    const contact = contacts.find((c) => c.uuid === contactId)
-    const fields = contactFieldValues(contact, `contact.${roleKey}`, managedFieldsConfig.contacts)
-    const next = { ...currentTagValues }
-    for (const path of Object.keys(next)) {
-      const parts = path.split('.')
-      if (parts[0] === 'contact' && parts[1] === roleKey && parts.length === 3) {
-        next[path] = fields[path] ?? ''
-      }
-    }
-    return next
-  }
-
-  function hydrateAutoSelectedContactTags(
-    initialTagValues: Record<string, string>,
-    initialPrimaryContactId: string,
-    initialRoleContactIds: Record<string, string>,
-    contacts: ContactRecord[]
-  ): Record<string, string> {
-    let next = { ...initialTagValues }
-
-    if (initialPrimaryContactId) {
-      next = applyPrimaryContact(initialPrimaryContactId, next, contacts)
-    }
-
-    for (const [roleKey, contactId] of Object.entries(initialRoleContactIds)) {
-      if (contactId) {
-        next = applyRoleContact(roleKey, contactId, next, contacts)
-      }
-    }
-
-    return next
-  }
 
   async function handleSetupNext(): Promise<void> {
     if (!canSubmitSetup || !selectedTemplate) return
@@ -241,7 +158,6 @@ export function GenerateDocumentPanel({
       })()
 
       setKeyDateOptions(buildKeyDateOptions(loadedDossier, i18n.resolvedLanguage ?? 'fr'))
-      setKeyReferenceOptions(buildKeyReferenceOptions(loadedDossier))
 
       // Docx-sourced templates: preview tags first for reconciliation
       if (selectedTemplateUsesDocxSource) {
@@ -290,9 +206,14 @@ export function GenerateDocumentPanel({
         setRoleContactIds(initRoleIds)
 
         setTagValues(
-          hydrateAutoSelectedContactTags(initial, initPrimaryId, initRoleIds, loadedContacts)
+          hydrateAutoSelectedContactTags(
+            initial,
+            initPrimaryId,
+            initRoleIds,
+            loadedContacts,
+            managedFieldsConfig
+          )
         )
-        setOpenTagSections({})
         setStep('tags')
         return
       }
@@ -343,9 +264,14 @@ export function GenerateDocumentPanel({
       setRoleContactIds(initRoleIds)
 
       setTagValues(
-        hydrateAutoSelectedContactTags(initial, initPrimaryId, initRoleIds, loadedContacts)
+        hydrateAutoSelectedContactTags(
+          initial,
+          initPrimaryId,
+          initRoleIds,
+          loadedContacts,
+          managedFieldsConfig
+        )
       )
-      setOpenTagSections({})
       setStep('tags')
     } finally {
       setIsSubmitting(false)
@@ -493,57 +419,6 @@ export function GenerateDocumentPanel({
     }
   }
 
-  // Derived: which tag paths are contact tags
-  const primaryTagPaths = tagPaths.filter((p) => {
-    const s = p.split('.')
-    return s[0] === 'contact' && s.length === 2
-  })
-  const roleTagGroups = (() => {
-    const map: Record<string, string[]> = {}
-    for (const p of tagPaths) {
-      const s = p.split('.')
-      if (s[0] === 'contact' && s.length === 3) {
-        const roleKey = s[1] as string
-        ;(map[roleKey] ??= []).push(p)
-      }
-    }
-    return map
-  })()
-  const keyDateBasePaths = tagPaths.filter((p) => {
-    const s = p.split('.')
-    return s[0] === 'dossier' && s[1] === 'keyDate' && s.length === 3
-  })
-  // If a template only uses a variant (e.g. dossier.keyDate.audienceDate.long) without the base
-  // path, surface the base path so the user can still fill in the date.
-  const variantOnlyBasePaths = tagPaths
-    .filter((p) => {
-      const s = p.split('.')
-      return s[0] === 'dossier' && s[1] === 'keyDate' && s.length === 4
-    })
-    .map((p) => p.split('.').slice(0, 3).join('.'))
-    .filter((bp) => !keyDateBasePaths.includes(bp))
-  const keyDatePaths = [...new Set([...keyDateBasePaths, ...variantOnlyBasePaths])]
-  const keyRefPaths = tagPaths.filter((p) => {
-    const s = p.split('.')
-    return s[0] === 'dossier' && s[1] === 'keyRef' && s.length === 3
-  })
-  const otherTagPaths = tagPaths.filter((p) => {
-    const s = p.split('.')
-    return (
-      !(s[0] === 'contact') && !(s[0] === 'dossier' && (s[1] === 'keyDate' || s[1] === 'keyRef'))
-    )
-  })
-
-  const otherAddressPaths = otherTagPaths.filter((p) => {
-    const entry = templateRoutineCatalog.find(
-      (e) =>
-        e.tag.replace(/^\{\{\s*/, '').replace(/\s*\}\}$/, '') === p ||
-        e.tagFr?.replace(/^\{\{\s*/, '').replace(/\s*\}\}$/, '') === p
-    )
-    return entry?.subGroup === 'address'
-  })
-  const otherNonAddressPaths = otherTagPaths.filter((p) => !otherAddressPaths.includes(p))
-
   const filteredSortedTemplates = useMemo(() => {
     const needle = templateFilter.trim().toLowerCase()
     const filtered = needle
@@ -558,81 +433,90 @@ export function GenerateDocumentPanel({
     )
   }, [templates, templateFilter, templateSort])
 
-  const filteredSortedDossiers = useMemo(() => {
-    const needle = dossierFilter.trim().toLowerCase()
-    const filtered = needle
-      ? dossiers.filter(
-          (d) =>
-            d.name.toLowerCase().includes(needle) || (d.type ?? '').toLowerCase().includes(needle)
-        )
-      : dossiers
-    return [...filtered].sort((a, b) => {
-      if (dossierSort === 'name-desc') return b.name.localeCompare(a.name)
-      if (dossierSort === 'next-date') {
-        if (!a.nextUpcomingKeyDate && !b.nextUpcomingKeyDate) return 0
-        if (!a.nextUpcomingKeyDate) return 1
-        if (!b.nextUpcomingKeyDate) return -1
-        return a.nextUpcomingKeyDate.localeCompare(b.nextUpcomingKeyDate)
-      }
-      return a.name.localeCompare(b.name)
-    })
-  }, [dossiers, dossierFilter, dossierSort])
-
-  const inputClass =
-    'w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm text-slate-100 outline-none transition focus:border-aurora focus:ring-2 focus:ring-aurora/35'
+  const templateCountLabel =
+    templates.length === 0
+      ? null
+      : filteredSortedTemplates.length === templates.length
+        ? t('templates.list.countTotal', {
+            count: templates.length,
+            defaultValue: '{{count}} modèle(s)'
+          })
+        : t('templates.list.countFiltered', {
+            count: filteredSortedTemplates.length,
+            total: templates.length,
+            defaultValue: '{{count}} sur {{total}}'
+          })
 
   return (
-    <div className="ord-glass-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl p-5">
+    <div className="flex h-full flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-4 pb-7">
-        <div className="space-y-1">
-          <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
-            {t('generate.title')}
-          </p>
-          <p className="text-sm text-slate-400">
-            {step === 'setup'
-              ? t('generate.setupDescription')
-              : step === 'tags'
-                ? t('generate.tagsDescription')
-                : t('generate.reviewDescription')}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          {step === 'tags' ? (
-            <Button type="button" variant="ghost" size="sm" onClick={() => setStep('setup')}>
-              {t('generate.backToSetup')}
-            </Button>
-          ) : null}
-          {step === 'save' ? (
-            <Button type="button" variant="ghost" size="sm" onClick={() => setStep('tags')}>
-              {t('generate.backToTags')}
-            </Button>
-          ) : null}
-          {onBack ? (
-            <Button type="button" variant="ghost" size="sm" onClick={onBack}>
-              {t('templates.workspace.backToLibrary')}
-            </Button>
-          ) : null}
-        </div>
+      <div className="flex shrink-0 flex-col gap-3 pb-4">
+        <SectionHeader
+          badge={t('generate.title')}
+          count={step === 'setup' ? templateCountLabel : undefined}
+          actions={
+            <div className="flex flex-wrap gap-2">
+              {step === 'tags' ? (
+                <Button type="button" variant="ghost" size="sm" onClick={() => setStep('setup')}>
+                  {t('generate.backToSetup')}
+                </Button>
+              ) : null}
+              {step === 'save' ? (
+                <Button type="button" variant="ghost" size="sm" onClick={() => setStep('tags')}>
+                  {t('generate.backToTags')}
+                </Button>
+              ) : null}
+              {onBack ? (
+                <Button type="button" variant="ghost" size="sm" onClick={onBack}>
+                  {t('templates.workspace.backToLibrary')}
+                </Button>
+              ) : null}
+            </div>
+          }
+        />
+        {step === 'setup' && templates.length > 0 ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <SearchField
+              id="generate-template-search"
+              value={templateFilter}
+              onChange={setTemplateFilter}
+              placeholder={t('templates.list.searchPlaceholder')}
+              ariaLabel={t('templates.list.searchLabel')}
+            />
+            <PillSelect<TemplateSortOrder>
+              id="generate-template-sort"
+              value={templateSort}
+              onChange={setTemplateSort}
+              ariaLabel={t('templates.list.sortLabel')}
+            >
+              <option value="name-asc">{t('templates.list.sortNameAsc')}</option>
+              <option value="name-desc">{t('templates.list.sortNameDesc')}</option>
+            </PillSelect>
+          </div>
+        ) : null}
+        {step === 'tags' ? (
+          <p className="text-sm text-[#5c5c5a]">{t('generate.tagsDescription')}</p>
+        ) : null}
+        {step === 'save' && selectedTemplateUsesDocxSource ? (
+          <p className="text-sm text-[#5c5c5a]">{t('generate.reviewDescription')}</p>
+        ) : null}
       </div>
 
       {/* Success */}
       {success ? (
         <div
           role="status"
-          className="flex shrink-0 items-start justify-between gap-4 rounded-xl border border-emerald-300/35 bg-emerald-300/10 px-4 py-3 text-sm text-emerald-100 mb-5"
+          className="flex shrink-0 items-start justify-between gap-4 rounded-xl border border-[#cfe0c5] bg-[#f1f7ec] px-4 py-3 text-sm text-[#3c6132] mb-5"
         >
           <div>
             <p>{t('generate.toast.success', { filename: success.filename })}</p>
-            <p className="mt-1 break-all font-mono text-xs text-emerald-50/90">
-              {success.outputPath}
-            </p>
+            <p className="mt-1 break-all font-mono text-xs text-[#3c6132]">{success.outputPath}</p>
           </div>
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="shrink-0 border border-emerald-300/30 text-emerald-100 hover:bg-emerald-300/15"
+            className="shrink-0 border border-[#cfe0c5] text-[#3c6132] hover:bg-[#f1f7ec]"
             onClick={() => void openGeneratedFile(success.outputPath)}
           >
             {t('generate.openFile')}
@@ -642,160 +526,68 @@ export function GenerateDocumentPanel({
 
       {/* Error */}
       {error ? (
-        <div className="shrink-0 rounded-xl border border-rose-300/35 bg-rose-300/10 px-4 py-3 text-sm text-rose-100">
+        <div className="shrink-0 rounded-xl border border-[#e8c7c7] bg-[#fbf0f0] px-4 py-3 text-sm text-[#9c2f2f]">
           {error}
         </div>
       ) : null}
 
       {/* Setup step */}
       {step === 'setup' ? (
-        <div className="flex min-h-0 flex-1 flex-col gap-4">
-          {/* Two-column layout */}
-          <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
-            {/* Left: Templates */}
-            <div className="flex min-h-0 flex-1 flex-col gap-3">
-              <div className="flex shrink-0 items-center gap-2">
-                <span className="text-sm font-medium text-slate-100">
-                  {t('generate.templateLabel')}
-                </span>
-                <input
-                  type="search"
-                  value={templateFilter}
-                  onChange={(e) => setTemplateFilter(e.target.value)}
-                  placeholder={t('templates.list.searchPlaceholder')}
-                  className="ml-auto w-36 rounded-xl border border-white/10 bg-slate-950/60 px-3 py-1.5 text-[11px] text-slate-100 outline-none placeholder:text-slate-600 focus:border-aurora/45 focus:ring-1 focus:ring-aurora/25"
-                />
-                <select
-                  value={templateSort}
-                  onChange={(e) => setTemplateSort(e.target.value as 'name-asc' | 'name-desc')}
-                  className="rounded-xl border border-white/10 bg-slate-950/60 px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-aurora/45"
-                >
-                  <option value="name-asc">{t('templates.list.sortNameAsc')}</option>
-                  <option value="name-desc">{t('templates.list.sortNameDesc')}</option>
-                </select>
-              </div>
-              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                {filteredSortedTemplates.length === 0 ? (
-                  <div className="flex items-center justify-center rounded-2xl border border-dashed border-white/12 bg-slate-950/20 py-8 text-sm text-slate-400">
-                    {t('generate.noDossiers')}
-                  </div>
-                ) : (
-                  <div className="space-y-2">
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+          {/* Single-column template picker — dossier is fixed by the parent. */}
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+            <div className="min-h-0 flex-1">
+              {filteredSortedTemplates.length === 0 ? (
+                <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-[#e5e3da] bg-white py-8 text-sm text-[#5c5c5a]">
+                  {t('templates.emptyState')}
+                </div>
+              ) : (
+                <ListContainer className="min-h-0 h-full">
+                  <ul className="h-full divide-y divide-deep-space overflow-y-auto">
                     {filteredSortedTemplates.map((template) => {
                       const isSelected = template.id === selectedTemplateId
                       return (
-                        <button
-                          key={template.id}
-                          type="button"
-                          onClick={() => setSelectedTemplateId(template.id)}
-                          className={cn(
-                            'w-full flex flex-col gap-1 rounded-2xl border p-3.5 text-left transition',
-                            isSelected
-                              ? 'border-aurora/50 bg-aurora/5 shadow-[0_0_0_1px_rgba(34,211,238,0.2)]'
-                              : 'border-white/10 bg-slate-950/35 hover:border-white/20 hover:bg-slate-950/50'
-                          )}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="truncate text-sm font-semibold text-slate-50">
-                              {template.name}
-                            </span>
-                            {template.hasDocxSource ? (
-                              <span className="shrink-0 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold tracking-[0.12em] text-emerald-200">
-                                {t('templates.list.docxBadge')}
-                              </span>
-                            ) : null}
-                          </div>
-                          {template.description ? (
-                            <p className="truncate text-xs text-slate-400">
-                              {template.description}
-                            </p>
-                          ) : null}
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Divider */}
-            <div className="w-px shrink-0 bg-white/8" />
-
-            {/* Right: Dossiers */}
-            <div className="flex min-h-0 flex-1 flex-col gap-3">
-              <div className="flex shrink-0 items-center gap-2">
-                <span className="text-sm font-medium text-slate-100">
-                  {t('generate.dossierLabel')}
-                </span>
-                <input
-                  type="search"
-                  value={dossierFilter}
-                  onChange={(e) => setDossierFilter(e.target.value)}
-                  placeholder={t('generate.dossierFilterPlaceholder')}
-                  className="ml-auto w-36 rounded-xl border border-white/10 bg-slate-950/60 px-3 py-1.5 text-[11px] text-slate-100 outline-none placeholder:text-slate-600 focus:border-aurora/45 focus:ring-1 focus:ring-aurora/25"
-                />
-                <select
-                  value={dossierSort}
-                  onChange={(e) =>
-                    setDossierSort(e.target.value as 'name-asc' | 'name-desc' | 'next-date')
-                  }
-                  className="rounded-xl border border-white/10 bg-slate-950/60 px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-aurora/45"
-                >
-                  <option value="name-asc">{t('templates.list.sortNameAsc')}</option>
-                  <option value="name-desc">{t('templates.list.sortNameDesc')}</option>
-                  <option value="next-date">{t('dossiers.sort_next_key_date')}</option>
-                </select>
-              </div>
-              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                {filteredSortedDossiers.length === 0 ? (
-                  <div className="flex items-center justify-center rounded-2xl border border-dashed border-white/12 bg-slate-950/20 py-8 text-sm text-slate-400">
-                    {t('generate.noDossiers')}
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {filteredSortedDossiers.map((dossier) => {
-                      const isSelected = dossier.id === selectedDossierId
-                      return (
-                        <button
-                          key={dossier.id}
-                          type="button"
-                          onClick={() => setSelectedDossierId(dossier.id)}
-                          className={cn(
-                            'w-full flex flex-col gap-1.5 rounded-2xl border p-3.5 text-left transition',
-                            isSelected
-                              ? 'border-aurora/50 bg-aurora/5 shadow-[0_0_0_1px_rgba(34,211,238,0.2)]'
-                              : 'border-white/10 bg-slate-950/35 hover:border-white/20 hover:bg-slate-950/50'
-                          )}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <span
-                              className="truncate text-sm font-semibold leading-snug text-slate-50"
-                              title={dossier.name}
-                            >
-                              {dossier.name}
-                            </span>
-                            <span
-                              className={cn(
-                                'shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]',
-                                statusBadgeClasses[dossier.status]
+                        <li key={template.id}>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTemplateId(template.id)}
+                            className={cn(
+                              'w-full px-4 py-3 text-left transition-colors duration-150 hover:bg-[#fbf9f4]',
+                              isSelected
+                                ? 'bg-aurora/5 shadow-[inset_0_0_0_1px_rgba(15,122,138,0.25)]'
+                                : 'bg-white'
+                            )}
+                          >
+                            <div className="flex min-w-0 items-baseline gap-2">
+                              {template.hasDocxSource ? (
+                                <span className="shrink-0 rounded-full border border-[#cfe0c5] bg-[#f1f7ec] px-2 py-0.5 text-[11px] font-semibold tracking-[0.12em] text-[#3c6132]">
+                                  {t('templates.list.docxBadge')}
+                                </span>
+                              ) : (
+                                <span className="shrink-0 rounded-full border border-[#d8d3c4] bg-[#f4f1e8] px-2 py-0.5 text-[11px] font-semibold tracking-[0.12em] text-[#6b5d3a]">
+                                  {t('templates.list.textBadge')}
+                                </span>
                               )}
-                            >
-                              {t(`dossiers.status_${dossier.status}`)}
-                            </span>
-                          </div>
-                          {dossier.type ? (
-                            <span className="truncate text-xs text-slate-400">{dossier.type}</span>
-                          ) : null}
-                        </button>
+                              <span className="truncate text-sm font-semibold text-[#1a1a1a]">
+                                {template.name}
+                              </span>
+                              {template.description ? (
+                                <span className="min-w-0 truncate text-xs text-[#5c5c5a]">
+                                  {template.description}
+                                </span>
+                              ) : null}
+                            </div>
+                          </button>
+                        </li>
                       )
                     })}
-                  </div>
-                )}
-              </div>
+                  </ul>
+                </ListContainer>
+              )}
             </div>
           </div>
 
-          <div className="flex shrink-0 justify-end gap-2 border-t border-white/10 pt-4">
+          <div className="flex shrink-0 justify-end gap-2 border-t border-[#e5e3da] pt-3">
             {onBack ? (
               <Button type="button" variant="ghost" onClick={onBack}>
                 {t('templates.editor.cancelButton')}
@@ -809,529 +601,119 @@ export function GenerateDocumentPanel({
       ) : null}
 
       {/* Tags step */}
-      {step === 'tags'
-        ? (() => {
-            // Compute completion stats using all displayed paths (including synthesized keyDate base paths)
-            const allDisplayedPaths = [
-              ...primaryTagPaths,
-              ...Object.values(roleTagGroups).flat(),
-              ...keyDatePaths,
-              ...keyRefPaths,
-              ...otherTagPaths
-            ]
-            const filledCount = allDisplayedPaths.filter(
-              (p) => (tagValues[p] ?? '').trim() !== ''
-            ).length
-            const totalCount = allDisplayedPaths.length
-            const allFilled = filledCount === totalCount
-            const progressPct =
-              totalCount === 0 ? 100 : Math.round((filledCount / totalCount) * 100)
-
-            // Helper: count empty paths
-            const emptyCount = (paths: string[]): number =>
-              paths.filter((p) => (tagValues[p] ?? '').trim() === '').length
-
-            // Toggle a collapsible section
-            const toggleSection = (key: string, defaultOpen: boolean): void =>
-              setOpenTagSections((prev) => ({ ...prev, [key]: !(prev[key] ?? defaultOpen) }))
-
-            const isSectionOpen = (key: string, defaultOpen: boolean): boolean =>
-              openTagSections[key] ?? defaultOpen
-
-            // Reusable field grid component
-            const renderFieldGrid = (paths: string[]): React.JSX.Element => (
-              <div className="grid gap-3 md:grid-cols-2">
-                {paths.map((path) => {
-                  const isEmpty = (tagValues[path] ?? '').trim() === ''
-                  return (
-                    <label key={path} className="flex flex-col gap-1 text-sm text-slate-100">
-                      <span className="text-xs text-slate-400">{localizeTagPath(path)}</span>
-                      <input
-                        type="text"
-                        value={tagValues[path] ?? ''}
-                        onChange={(event) =>
-                          setTagValues((current) => ({ ...current, [path]: event.target.value }))
-                        }
-                        className={
-                          inputClass +
-                          (isEmpty
-                            ? ' border-amber-500/40 focus:border-amber-400 focus:ring-amber-400/30'
-                            : '')
-                        }
-                        placeholder={t('generate.tags.emptyPlaceholder')}
-                      />
-                    </label>
-                  )
-                })}
-              </div>
-            )
-
-            // Reusable section header
-            const SectionHeader = ({
-              sectionKey,
-              title,
-              paths,
-              defaultOpen
-            }: {
-              sectionKey: string
-              title: string
-              paths: string[]
-              defaultOpen: boolean
-            }): React.JSX.Element => {
-              const empty = emptyCount(paths)
-              const open = isSectionOpen(sectionKey, defaultOpen)
-              return (
-                <button
-                  type="button"
-                  onClick={() => toggleSection(sectionKey, defaultOpen)}
-                  className="flex w-full items-center justify-between gap-2 text-left"
-                >
-                  <span className="text-sm font-medium text-slate-100">{title}</span>
-                  <div className="flex items-center gap-2">
-                    {empty > 0 ? (
-                      <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400">
-                        {empty}{' '}
-                        {t(
-                          'generate.tags.toFill',
-                          i18n.language === 'fr' ? 'à compléter' : 'to fill'
-                        )}
-                      </span>
-                    ) : (
-                      <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
-                        ✓
-                      </span>
-                    )}
-                    <svg
-                      className={`size-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </div>
-                </button>
-              )
-            }
-
-            // Contact row: compact role → assigned contact
-            const ContactRow = ({
-              roleLabel,
-              contactId,
-              paths,
-              onContactChange
-            }: {
-              roleLabel: string
-              contactId: string
-              paths: string[]
-              onContactChange: (id: string) => void
-            }): React.JSX.Element => {
-              const assignedContact = dossierContacts.find((c) => c.uuid === contactId)
-              const displayName = assignedContact ? computeContactDisplayName(assignedContact) : ''
-              const initials = displayName
-                ? displayName
-                    .split(' ')
-                    .map((w) => w[0])
-                    .join('')
-                    .slice(0, 2)
-                    .toUpperCase()
-                : '?'
-              const empty = emptyCount(paths)
-              const sectionKey = `contact-${roleLabel}`
-              const showFields = isSectionOpen(sectionKey, empty > 0)
-
-              return (
-                <div className="space-y-3">
-                  {/* Role + contact assignment row */}
-                  <div className="flex items-center gap-3">
-                    <div className="flex min-w-0 flex-1 items-center gap-2">
-                      <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-aurora/20 text-[10px] font-bold text-aurora">
-                        {initials}
-                      </div>
-                      <span className="min-w-0 truncate text-xs font-medium uppercase tracking-wide text-slate-400">
-                        {roleLabel}
-                      </span>
-                    </div>
-                    {dossierContacts.length > 0 ? (
-                      <select
-                        value={contactId}
-                        onChange={(e) => onContactChange(e.target.value)}
-                        className="min-w-0 flex-[2] rounded-xl border border-white/10 bg-slate-950/60 px-3 py-1.5 text-sm text-slate-100 outline-none transition focus:border-aurora focus:ring-2 focus:ring-aurora/35"
-                      >
-                        <option value="">{t('generate.contactMapping.no_match')}</option>
-                        {dossierContacts.map((c) => {
-                          const displayName = computeContactDisplayName(c)
-                          return (
-                            <option key={c.uuid} value={c.uuid}>
-                              {displayName} ({c.role})
-                            </option>
-                          )
-                        })}
-                      </select>
-                    ) : null}
-                    {paths.length > 0 ? (
-                      <button
-                        type="button"
-                        onClick={() => toggleSection(sectionKey, empty > 0)}
-                        className="shrink-0 flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition"
-                      >
-                        {empty > 0 ? (
-                          <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400">
-                            {empty}
-                          </span>
-                        ) : (
-                          <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
-                            ✓
-                          </span>
-                        )}
-                        <svg
-                          className={`size-3 transition-transform ${showFields ? 'rotate-180' : ''}`}
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          strokeWidth={2}
-                        >
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                        </svg>
-                      </button>
-                    ) : null}
-                  </div>
-
-                  {/* Fields — only shown when expanded */}
-                  {showFields && paths.length > 0 ? (
-                    <div className="ml-9 rounded-xl border border-white/5 bg-slate-950/40 p-3">
-                      {renderFieldGrid(paths)}
-                    </div>
-                  ) : null}
-                </div>
-              )
-            }
-
-            const hasContactSection =
-              (primaryTagPaths.length > 0 && dossierContacts.length > 0) ||
-              Object.keys(roleTagGroups).length > 0
-
-            return (
-              <div className="flex min-h-0 flex-1 flex-col gap-4">
-                {/* Progress bar */}
-                {totalCount > 0 ? (
-                  <div className="shrink-0 rounded-2xl border border-white/10 bg-slate-950/35 px-4 py-3">
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className="text-xs text-slate-400">
-                        {allFilled
-                          ? i18n.language === 'fr'
-                            ? 'Tous les tags sont prêts'
-                            : 'All tags are ready'
-                          : i18n.language === 'fr'
-                            ? `${filledCount} / ${totalCount} tags remplis`
-                            : `${filledCount} / ${totalCount} tags filled`}
-                      </span>
-                      <span
-                        className={`text-xs font-medium ${allFilled ? 'text-emerald-400' : 'text-amber-400'}`}
-                      >
-                        {progressPct}%
-                      </span>
-                    </div>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/5">
-                      <div
-                        className={`h-full rounded-full transition-all duration-500 ${allFilled ? 'bg-emerald-500' : 'bg-amber-500'}`}
-                        style={{ width: `${progressPct}%` }}
-                      />
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className="min-h-0 flex-1 overflow-y-auto space-y-4 pr-1">
-                  {/* Contacts section — merged primary + role groups */}
-                  {hasContactSection ? (
-                    <section className="rounded-2xl border border-white/10 bg-slate-950/35 p-4 space-y-4">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-medium text-slate-100">
-                          {i18n.language === 'fr' ? 'Contacts' : 'Contacts'}
-                        </p>
-                        <p className="text-xs text-slate-500">{t('generate.tags.selectContact')}</p>
-                      </div>
-
-                      <div className="space-y-4 divide-y divide-white/5">
-                        {primaryTagPaths.length > 0 && dossierContacts.length > 0 ? (
-                          <div className="pt-0">
-                            <ContactRow
-                              roleLabel={t('generate.tags.primaryContactTitle')}
-                              contactId={primaryContactId}
-                              paths={primaryTagPaths}
-                              onContactChange={(id) => {
-                                setPrimaryContactId(id)
-                                setTagValues((current) => applyPrimaryContact(id, current))
-                              }}
-                            />
-                          </div>
-                        ) : null}
-
-                        {Object.entries(roleTagGroups).map(([roleKey, paths], idx) => {
-                          const roleContact = dossierContacts.find(
-                            (c) => c.role && roleToTagKey(c.role) === roleKey
-                          )
-                          const roleDisplayLabel = roleContact?.role ?? roleKey
-                          return (
-                            <div
-                              key={roleKey}
-                              className={
-                                idx === 0 && primaryTagPaths.length === 0 ? 'pt-0' : 'pt-4'
-                              }
-                            >
-                              <ContactRow
-                                roleLabel={roleDisplayLabel}
-                                contactId={roleContactIds[roleKey] ?? ''}
-                                paths={paths}
-                                onContactChange={(id) => {
-                                  setRoleContactIds((current) => ({ ...current, [roleKey]: id }))
-                                  setTagValues((current) => applyRoleContact(roleKey, id, current))
-                                }}
-                              />
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </section>
-                  ) : null}
-
-                  {/* KeyDate tags */}
-                  {keyDatePaths.length > 0
-                    ? (() => {
-                        const open = isSectionOpen('keyDates', emptyCount(keyDatePaths) > 0)
-                        return (
-                          <section className="rounded-2xl border border-white/10 bg-slate-950/35 p-4 space-y-4">
-                            <SectionHeader
-                              sectionKey="keyDates"
-                              title={t('generate.tags.keyDatesTitle')}
-                              paths={keyDatePaths}
-                              defaultOpen={emptyCount(keyDatePaths) > 0}
-                            />
-                            {open ? (
-                              <div className="grid gap-3 md:grid-cols-2">
-                                {keyDatePaths.map((path) => {
-                                  const value = tagValues[path] ?? ''
-                                  const isEmpty = value.trim() === ''
-                                  const locale = i18n.resolvedLanguage ?? 'fr'
-                                  const isValidDate = !!parseLocalDateToIso(value, locale)
-                                  const fieldClass =
-                                    inputClass +
-                                    (isEmpty
-                                      ? ' border-amber-500/40 focus:border-amber-400 focus:ring-amber-400/30'
-                                      : '')
-                                  const formatHint = locale.startsWith('fr')
-                                    ? 'JJ/MM/AAAA ou AAAA-MM-JJ'
-                                    : 'DD/MM/YYYY or YYYY-MM-DD'
-                                  return (
-                                    <div
-                                      key={path}
-                                      className="flex flex-col gap-1 text-sm text-slate-100"
-                                    >
-                                      <span className="text-xs text-slate-400">
-                                        {localizeTagPath(path)}
-                                      </span>
-                                      <ComboField
-                                        value={value}
-                                        onChange={(v) =>
-                                          setTagValues((current) =>
-                                            applyKeyDateOverride(path, v, locale, current)
-                                          )
-                                        }
-                                        options={keyDateOptions}
-                                        placeholder={formatHint}
-                                        inputClassName={fieldClass}
-                                      />
-                                      {value && !isValidDate ? (
-                                        <span className="text-xs text-amber-400">{formatHint}</span>
-                                      ) : null}
-                                    </div>
-                                  )
-                                })}
-                              </div>
-                            ) : null}
-                          </section>
-                        )
-                      })()
-                    : null}
-
-                  {/* KeyRef tags */}
-                  {keyRefPaths.length > 0
-                    ? (() => {
-                        const open = isSectionOpen('keyRefs', emptyCount(keyRefPaths) > 0)
-                        return (
-                          <section className="rounded-2xl border border-white/10 bg-slate-950/35 p-4 space-y-4">
-                            <SectionHeader
-                              sectionKey="keyRefs"
-                              title={t('generate.tags.keyRefsTitle')}
-                              paths={keyRefPaths}
-                              defaultOpen={emptyCount(keyRefPaths) > 0}
-                            />
-                            {open ? (
-                              <div className="grid gap-3 md:grid-cols-2">
-                                {keyRefPaths.map((path) => {
-                                  const isEmpty = (tagValues[path] ?? '').trim() === ''
-                                  const fieldClass =
-                                    inputClass +
-                                    (isEmpty
-                                      ? ' border-amber-500/40 focus:border-amber-400 focus:ring-amber-400/30'
-                                      : '')
-                                  return (
-                                    <div
-                                      key={path}
-                                      className="flex flex-col gap-1 text-sm text-slate-100"
-                                    >
-                                      <span className="text-xs text-slate-400">
-                                        {localizeTagPath(path)}
-                                      </span>
-                                      <ComboField
-                                        value={tagValues[path] ?? ''}
-                                        onChange={(v) =>
-                                          setTagValues((current) => ({ ...current, [path]: v }))
-                                        }
-                                        options={keyReferenceOptions}
-                                        placeholder={t('generate.tags.emptyPlaceholder')}
-                                        inputClassName={fieldClass}
-                                      />
-                                    </div>
-                                  )
-                                })}
-                              </div>
-                            ) : null}
-                          </section>
-                        )
-                      })()
-                    : null}
-
-                  {/* Other tags (entity, system, etc.) — collapsed by default if all filled */}
-                  {otherTagPaths.length > 0
-                    ? (() => {
-                        const open = isSectionOpen('otherTags', emptyCount(otherTagPaths) > 0)
-                        return (
-                          <section className="rounded-2xl border border-white/10 bg-slate-950/35 p-4 space-y-4">
-                            <SectionHeader
-                              sectionKey="otherTags"
-                              title={t('generate.tags.otherTagsTitle')}
-                              paths={otherTagPaths}
-                              defaultOpen={emptyCount(otherTagPaths) > 0}
-                            />
-                            {open ? (
-                              <div className="space-y-4">
-                                {otherNonAddressPaths.length > 0
-                                  ? renderFieldGrid(otherNonAddressPaths)
-                                  : null}
-                                {otherAddressPaths.length > 0 ? (
-                                  <div className="space-y-3">
-                                    <p className="text-xs font-medium text-slate-400">
-                                      {i18n.language === 'fr' ? 'Adresse' : 'Address'}
-                                    </p>
-                                    {renderFieldGrid(otherAddressPaths)}
-                                  </div>
-                                ) : null}
-                              </div>
-                            ) : null}
-                          </section>
-                        )
-                      })()
-                    : null}
-
-                  {tagPaths.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-white/10 bg-slate-950/20 px-4 py-8 text-center text-sm text-slate-400">
-                      {t('generate.tags.noTags')}
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="flex shrink-0 justify-end gap-2 border-t border-white/10 pt-4">
-                  <Button type="button" variant="ghost" onClick={() => setStep('setup')}>
-                    {t('templates.editor.cancelButton')}
-                  </Button>
-                  <Button onClick={() => void handleTagsNext()} disabled={isSubmitting}>
-                    {isSubmitting ? t('generate.buttonLoading') : t('generate.reviewButton')}
-                  </Button>
-                </div>
-              </div>
-            )
-          })()
-        : null}
+      {step === 'tags' ? (
+        <div className="flex min-h-0 flex-1 flex-col gap-4">
+          <TagFillingStep
+            tagPaths={tagPaths}
+            tagValues={tagValues}
+            onTagValuesChange={setTagValues}
+            primaryContactId={primaryContactId}
+            onPrimaryContactChange={setPrimaryContactId}
+            roleContactIds={roleContactIds}
+            onRoleContactIdsChange={setRoleContactIds}
+            dossierContacts={dossierContacts}
+            keyDateOptions={keyDateOptions}
+            managedFieldsConfig={managedFieldsConfig}
+          />
+          <div className="flex shrink-0 justify-end gap-2 border-t border-[#e5e3da] pt-4">
+            <Button type="button" variant="ghost" onClick={() => setStep('setup')}>
+              {t('templates.editor.cancelButton')}
+            </Button>
+            <Button onClick={() => void handleTagsNext()} disabled={isSubmitting}>
+              {isSubmitting
+                ? t('generate.buttonLoading')
+                : selectedTemplateUsesDocxSource
+                  ? t('generate.reviewButton')
+                  : t('generate.generateTextButton')}
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       {/* Save step — unified for both rich-text and Word templates */}
       {step === 'save' && reviewDraft ? (
         <div className="flex min-h-0 flex-1 flex-col gap-4">
-          {/* Top controls: filename + path */}
+          {/* Top controls: filename + path (DOCX templates only) */}
           <div className="shrink-0 space-y-4">
-            <label className="flex flex-col gap-2 text-sm text-slate-100" htmlFor="save-filename">
-              <span>{t('generate.filenameLabel')}</span>
-              <input
-                id="save-filename"
-                type="text"
-                value={reviewDraft.filename}
-                onChange={(event) =>
-                  setReviewDraft((current) =>
-                    current ? { ...current, filename: event.target.value } : current
-                  )
-                }
-                className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-aurora focus:ring-2 focus:ring-aurora/35"
-              />
-            </label>
+            {selectedTemplateUsesDocxSource ? (
+              <>
+                <label
+                  className="flex flex-col gap-2 text-sm text-[#1a1a1a]"
+                  htmlFor="save-filename"
+                >
+                  <span>{t('generate.filenameLabel')}</span>
+                  <input
+                    id="save-filename"
+                    type="text"
+                    value={reviewDraft.filename}
+                    onChange={(event) =>
+                      setReviewDraft((current) =>
+                        current ? { ...current, filename: event.target.value } : current
+                      )
+                    }
+                    className="w-full rounded-2xl border border-[#e5e3da] bg-white px-4 py-3 text-sm text-[#1a1a1a] outline-none transition focus:border-aurora focus:ring-2 focus:ring-aurora/35"
+                  />
+                </label>
 
-            {/* Output path */}
-            <section className="rounded-2xl border border-white/10 bg-slate-950/35 p-4 space-y-3">
-              <p className="text-sm font-medium text-slate-100">
-                {t('generate.docxSave.outputPathTitle')}
-              </p>
+                {/* Output path */}
+                <section className="rounded-2xl border border-[#e5e3da] bg-white p-4 space-y-3">
+                  <p className="text-sm font-medium text-[#1a1a1a]">
+                    {t('generate.docxSave.outputPathTitle')}
+                  </p>
 
-              <label className="flex cursor-pointer items-center gap-3 text-sm text-slate-200">
-                <input
-                  type="radio"
-                  name="save-output-path"
-                  checked={docxCustomOutputPath === null}
-                  onChange={() => setDocxCustomOutputPath(null)}
-                  className="accent-aurora"
-                />
-                {t('generate.docxSave.saveToDossier')}
-              </label>
+                  <label className="flex cursor-pointer items-center gap-3 text-sm text-[#1a1a1a]">
+                    <input
+                      type="radio"
+                      name="save-output-path"
+                      checked={docxCustomOutputPath === null}
+                      onChange={() => setDocxCustomOutputPath(null)}
+                      className="accent-aurora"
+                    />
+                    {t('generate.docxSave.saveToDossier')}
+                  </label>
 
-              <label className="flex cursor-pointer items-center gap-3 text-sm text-slate-200">
-                <input
-                  type="radio"
-                  name="save-output-path"
-                  checked={docxCustomOutputPath !== null}
-                  onChange={() => void handleSaveSelectOutputPath()}
-                  className="accent-aurora"
-                />
-                {t('generate.docxSave.saveToCustomPath')}
-              </label>
+                  <label className="flex cursor-pointer items-center gap-3 text-sm text-[#1a1a1a]">
+                    <input
+                      type="radio"
+                      name="save-output-path"
+                      checked={docxCustomOutputPath !== null}
+                      onChange={() => void handleSaveSelectOutputPath()}
+                      className="accent-aurora"
+                    />
+                    {t('generate.docxSave.saveToCustomPath')}
+                  </label>
 
-              {docxCustomOutputPath !== null ? (
-                <div className="flex items-center gap-3 pl-6">
-                  <span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-300">
-                    {docxCustomOutputPath}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => void handleSaveSelectOutputPath()}
-                  >
-                    {t('generate.docxSave.browsePath')}
-                  </Button>
-                </div>
-              ) : null}
-            </section>
+                  {docxCustomOutputPath !== null ? (
+                    <div className="flex items-center gap-3 pl-6">
+                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-[#1a1a1a]">
+                        {docxCustomOutputPath}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void handleSaveSelectOutputPath()}
+                      >
+                        {t('generate.docxSave.browsePath')}
+                      </Button>
+                    </div>
+                  ) : null}
+                </section>
+              </>
+            ) : null}
 
             {/* Unresolved tags warning */}
             {reviewDraft.unresolvedTags.length > 0 ? (
-              <div className="rounded-2xl border border-amber-300/20 bg-amber-300/5 px-4 py-3">
-                <p className="text-sm font-medium text-amber-100">
+              <div className="rounded-2xl border border-[#e8d5a3] bg-[#fbf5e3] px-4 py-3">
+                <p className="text-sm font-medium text-[#7a5a00]">
                   {t('generate.unresolvedTitle')}
                 </p>
-                <p className="mt-1 text-sm text-amber-200/70">{t('generate.unresolvedTagHint')}</p>
+                <p className="mt-1 text-sm text-[#7a5a00]">{t('generate.unresolvedTagHint')}</p>
                 <ul className="mt-3 flex flex-wrap gap-2">
                   {reviewDraft.unresolvedTags.map((tagPath) => (
                     <li
                       key={tagPath}
-                      className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-xs text-amber-100"
+                      className="rounded-full border border-[#e8d5a3] bg-[#fbf5e3] px-3 py-1 text-xs text-[#7a5a00]"
                     >
                       {tagPath}
                     </li>
@@ -1342,7 +724,7 @@ export function GenerateDocumentPanel({
           </div>
 
           {/* Read-only preview */}
-          <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-white/10">
+          <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-[#e5e3da]">
             <RichTextEditor
               ariaLabel={t('generate.reviewEditorLabel')}
               value={reviewDraft.html}
@@ -1352,39 +734,77 @@ export function GenerateDocumentPanel({
           </div>
 
           {/* Actions */}
-          <div className="flex shrink-0 items-center justify-between border-t border-white/10 pt-4">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                const html = reviewDraft.html
-                const plain = (() => {
-                  const div = document.createElement('div')
-                  div.innerHTML = html
-                  return div.innerText
-                })()
-                void navigator.clipboard
-                  .write([
-                    new ClipboardItem({
-                      'text/html': new Blob([html], { type: 'text/html' }),
-                      'text/plain': new Blob([plain], { type: 'text/plain' })
-                    })
-                  ])
-                  .then(() => {
+          <div className="flex shrink-0 items-center justify-between border-t border-[#e5e3da] pt-4">
+            {selectedTemplateUsesDocxSource ? (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  const html = reviewDraft.html
+                  const plain = (() => {
+                    const div = document.createElement('div')
+                    div.innerHTML = html
+                    return div.innerText
+                  })()
+                  const showTick = (): void => {
                     setCopied(true)
                     setTimeout(() => setCopied(false), 2000)
-                  })
-              }}
-            >
-              {copied ? t('generate.copiedButton') : t('generate.copyButton')}
-            </Button>
+                  }
+                  void copyToClipboard({ text: plain, html }).then(showTick).catch(showTick)
+                }}
+              >
+                {copied ? t('generate.copiedButton') : t('generate.copyButton')}
+              </Button>
+            ) : (
+              <span />
+            )}
             <div className="flex gap-2">
-              <Button type="button" variant="ghost" onClick={() => setStep('tags')}>
-                {t('templates.editor.cancelButton')}
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  if (selectedTemplateUsesDocxSource) {
+                    setStep('tags')
+                  } else {
+                    setReviewDraft(null)
+                    setDocxFilename('')
+                    setDocxCustomOutputPath(null)
+                    setStep('setup')
+                  }
+                }}
+              >
+                {selectedTemplateUsesDocxSource
+                  ? t('templates.editor.cancelButton')
+                  : t('generate.closeButton')}
               </Button>
-              <Button onClick={() => void handleSave()} disabled={!canSave}>
-                {isSubmitting ? t('generate.saveLoading') : t('generate.saveButton')}
-              </Button>
+              {selectedTemplateUsesDocxSource ? (
+                <Button onClick={() => void handleSave()} disabled={!canSave}>
+                  {isSubmitting ? t('generate.saveLoading') : t('generate.saveButton')}
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => {
+                    const html = reviewDraft.html
+                    const plain = (() => {
+                      const div = document.createElement('div')
+                      div.innerHTML = html
+                      return div.innerText
+                    })()
+                    const showTick = (): void => {
+                      setCopied(true)
+                      setTimeout(() => setCopied(false), 1500)
+                    }
+                    void copyToClipboard({ text: plain, html }).then(showTick).catch(showTick)
+                  }}
+                >
+                  <span className="relative inline-flex items-center justify-center">
+                    <span className={copied ? 'invisible' : ''}>{t('generate.copyButton')}</span>
+                    {copied ? (
+                      <span className="absolute inset-0 flex items-center justify-center">✓</span>
+                    ) : null}
+                  </span>
+                </Button>
+              )}
             </div>
           </div>
         </div>

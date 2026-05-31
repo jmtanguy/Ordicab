@@ -66,7 +66,7 @@ export interface IntentHandlerContext {
   /**
    * Append the user message + final feedback to conversation history and
    * snapshot the current PII mapping into the decode ledger so later turns
-   * can decode markers echoed back. Every handler must call this exactly
+   * can decode anonymized values echoed back. Every handler must call this exactly
    * once before returning, otherwise the next turn loses context.
    */
   commitIntentToHistory: (feedback: string, intentType: string) => void
@@ -87,7 +87,7 @@ export async function handleInlineDispatchSummary(
   }
   const feedback = ctx.revertPiiText(revertedIntent.message)
   // History must use pseudonymized content. Extra pseudonymize pass catches
-  // any known real values the model may have echoed without markers.
+  // any known real values the model may have echoed.
   ctx.commitIntentToHistory(
     await ctx.pseudonymizeText(revertedIntent.message),
     inlineDispatchResult.intent.type
@@ -259,8 +259,8 @@ export async function handleDocumentAnalyze(
   const resultJson = await ctx.actionToolExecutor.runDocumentAnalysis(
     targetDossierId,
     intent.documentId,
-    intent.lineStart,
-    intent.lineEnd
+    intent.charStart,
+    intent.charEnd
   )
   // The returned feedback is local UI data and may contain the real document text.
   // History is reused on later remote LLM calls, so store only the pseudonymized

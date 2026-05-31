@@ -29,6 +29,8 @@ function createDossierDetail(options: Partial<DossierDetail> = {}): DossierDetai
   return {
     ...createDossier(options),
     registeredAt: '2026-03-13T08:30:00.000Z',
+    feeAgreements: [],
+    billingItems: [],
     keyDates: [],
     keyReferences: [],
     ...options
@@ -60,14 +62,6 @@ describe('dossier store', () => {
         register: vi.fn(async () => ({ success: true as const, data: createDossier() })),
         unregister: vi.fn(async () => ({ success: true as const, data: null })),
         get: vi.fn(async () => ({ success: true as const, data: createDossierDetail() })),
-        update: vi.fn(async () => ({
-          success: true as const,
-          data: createDossierDetail({
-            status: 'pending',
-            type: 'Civil litigation',
-            lastOpenedAt: '2026-03-13T09:05:00.000Z'
-          })
-        })),
         upsertKeyDate: vi.fn(async () => ({ success: true as const, data: createDossierDetail() })),
         deleteKeyDate: vi.fn(async () => ({ success: true as const, data: createDossierDetail() })),
         upsertKeyReference: vi.fn(async () => ({
@@ -110,14 +104,6 @@ describe('dossier store', () => {
         })),
         unregister: vi.fn(async () => ({ success: true as const, data: null })),
         get: vi.fn(async () => ({ success: true as const, data: createDossierDetail() })),
-        update: vi.fn(async () => ({
-          success: true as const,
-          data: createDossierDetail({
-            status: 'pending',
-            type: 'Civil litigation',
-            lastOpenedAt: '2026-03-13T09:05:00.000Z'
-          })
-        })),
         upsertKeyDate: vi.fn(async () => ({ success: true as const, data: createDossierDetail() })),
         deleteKeyDate: vi.fn(async () => ({ success: true as const, data: createDossierDetail() })),
         upsertKeyReference: vi.fn(async () => ({
@@ -149,14 +135,6 @@ describe('dossier store', () => {
         register: vi.fn(async () => ({ success: true as const, data: createDossier() })),
         unregister: vi.fn(async () => ({ success: true as const, data: null })),
         get: vi.fn(async () => ({ success: true as const, data: createDossierDetail() })),
-        update: vi.fn(async () => ({
-          success: true as const,
-          data: createDossierDetail({
-            status: 'pending',
-            type: 'Civil litigation',
-            lastOpenedAt: '2026-03-13T09:05:00.000Z'
-          })
-        })),
         upsertKeyDate: vi.fn(async () => ({ success: true as const, data: createDossierDetail() })),
         deleteKeyDate: vi.fn(async () => ({ success: true as const, data: createDossierDetail() })),
         upsertKeyReference: vi.fn(async () => ({
@@ -182,19 +160,12 @@ describe('dossier store', () => {
     })
   })
 
-  it('opens detail through dossier.open and merges saved dossier updates back into the dashboard list', async () => {
+  it('opens detail through dossier.open and merges the opened dossier back into the dashboard list', async () => {
     const api = {
       dossier: {
         listEligible: vi.fn(async () => ({ success: true as const, data: [] })),
         list: vi.fn(async () => ({ success: true as const, data: [createDossier()] })),
         open: vi.fn(async () => ({
-          success: true as const,
-          data: createDossierDetail({ lastOpenedAt: '2026-03-13T09:05:00.000Z' })
-        })),
-        register: vi.fn(async () => ({ success: true as const, data: createDossier() })),
-        unregister: vi.fn(async () => ({ success: true as const, data: null })),
-        get: vi.fn(async () => ({ success: true as const, data: createDossierDetail() })),
-        update: vi.fn(async () => ({
           success: true as const,
           data: createDossierDetail({
             status: 'pending',
@@ -202,6 +173,9 @@ describe('dossier store', () => {
             lastOpenedAt: '2026-03-13T09:05:00.000Z'
           })
         })),
+        register: vi.fn(async () => ({ success: true as const, data: createDossier() })),
+        unregister: vi.fn(async () => ({ success: true as const, data: null })),
+        get: vi.fn(async () => ({ success: true as const, data: createDossierDetail() })),
         upsertKeyDate: vi.fn(async () => ({ success: true as const, data: createDossierDetail() })),
         deleteKeyDate: vi.fn(async () => ({ success: true as const, data: createDossierDetail() })),
         upsertKeyReference: vi.fn(async () => ({
@@ -219,11 +193,6 @@ describe('dossier store', () => {
 
     await useDossierStore.getState().load()
     await useDossierStore.getState().openDetail('Client Alpha')
-    await useDossierStore.getState().saveDetail({
-      id: 'Client Alpha',
-      status: 'pending',
-      type: 'Civil litigation'
-    })
 
     expect(useDossierStore.getState().activeDossier).toMatchObject({
       id: 'Client Alpha',
@@ -256,7 +225,6 @@ describe('dossier store', () => {
           success: true as const,
           data: createDossierDetail({ lastOpenedAt: '2026-03-13T09:05:00.000Z' })
         })),
-        update: vi.fn(async () => ({ success: true as const, data: createDossierDetail() })),
         upsertKeyDate: vi.fn(async () => ({ success: true as const, data: createDossierDetail() })),
         deleteKeyDate: vi.fn(async () => ({ success: true as const, data: createDossierDetail() })),
         upsertKeyReference: vi.fn(async () => ({
@@ -292,7 +260,6 @@ describe('dossier store', () => {
         register: vi.fn(async () => ({ success: true as const, data: createDossier() })),
         unregister: vi.fn(async () => ({ success: true as const, data: null })),
         get: vi.fn(async () => ({ success: true as const, data: createDossierDetail() })),
-        update: vi.fn(async () => ({ success: true as const, data: createDossierDetail() })),
         upsertKeyDate: vi.fn(async () => ({
           success: true as const,
           data: createDossierDetail({

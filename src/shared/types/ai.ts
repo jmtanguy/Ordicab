@@ -1,4 +1,10 @@
 import type { RemoteProviderKind } from '../ai/remoteProviders'
+import type { KeyDateTag } from '../domain/dossier'
+import type {
+  BillingItemDiscountKind,
+  BillingItemQuantityUnit,
+  BillingItemStatus
+} from '../domain/billing'
 
 /**
  * AI domain types — shared between main process and renderer.
@@ -14,7 +20,16 @@ import type { RemoteProviderKind } from '../ai/remoteProviders'
  * Model selection: AiCommandInput.model carries the model chosen by
  * the user in AiPage (session only, never persisted).
  */
-export type AiMode = 'none' | 'local' | 'remote' | 'claude-code' | 'copilot' | 'codex'
+export const AI_MODE_VALUES = [
+  'none',
+  'local',
+  'remote',
+  'claude-code',
+  'copilot',
+  'codex'
+] as const
+
+export type AiMode = (typeof AI_MODE_VALUES)[number]
 
 export const AI_DELEGATED_MODES: readonly AiMode[] = ['claude-code', 'copilot', 'codex']
 
@@ -36,6 +51,8 @@ export interface AiSettings {
   piiEnabled?: boolean
   /** User-defined sensitive terms to always pseudonymize (company names, project codes, etc.) */
   piiWordlist?: string[]
+  /** When true, Claude Cowork (claude-code) runs in parallel alongside the primary AI mode. */
+  claudeCoworkEnabled?: boolean
 }
 
 export interface AiSettingsPersisted {
@@ -47,6 +64,7 @@ export interface AiSettingsPersisted {
   encryptedApiKey?: string
   piiEnabled?: boolean
   piiWordlist?: string[]
+  claudeCoworkEnabled?: boolean
 }
 
 export interface AiSettingsResponse extends AiSettings {
@@ -77,6 +95,7 @@ export interface AiSettingsSaveInput {
   apiKey?: string
   piiEnabled?: boolean
   piiWordlist?: string[]
+  claudeCoworkEnabled?: boolean
 }
 
 export interface AiDelegatedProviderStatus {
@@ -94,9 +113,9 @@ export const AI_DELEGATED_INSTRUCTIONS_FILES: Partial<Record<AiMode, string>> = 
 
 export type InternalAiCommandType =
   | 'contact_lookup'
-  | 'contact_lookup_active'
   | 'contact_get'
-  | 'contact_upsert'
+  | 'contact_create'
+  | 'contact_update'
   | 'contact_delete'
   | 'template_select'
   | 'template_list'
@@ -116,10 +135,15 @@ export type InternalAiCommandType =
   | 'dossier_select'
   | 'dossier_create'
   | 'dossier_update'
-  | 'dossier_upsert_key_date'
+  | 'dossier_create_key_date'
+  | 'dossier_update_key_date'
   | 'dossier_delete_key_date'
-  | 'dossier_upsert_key_reference'
+  | 'dossier_create_key_reference'
+  | 'dossier_update_key_reference'
   | 'dossier_delete_key_reference'
+  | 'dossier_create_billing_item'
+  | 'dossier_update_billing_item'
+  | 'dossier_delete_billing_item'
   | 'text_generate'
   | 'direct_response'
   | 'clarification_request'
@@ -132,21 +156,13 @@ export interface ContactLookupIntent {
   dossierId?: string
 }
 
-export interface ContactLookupActiveIntent {
-  type: 'contact_lookup_active'
-  query?: string
-  /** Active dossier from context — this intent type ignores explicit dossierId */
-}
-
 export interface ContactGetIntent {
   type: 'contact_get'
   contactId: string
   dossierId?: string
 }
 
-export interface ContactUpsertIntent {
-  type: 'contact_upsert'
-  id?: string
+export interface ContactMutationFields {
   firstName?: string
   lastName?: string
   role?: string
@@ -155,11 +171,21 @@ export interface ContactUpsertIntent {
   title?: string
   institution?: string
   addressLine?: string
+  addressLine2?: string
   city?: string
   zipCode?: string
   country?: string
   information?: string
   customFields?: Record<string, string>
+}
+
+export interface ContactCreateIntent extends ContactMutationFields {
+  type: 'contact_create'
+}
+
+export interface ContactUpdateIntent extends ContactMutationFields {
+  type: 'contact_update'
+  contactId: string
 }
 
 export interface ContactDeleteIntent {
@@ -227,8 +253,6 @@ export interface DocumentAnalyzeIntent {
   type: 'document_analyze'
   documentId: string
   dossierId?: string
-  lineStart?: number
-  lineEnd?: number
   charStart?: number
   charEnd?: number
 }
@@ -275,13 +299,24 @@ export interface DossierUpdateIntent {
   information?: string
 }
 
-export interface DossierUpsertKeyDateIntent {
-  type: 'dossier_upsert_key_date'
+export interface DossierKeyDateFields {
   dossierId: string
-  id?: string
   label: string
   date: string
+  time?: string
+  duration?: number
+  tags?: KeyDateTag[]
+  isClosed?: boolean
   note?: string
+}
+
+export interface DossierCreateKeyDateIntent extends DossierKeyDateFields {
+  type: 'dossier_create_key_date'
+}
+
+export interface DossierUpdateKeyDateIntent extends DossierKeyDateFields {
+  type: 'dossier_update_key_date'
+  keyDateId: string
 }
 
 export interface DossierDeleteKeyDateIntent {
@@ -290,19 +325,58 @@ export interface DossierDeleteKeyDateIntent {
   keyDateId: string
 }
 
-export interface DossierUpsertKeyReferenceIntent {
-  type: 'dossier_upsert_key_reference'
+export interface DossierKeyReferenceFields {
   dossierId: string
-  id?: string
   label: string
   value: string
   note?: string
+}
+
+export interface DossierCreateKeyReferenceIntent extends DossierKeyReferenceFields {
+  type: 'dossier_create_key_reference'
+}
+
+export interface DossierUpdateKeyReferenceIntent extends DossierKeyReferenceFields {
+  type: 'dossier_update_key_reference'
+  keyReferenceId: string
 }
 
 export interface DossierDeleteKeyReferenceIntent {
   type: 'dossier_delete_key_reference'
   dossierId: string
   keyReferenceId: string
+}
+
+export interface DossierBillingItemFields {
+  dossierId: string
+  date: string
+  label: string
+  description?: string
+  quantity: number
+  quantityUnit: BillingItemQuantityUnit
+  unitPriceHtCents: number
+  vatRateBasisPoints: number
+  status: BillingItemStatus
+  discountKind?: BillingItemDiscountKind
+  discountPercentBasisPoints?: number
+  discountAmountHtCents?: number
+  sourceServicePresetId?: string
+  sourceKeyDateId?: string
+}
+
+export interface DossierCreateBillingItemIntent extends DossierBillingItemFields {
+  type: 'dossier_create_billing_item'
+}
+
+export interface DossierUpdateBillingItemIntent extends DossierBillingItemFields {
+  type: 'dossier_update_billing_item'
+  billingItemId: string
+}
+
+export interface DossierDeleteBillingItemIntent {
+  type: 'dossier_delete_billing_item'
+  dossierId: string
+  billingItemId: string
 }
 
 export interface TemplateCreateIntent {
@@ -352,9 +426,9 @@ export interface UnknownIntent {
  */
 export type InternalAiCommand =
   | ContactLookupIntent
-  | ContactLookupActiveIntent
   | ContactGetIntent
-  | ContactUpsertIntent
+  | ContactCreateIntent
+  | ContactUpdateIntent
   | ContactDeleteIntent
   | TemplateSelectIntent
   | TemplateListIntent
@@ -374,10 +448,15 @@ export type InternalAiCommand =
   | DossierSelectIntent
   | DossierCreateIntent
   | DossierUpdateIntent
-  | DossierUpsertKeyDateIntent
+  | DossierCreateKeyDateIntent
+  | DossierUpdateKeyDateIntent
   | DossierDeleteKeyDateIntent
-  | DossierUpsertKeyReferenceIntent
+  | DossierCreateKeyReferenceIntent
+  | DossierUpdateKeyReferenceIntent
   | DossierDeleteKeyReferenceIntent
+  | DossierCreateBillingItemIntent
+  | DossierUpdateBillingItemIntent
+  | DossierDeleteBillingItemIntent
   | TextGenerateIntent
   | DirectResponseIntent
   | ClarificationRequestIntent
@@ -400,6 +479,14 @@ export interface AiCommandContext {
    * from the user and retry with tagOverrides.
    */
   pendingTagPaths?: string[]
+  /**
+   * Resolved `@<filename>` mentions detected in the user's latest message.
+   * Each entry carries the document UUID alongside the user-visible filename so
+   * the LLM does not need to call `document_list` to look them up — important
+   * when PII pseudonymization rewrites the filename in the chat text.
+   * UUID-shaped strings survive the pseudonymizer verbatim.
+   */
+  documentMentions?: Array<{ uuid: string; filename: string }>
 }
 
 /**
@@ -418,7 +505,11 @@ export interface AiCommandInput {
   command: string
   context: AiCommandContext
   model?: string
-  /** Last N conversation turns to give the LLM memory of prior exchanges */
+  /**
+   * Optional conversation-history fallback. The renderer no longer sends this:
+   * the main-process runtime (aiSdkAgentRuntime) owns the canonical conversation
+   * history and only consults this when its own rolling history is empty.
+   */
   history?: AiChatHistoryEntry[]
 }
 

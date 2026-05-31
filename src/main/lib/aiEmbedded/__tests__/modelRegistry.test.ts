@@ -43,7 +43,16 @@ describe('modelRegistry', () => {
 
     expect(pipe).toBe(fakePipe)
     expect(pipelineSpy).toHaveBeenCalledWith('token-classification', 'Xenova/test-ner', {
-      dtype: 'q8'
+      dtype: 'q8',
+      session_options: {
+        executionProviders: [{ name: 'cpu', useArena: false }],
+        enableCpuMemArena: false,
+        enableMemPattern: false,
+        executionMode: 'sequential',
+        intraOpNumThreads: 1,
+        interOpNumThreads: 1,
+        graphOptimizationLevel: 'all'
+      }
     })
   })
 

@@ -85,11 +85,20 @@ export const EN_MONTH_NAMES = [
 const FR_MONTHS_ALT = Object.keys(FR_MONTH_TO_INDEX).join('|')
 const EN_MONTHS_ALT = Object.keys(EN_MONTH_TO_INDEX).join('|')
 
+// Separator between the components of a textual date. OCR frequently renders
+// the day/month gap as a hyphen or dot ("16-octobre 2024") rather than a space;
+// accepting those here keeps revert (parse + token-find) in lockstep with the
+// detector — see piiDetector.TEXTUAL_DATE_SEP.
+const TEXTUAL_DATE_SEP = '[\\s./-]+'
+
 const NUMERIC_YEAR_FIRST = /^(\d{4})([/\-. ])(\d{1,2})\2(\d{1,2})$/
 const NUMERIC_DAY_FIRST = /^(\d{1,2})([/\-. ])(\d{1,2})\2(\d{2,4})$/
-const FR_TEXTUAL = new RegExp(`^(\\d{1,2})(?:er)?\\s+(${FR_MONTHS_ALT})\\s+(\\d{2,4})$`, 'i')
+const FR_TEXTUAL = new RegExp(
+  `^(\\d{1,2})(?:er)?${TEXTUAL_DATE_SEP}(${FR_MONTHS_ALT})${TEXTUAL_DATE_SEP}(\\d{2,4})$`,
+  'i'
+)
 const EN_TEXTUAL = new RegExp(
-  `^(${EN_MONTHS_ALT})\\s+(\\d{1,2})(?:st|nd|rd|th)?,?\\s+(\\d{2,4})$`,
+  `^(${EN_MONTHS_ALT})${TEXTUAL_DATE_SEP}(\\d{1,2})(?:st|nd|rd|th)?,?${TEXTUAL_DATE_SEP}(\\d{2,4})$`,
   'i'
 )
 
@@ -99,8 +108,8 @@ const DATE_TOKEN_FIND_SOURCE =
   '\\b(?:' +
   '\\d{4}[\\/\\-. ]\\d{1,2}[\\/\\-. ]\\d{1,2}' +
   '|\\d{1,2}[\\/\\-. ]\\d{1,2}[\\/\\-. ]\\d{2,4}' +
-  `|\\d{1,2}(?:er)?\\s+(?:${FR_MONTHS_ALT})\\s+\\d{2,4}` +
-  `|(?:${EN_MONTHS_ALT})\\s+\\d{1,2}(?:st|nd|rd|th)?,?\\s+\\d{2,4}` +
+  `|\\d{1,2}(?:er)?${TEXTUAL_DATE_SEP}(?:${FR_MONTHS_ALT})${TEXTUAL_DATE_SEP}\\d{2,4}` +
+  `|(?:${EN_MONTHS_ALT})${TEXTUAL_DATE_SEP}\\d{1,2}(?:st|nd|rd|th)?,?${TEXTUAL_DATE_SEP}\\d{2,4}` +
   ')\\b'
 
 export function expandTwoDigitYear(year: number): number {

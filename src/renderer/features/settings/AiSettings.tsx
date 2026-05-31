@@ -14,40 +14,6 @@ import {
 import { Button, Card, DialogShell, Field, Input, Select } from '@renderer/components/ui'
 import { useAiStore } from '@renderer/stores/aiStore'
 
-// Modes that are fully managed cloud services (no key to configure)
-const CLOUD_MANAGED_MODES: AiMode[] = ['claude-code', 'copilot', 'codex']
-const REMOTE_MODES: AiMode[] = [...CLOUD_MANAGED_MODES, 'remote']
-
-type ModeGroup = 'none' | 'local' | 'cloud' | 'remote'
-
-interface ModeDefinition {
-  value: AiMode
-  labelKey: string
-  group: ModeGroup
-}
-
-const AI_MODES: ModeDefinition[] = [
-  { value: 'none', labelKey: 'ai_settings.mode_none', group: 'none' },
-  { value: 'local', labelKey: 'ai_settings.mode_local', group: 'local' },
-  { value: 'remote', labelKey: 'ai_settings.mode_remote', group: 'remote' },
-  { value: 'claude-code', labelKey: 'ai_settings.mode_claude_code', group: 'cloud' },
-  { value: 'codex', labelKey: 'ai_settings.mode_codex', group: 'cloud' },
-  { value: 'copilot', labelKey: 'ai_settings.mode_copilot', group: 'cloud' }
-]
-
-function groupLabelKey(group: ModeGroup): string {
-  switch (group) {
-    case 'none':
-      return 'ai_settings.group_none'
-    case 'local':
-      return 'ai_settings.group_local'
-    case 'cloud':
-      return 'ai_settings.group_cloud'
-    case 'remote':
-      return 'ai_settings.group_remote'
-  }
-}
-
 function AiRow({
   label,
   value
@@ -58,10 +24,10 @@ function AiRow({
   if (!value) return null
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8a8a85]">
         {label}
       </span>
-      <span className="text-sm text-slate-100">{value}</span>
+      <span className="text-sm text-[#1a1a1a]">{value}</span>
     </div>
   )
 }
@@ -75,20 +41,20 @@ function CloudAvailabilityBadge({
 
   if (status === null) {
     return (
-      <span className="text-xs text-amber-200/50">{t('ai_settings.cloud_provider_checking')}</span>
+      <span className="text-xs text-[#8a7400]">{t('ai_settings.cloud_provider_checking')}</span>
     )
   }
 
   if (status.available) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-medium text-emerald-300">
+      <span className="inline-flex items-center gap-1 rounded-full bg-[#5c8a4e]/20 px-2 py-0.5 text-xs font-medium text-[#3c6132]">
         ✓ {t('ai_settings.cloud_provider_available')}
       </span>
     )
   }
 
   return (
-    <span className="text-xs text-amber-300">
+    <span className="text-xs text-[#b88800]">
       ⚠ {t('ai_settings.cloud_provider_unavailable')}
       {status.reason ? ` — ${status.reason}` : ''}
     </span>
@@ -128,12 +94,12 @@ function ConnectionStatusBadge(): React.JSX.Element | null {
   if (connectionStatus === 'idle') return null
 
   if (connectionStatus === 'checking') {
-    return <span className="text-xs text-slate-400">{t('ai_settings.connection_checking')}</span>
+    return <span className="text-xs text-[#5c5c5a]">{t('ai_settings.connection_checking')}</span>
   }
 
   if (connectionStatus === 'connected') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-medium text-emerald-300">
+      <span className="inline-flex items-center gap-1 rounded-full bg-[#5c8a4e]/20 px-2 py-0.5 text-xs font-medium text-[#3c6132]">
         ✓ {t('ai_settings.connection_connected')}
       </span>
     )
@@ -178,20 +144,23 @@ export function AiDialog({
   } = useAiStore()
 
   const [drafts, setDrafts] = useState<{
-    mode: AiMode
+    apiEnabled: boolean
+    claudeCoworkEnabled: boolean
     ollamaEndpoint?: string
     remoteProviderKind?: RemoteProviderKind
     remoteProjectRef?: string
     remoteProvider?: string
     piiEnabled: boolean
-  }>({ mode: 'none', piiEnabled: true })
+  }>({ apiEnabled: false, claudeCoworkEnabled: false, piiEnabled: true })
   const [apiKey, setApiKey] = useState('')
 
   useEffect(() => {
     if (open) {
+      const mode = settings?.mode ?? 'none'
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setDrafts({
-        mode: settings?.mode ?? 'none',
+        apiEnabled: mode === 'remote',
+        claudeCoworkEnabled: settings?.claudeCoworkEnabled ?? mode === 'claude-code',
         ollamaEndpoint: settings?.ollamaEndpoint ?? 'http://localhost:11434',
         remoteProviderKind:
           settings?.remoteProviderKind ?? inferRemoteProviderKind(settings?.remoteProvider),
@@ -213,23 +182,24 @@ export function AiDialog({
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [open, onClose])
 
-  // Auto-check cloud provider availability when panel opens with a cloud mode
+  // Auto-check Claude Cowork availability when enabled
   useEffect(() => {
-    if (open && CLOUD_MANAGED_MODES.includes(drafts.mode) && cloudAvailability === null) {
-      void checkCloudAvailability(drafts.mode)
+    if (open && drafts.claudeCoworkEnabled && cloudAvailability === null) {
+      void checkCloudAvailability('claude-code')
     }
-  }, [open, drafts.mode, cloudAvailability, checkCloudAvailability])
+  }, [open, drafts.claudeCoworkEnabled, cloudAvailability, checkCloudAvailability])
 
   if (!open) return null
 
-  const currentMode = drafts.mode
-  const ollamaEndpoint = drafts.ollamaEndpoint ?? 'http://localhost:11434'
+  const apiEnabled = drafts.apiEnabled
+  const claudeCoworkEnabled = drafts.claudeCoworkEnabled
   const remoteProviderKind = drafts.remoteProviderKind ?? 'custom'
   const remoteProjectRef = drafts.remoteProjectRef ?? ''
   const remoteProvider = drafts.remoteProvider ?? ''
   const piiEnabled = drafts.piiEnabled
   const isProjectRefRequired = remoteProviderKind === 'infomaniak'
-  const isProjectRefMissing = isProjectRefRequired && remoteProjectRef.trim().length === 0
+  const isProjectRefMissing =
+    apiEnabled && isProjectRefRequired && remoteProjectRef.trim().length === 0
   const resolvedRemoteProvider =
     buildRemoteProviderUrl({
       providerKind: remoteProviderKind,
@@ -238,282 +208,305 @@ export function AiDialog({
     }) ?? ''
   const maskedKey = settings?.hasApiKey ? `•••••••${settings.apiKeySuffix ?? '????'}` : ''
 
-  function handleModeChange(mode: AiMode): void {
-    if (REMOTE_MODES.includes(mode) && mode !== currentMode) {
-      requestRemoteMode(mode)
+  function handleToggleApi(enabled: boolean): void {
+    if (enabled) {
+      requestRemoteMode('remote')
     } else {
-      setDrafts((d) => ({ ...d, mode }))
+      setDrafts((d) => ({ ...d, apiEnabled: false }))
+    }
+  }
+
+  function handleToggleClaudeCowork(enabled: boolean): void {
+    if (enabled) {
+      requestRemoteMode('claude-code')
+    } else {
+      setDrafts((d) => ({ ...d, claudeCoworkEnabled: false }))
     }
   }
 
   function handleConfirmRemoteMode(): void {
-    if (pendingMode) {
-      setDrafts((d) => ({ ...d, mode: pendingMode }))
+    if (pendingMode === 'remote') {
+      setDrafts((d) => ({ ...d, apiEnabled: true }))
+    } else if (pendingMode === 'claude-code') {
+      setDrafts((d) => ({ ...d, claudeCoworkEnabled: true }))
     }
     confirmRemoteMode()
   }
 
   async function handleSave(): Promise<void> {
+    // mode reflects the primary AI assistant; claudeCoworkEnabled can run alongside it
+    const savedMode: AiMode = apiEnabled ? 'remote' : claudeCoworkEnabled ? 'claude-code' : 'none'
     await saveSettings({
-      mode: currentMode,
-      ollamaEndpoint: currentMode === 'local' ? ollamaEndpoint : undefined,
-      remoteProviderKind: currentMode === 'remote' ? remoteProviderKind : undefined,
-      remoteProjectRef: currentMode === 'remote' ? remoteProjectRef || undefined : undefined,
-      remoteProvider: currentMode === 'remote' ? resolvedRemoteProvider || undefined : undefined,
-      apiKey: currentMode === 'remote' ? apiKey || undefined : undefined,
-      piiEnabled: currentMode === 'remote' ? piiEnabled : undefined
+      mode: savedMode,
+      claudeCoworkEnabled,
+      remoteProviderKind: apiEnabled ? remoteProviderKind : undefined,
+      remoteProjectRef: apiEnabled ? remoteProjectRef || undefined : undefined,
+      remoteProvider: apiEnabled ? resolvedRemoteProvider || undefined : undefined,
+      apiKey: apiEnabled ? apiKey || undefined : undefined,
+      piiEnabled: apiEnabled ? piiEnabled : undefined
     })
     onClose()
   }
 
   return (
-    <DialogShell aria-label={t('ai_settings.section_title')} size="lg">
-      <div className="mb-5 flex shrink-0 items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-50">{t('ai_settings.section_title')}</h2>
+    <DialogShell
+      aria-label={t('ai_settings.section_title')}
+      size="lg"
+      panelClassName="max-w-[52rem]"
+    >
+      <div className="mb-4 flex shrink-0 items-center justify-between">
+        <h2 className="text-lg font-semibold text-[#1a1a1a]">{t('ai_settings.section_title')}</h2>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-lg p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-slate-100"
+          className="rounded-lg p-1.5 text-[#5c5c5a] transition hover:bg-[#e4e1d5] hover:text-[#1a1a1a]"
           aria-label={t('common.close')}
         >
           ✕
         </button>
       </div>
 
-      <div className="flex flex-col gap-5">
-        {/* Mode selector */}
-        <div className="space-y-3">
-          <p className="text-xs uppercase tracking-widest text-slate-400">
-            {t('ai_settings.mode_label')}
-          </p>
-          <div className="grid grid-cols-3 gap-2">
-            {AI_MODES.map((m) => {
-              const isActive = currentMode === m.value
-              return (
-                <button
-                  key={m.value}
-                  type="button"
-                  onClick={() => handleModeChange(m.value)}
-                  disabled={loading}
-                  className={[
-                    'flex flex-col gap-1 rounded-lg border px-3 py-2.5 text-left transition-colors',
-                    isActive
-                      ? 'border-sky-500 bg-sky-500/10 text-slate-50'
-                      : 'border-slate-700 bg-slate-800/50 text-slate-400 hover:border-slate-500 hover:text-slate-300'
-                  ].join(' ')}
-                >
-                  <span className="text-xs font-medium leading-tight">{t(m.labelKey)}</span>
-                  <span
-                    className={[
-                      'text-xs leading-tight',
-                      isActive ? 'text-sky-300' : 'text-slate-600'
-                    ].join(' ')}
-                  >
-                    {t(groupLabelKey(m.group))}
-                  </span>
-                </button>
-              )
-            })}
+      <div className="flex flex-col gap-3">
+        {/* API Access card */}
+        <div className="overflow-hidden rounded-xl border border-[#d1cfc6] bg-[#f4f3ee]">
+          <div className="flex items-center justify-between p-3">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm font-semibold text-[#1a1a1a]">
+                {t('ai_settings.mode_remote')}
+              </span>
+              <span className="text-xs text-[#5c5c5a]">
+                {t('ai_settings.api_access_description')}
+              </span>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={apiEnabled}
+              onClick={() => handleToggleApi(!apiEnabled)}
+              disabled={loading}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${apiEnabled ? 'bg-aurora' : 'bg-[#d1cfc6]'}`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform ${apiEnabled ? 'translate-x-5' : 'translate-x-0'}`}
+              />
+            </button>
           </div>
+
+          {apiEnabled && (
+            <div className="space-y-3 border-t border-[#d1cfc6] p-3">
+              {/* Warning — compact single line */}
+              <p className="rounded-lg border border-[#e8d5a3] bg-[#fbf5e3] px-3 py-2 text-xs text-[#7a5a00]">
+                {t('ai_settings.remote_warning')}
+              </p>
+
+              {/* Provider + URL on the same row */}
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Provider" htmlFor="remote-provider-kind">
+                  <Select
+                    id="remote-provider-kind"
+                    value={remoteProviderKind}
+                    onChange={(e) =>
+                      setDrafts((d) => ({
+                        ...d,
+                        remoteProviderKind: e.target.value as RemoteProviderKind
+                      }))
+                    }
+                    disabled={loading}
+                  >
+                    {REMOTE_PROVIDER_PRESETS.map((preset) => (
+                      <option key={preset.kind} value={preset.kind}>
+                        {preset.label}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                {remoteProviderKind === 'custom' ? (
+                  <Field label={t('ai_settings.provider_url_label')} htmlFor="remote-provider">
+                    <Input
+                      id="remote-provider"
+                      type="text"
+                      value={remoteProvider}
+                      onChange={(e) => setDrafts((d) => ({ ...d, remoteProvider: e.target.value }))}
+                      placeholder={t('ai_settings.provider_url_placeholder')}
+                      disabled={loading}
+                    />
+                  </Field>
+                ) : (
+                  <Field
+                    label={t('ai_settings.provider_url_label')}
+                    htmlFor="resolved-remote-provider"
+                  >
+                    <Input
+                      id="resolved-remote-provider"
+                      type="text"
+                      value={resolvedRemoteProvider}
+                      readOnly
+                      disabled
+                    />
+                  </Field>
+                )}
+              </div>
+
+              {/* Project ref (Infomaniak only) */}
+              {remoteProviderKind === 'infomaniak' && (
+                <Field
+                  label={t('ai_settings.project_ref_required_label')}
+                  htmlFor="remote-project-ref"
+                  error={
+                    isProjectRefMissing ? t('ai_settings.project_ref_required_error') : undefined
+                  }
+                >
+                  <Input
+                    id="remote-project-ref"
+                    type="text"
+                    value={remoteProjectRef}
+                    onChange={(e) => setDrafts((d) => ({ ...d, remoteProjectRef: e.target.value }))}
+                    placeholder="e.g. 107857"
+                    disabled={loading}
+                    aria-required="true"
+                  />
+                </Field>
+              )}
+
+              {/* API key + clear button inline */}
+              <div className="flex items-end gap-2">
+                <div className="flex-1">
+                  <Field label={t('ai_settings.api_key_label')} htmlFor="api-key">
+                    <Input
+                      id="api-key"
+                      type="password"
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      placeholder={
+                        settings?.hasApiKey ? maskedKey : t('ai_settings.api_key_placeholder')
+                      }
+                      disabled={loading}
+                    />
+                  </Field>
+                </div>
+                {settings?.hasApiKey && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void deleteApiKey()}
+                    disabled={loading}
+                    className="mb-0.5"
+                  >
+                    {t('ai_settings.clear_api_key_button')}
+                  </Button>
+                )}
+              </div>
+
+              {/* Connection check + PII toggle on same row */}
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      void checkConnection({
+                        mode: 'remote',
+                        remoteProvider: resolvedRemoteProvider || undefined,
+                        apiKey: apiKey || undefined,
+                        refresh: true
+                      })
+                    }
+                    disabled={connectionStatus === 'checking' || loading || isProjectRefMissing}
+                  >
+                    {connectionStatus === 'checking'
+                      ? t('ai_settings.connection_checking')
+                      : t('ai_settings.check_connection_button')}
+                  </Button>
+                  <ConnectionStatusBadge />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-[#5c5c5a]">{t('ai_settings.pii_label')}</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={piiEnabled}
+                    onClick={() => setDrafts((d) => ({ ...d, piiEnabled: !d.piiEnabled }))}
+                    disabled={loading}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${piiEnabled ? 'bg-aurora' : 'bg-[#d1cfc6]'}`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform ${piiEnabled ? 'translate-x-5' : 'translate-x-0'}`}
+                    />
+                  </button>
+                </div>
+              </div>
+
+              {remoteApiError && (
+                <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3">
+                  <p className="text-xs font-semibold text-red-300">
+                    {remoteApiError.type === 'auth_error'
+                      ? t('ai_settings.remote_error_auth')
+                      : remoteApiError.type === 'rate_limit'
+                        ? t('ai_settings.remote_error_rate_limit')
+                        : remoteApiError.type === 'network_error'
+                          ? t('ai_settings.remote_error_network')
+                          : t('ai_settings.remote_error_server')}
+                  </p>
+                  <p className="text-xs text-red-300/70">{remoteApiError.message}</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Dynamic fields per mode */}
-        {currentMode === 'none' && (
-          <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-3">
-            <p className="text-xs text-slate-400">{t('ai_settings.none_info')}</p>
-          </div>
-        )}
-
-        {currentMode === 'local' && (
-          <div className="space-y-3">
-            <Field label={t('ai_settings.endpoint_label')} htmlFor="ollama-endpoint">
-              <Input
-                id="ollama-endpoint"
-                type="url"
-                value={ollamaEndpoint}
-                onChange={(e) => setDrafts((d) => ({ ...d, ollamaEndpoint: e.target.value }))}
-                disabled={loading}
+        {/* Claude Cowork card */}
+        <div className="overflow-hidden rounded-xl border border-[#d1cfc6] bg-[#f4f3ee]">
+          <div className="flex items-center justify-between p-3">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm font-semibold text-[#1a1a1a]">
+                {t('ai_settings.mode_claude_code')}
+              </span>
+              <span className="text-xs text-[#5c5c5a]">
+                {t('ai_settings.claude_cowork_description')}
+              </span>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={claudeCoworkEnabled}
+              onClick={() => handleToggleClaudeCowork(!claudeCoworkEnabled)}
+              disabled={loading}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${claudeCoworkEnabled ? 'bg-aurora' : 'bg-[#d1cfc6]'}`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform ${claudeCoworkEnabled ? 'translate-x-5' : 'translate-x-0'}`}
               />
-            </Field>
-            <div className="flex items-center gap-3">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => void checkConnection()}
-                disabled={connectionStatus === 'checking' || loading}
-              >
-                {connectionStatus === 'checking'
-                  ? t('ai_settings.connection_checking')
-                  : t('ai_settings.check_connection_button')}
-              </Button>
-              <ConnectionStatusBadge />
-            </div>
+            </button>
           </div>
-        )}
 
-        {CLOUD_MANAGED_MODES.includes(currentMode) && (
-          <div className="space-y-1 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
-            <p className="text-xs font-semibold text-amber-200">
-              {t('ai_settings.cloud_managed_title')}
-            </p>
-            <p className="text-xs text-amber-200/70">{t('ai_settings.cloud_managed_info')}</p>
-            <CloudAvailabilityBadge status={cloudAvailability} />
-            {AI_DELEGATED_INSTRUCTIONS_FILES[currentMode] && (
-              <p className="text-xs text-amber-200/50">
-                {t('ai_settings.cloud_instructions_file', {
-                  file: AI_DELEGATED_INSTRUCTIONS_FILES[currentMode]
-                })}
-              </p>
-            )}
-          </div>
-        )}
-
-        {currentMode === 'remote' && (
-          <div className="space-y-3">
-            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
-              <p className="text-xs text-amber-200">{t('ai_settings.remote_warning')}</p>
-            </div>
-            <Field label="Provider" htmlFor="remote-provider-kind">
-              <Select
-                id="remote-provider-kind"
-                value={remoteProviderKind}
-                onChange={(e) =>
-                  setDrafts((d) => ({
-                    ...d,
-                    remoteProviderKind: e.target.value as RemoteProviderKind
-                  }))
-                }
-                disabled={loading}
-              >
-                {REMOTE_PROVIDER_PRESETS.map((preset) => (
-                  <option key={preset.kind} value={preset.kind}>
-                    {preset.label}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <p className="text-xs text-slate-400">{t('ai_settings.remote_flow_hint')}</p>
-            {remoteProviderKind === 'infomaniak' && (
-              <Field
-                label={t('ai_settings.project_ref_required_label')}
-                htmlFor="remote-project-ref"
-                error={
-                  isProjectRefMissing ? t('ai_settings.project_ref_required_error') : undefined
-                }
-              >
-                <Input
-                  id="remote-project-ref"
-                  type="text"
-                  value={remoteProjectRef}
-                  onChange={(e) => setDrafts((d) => ({ ...d, remoteProjectRef: e.target.value }))}
-                  placeholder="e.g. 107857"
-                  disabled={loading}
-                  aria-required="true"
-                />
-              </Field>
-            )}
-            {remoteProviderKind === 'custom' && (
-              <Field label={t('ai_settings.provider_url_label')} htmlFor="remote-provider">
-                <Input
-                  id="remote-provider"
-                  type="text"
-                  value={remoteProvider}
-                  onChange={(e) => setDrafts((d) => ({ ...d, remoteProvider: e.target.value }))}
-                  placeholder={t('ai_settings.provider_url_placeholder')}
-                  disabled={loading}
-                />
-              </Field>
-            )}
-            {remoteProviderKind !== 'custom' && (
-              <Field label={t('ai_settings.provider_url_label')} htmlFor="resolved-remote-provider">
-                <Input
-                  id="resolved-remote-provider"
-                  type="text"
-                  value={resolvedRemoteProvider}
-                  readOnly
-                  disabled
-                />
-              </Field>
-            )}
-            <Field label={t('ai_settings.api_key_label')} htmlFor="api-key">
-              <Input
-                id="api-key"
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder={settings?.hasApiKey ? maskedKey : t('ai_settings.api_key_placeholder')}
-                disabled={loading}
-              />
-            </Field>
-            <div className="flex items-center gap-3 flex-wrap">
-              {settings?.hasApiKey && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => void deleteApiKey()}
-                  disabled={loading}
-                >
-                  {t('ai_settings.clear_api_key_button')}
-                </Button>
-              )}
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() =>
-                  void checkConnection({
-                    mode: 'remote',
-                    remoteProvider: resolvedRemoteProvider || undefined,
-                    apiKey: apiKey || undefined,
-                    refresh: true
-                  })
-                }
-                disabled={connectionStatus === 'checking' || loading || isProjectRefMissing}
-              >
-                {connectionStatus === 'checking'
-                  ? t('ai_settings.connection_checking')
-                  : t('ai_settings.check_connection_button')}
-              </Button>
-              <ConnectionStatusBadge />
-            </div>
-            <div className="flex items-center justify-between rounded-xl border border-slate-700/50 bg-slate-800/50 p-3">
-              <div className="flex flex-col gap-0.5">
-                <span className="text-sm text-slate-200">{t('ai_settings.pii_label')}</span>
-                <span className="text-xs text-slate-400">{t('ai_settings.pii_description')}</span>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={piiEnabled}
-                onClick={() => setDrafts((d) => ({ ...d, piiEnabled: !d.piiEnabled }))}
-                disabled={loading}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${piiEnabled ? 'bg-sky-500' : 'bg-slate-600'}`}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform ${piiEnabled ? 'translate-x-5' : 'translate-x-0'}`}
-                />
-              </button>
-            </div>
-            {remoteApiError && (
-              <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3">
-                <p className="text-xs font-semibold text-red-300">
-                  {remoteApiError.type === 'auth_error'
-                    ? t('ai_settings.remote_error_auth')
-                    : remoteApiError.type === 'rate_limit'
-                      ? t('ai_settings.remote_error_rate_limit')
-                      : remoteApiError.type === 'network_error'
-                        ? t('ai_settings.remote_error_network')
-                        : t('ai_settings.remote_error_server')}
+          {claudeCoworkEnabled && (
+            <div className="border-t border-[#d1cfc6] p-3">
+              <div className="space-y-1 rounded-lg border border-[#e8d5a3] bg-[#fbf5e3] px-3 py-2">
+                <p className="text-xs font-semibold text-[#7a5a00]">
+                  {t('ai_settings.cloud_managed_title')}
                 </p>
-                <p className="text-xs text-red-300/70">{remoteApiError.message}</p>
+                <p className="text-xs text-[#7a5a00]">{t('ai_settings.cloud_managed_info')}</p>
+                <CloudAvailabilityBadge status={cloudAvailability} />
+                {AI_DELEGATED_INSTRUCTIONS_FILES['claude-code'] && (
+                  <p className="text-xs text-[#8a7400]">
+                    {t('ai_settings.cloud_instructions_file', {
+                      file: AI_DELEGATED_INSTRUCTIONS_FILES['claude-code']
+                    })}
+                  </p>
+                )}
               </div>
-            )}
-          </div>
-        )}
+              {apiEnabled && (
+                <p className="mt-2 text-xs text-[#5c5c5a]">
+                  {t('ai_settings.claude_cowork_parallel_note')}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
 
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex justify-end gap-2 pt-1">
           <Button type="button" variant="ghost" onClick={onClose}>
             {t('common.cancel')}
           </Button>
@@ -525,12 +518,12 @@ export function AiDialog({
 
       {/* Privacy warning modal overlay */}
       {privacyWarningPending && pendingMode && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-black/60">
-          <div className="mx-4 w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
-            <h2 className="mb-3 text-lg font-semibold text-amber-300">
+        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-[rgba(15,122,138,0.18)] backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-sm rounded-2xl border border-[#d1cfc6] bg-[#f4f3ee] p-6 shadow-[0_30px_80px_rgba(10,92,104,0.28)] ring-1 ring-aurora/15">
+            <h2 className="mb-3 text-lg font-semibold text-[#b88800]">
               {t('ai_settings.privacy_warning_title')}
             </h2>
-            <p className="mb-5 text-sm text-slate-400">{t('ai_settings.privacy_warning_body')}</p>
+            <p className="mb-5 text-sm text-[#5c5c5a]">{t('ai_settings.privacy_warning_body')}</p>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={cancelRemoteMode}>
                 {t('common.cancel')}
@@ -559,8 +552,6 @@ export function AiSettings(): React.JSX.Element {
   } = useAiStore()
   const [dialogOpen, setDialogOpen] = useState(false)
 
-  const isFirstRun = settings === null && !loading
-
   useEffect(() => {
     void loadSettings()
   }, [loadSettings])
@@ -573,17 +564,22 @@ export function AiSettings(): React.JSX.Element {
   }, [settings?.mode, connectionStatus, checkConnection])
 
   const currentMode = settings?.mode ?? null
-  const modeInfo = AI_MODES.find((m) => m.value === currentMode)
-  const modeLabel = modeInfo ? t(modeInfo.labelKey) : null
+  const isApiEnabled = currentMode === 'remote'
+  const isClaudeCoworkEnabled = settings?.claudeCoworkEnabled ?? currentMode === 'claude-code'
+  const activeServiceLabels: string[] = []
+  if (isApiEnabled) activeServiceLabels.push(t('ai_settings.mode_remote'))
+  if (isClaudeCoworkEnabled) activeServiceLabels.push(t('ai_settings.mode_claude_code'))
+  const activeServicesValue =
+    activeServiceLabels.length > 0 ? activeServiceLabels.join(' · ') : t('ai_settings.mode_none')
 
   return (
     <Card className="space-y-5">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-2">
-          <h3 className="text-base font-semibold text-slate-50">
+          <h3 className="text-base font-semibold text-[#1a1a1a]">
             {t('ai_settings.section_title')}
           </h3>
-          <p className="text-sm text-slate-300">{t('ai_settings.section_summary')}</p>
+          <p className="text-sm text-[#1a1a1a]">{t('ai_settings.section_summary')}</p>
         </div>
         <Button type="button" variant="ghost" size="sm" onClick={() => setDialogOpen(true)}>
           {t('entity.editButton')}
@@ -592,33 +588,17 @@ export function AiSettings(): React.JSX.Element {
 
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
 
-      {isFirstRun && (
-        <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 p-4 space-y-2">
-          <p className="text-sm font-semibold text-sky-200">{t('ai_settings.onboarding_title')}</p>
-          <ol className="space-y-1 list-decimal list-inside text-xs text-sky-300/80">
-            <li>{t('ai_settings.onboarding_step_1')}</li>
-            <li>{t('ai_settings.onboarding_step_2')}</li>
-            <li>{t('ai_settings.onboarding_step_3')}</li>
-          </ol>
-        </div>
-      )}
-
       {loading ? (
-        <p className="text-sm text-slate-400">{t('common.loading')}</p>
+        <p className="text-sm text-[#5c5c5a]">{t('common.loading')}</p>
       ) : settings ? (
         <div className="grid gap-x-6 gap-y-4 md:grid-cols-2">
           <div className="flex items-center gap-2">
-            <AiRow label={t('ai_settings.mode_label')} value={modeLabel ?? undefined} />
-            {currentMode &&
-              CLOUD_MANAGED_MODES.includes(currentMode as AiMode) &&
-              cloudAvailability !== null && <CloudAvailabilityBadge status={cloudAvailability} />}
+            <AiRow label={t('ai_settings.active_services_label')} value={activeServicesValue} />
+            {isClaudeCoworkEnabled && cloudAvailability !== null && (
+              <CloudAvailabilityBadge status={cloudAvailability} />
+            )}
           </div>
-          {currentMode === 'local' && (
-            <>
-              <AiRow label={t('ai_settings.endpoint_label')} value={settings.ollamaEndpoint} />
-            </>
-          )}
-          {currentMode === 'remote' && (
+          {isApiEnabled && (
             <>
               <AiRow
                 label="Provider"

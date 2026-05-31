@@ -2,8 +2,6 @@ import { randomUUID } from 'node:crypto'
 
 import { dialog, shell } from 'electron'
 
-import { ZodError } from 'zod'
-
 import {
   IPC_CHANNELS,
   IpcErrorCode,
@@ -24,13 +22,7 @@ import {
 } from '@shared/validation'
 
 import { type TemplateService, TemplateServiceError } from '../services/domain/templateService'
-
-interface IpcMainLike {
-  handle: (
-    channel: string,
-    listener: (_event: unknown, input?: unknown) => Promise<unknown>
-  ) => void
-}
+import { type IpcMainLike, mapIpcError } from './ipc'
 
 class TemplateHandlerError extends Error {
   constructor(
@@ -42,29 +34,11 @@ class TemplateHandlerError extends Error {
   }
 }
 
-function mapTemplateError(error: unknown, fallbackMessage: string): IpcError {
-  if (error instanceof ZodError) {
-    return {
-      success: false,
-      error: 'Invalid template input.',
-      code: IpcErrorCode.VALIDATION_FAILED
-    }
-  }
-
-  if (error instanceof TemplateServiceError || error instanceof TemplateHandlerError) {
-    return {
-      success: false,
-      error: error.message,
-      code: error.code
-    }
-  }
-
-  return {
-    success: false,
-    error: error instanceof Error ? error.message : fallbackMessage,
-    code: IpcErrorCode.FILE_SYSTEM_ERROR
-  }
-}
+const mapTemplateError = (error: unknown, fallback: string): IpcError =>
+  mapIpcError(error, fallback, {
+    validationMessage: 'Invalid template input.',
+    errorClasses: [TemplateServiceError, TemplateHandlerError]
+  })
 
 const PICK_TOKEN_TTL_MS = 5 * 60 * 1000
 
@@ -150,7 +124,9 @@ export function registerTemplateHandlers(options: {
           data: await templateService.create({
             name: parsed.name,
             content: parsed.content,
-            description: parsed.description
+            description: parsed.description,
+            tags: parsed.tags,
+            documentKind: parsed.documentKind
           })
         }
       } catch (error) {
@@ -170,7 +146,9 @@ export function registerTemplateHandlers(options: {
             id: parsed.id,
             name: parsed.name,
             content: parsed.content,
-            description: parsed.description
+            description: parsed.description,
+            tags: parsed.tags,
+            documentKind: parsed.documentKind
           })
         }
       } catch (error) {
@@ -294,6 +272,35 @@ export function registerTemplateHandlers(options: {
         return { success: true, data: await templateService.removeDocx({ id: parsed.id }) }
       } catch (error) {
         return mapTemplateError(error, 'Unable to remove DOCX source.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.template.applyCabinetDefaultDocx,
+    async (_event, input: unknown): Promise<IpcResult<TemplateRecord>> => {
+      try {
+        const parsed = templateDocxInputSchema.parse(input) as TemplateDocxInput
+        return {
+          success: true,
+          data: await templateService.applyCabinetDefaultDocx({ id: parsed.id })
+        }
+      } catch (error) {
+        return mapTemplateError(error, 'Unable to apply cabinet default DOCX template.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.template.applyCabinetDocxToAllExisting,
+    async (): Promise<IpcResult<{ updated: number; skipped: number; failed: string[] }>> => {
+      try {
+        return {
+          success: true,
+          data: await templateService.applyCabinetDocxToAllExisting()
+        }
+      } catch (error) {
+        return mapTemplateError(error, 'Unable to apply cabinet DOCX to all existing templates.')
       }
     }
   )

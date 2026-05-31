@@ -13,6 +13,7 @@ out
 .claude/
 _bmad/
 _bmad-output*
+archive/
 
 # Local environment variables
 .env

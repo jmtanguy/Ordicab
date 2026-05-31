@@ -3,17 +3,7 @@ import { join } from 'node:path'
 
 import type { AppLocale, EulaStatus } from '@shared/types'
 
-import { atomicWrite } from './atomicWrite'
-import { pathExists } from './domainState'
-
-interface AppStateFile {
-  legal?: {
-    eulaAcceptedVersion?: string
-    acceptedAt?: string
-    [key: string]: unknown
-  }
-  [key: string]: unknown
-}
+import type { AppStateStore } from './appStateStore'
 
 /**
  * Minimal subset of Electron's `app` that the store needs to locate the
@@ -26,27 +16,11 @@ export interface AppPathContext {
 }
 
 export interface EulaStoreOptions {
-  stateFilePath: string
+  appState: AppStateStore
   appContext: AppPathContext
 }
 
 const EULA_VERSION = '2026-04-14'
-
-async function readAppState(stateFilePath: string): Promise<AppStateFile> {
-  if (!(await pathExists(stateFilePath))) {
-    return {}
-  }
-
-  try {
-    const raw = await readFile(stateFilePath, 'utf8')
-    const parsed = JSON.parse(raw) as unknown
-    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
-      ? (parsed as AppStateFile)
-      : {}
-  } catch {
-    return {}
-  }
-}
 
 function resolveEulaPath(appContext: AppPathContext, locale: AppLocale): string {
   if (appContext.isPackaged) {
@@ -76,33 +50,32 @@ export interface EulaStore {
 }
 
 export function createEulaStore(options: EulaStoreOptions): EulaStore {
-  const { stateFilePath, appContext } = options
+  const { appState, appContext } = options
+
+  async function getStatus(locale: AppLocale): Promise<EulaStatus> {
+    const state = await appState.read()
+    const acceptedVersion = state.legal?.eulaAcceptedVersion
+
+    return {
+      required: acceptedVersion !== EULA_VERSION,
+      version: EULA_VERSION,
+      content: await readEulaText(appContext, locale)
+    }
+  }
 
   return {
-    async getStatus(locale: AppLocale): Promise<EulaStatus> {
-      const state = await readAppState(stateFilePath)
-      const acceptedVersion = state.legal?.eulaAcceptedVersion
-
-      return {
-        required: acceptedVersion !== EULA_VERSION,
-        version: EULA_VERSION,
-        content: await readEulaText(appContext, locale)
-      }
-    },
+    getStatus,
 
     async accept(version: string, locale: AppLocale): Promise<EulaStatus> {
-      const state = await readAppState(stateFilePath)
-      const updatedState: AppStateFile = {
+      await appState.update((state) => ({
         ...state,
         legal: {
-          ...(typeof state.legal === 'object' && state.legal !== null ? state.legal : {}),
+          ...(state.legal ?? {}),
           eulaAcceptedVersion: version,
           acceptedAt: new Date().toISOString()
         }
-      }
-
-      await atomicWrite(stateFilePath, `${JSON.stringify(updatedState, null, 2)}\n`)
-      return this.getStatus(locale)
+      }))
+      return getStatus(locale)
     }
   }
 }

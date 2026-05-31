@@ -21,7 +21,6 @@ const aiStubs = {
   })),
   cancelCommand: vi.fn(async () => ({ success: true as const, data: null })),
   resetConversation: vi.fn(async () => ({ success: true as const, data: null })),
-  onIntentReceived: vi.fn(() => () => undefined),
   onTextToken: vi.fn(() => () => undefined),
   onReflection: vi.fn(() => () => undefined),
   remoteConnectionStatus: vi.fn(async () => ({
@@ -50,8 +49,8 @@ async function renderPanel(): Promise<void> {
 }
 
 describe('AiSettings', () => {
-  it('shows first-run onboarding when settings are null, and hides it when settings exist', async () => {
-    // null settings -> show onboarding
+  it('shows error when settings fail to load, and active-services row when settings exist', async () => {
+    // failed load -> shows error text
     ;(globalThis as MutableGlobal).ordicabAPI = {
       ai: {
         ...aiStubs,
@@ -72,12 +71,12 @@ describe('AiSettings', () => {
     await renderPanel()
 
     await waitFor(() => {
-      expect(screen.queryByText(/Set up your local AI model/)).toBeTruthy()
+      expect(screen.queryByText('no config')).toBeTruthy()
     })
     cleanup()
     useAiStore.setState(useAiStore.getInitialState(), true)
 
-    // existing settings -> no onboarding
+    // existing settings -> no error, active-services row visible
     ;(globalThis as MutableGlobal).ordicabAPI = {
       ai: {
         ...aiStubs,
@@ -100,7 +99,7 @@ describe('AiSettings', () => {
     await renderPanel()
 
     await waitFor(() => {
-      expect(screen.queryByText(/Set up your local AI model/)).toBeNull()
+      expect(screen.queryByText('no config')).toBeNull()
     })
   })
 
@@ -134,7 +133,7 @@ describe('AiSettings', () => {
     await waitFor(() => {
       expect(screen.getByText('External API (API key)')).toBeTruthy()
     })
-    fireEvent.click(screen.getByText('External API (API key)'))
+    fireEvent.click(screen.getAllByRole('switch')[0]!)
 
     await waitFor(() => {
       expect(screen.getByText('Remote API Warning')).toBeTruthy()
@@ -190,7 +189,12 @@ describe('AiSettings', () => {
     }))
     const getSettings = vi.fn(async () => ({
       success: true as const,
-      data: { mode: 'local' as const, ollamaEndpoint: 'http://localhost:11434', hasApiKey: false }
+      data: {
+        mode: 'remote' as const,
+        remoteProvider: 'https://api.openai.com',
+        hasApiKey: true,
+        apiKeySuffix: 'abcd'
+      }
     }))
 
     ;(globalThis as MutableGlobal).ordicabAPI = {

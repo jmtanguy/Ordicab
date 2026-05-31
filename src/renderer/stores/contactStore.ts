@@ -10,7 +10,7 @@ import type {
 import { IpcErrorCode } from '@shared/types'
 import { computeContactDisplayName } from '@shared/computeContactDisplayName'
 
-import { getOrdicabApi, IPC_NOT_AVAILABLE_ERROR } from './ipc'
+import { requireApi } from './ipc'
 
 interface ContactStoreState {
   contactsByDossierId: Record<string, ContactRecord[]>
@@ -63,15 +63,8 @@ export const useContactStore = create<ContactStore>()(
     error: null,
     errorCode: null,
     load: async (input) => {
-      const api = getOrdicabApi()
-
-      if (!api) {
-        set((state) => {
-          state.error = IPC_NOT_AVAILABLE_ERROR
-          state.errorCode = IpcErrorCode.NOT_FOUND
-        })
-        return
-      }
+      const api = requireApi(set)
+      if (!api) return
 
       set((state) => {
         state.isLoading = true
@@ -94,15 +87,8 @@ export const useContactStore = create<ContactStore>()(
       })
     },
     upsert: async (input) => {
-      const api = getOrdicabApi()
-
-      if (!api) {
-        set((state) => {
-          state.error = IPC_NOT_AVAILABLE_ERROR
-          state.errorCode = IpcErrorCode.NOT_FOUND
-        })
-        return
-      }
+      const api = requireApi(set)
+      if (!api) return
 
       const result = await api.contact.upsert(input)
 
@@ -134,15 +120,8 @@ export const useContactStore = create<ContactStore>()(
       })
     },
     remove: async (input) => {
-      const api = getOrdicabApi()
-
-      if (!api) {
-        set((state) => {
-          state.error = IPC_NOT_AVAILABLE_ERROR
-          state.errorCode = IpcErrorCode.NOT_FOUND
-        })
-        return
-      }
+      const api = requireApi(set)
+      if (!api) return
 
       const result = await api.contact.delete(input)
 

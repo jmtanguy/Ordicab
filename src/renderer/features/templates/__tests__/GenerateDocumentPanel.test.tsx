@@ -76,12 +76,12 @@ function createContact(overrides: Partial<ContactRecord> = {}): ContactRecord {
   }
 }
 
-async function renderPanel(): Promise<void> {
+async function renderPanel({ dossierId = 'dos-1' }: { dossierId?: string } = {}): Promise<void> {
   const i18n = await createRendererI18n('en')
 
   render(
     <I18nextProvider i18n={i18n}>
-      <GenerateDocumentPanel />
+      <GenerateDocumentPanel dossierId={dossierId} />
     </I18nextProvider>
   )
 }
@@ -109,6 +109,8 @@ function createApi(overrides: Partial<OrdicabAPI['generate']> = {}): OrdicabAPI 
           ...createDossier(),
           registeredAt: '2026-03-15T12:00:00.000Z',
           uuid: 'dossier-uuid-1',
+          feeAgreements: [],
+          billingItems: [],
           keyDates: [],
           keyReferences: [],
           documents: []
@@ -119,6 +121,22 @@ function createApi(overrides: Partial<OrdicabAPI['generate']> = {}): OrdicabAPI 
       list: vi.fn(async () => ({ success: true as const, data: [] })),
       upsert: vi.fn(async () => ({ success: true as const, data: undefined })),
       delete: vi.fn(async () => ({ success: true as const, data: undefined }))
+    },
+    template: {
+      list: vi.fn(async () => ({
+        success: true as const,
+        data: useTemplateStore.getState().templates
+      })),
+      getContent: vi.fn(async () => ({ success: true as const, data: '' })),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+      pickDocxFile: vi.fn(),
+      importDocx: vi.fn(),
+      openDocx: vi.fn(),
+      removeDocx: vi.fn(),
+      applyCabinetDefaultDocx: vi.fn(),
+      onDocxSynced: vi.fn(() => () => undefined)
     },
     generate: {
       document: vi.fn(async () => ({
@@ -161,7 +179,7 @@ function createApi(overrides: Partial<OrdicabAPI['generate']> = {}): OrdicabAPI 
 }
 
 describe('GenerateDocumentPanel', () => {
-  it('requires dossier and template selection before building the draft', async () => {
+  it('requires template selection before building the draft', async () => {
     ;(globalThis as MutableGlobal).ordicabAPI = createApi()
 
     await renderPanel()
@@ -169,13 +187,12 @@ describe('GenerateDocumentPanel', () => {
     const button = screen.getByRole('button', { name: 'Next' })
     expect((button as HTMLButtonElement).disabled).toBe(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Convocation' }))
-    fireEvent.click(screen.getByRole('button', { name: /Client Alpha/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Convocation/ }))
 
     expect((button as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it('builds a preview draft and saves the adjusted document', async () => {
+  it('builds a preview draft for a text template', async () => {
     const preview = vi.fn(async () => ({
       success: true as const,
       data: {
@@ -185,55 +202,31 @@ describe('GenerateDocumentPanel', () => {
         resolvedTags: {}
       }
     }))
-    const save = vi.fn(async () => ({
-      success: true as const,
-      data: {
-        outputPath: '/tmp/Client Alpha/Convocation-2026-03-15.docx'
-      }
-    }))
-
     ;(globalThis as MutableGlobal).ordicabAPI = createApi({
-      preview,
-      save
+      preview
     })
 
     await renderPanel()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Convocation' }))
-    fireEvent.click(screen.getByRole('button', { name: /Client Alpha/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Convocation/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Build Draft' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Generate Text' })).toBeTruthy()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Build Draft' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Generate Text' }))
 
     await waitFor(() => {
-      expect(preview).toHaveBeenCalledWith({
+      expect(preview).toHaveBeenLastCalledWith({
         dossierId: 'dos-1',
         templateId: 'tpl-1',
+        tagOverrides: { 'entity.firmName': '' },
+        primaryContactId: undefined,
         contactRoleOverrides: undefined
       })
       expect(screen.getByText('Unresolved fields')).toBeTruthy()
-      expect(screen.getByDisplayValue('Convocation-2026-03-15')).toBeTruthy()
-    })
-
-    fireEvent.change(screen.getByLabelText('Filename'), {
-      target: { value: 'Convocation-final' }
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Save Document' }))
-
-    await waitFor(() => {
-      expect(save).toHaveBeenCalledWith({
-        dossierId: 'dos-1',
-        filename: 'Convocation-final',
-        format: 'docx',
-        html: expect.stringContaining('Draft body')
-      })
-      expect(screen.getByRole('status').textContent).toContain(
-        'Document generated -> Convocation-2026-03-15.docx'
-      )
+      expect(screen.getByRole('button', { name: 'Copy' })).toBeTruthy()
     })
   })
 
@@ -273,7 +266,6 @@ describe('GenerateDocumentPanel', () => {
     await renderPanel()
 
     fireEvent.click(screen.getByRole('button', { name: /Audience note/ }))
-    fireEvent.click(screen.getByRole('button', { name: /Client Alpha/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
 
     // Should call previewDocx (not preview) and navigate to tags step
@@ -302,15 +294,15 @@ describe('GenerateDocumentPanel', () => {
     })
   })
 
-  it('shows the standard docx hint for text-only templates', async () => {
+  it('shows no DOCX badge for text-only templates and enables Next on template selection', async () => {
     ;(globalThis as MutableGlobal).ordicabAPI = createApi()
 
     await renderPanel()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Convocation' }))
+    fireEvent.click(screen.getByRole('button', { name: /Convocation/ }))
 
     expect(screen.queryByText('DOCX')).toBeNull()
-    expect((screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('waits for dossier detail to load before opening the tags step', async () => {
@@ -329,6 +321,8 @@ describe('GenerateDocumentPanel', () => {
         ...createDossier({ id: 'other-dossier', name: 'Stale dossier' }),
         registeredAt: '2026-03-15T12:00:00.000Z',
         uuid: 'stale-dossier-uuid',
+        feeAgreements: [],
+        billingItems: [],
         keyDates: [
           { id: 'kd-stale', dossierId: 'other-dossier', label: 'Old hearing', date: '2026-02-01' }
         ],
@@ -350,8 +344,7 @@ describe('GenerateDocumentPanel', () => {
 
     await renderPanel()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Convocation' }))
-    fireEvent.click(screen.getByRole('button', { name: /Client Alpha/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Convocation/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
 
     await waitFor(() => {
@@ -361,7 +354,7 @@ describe('GenerateDocumentPanel', () => {
     })
 
     expect(preview).not.toHaveBeenCalled()
-    expect(screen.queryByRole('button', { name: 'Build Draft' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Generate Text' })).toBeNull()
 
     resolveDossierGet({
       success: true as const,
@@ -369,6 +362,8 @@ describe('GenerateDocumentPanel', () => {
         ...createDossier(),
         registeredAt: '2026-03-15T12:00:00.000Z',
         uuid: 'dossier-uuid-1',
+        feeAgreements: [],
+        billingItems: [],
         keyDates: [{ id: 'kd-1', dossierId: 'dos-1', label: 'Fresh hearing', date: '2026-04-01' }],
         keyReferences: []
       }
@@ -379,7 +374,7 @@ describe('GenerateDocumentPanel', () => {
         dossierId: 'dos-1',
         templateId: 'tpl-1'
       })
-      expect(screen.getByRole('button', { name: 'Build Draft' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Generate Text' })).toBeTruthy()
     })
   })
 
@@ -403,12 +398,11 @@ describe('GenerateDocumentPanel', () => {
 
     await renderPanel()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Convocation' }))
-    fireEvent.click(screen.getByRole('button', { name: /Client Alpha/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Convocation/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Build Draft' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Generate Text' })).toBeTruthy()
       expect(screen.getByDisplayValue('Tribunal judiciaire de Paris')).toBeTruthy()
     })
   })
@@ -428,7 +422,6 @@ describe('GenerateDocumentPanel', () => {
     await renderPanel()
 
     fireEvent.click(screen.getByRole('button', { name: /Convocation/ }))
-    fireEvent.click(screen.getByRole('button', { name: /Client Alpha/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
 
     await waitFor(() => {

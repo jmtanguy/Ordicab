@@ -9,8 +9,8 @@
  * Called by: entityHandler (IPC entity.get / entity.update),
  *            aiDelegated/aiEmbedded flows that need entity context.
  */
-import { mkdir, readFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { copyFile, mkdir, readFile, unlink } from 'node:fs/promises'
+import { basename, dirname } from 'node:path'
 
 import {
   IpcErrorCode,
@@ -23,7 +23,10 @@ import { entityProfileSchema } from '@shared/validation'
 
 import { atomicWrite } from '../../lib/system/atomicWrite'
 import { pathExists } from '../../lib/system/domainState'
-import { getDomainEntityPath } from '../../lib/ordicab/ordicabPaths'
+import {
+  getDomainCabinetDefaultTemplateDocxPath,
+  getDomainEntityPath
+} from '../../lib/ordicab/ordicabPaths'
 
 interface DomainServiceLike {
   getStatus(): Promise<DomainStatusSnapshot>
@@ -32,6 +35,9 @@ interface DomainServiceLike {
 export interface EntityService {
   get(): Promise<EntityProfile | null>
   update(draft: EntityProfileDraft): Promise<EntityProfile>
+  importDefaultTemplate(sourceFilePath: string): Promise<EntityProfile>
+  getDefaultTemplatePath(): Promise<string>
+  removeDefaultTemplate(): Promise<EntityProfile>
 }
 
 export class EntityServiceError extends Error {
@@ -116,6 +122,79 @@ export function createEntityService(options: { domainService: DomainServiceLike 
     async update(draft: EntityProfileDraft): Promise<EntityProfile> {
       const domainPath = await resolveActiveDomainPath()
       return saveEntityProfile(getDomainEntityPath(domainPath), draft)
+    },
+
+    async importDefaultTemplate(sourceFilePath: string): Promise<EntityProfile> {
+      const domainPath = await resolveActiveDomainPath()
+      const entityPath = getDomainEntityPath(domainPath)
+      const current = await loadEntityProfile(entityPath)
+      if (!current) {
+        throw new EntityServiceError(
+          IpcErrorCode.NOT_FOUND,
+          'Configure firm information before importing a default template.'
+        )
+      }
+
+      const destination = getDomainCabinetDefaultTemplateDocxPath(domainPath)
+      await mkdir(dirname(destination), { recursive: true })
+      try {
+        await copyFile(sourceFilePath, destination)
+      } catch {
+        throw new EntityServiceError(
+          IpcErrorCode.FILE_SYSTEM_ERROR,
+          'Unable to copy the selected Word document.'
+        )
+      }
+
+      const next: EntityProfileDraft = {
+        ...current,
+        defaultTemplateFileName: basename(sourceFilePath),
+        defaultTemplateImportedAt: new Date().toISOString()
+      }
+      return saveEntityProfile(entityPath, next)
+    },
+
+    async getDefaultTemplatePath(): Promise<string> {
+      const domainPath = await resolveActiveDomainPath()
+      const docxPath = getDomainCabinetDefaultTemplateDocxPath(domainPath)
+      if (!(await pathExists(docxPath))) {
+        throw new EntityServiceError(
+          IpcErrorCode.NOT_FOUND,
+          'No default Word template has been imported.'
+        )
+      }
+      return docxPath
+    },
+
+    async removeDefaultTemplate(): Promise<EntityProfile> {
+      const domainPath = await resolveActiveDomainPath()
+      const entityPath = getDomainEntityPath(domainPath)
+      const current = await loadEntityProfile(entityPath)
+      if (!current) {
+        throw new EntityServiceError(
+          IpcErrorCode.NOT_FOUND,
+          'No professional entity profile to update.'
+        )
+      }
+
+      const docxPath = getDomainCabinetDefaultTemplateDocxPath(domainPath)
+      if (await pathExists(docxPath)) {
+        try {
+          await unlink(docxPath)
+        } catch {
+          throw new EntityServiceError(
+            IpcErrorCode.FILE_SYSTEM_ERROR,
+            'Unable to remove the default Word template.'
+          )
+        }
+      }
+
+      const next: EntityProfileDraft = {
+        ...current,
+        defaultTemplateFileName: undefined,
+        defaultTemplateImportedAt: undefined
+      }
+      return saveEntityProfile(entityPath, next)
     }
   }
 }

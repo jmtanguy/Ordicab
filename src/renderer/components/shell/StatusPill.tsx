@@ -3,9 +3,9 @@ import { cn } from '@renderer/lib/utils'
 type StatusVariant = 'loading' | 'ready' | 'error'
 
 const statusClasses: Record<StatusVariant, string> = {
-  loading: 'border-sky-300/40 bg-sky-300/15 text-sky-100',
-  ready: 'border-emerald-300/40 bg-emerald-300/15 text-emerald-100',
-  error: 'border-rose-300/40 bg-rose-300/15 text-rose-100'
+  loading: 'border-[#e5e3da] bg-[#f4f3ee] text-[#5c5c5a]',
+  ready: 'border-[#cfe0c5] bg-[#f1f7ec] text-[#3c6132]',
+  error: 'border-[#e8c7c7] bg-[#fbf0f0] text-[#9c2f2f]'
 }
 
 interface StatusPillProps {

@@ -1,5 +1,7 @@
 import type { ContactManagedFieldValues } from '../managedFields'
 
+import type { Gender } from './gender'
+
 /**
  * Canonical contact record returned by contactService.list() and contactService.get().
  * Used widely across the app (intentDispatcher, aiService, PII pseudonymizer, renderer).
@@ -13,7 +15,7 @@ export interface ContactRecord {
   title?: string
   firstName?: string
   lastName?: string
-  gender?: 'M' | 'F' | 'N'
+  gender?: Gender
   role?: string
   institution?: string
   addressLine?: string
@@ -38,7 +40,7 @@ export interface ContactUpsertInput {
   title?: string
   firstName?: string
   lastName?: string
-  gender?: 'M' | 'F' | 'N'
+  gender?: Gender
   role?: string
   institution?: string
   addressLine?: string

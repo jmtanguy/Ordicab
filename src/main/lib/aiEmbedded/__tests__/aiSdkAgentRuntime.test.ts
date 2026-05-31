@@ -115,7 +115,7 @@ describe('createAiSdkAgentRuntime', () => {
         .mockResolvedValueOnce(
           toolCallResponse('document_search', { query: 'Karine Calvez avocat', dossierId: 'dos-1' })
         )
-        .mockResolvedValueOnce(textResponse('Recherche terminée, je passe à contact_upsert.'))
+        .mockResolvedValueOnce(textResponse('Recherche terminée, je passe à contact_update.'))
     })
 
     const runtime = createAiSdkAgentRuntime({ localLanguageModel: model })
@@ -132,7 +132,7 @@ describe('createAiSdkAgentRuntime', () => {
       )
     ).resolves.toEqual({
       type: 'direct_response',
-      message: 'Recherche terminée, je passe à contact_upsert.'
+      message: 'Recherche terminée, je passe à contact_update.'
     })
 
     expect(executeDataTool.mock.calls.length).toBeLessThanOrEqual(2)
@@ -195,7 +195,7 @@ describe('createAiSdkAgentRuntime', () => {
           JSON.stringify({
             type: 'direct_response',
             message:
-              '[TOOL_CALLS][{"name":"contact_upsert","arguments":{"firstName":"Emmanuel","lastName":"Martin"}}]'
+              '[TOOL_CALLS][{"name":"contact_create","arguments":{"firstName":"Emmanuel","lastName":"Martin"}}]'
           })
         )
       )
@@ -207,19 +207,19 @@ describe('createAiSdkAgentRuntime', () => {
     await expect(
       runtime.sendCommand({ command: 'test', context: {}, systemPrompt: 'sys' }, 'local')
     ).resolves.toEqual({
-      type: 'contact_upsert',
+      type: 'contact_create',
       firstName: 'Emmanuel',
       lastName: 'Martin'
     })
   })
 
-  it('parses a malformed trailing [TOOL_CALLS] payload and still executes contact_upsert', async () => {
+  it('parses a malformed trailing [TOOL_CALLS] payload and still executes contact_create', async () => {
     const model = new MockLanguageModelV3({
       doGenerate: vi
         .fn()
         .mockResolvedValue(
           textResponse(
-            '[TOOL_CALLS][{"name":"contact_upsert","arguments":{"firstName":"Karine","lastName":"Calvez","role":"Avocat de la partie adverse"}}'
+            '[TOOL_CALLS][{"name":"contact_create","arguments":{"firstName":"Karine","lastName":"Calvez","role":"Avocat de la partie adverse"}}'
           )
         )
     })
@@ -230,7 +230,7 @@ describe('createAiSdkAgentRuntime', () => {
     await expect(
       runtime.sendCommand({ command: 'test', context: {}, systemPrompt: 'sys' }, 'local')
     ).resolves.toEqual({
-      type: 'contact_upsert',
+      type: 'contact_create',
       firstName: 'Karine',
       lastName: 'Calvez',
       role: 'Avocat de la partie adverse'
@@ -266,7 +266,7 @@ describe('createAiSdkAgentRuntime', () => {
         { role: 'tool', content: '{"contacts":[]}', toolCallId: 'tc1', name: 'contact_lookup' },
         { role: 'tool', content: '{"matches":[]}', toolCallId: 'tc2', name: 'document_search' }
       ],
-      'contact_upsert'
+      'contact_update'
     )
 
     await expect(
@@ -297,6 +297,34 @@ describe('createAiSdkAgentRuntime', () => {
     await expect(
       runtime.sendCommand({ command: 'next', context: {}, systemPrompt: 'sys' }, 'local')
     ).resolves.toEqual({ type: 'direct_response', message: 'ok' })
+  })
+
+  it('resetConversation drops persisted history so it cannot leak into the next command', async () => {
+    const doGenerate = vi.fn().mockResolvedValue(textResponse('ok'))
+    const model = new MockLanguageModelV3({ doGenerate })
+    const runtime = createAiSdkAgentRuntime({ localLanguageModel: model })
+
+    // A prior conversation persisted in the runtime, as appendHistory records it
+    // after every command. Starting a new conversation must wipe this.
+    runtime.appendHistory([
+      { role: 'user', content: 'trouver le nom des enfants' },
+      { role: 'assistant', content: 'Les enfants sont Celine, Lefebvre et Garnier.' }
+    ])
+
+    await runtime.resetConversation()
+
+    await expect(
+      runtime.sendCommand(
+        { command: 'quels sont les contacts', context: {}, systemPrompt: 'sys' },
+        'local'
+      )
+    ).resolves.toEqual({ type: 'direct_response', message: 'ok' })
+
+    const prompt = (doGenerate.mock.calls[0]?.[0] as { prompt?: unknown })?.prompt
+    const serialized = JSON.stringify(prompt)
+    expect(serialized).not.toContain('trouver le nom des enfants')
+    expect(serialized).not.toContain('Les enfants sont')
+    expect(serialized).toContain('quels sont les contacts')
   })
 
   it('does not send empty assistant text messages to the provider', async () => {

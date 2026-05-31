@@ -12,7 +12,7 @@ describe('buildPrompt', () => {
       "In dossier 'Test Dossier', add the following contacts:\n[paste contact details here]"
     )
     expect(buildPrompt('keyDates', { dossierName: 'Test Dossier' })).toBe(
-      "In dossier 'Test Dossier', extract and add the following key dates:\n[paste text with dates here]"
+      "In dossier 'Test Dossier', extract and add the following timeline events (with time, duration, and relevant tags if mentioned):\n[paste text with dates here]"
     )
     expect(buildPrompt('keyReferences', { dossierName: 'Test Dossier' })).toBe(
       "In dossier 'Test Dossier', add the following key references:\n[paste reference here]"
@@ -29,7 +29,7 @@ describe('buildPrompt', () => {
       "Dans le dossier 'Dossier Test', ajoutez les contacts suivants :\n[collez ici les coordonnées du contact]"
     )
     expect(buildPrompt('entity', {})).toBe(
-      "Mettez à jour le profil de l'entité du cabinet avec :\n[collez ici les informations de l'entité]"
+      'Mettez à jour le profil du cabinet avec :\n[collez ici les informations du cabinet]'
     )
   })
 

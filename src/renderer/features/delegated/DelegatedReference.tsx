@@ -95,8 +95,8 @@ function CopyablePromptCard({
     <Card className="flex h-full flex-col gap-4 p-5">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-2">
-          <h3 className="text-lg font-semibold text-slate-50">{name}</h3>
-          <p className="text-sm leading-6 text-slate-300">{description}</p>
+          <h3 className="text-lg font-semibold text-[#1a1a1a]">{name}</h3>
+          <p className="text-sm leading-6 text-[#1a1a1a]">{description}</p>
         </div>
 
         <Button
@@ -104,7 +104,7 @@ function CopyablePromptCard({
           variant="ghost"
           size="sm"
           aria-label={t('delegated.reference.copyOperationPrompt', { name })}
-          className="shrink-0 gap-2 rounded-full border border-white/10 bg-white/5 px-3 text-slate-100 hover:bg-cyan-400/10"
+          className="shrink-0 gap-2 rounded-full border border-[#e5e3da] bg-[#f4f3ee] px-3 text-[#1a1a1a] hover:bg-aurora/10"
           onClick={() => {
             void handleCopy()
           }}
@@ -114,7 +114,7 @@ function CopyablePromptCard({
         </Button>
       </div>
 
-      <pre className="mt-auto whitespace-pre-wrap rounded-2xl border border-white/10 bg-slate-950/70 p-4 text-sm leading-6 text-slate-100">
+      <pre className="mt-auto whitespace-pre-wrap rounded-2xl border border-[#e5e3da] bg-white p-4 text-sm leading-6 text-[#1a1a1a]">
         {prompt}
       </pre>
     </Card>
@@ -137,13 +137,13 @@ export function DelegatedReference({
     <section className="mx-auto flex min-h-[calc(100vh-8.5rem)] w-full max-w-6xl flex-col gap-6">
       <Card className="space-y-4">
         <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200/70">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-aurora">
             {t('delegated.badge')}
           </p>
-          <h2 className="text-2xl font-semibold tracking-tight text-slate-50">
+          <h2 className="text-2xl font-semibold tracking-tight text-[#1a1a1a]">
             {t('delegated.reference.title')}
           </h2>
-          <p className="max-w-3xl text-sm leading-6 text-slate-300">
+          <p className="max-w-3xl text-sm leading-6 text-[#1a1a1a]">
             {t('delegated.reference.subtitle')}
           </p>
         </div>
@@ -155,12 +155,12 @@ export function DelegatedReference({
 
       <Card className="space-y-4">
         <div className="space-y-2">
-          <h2 className="text-lg font-semibold text-slate-50">{t('delegated.offline.title')}</h2>
-          <p className="max-w-3xl text-sm leading-6 text-slate-300">
+          <h2 className="text-lg font-semibold text-[#1a1a1a]">{t('delegated.offline.title')}</h2>
+          <p className="max-w-3xl text-sm leading-6 text-[#1a1a1a]">
             {t('delegated.offline.subtitle')}
           </p>
         </div>
-        <ol className="list-decimal space-y-2 pl-5 text-sm leading-6 text-slate-400">
+        <ol className="list-decimal space-y-2 pl-5 text-sm leading-6 text-[#5c5c5a]">
           {(['step1', 'step2', 'step3', 'step4'] as const).map((step) => (
             <li key={step}>{t(`delegated.offline.${step}`)}</li>
           ))}

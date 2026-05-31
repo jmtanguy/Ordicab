@@ -6,7 +6,6 @@
  *   - wraps any OpenAI-compatible endpoint as a Vercel AI SDK LanguageModel
  *
  * Middleware responsibilities:
- *   - strip fake citation markers from tool arguments
  *   - normalize <think> reasoning blocks out of plain text
  *   - promote `[TOOL_CALLS]...` text responses into native SDK tool calls
  */
@@ -14,8 +13,6 @@ import { createOpenAI } from '@ai-sdk/openai'
 import { wrapLanguageModel } from 'ai'
 import type { LanguageModel, LanguageModelMiddleware } from 'ai'
 import type { LanguageModelV3GenerateResult } from '@ai-sdk/provider'
-
-import { deepStripCitationAnnotations } from './pii/citationStrip'
 
 export interface OpenAiCompatibleSdkProviderOptions {
   baseUrl: string
@@ -80,7 +77,7 @@ function parseBracketedToolCallsText(
       result.push({
         toolCallId: `tc_${i}`,
         toolName: item.name,
-        input: JSON.stringify(deepStripCitationAnnotations(args))
+        input: JSON.stringify(args)
       })
     }
 
@@ -100,10 +97,7 @@ function patchGenerateResult(result: LanguageModelV3GenerateResult): LanguageMod
         parsed = {}
       }
 
-      return {
-        ...item,
-        input: JSON.stringify(deepStripCitationAnnotations(parsed))
-      }
+      return { ...item, input: JSON.stringify(parsed) }
     }
 
     if (item.type === 'text') {

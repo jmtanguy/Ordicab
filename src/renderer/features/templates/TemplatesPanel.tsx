@@ -5,18 +5,18 @@ import type { TemplateDraft, TemplateRecord, TemplateUpdate } from '@shared/type
 import { IpcErrorCode } from '@shared/types'
 import { getTemplateEditorHtml, isBlankTemplateContent } from '@shared/templateContent'
 import { templateDraftSchema } from '@shared/validation'
-import { useTemplateStore } from '@renderer/stores'
+import { useEntityStore, useTemplateStore } from '@renderer/stores'
 import { AlertBanner, Button, DialogShell } from '@renderer/components/ui'
 import { useToast } from '@renderer/contexts/ToastContext'
+import { copyTextToClipboard } from '@renderer/lib/clipboard'
 
-import { GenerateDocumentPanel } from './GenerateDocumentPanel'
 import { TagReferencePanel } from './TagReferencePanel'
 import { TemplateEditor } from './TemplateEditor'
+import { TemplateLibraryDialog } from './TemplateLibraryDialog'
 import { TemplateList } from './TemplateList'
 
 interface TemplatesPanelProps {
   domainPath: string | null
-  initialDossierId?: string | null
 }
 
 interface TemplateFormErrors {
@@ -30,14 +30,15 @@ type WorkspaceState =
   | { view: 'create-choice' }
   | { view: 'create' }
   | { view: 'edit'; templateId: string }
-  | { view: 'generate'; templateId: string | null }
   | { view: 'macros' }
+  | { view: 'template-library' }
 
 function createEmptyDraft(): TemplateDraft {
   return {
     name: '',
     content: '<p></p>',
-    description: ''
+    description: '',
+    documentKind: 'document'
   }
 }
 
@@ -45,14 +46,12 @@ function toDraft(template: TemplateRecord, content: string): TemplateDraft {
   return {
     name: template.name,
     content: getTemplateEditorHtml(content),
-    description: template.description ?? ''
+    description: template.description ?? '',
+    documentKind: template.documentKind
   }
 }
 
-export function TemplatesPanel({
-  domainPath,
-  initialDossierId
-}: TemplatesPanelProps): React.JSX.Element {
+export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.Element {
   const { t } = useTranslation()
   const templates = useTemplateStore((state) => state.templates)
   const isLoading = useTemplateStore((state) => state.isLoading)
@@ -66,11 +65,12 @@ export function TemplatesPanel({
   const importTemplateDocx = useTemplateStore((state) => state.importDocx)
   const openTemplateDocx = useTemplateStore((state) => state.openDocx)
   const removeTemplateDocx = useTemplateStore((state) => state.removeDocx)
+  const applyCabinetDefaultDocx = useTemplateStore((state) => state.applyCabinetDefaultDocx)
   const subscribeToDocxSynced = useTemplateStore((state) => state.subscribeToDocxSynced)
+  const entityProfile = useEntityStore((state) => state.profile)
+  const cabinetHasDefaultDocx = Boolean(entityProfile?.defaultTemplateFileName)
 
-  const [workspace, setWorkspace] = useState<WorkspaceState>(() =>
-    initialDossierId ? { view: 'generate', templateId: null } : { view: 'library' }
-  )
+  const [workspace, setWorkspace] = useState<WorkspaceState>({ view: 'library' })
   const [draft, setDraft] = useState<TemplateDraft>(createEmptyDraft)
   const [createSourceType, setCreateSourceType] = useState<'text' | 'docx'>('text')
   const [errors, setErrors] = useState<TemplateFormErrors>({})
@@ -151,13 +151,13 @@ export function TemplatesPanel({
     })
   }
 
-  function openGenerateWorkspace(templateId: string | null = null): void {
-    setWorkspace({ view: 'generate', templateId })
+  function openMacrosWorkspace(): void {
+    setWorkspace({ view: 'macros' })
     setErrors({})
   }
 
-  function openMacrosWorkspace(): void {
-    setWorkspace({ view: 'macros' })
+  function openLibraryDialog(): void {
+    setWorkspace({ view: 'template-library' })
     setErrors({})
   }
 
@@ -379,6 +379,23 @@ export function TemplatesPanel({
     }
   }
 
+  async function handleApplyCabinetDefaultDocx(): Promise<void> {
+    if (workspace.view !== 'edit' || !workspace.templateId) {
+      return
+    }
+    await applyCabinetDefaultDocx(workspace.templateId)
+    const state = useTemplateStore.getState()
+    if (state.error) {
+      setErrors({ form: state.error })
+      return
+    }
+    showToast(
+      t('templates.toast.cabinetDocxApplied', {
+        defaultValue: 'Modèle DOCX cabinet appliqué.'
+      })
+    )
+  }
+
   async function handleRemoveDocx(): Promise<void> {
     if (workspace.view !== 'edit' || !workspace.templateId) {
       return
@@ -396,26 +413,22 @@ export function TemplatesPanel({
   }
 
   return (
-    <section className="flex h-[calc(100vh-8.5rem)] max-h-[calc(100vh-8.5rem)] min-h-0 flex-col gap-6 p-5 xl:p-6 2xl:p-7">
+    <section className="flex h-full min-h-0 flex-col gap-6">
       {storeError ? <AlertBanner tone="error">{storeError}</AlertBanner> : null}
 
-      {workspace.view === 'generate' ? (
-        <GenerateDocumentPanel
-          initialTemplateId={workspace.templateId}
-          initialDossierId={initialDossierId}
-          onBack={closeWorkspace}
-        />
-      ) : (
-        <TemplateList
-          isLoading={isLoading}
-          templates={templates}
-          onCreate={openCreateChooser}
-          onDelete={handleDelete}
-          onEdit={openEditEditor}
-          onGenerate={(template) => openGenerateWorkspace(template.id)}
-          onMacros={openMacrosWorkspace}
-        />
-      )}
+      <TemplateList
+        isLoading={isLoading}
+        templates={templates}
+        onCreate={openCreateChooser}
+        onDelete={handleDelete}
+        onEdit={openEditEditor}
+        onMacros={openMacrosWorkspace}
+        onOpenLibrary={openLibraryDialog}
+      />
+
+      {workspace.view === 'template-library' ? (
+        <TemplateLibraryDialog onDismiss={() => void closeWorkspace()} />
+      ) : null}
 
       {workspace.view === 'create-choice' ? (
         <DialogShell
@@ -425,22 +438,22 @@ export function TemplatesPanel({
         >
           <div className="flex flex-col gap-6">
             <div className="space-y-2">
-              <h3 className="text-base font-semibold text-slate-50">
+              <h3 className="text-base font-semibold text-[#1a1a1a]">
                 {t('templates.createChoice.title')}
               </h3>
-              <p className="text-sm text-slate-300">{t('templates.createChoice.description')}</p>
+              <p className="text-sm text-[#1a1a1a]">{t('templates.createChoice.description')}</p>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
               <button
                 type="button"
                 onClick={() => openCreateEditor('text')}
-                className="rounded-2xl border border-white/10 bg-slate-950/40 p-5 text-left transition hover:border-white/20 hover:bg-slate-950/60"
+                className="rounded-2xl border border-[#e5e3da] bg-white p-5 text-left transition hover:border-[#d1cfc6] hover:bg-white"
               >
-                <p className="text-sm font-semibold text-slate-50">
+                <p className="text-sm font-semibold text-[#1a1a1a]">
                   {t('templates.createChoice.textTitle')}
                 </p>
-                <p className="mt-2 text-sm text-slate-400">
+                <p className="mt-2 text-sm text-[#5c5c5a]">
                   {t('templates.createChoice.textDescription')}
                 </p>
               </button>
@@ -448,18 +461,18 @@ export function TemplatesPanel({
               <button
                 type="button"
                 onClick={() => openCreateEditor('docx')}
-                className="rounded-2xl border border-sky-300/20 bg-sky-300/5 p-5 text-left transition hover:border-sky-300/35 hover:bg-sky-300/10"
+                className="rounded-2xl border border-[#e5e3da] bg-[#eeece3] p-5 text-left transition hover:border-[#d1cfc6] hover:bg-[#e4e1d5]"
               >
-                <p className="text-sm font-semibold text-slate-50">
+                <p className="text-sm font-semibold text-[#1a1a1a]">
                   {t('templates.createChoice.docxTitle')}
                 </p>
-                <p className="mt-2 text-sm text-slate-300">
+                <p className="mt-2 text-sm text-[#1a1a1a]">
                   {t('templates.createChoice.docxDescription')}
                 </p>
               </button>
             </div>
 
-            <div className="flex justify-end border-t border-white/10 pt-4">
+            <div className="flex justify-end border-t border-[#e5e3da] pt-4">
               <Button type="button" variant="ghost" onClick={() => void closeWorkspace()}>
                 {t('templates.editor.cancelButton')}
               </Button>
@@ -481,7 +494,7 @@ export function TemplatesPanel({
           onDismiss={() => void closeWorkspace()}
         >
           {workspace.view === 'edit' && isEditorLoading ? (
-            <div className="flex min-h-0 flex-1 items-center justify-center rounded-2xl border border-white/10 bg-slate-950/40 px-6 py-10 text-sm text-slate-300">
+            <div className="flex min-h-0 flex-1 items-center justify-center rounded-2xl border border-[#e5e3da] bg-white px-6 py-10 text-sm text-[#1a1a1a]">
               {t('templates.loading')}
             </div>
           ) : (
@@ -499,6 +512,8 @@ export function TemplatesPanel({
               onImportDocx={handlePickDocxFile}
               onOpenDocx={handleOpenDocx}
               onRemoveDocx={handleRemoveDocx}
+              onApplyCabinetDefaultDocx={handleApplyCabinetDefaultDocx}
+              cabinetHasDefaultDocx={cabinetHasDefaultDocx}
             />
           )}
         </DialogShell>
@@ -506,26 +521,23 @@ export function TemplatesPanel({
 
       {workspace.view === 'macros' ? (
         <DialogShell
-          layout="stretched"
-          size="full"
-          panelClassName="min-h-0"
+          size="xl"
           aria-label={t('templates.macros.title')}
           onDismiss={() => void closeWorkspace()}
         >
           <div className="flex min-h-0 flex-1 flex-col gap-4">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => void closeWorkspace()}
-                className="text-sm text-slate-400 hover:text-slate-100"
-              >
-                ← {t('templates.workspace.backToLibrary')}
-              </button>
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <h3 className="text-base font-semibold text-[#1a1a1a]">
+                  {t('templates.macros.title')}
+                </h3>
+                <p className="text-sm text-[#5c5c5a]">{t('templates.macros.helperText')}</p>
+              </div>
+              <Button type="button" variant="ghost" size="sm" onClick={() => void closeWorkspace()}>
+                {t('common.close', { defaultValue: 'Fermer' })}
+              </Button>
             </div>
-            <TagReferencePanel
-              referenceMode
-              onInsertTag={(tag) => void navigator.clipboard.writeText(tag)}
-            />
+            <TagReferencePanel referenceMode onInsertTag={(tag) => copyTextToClipboard(tag)} />
           </div>
         </DialogShell>
       ) : null}

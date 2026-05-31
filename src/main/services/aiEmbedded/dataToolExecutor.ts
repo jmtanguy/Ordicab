@@ -24,7 +24,8 @@ import type {
   ContactServiceLike,
   TemplateServiceLike,
   DocumentServiceLike,
-  DossierServiceLike
+  DossierServiceLike,
+  InvoiceServiceLike
 } from '../../lib/aiEmbedded/aiCommandDispatcher'
 import { SEMANTIC_SEARCH_EXACT_MATCH_SCORE } from '../../lib/aiEmbedded/embeddings/semanticSearchService'
 
@@ -88,10 +89,7 @@ export function resolveDossierRef(
 }
 
 export function buildManagedFieldsToolResult(entityProfile: EntityProfile | null): string {
-  const managedFields = normalizeManagedFieldsConfig(
-    entityProfile?.managedFields,
-    entityProfile?.profession
-  )
+  const managedFields = normalizeManagedFieldsConfig(entityProfile?.managedFields)
   const contactFieldMap = new Map(
     managedFields.contacts.map((field) => [getManagedFieldKey(field), field])
   )
@@ -117,7 +115,6 @@ export function buildManagedFieldsToolResult(entityProfile: EntityProfile | null
 
   return JSON.stringify({
     managedFields: {
-      profession: entityProfile?.profession ?? null,
       contactRoles: managedFields.contactRoles,
       contactFields: managedFields.contacts.map((field) => ({
         label: field.label,
@@ -134,6 +131,30 @@ export function buildManagedFieldsToolResult(entityProfile: EntityProfile | null
       ...(roleSpecificFieldEntries.length > 0
         ? { contactRoleFields: Object.fromEntries(roleSpecificFieldEntries) }
         : {})
+    }
+  })
+}
+
+export function buildEntityProfileToolResult(entityProfile: EntityProfile | null): string {
+  if (!entityProfile) {
+    return JSON.stringify({ entity: null })
+  }
+
+  return JSON.stringify({
+    entity: {
+      firmName: entityProfile.firmName,
+      gender: entityProfile.gender ?? null,
+      firstName: entityProfile.firstName ?? null,
+      lastName: entityProfile.lastName ?? null,
+      addressLine: entityProfile.addressLine ?? null,
+      addressLine2: entityProfile.addressLine2 ?? null,
+      zipCode: entityProfile.zipCode ?? null,
+      city: entityProfile.city ?? null,
+      country: entityProfile.country ?? null,
+      address: entityProfile.address ?? null,
+      vatNumber: entityProfile.vatNumber ?? null,
+      phone: entityProfile.phone ?? null,
+      email: entityProfile.email ?? null
     }
   })
 }
@@ -174,7 +195,7 @@ export function buildDocumentListToolResult(documents: DocumentRecord[]): string
 }
 
 /**
- * Pseudonymize the result of a batchable action tool (contact_upsert, contact_delete, etc.)
+ * Pseudonymize the result of a batchable action tool (contact_create, contact_update, contact_delete, etc.)
  * before feeding it back to the LLM.
  *
  * Only human-readable strings are pseudonymized.
@@ -192,7 +213,7 @@ export async function pseudonymizeActionToolResultAsync(
     if (typeof obj.feedback === 'string') {
       obj.feedback = await pseudonymize(obj.feedback)
     }
-    // contact_upsert (and similar) may return `entity` with real saved values,
+    // contact_create/contact_update (and similar) may return `entity` with real saved values,
     // including nested `customFields` / arrays. Pseudonymize every nested string
     // so the tool result can safely be fed back to the LLM. Keep only entity
     // `id` / `uuid` verbatim: those are structural handles needed by later tool
@@ -239,9 +260,9 @@ export async function pseudonymizeAnalyzeToolResultAsync(
  * Shape: { templates: TemplateRecord[] } where each record has structural fields
  * (id, macros[], hasDocxSource, updatedAt) and human-readable fields (name,
  * description, tags, content). The `macros` array holds template path strings
- * such as `dossier.keyDate.audience.long`; pseudonymizing those would inject
- * PII markers into the keys, which the LLM then echoes back as `tagOverrides`
- * keys in `document_generate`. Keep them verbatim so paths round-trip cleanly.
+ * such as `dossier.keyDate.audience.long`; pseudonymizing those could alter
+ * the keys, which the LLM then echoes back as `tagOverrides` keys in
+ * `document_generate`. Keep them verbatim so paths round-trip cleanly.
  */
 export async function pseudonymizeTemplateListResultAsync(
   jsonResult: string,
@@ -285,54 +306,101 @@ export async function pseudonymizeDocumentToolResultAsync(
   jsonResult: string,
   pseudonymize: (s: string) => Promise<string>
 ): Promise<string> {
+  const MALFORMED_TOOL_RESULT_ERROR = JSON.stringify({
+    error: 'Document tool returned a malformed result.'
+  })
+
+  async function pseudonymizeStringArrayAsync(values: unknown[]): Promise<unknown[]> {
+    return Promise.all(
+      values.map((value) => (typeof value === 'string' ? pseudonymize(value) : value))
+    )
+  }
+
+  async function pseudonymizeFieldsAsync(
+    record: Record<string, unknown>,
+    options: { stringFields?: string[]; stringArrayFields?: string[] }
+  ): Promise<Record<string, unknown>> {
+    const out: Record<string, unknown> = { ...record }
+
+    for (const field of options.stringFields ?? []) {
+      if (typeof out[field] === 'string') {
+        out[field] = await pseudonymize(out[field] as string)
+      }
+    }
+
+    for (const field of options.stringArrayFields ?? []) {
+      if (Array.isArray(out[field])) {
+        out[field] = await pseudonymizeStringArrayAsync(out[field] as unknown[])
+      }
+    }
+
+    return out
+  }
+
+  async function pseudonymizeDocumentRecordAsync(
+    record: Record<string, unknown>
+  ): Promise<Record<string, unknown>> {
+    return pseudonymizeFieldsAsync(record, {
+      stringFields: ['filename', 'description'],
+      stringArrayFields: ['tags']
+    })
+  }
+
+  async function pseudonymizeMatchRecordAsync(
+    record: Record<string, unknown>
+  ): Promise<Record<string, unknown>> {
+    return pseudonymizeFieldsAsync(record, {
+      stringFields: ['filename', 'excerpt']
+    })
+  }
+
+  function isFlatDocumentToolResult(record: Record<string, unknown>): boolean {
+    return (
+      !Array.isArray(record.documents) &&
+      !Array.isArray(record.matches) &&
+      !isJsonRecord(record.document) &&
+      (typeof record.filename === 'string' ||
+        typeof record.description === 'string' ||
+        Array.isArray(record.tags))
+    )
+  }
+
   try {
     const parsed = JSON.parse(jsonResult) as unknown
+    if (!isJsonRecord(parsed)) return MALFORMED_TOOL_RESULT_ERROR
 
-    async function processDoc(doc: Record<string, unknown>): Promise<Record<string, unknown>> {
-      const out: Record<string, unknown> = { ...doc }
-      if (typeof out.filename === 'string') out.filename = await pseudonymize(out.filename)
-      if (typeof out.description === 'string') out.description = await pseudonymize(out.description)
-      if (Array.isArray(out.tags)) {
-        out.tags = await Promise.all(
-          out.tags.map((t) => (typeof t === 'string' ? pseudonymize(t) : Promise.resolve(t)))
+    const obj = isFlatDocumentToolResult(parsed)
+      ? await pseudonymizeDocumentRecordAsync(parsed)
+      : { ...parsed }
+
+    if (typeof obj.error === 'string') {
+      obj.error = await pseudonymize(obj.error)
+    }
+    if (typeof obj.query === 'string') {
+      obj.query = await pseudonymize(obj.query)
+    }
+    if (Array.isArray(obj.documents)) {
+      obj.documents = await Promise.all(
+        obj.documents.map((document) =>
+          isJsonRecord(document) ? pseudonymizeDocumentRecordAsync(document) : document
         )
-      }
-      return out
+      )
+    }
+    if (isJsonRecord(obj.document)) {
+      obj.document = await pseudonymizeDocumentRecordAsync(obj.document)
+    }
+    if (Array.isArray(obj.matches)) {
+      obj.matches = await Promise.all(
+        obj.matches.map((match) =>
+          isJsonRecord(match) ? pseudonymizeMatchRecordAsync(match) : match
+        )
+      )
     }
 
-    if (typeof parsed === 'object' && parsed !== null) {
-      const obj = parsed as Record<string, unknown>
-      if (typeof obj.query === 'string') obj.query = await pseudonymize(obj.query)
-      if (Array.isArray(obj.documents)) {
-        obj.documents = await Promise.all(
-          obj.documents.map((d) =>
-            typeof d === 'object' && d !== null
-              ? processDoc(d as Record<string, unknown>)
-              : Promise.resolve(d)
-          )
-        )
-      }
-      if (typeof obj.document === 'object' && obj.document !== null) {
-        obj.document = await processDoc(obj.document as Record<string, unknown>)
-      }
-      if (Array.isArray(obj.matches)) {
-        obj.matches = await Promise.all(
-          obj.matches.map(async (m) => {
-            if (typeof m !== 'object' || m === null) return m
-            const match = m as Record<string, unknown>
-            const out: Record<string, unknown> = { ...match }
-            if (typeof out.filename === 'string') out.filename = await pseudonymize(out.filename)
-            if (typeof out.excerpt === 'string') out.excerpt = await pseudonymize(out.excerpt)
-            return out
-          })
-        )
-      }
-      return JSON.stringify(obj)
-    }
+    return JSON.stringify(obj)
   } catch {
-    // fall through
+    return MALFORMED_TOOL_RESULT_ERROR
   }
-  return jsonResult
 }
 
 // ── Contact search helpers ────────────────────────────────────────────────────
@@ -495,6 +563,7 @@ export interface DataToolExecutorDeps {
   templateService: TemplateServiceLike
   documentService: DocumentServiceLike
   dossierService: DossierServiceLike
+  invoiceService: InvoiceServiceLike
   entityProfile: EntityProfile | null
 }
 
@@ -517,12 +586,31 @@ export class DataToolExecutor {
   private _resolveTargetDossierId(args: Record<string, unknown>): string {
     const { dossierId, dossiers } = this.deps
     const requestedRef = typeof args.dossierId === 'string' ? args.dossierId : (dossierId ?? '')
-    return resolveDossierRef(requestedRef, dossiers) ?? requestedRef
+    const resolved = resolveDossierRef(requestedRef, dossiers)
+    if (resolved) return resolved
+    // Small models routinely mistype 36-char UUIDs when echoing the active-context id
+    // back into a tool call. If the requested ref doesn't match any known dossier and
+    // we hold a trusted active id, fall back to it instead of silently querying with
+    // a hallucinated value.
+    if (dossierId && dossierId !== requestedRef) {
+      return resolveDossierRef(dossierId, dossiers) ?? dossierId
+    }
+    return requestedRef
   }
 
   private async _dispatch(toolName: string, args: Record<string, unknown>): Promise<string> {
-    const { contactService, templateService, documentService, dossierService, entityProfile } =
-      this.deps
+    const {
+      contactService,
+      templateService,
+      documentService,
+      dossierService,
+      invoiceService,
+      entityProfile
+    } = this.deps
+
+    if (toolName === 'entity_get') {
+      return buildEntityProfileToolResult(entityProfile)
+    }
 
     if (toolName === 'managed_fields_get') {
       return buildManagedFieldsToolResult(entityProfile)
@@ -531,6 +619,49 @@ export class DataToolExecutor {
     if (toolName === 'template_list') {
       const allTemplates = await templateService.list().catch(() => [])
       return JSON.stringify({ templates: allTemplates })
+    }
+
+    if (toolName === 'dossier_list') {
+      return JSON.stringify({
+        dossiers: this.deps.dossiers.map((d) => ({
+          dossierId: d.uuid ?? d.id,
+          name: d.name,
+          status: d.status,
+          type: d.type
+        }))
+      })
+    }
+
+    if (toolName === 'invoice_list') {
+      const filterDossierId = typeof args.dossierId === 'string' ? args.dossierId.trim() : ''
+      const all = await invoiceService.list().catch(() => [])
+      const filtered = filterDossierId
+        ? all.filter((inv) => inv.dossierId === filterDossierId)
+        : all
+      return JSON.stringify({
+        invoices: filtered.map((inv) => ({
+          invoiceId: inv.id,
+          number: inv.number,
+          documentType: inv.documentType,
+          dossierId: inv.dossierId,
+          dossierLabel: inv.dossierLabel,
+          clientLabel: inv.clientLabel,
+          issuedAt: inv.issuedAt,
+          dueAt: inv.dueAt,
+          totalTtcCents: inv.totalTtcCents,
+          remainingAmountCents: inv.remainingAmountCents,
+          status: inv.status,
+          paymentStatus: inv.paymentStatus
+        }))
+      })
+    }
+
+    if (toolName === 'invoice_get') {
+      const invoiceId = typeof args.invoiceId === 'string' ? args.invoiceId.trim() : ''
+      if (!invoiceId) return JSON.stringify({ error: 'invoiceId is required.' })
+      const invoice = await invoiceService.get(invoiceId).catch(() => null)
+      if (!invoice) return JSON.stringify({ error: `Invoice not found: ${invoiceId}` })
+      return JSON.stringify({ invoice })
     }
 
     const targetDossierId = this._resolveTargetDossierId(args)

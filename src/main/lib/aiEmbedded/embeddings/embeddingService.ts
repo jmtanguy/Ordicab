@@ -19,6 +19,7 @@
 
 import {
   getPipeline,
+  runWithInferenceLock,
   warmup as warmupPipeline,
   type ModelConfig,
   type PipelineFn
@@ -65,7 +66,9 @@ function toModelConfig(config: EmbeddingServiceConfig): ModelConfig {
 }
 
 async function runPipeline(pipe: PipelineFn, inputs: string[]): Promise<Float32Array[] | null> {
-  const result = (await pipe(inputs, { pooling: 'mean', normalize: true })) as PipelineTensor
+  const result = (await runWithInferenceLock(async () =>
+    pipe(inputs, { pooling: 'mean', normalize: true })
+  )) as PipelineTensor
   if (!result || !result.data || !result.dims || result.dims.length !== 2) {
     return null
   }

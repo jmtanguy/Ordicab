@@ -3,19 +3,25 @@
  *
  * Usage:
  *   const p = new PiiPseudonymizer(context)   // pre-seeds from known contacts/dates/refs
- *   const safe = p.pseudonymize(userText)      // → text with [[markers]]
+ *   const safe = p.pseudonymize(userText)      // → text with realistic fake values
  *   const original = p.revert(llmResponse)     // → restored text
  *
  * JSON-aware: pseudonymizeAuto() parses JSON and only touches string values, not keys.
  *
- * Marker format: [[contact.client.firstName]] `Antoine`
- *   - [[...]] path follows template macro conventions
- *   - `fakeValue` lets the LLM use a realistic value in prose while the marker ensures reversal
+ * The model-facing text contains fake values only. Internal mapping entries
+ * keep the original ↔ fake relationship for reversal.
  */
 
 import { labelToKey } from '@shared/templateContent/tagPaths'
-import { PiiMapping, MARKER_RE, type MappingEntry, type MappingSnapshotEntry } from './piiMapping'
-import { detectPii, detectStructuralPii, mergeSpans, type DetectedSpan } from './piiDetector'
+import { PiiMapping, type MappingEntry, type MappingSnapshotEntry } from './piiMapping'
+import {
+  detectPii,
+  detectStructuralPii,
+  isStopwordToken,
+  mergeSpans,
+  type DetectedSpan,
+  type EntityType
+} from './piiDetector'
 import { applyNerHints, type NerConfig } from './nerDetection'
 import * as fake from './fakegen'
 import type { Locale, Gender } from './fakegen'
@@ -65,6 +71,39 @@ type ContactFieldDef = {
   field: keyof PiiContact
   markerSuffix: string
   generate: (value: string, contact: PiiContact, locale: Locale, attempt: number) => string
+}
+
+// Entity types that map 1:1 to a fake generator and use their own name as the
+// marker base. Types needing extra logic (postalLocation, custom, name) are
+// handled explicitly in generateEntry instead.
+type DirectEntryFactory = (value: string, locale: Locale) => string
+
+const fakeReference: DirectEntryFactory = (value) => fake.fakeAlphanumericReference(value)
+
+const DIRECT_ENTRY_FACTORIES: Partial<Record<EntityType, DirectEntryFactory>> = {
+  email: (value, locale) => fake.fakeEmail(value, locale),
+  phone: (value) => fake.fakePhone(value),
+  SSN: (value) => fake.fakeSSN(value),
+  IBAN: (value) => fake.fakeIban(value),
+  password: (value) => fake.fakePassword(value),
+  company: (value, locale) => fake.fakeCompany(value, locale),
+  address: (value, locale) => fake.fakeAddress(value, locale),
+  birthDate: (value) => fake.fakeDate(value),
+  date: (value) => fake.fakeDate(value),
+  BIC: (value) => fake.fakeBic(value),
+  ipAddress: (value) => fake.fakeIp(value),
+  macAddress: (value) => fake.fakeMac(value),
+  url: (value) => fake.fakeUrl(value),
+  filePath: (value) => fake.fakeFilePath(value),
+  gpsCoordinates: (value) => fake.fakeGps(value),
+  companyId: fakeReference,
+  taxId: fakeReference,
+  driverLicense: fakeReference,
+  passport: fakeReference,
+  vehicleRegistration: fakeReference,
+  creditCard: fakeReference,
+  identifier: fakeReference,
+  medicalId: fakeReference
 }
 
 function genderForFake(g?: 'M' | 'F' | 'N'): Gender {
@@ -122,12 +161,22 @@ const CONTACT_PII_FIELDS: ContactFieldDef[] = [
 ]
 
 /**
- * Emit spans for NER regions that the regex layer didn't cover. For name
- * regions we split on whitespace so each token becomes its own `name` span —
- * the LLM then sees distinct firstName / lastName markers instead of one
- * bundled identity. For address / company regions we emit a single span
- * covering the whole region (splitting a street line into its components is
- * the regex's job; we only fill the gap when the regex saw nothing at all).
+ * Emit spans for NER regions that the regex layer didn't cover.
+ *
+ * Name regions are split on whitespace so each token becomes its own `name`
+ * span — the LLM then sees distinct firstName / lastName fake values instead
+ * of one bundled identity. The coverage check is done PER TOKEN, not per region: a
+ * region the regex layer touched only partially (e.g. it caught an honorific
+ * but missed the OCR-garbled surname next to it) still contributes its
+ * uncovered name tokens instead of being dropped wholesale. Tokens that are
+ * common function words / structural stopwords ("de", "la", "vu", a month
+ * name…) are skipped — a stopword registered as a `name` poisons the whole
+ * conversation, since `replaceSeededValues` then substitutes every later
+ * occurrence and the toxic entry rides the decode ledger into the next turn.
+ *
+ * For address / company regions we still emit a single span covering the whole
+ * region, and only when the regex saw nothing in it at all (splitting a street
+ * line into its components is the regex's job).
  */
 function buildNerFallbackSpans(
   text: string,
@@ -136,12 +185,14 @@ function buildNerFallbackSpans(
 ): DetectedSpan[] {
   if (nerRegions.length === 0) return []
 
+  const overlapsRegex = (start: number, end: number): boolean =>
+    regexSpans.some((span) => span.start < end && start < span.end)
+
   const fallback: DetectedSpan[] = []
   for (const region of nerRegions) {
-    const covered = regexSpans.some((span) => span.start < region.end && region.start < span.end)
-    if (covered) continue
-
     if (region.type !== 'name') {
+      // Address / company region: fill only a total gap — see jsdoc above.
+      if (overlapsRegex(region.start, region.end)) continue
       fallback.push({
         type: region.type,
         value: text.slice(region.start, region.end),
@@ -151,24 +202,31 @@ function buildNerFallbackSpans(
       continue
     }
 
-    // Name region with no regex coverage (e.g. foreign surname with no known
-    // first name anchor). Split into per-token spans so each name component
-    // still gets its own marker.
+    // Name region: emit one span per uncovered, non-stopword token.
     const wordRe = /[^\s]+/gu
     const regionText = text.slice(region.start, region.end)
     let m: RegExpExecArray | null
     while ((m = wordRe.exec(regionText)) !== null) {
       const token = m[0]
       if (token.length < 2) continue
-      fallback.push({
-        type: 'name',
-        value: token,
-        start: region.start + m.index,
-        end: region.start + m.index + token.length
-      })
+      if (isStopwordToken(token)) continue
+      const start = region.start + m.index
+      const end = start + token.length
+      if (overlapsRegex(start, end)) continue
+      fallback.push({ type: 'name', value: token, start, end })
     }
   }
   return fallback
+}
+
+/**
+ * A function-word stopword tagged as a `name` or `company` span is never PII.
+ * Registering it as a mapping entry would poison `replaceSeededValues` (every
+ * later occurrence of the word gets substituted) and ride the decode ledger
+ * into the next turn. Used as a final guard before a span becomes an entry.
+ */
+function isNamingSpanStopword(span: DetectedSpan): boolean {
+  return (span.type === 'name' || span.type === 'company') && isStopwordToken(span.value)
 }
 
 function collectReservedOriginalKeys(context: PiiContext): Set<string> {
@@ -243,6 +301,13 @@ export class PiiPseudonymizer {
     for (const entry of entries) {
       if (!entry.original || !entry.markerPath || !entry.fakeValue) continue
       if (this.mapping.hasOriginal(entry.original)) continue
+      // Self-heal ledgers poisoned by a past detection bug: a function-word
+      // stopword ("de", "la", …) registered as a counter-based `name_N` /
+      // `company_N` entry. Re-importing it would re-arm `replaceSeededValues`
+      // to substitute every occurrence of that word for the rest of the
+      // conversation. Semantic-path entries (e.g. `contact.X.city` = "Paris")
+      // are legitimate and kept — they get re-seeded from context regardless.
+      if (isStopwordToken(entry.original) && /^[a-z]+_\d+$/i.test(entry.markerPath)) continue
       const added = this.mapping.add(entry.original, entry.markerPath, entry.fakeValue)
       if (!added) continue
       // Counter-shaped paths (`name_5`, `phone_3`, …) must bump the relevant
@@ -285,23 +350,44 @@ export class PiiPseudonymizer {
       }
     }
 
-    for (const kd of context.keyDates ?? []) {
-      if (!kd.value || this.mapping.hasOriginal(kd.value)) continue
+    this.seedLabeledValues(
+      context.keyDates,
+      'dossier.keyDate',
+      (value) => fake.fakeDate(value),
+      'date'
+    )
+    this.seedDirectDossierReferences(context.keyRefs)
+  }
+
+  // `type` is a free-form label namespace for the opaque-fake fallback, not an
+  // EntityType — these seeded values use semantic marker paths, not type counters.
+  private seedLabeledValues(
+    items: Array<{ label: string; value: string }> | undefined,
+    markerPrefix: string,
+    generate: (value: string) => string,
+    type: string
+  ): void {
+    for (const item of items ?? []) {
+      if (!item.value || this.mapping.hasOriginal(item.value)) continue
       this.addEntry(
-        kd.value,
-        `dossier.keyDate.${labelToKey(kd.label)}`,
-        fake.fakeDate(kd.value),
-        'date'
+        item.value,
+        `${markerPrefix}.${labelToKey(item.label)}`,
+        generate(item.value),
+        type
       )
     }
+  }
 
-    for (const kr of context.keyRefs ?? []) {
-      if (!kr.value || this.mapping.hasOriginal(kr.value)) continue
+  private seedDirectDossierReferences(
+    items: Array<{ label: string; value: string }> | undefined
+  ): void {
+    for (const item of items ?? []) {
+      if (!item.value || this.mapping.hasOriginal(item.value)) continue
       this.addEntry(
-        kr.value,
-        `dossier.keyRef.${labelToKey(kr.label)}`,
-        fake.fakeAlphanumericReference(kr.value),
-        'keyRef'
+        item.value,
+        `dossier.${labelToKey(item.label)}`,
+        fake.fakeAlphanumericReference(item.value),
+        'reference'
       )
     }
   }
@@ -310,38 +396,8 @@ export class PiiPseudonymizer {
   pseudonymize(text: string): string {
     if (!text) return text
 
-    // Step 0: pre-register structural patterns (email, URL, phone, address, …)
-    // before the seeded-value pass. Without this, a known contact lastName
-    // appearing inside an email's domain would be substituted first, leaving
-    // a partial marker like `karina@[[contact.X.lastName]] \`Aubert\`-avocat.com`
-    // because the email regex no longer matches the broken pattern.
-    // Pre-registering lets entriesByLength() see the email as a longer entry
-    // and replace the whole token via the cascade-prevention sentinels.
-    this.preRegisterStructuralEntries(text)
-
-    // Step 1: replace seeded known values (longest first)
-    let result = this.replaceSeededValues(text)
-
-    // Step 2: mask existing [[markers]] and explicit allowlisted non-sensitive terms
-    // before running heuristic detection. This prevents managed field labels,
-    // configured roles, and already-replaced marker payloads from being re-detected.
-    const masked = this.maskProtectedSegments(result)
-
-    // Step 3: detect remaining PII in masked text (same positions as result)
-    const spans = detectPii(masked, this.wordlist)
-    this.reserveSpanOriginals(result, spans)
-
-    // Step 4: apply in reverse order (preserves indices). Skip spans whose
-    // entry could not be allocated — addEntry has already logged the reason and
-    // leaving the original in clear text is preferable to crashing the flow.
-    const sortedSpans = [...spans].sort((a, b) => b.start - a.start)
-    for (const span of sortedSpans) {
-      const entry = this.mapping.getFake(span.value) ?? this.generateEntry(span.type, span.value)
-      const marker = PiiMapping.format(entry.markerPath, entry.fakeValue)
-      result = result.slice(0, span.start) + marker + result.slice(span.end)
-    }
-
-    return result
+    const { result, masked } = this.prepareTextForDetection(text)
+    return this.applyDetectedSpans(result, detectPii(masked, this.wordlist))
   }
 
   /**
@@ -361,10 +417,29 @@ export class PiiPseudonymizer {
     }
   }
 
-  private maskProtectedSegments(text: string): string {
-    let masked = text.replace(new RegExp(MARKER_RE.source, 'g'), (m) => ' '.repeat(m.length))
+  private prepareTextForDetection(text: string): { result: string; masked: string } {
+    // Pre-register structural patterns (email, URL, phone, address, …)
+    // before the seeded-value pass. Without this, a known contact lastName
+    // appearing inside an email's domain would be substituted first, leaving
+    // a partial fake because the email regex no longer matches the broken
+    // pattern. Pre-registering lets entriesByLength() replace the whole token.
+    this.preRegisterStructuralEntries(text)
+
+    const { result, protectedValues } = this.replaceSeededValues(text)
+    return { result, masked: this.maskProtectedSegments(result, protectedValues) }
+  }
+
+  private maskProtectedSegments(text: string, protectedValues: string[] = []): string {
+    let masked = text
 
     for (const value of this.allowlist) {
+      const escaped = buildDiacriticInsensitivePattern(value)
+      const re = new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, 'giu')
+      masked = masked.replace(re, (match) => ' '.repeat(match.length))
+    }
+
+    for (const value of protectedValues) {
+      if (!value) continue
       const escaped = buildDiacriticInsensitivePattern(value)
       const re = new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, 'giu')
       masked = masked.replace(re, (match) => ' '.repeat(match.length))
@@ -373,12 +448,13 @@ export class PiiPseudonymizer {
     return masked
   }
 
-  private replaceSeededValues(text: string): string {
+  private replaceSeededValues(text: string): { result: string; protectedValues: string[] } {
     // Use sentinels to protect already-replaced segments from being
     // re-processed by subsequent iterations. Without this, a fake value that happens
     // to match another entry's original (e.g. MARTIN→Bonnet, Bonnet→Aubert)
-    // would cascade: the "Bonnet" inside the first marker gets replaced by the second.
+    // would cascade: the "Bonnet" inside the first fake gets replaced by the second.
     const sentinels: string[] = []
+    const protectedValues: string[] = []
     let result = text
     for (const { original, entry } of this.mapping.entriesByLength()) {
       if (original.length < 2) continue
@@ -387,6 +463,7 @@ export class PiiPseudonymizer {
       const marker = PiiMapping.format(entry.markerPath, entry.fakeValue)
       result = result.replace(re, () => {
         const idx = sentinels.push(marker) - 1
+        protectedValues.push(marker)
         return `__ORDICAB_PII_SENTINEL_${idx}__`
       })
     }
@@ -395,6 +472,29 @@ export class PiiPseudonymizer {
       /__ORDICAB_PII_SENTINEL_(\d+)__/g,
       (_match, i: string) => sentinels[Number(i)] ?? ''
     )
+    return { result, protectedValues }
+  }
+
+  private applyDetectedSpans(text: string, spans: DetectedSpan[]): string {
+    this.reserveSpanOriginals(text, spans)
+
+    let result = text
+    const sortedSpans = [...spans].sort((a, b) => b.start - a.start)
+    for (const span of sortedSpans) {
+      // Key the mapping on the original (un-hinted) substring at the span's
+      // position, not span.value — the NER path hints the detection text, and
+      // this keeps revert() round-tripping to the exact source casing/diacritics.
+      const originalValue = result.slice(span.start, span.end)
+      // Final safety net: a function-word stopword tagged as name/company is
+      // never PII — registering it would poison replaceSeededValues. The NER
+      // fallback already filters these; this guards the regex layer too.
+      if (isNamingSpanStopword({ ...span, value: originalValue })) continue
+      const entry =
+        this.mapping.getFake(originalValue) ?? this.generateEntry(span.type, originalValue)
+      const marker = PiiMapping.format(entry.markerPath, entry.fakeValue)
+      result = result.slice(0, span.start) + marker + result.slice(span.end)
+    }
+
     return result
   }
 
@@ -412,7 +512,7 @@ export class PiiPseudonymizer {
     maxAttempts = 64
   ): string {
     // Reject self-mapping as well as cross-entry fake collisions: sending the
-    // real value back to the model behind a marker is still a privacy leak.
+    // real value back to the model as its own fake is still a privacy leak.
     const isSafeCandidate = (candidate: string): boolean =>
       this.isFakeCandidateSafe(candidate, original)
 
@@ -452,7 +552,7 @@ export class PiiPseudonymizer {
   /**
    * Add `value` to the mapping with the requested base markerPath, retrying
    * with a `_2`, `_3`, … suffix on the markerPath when `add()` rejects a
-   * collision. Salting the markerPath is safe (the marker is an internal
+   * collision. Salting the markerPath is safe (the path is an internal
    * token the LLM doesn't paraphrase). Fake-value collisions cannot be
    * salt-fixed here without breaking revert, so the caller is responsible
    * for handing in a fakeValue that's already disambiguated (see
@@ -469,8 +569,8 @@ export class PiiPseudonymizer {
       if (this.mapping.isMarkerPathUsed(path)) continue
       const entry = this.mapping.add(value, path, fakeValue)
       if (entry) return entry
-      // add() returned undefined for a non-marker reason (fakeValue collision
-      // with a different original). Salting the marker won't help; bail out.
+      // add() returned undefined for a non-path reason (fakeValue collision
+      // with a different original). Salting the path won't help; bail out.
       return null
     }
     return null
@@ -504,10 +604,10 @@ export class PiiPseudonymizer {
     // not make the action fail, and it must not leave the original PII in clear
     // text just to keep going.
     //
-    // So we switch to a completely synthetic marker namespace
+    // So we switch to a completely synthetic internal path namespace
     // (`fallback.<type>_*`) plus an opaque fake (`PII_*`). That preserves the
     // mapping needed by revert()/revertJson(), gives the LLM no real personal
-    // data, and avoids exhausting role/template-derived marker paths. In
+    // data, and avoids exhausting role/template-derived paths. In
     // practice this loop should exit on the first iteration; the cap only
     // prevents an accidental infinite loop if PiiMapping invariants regress.
     for (let attempt = 0; attempt < 10_000; attempt++) {
@@ -517,163 +617,81 @@ export class PiiPseudonymizer {
       if (entry) return entry
     }
 
-    // Truly unreachable unless PiiMapping.add stops accepting fresh marker/fake
-    // pairs. At that point aborting is still safer than sending raw PII remote:
+    // Truly unreachable unless PiiMapping.add stops accepting fresh internal
+    // path / fake pairs. At that point aborting is still safer than sending raw PII remote:
     // action failure is preferable to privacy leakage.
-    throw new Error(`Unable to allocate fallback PII marker for ${type}`)
+    throw new Error(`Unable to allocate fallback PII mapping for ${type}`)
   }
 
-  private generateEntry(type: string, value: string): MappingEntry {
-    const loc = this.locale
-    let markerPath: string
-    let fakeValue: string
+  private createDirectEntry(type: EntityType, value: string): MappingEntry | null {
+    const generate = DIRECT_ENTRY_FACTORIES[type]
+    if (!generate) return null
+    return this.addEntry(value, this.mapping.nextMarker(type), generate(value, this.locale), type)
+  }
 
-    switch (type) {
-      case 'email':
-        markerPath = this.mapping.nextMarker('email')
-        fakeValue = fake.fakeEmail(value, loc)
-        break
-      case 'phone':
-        markerPath = this.mapping.nextMarker('phone')
-        fakeValue = fake.fakePhone(value)
-        break
-      case 'SSN':
-        markerPath = this.mapping.nextMarker('SSN')
-        fakeValue = fake.fakeSSN(value)
-        break
-      case 'IBAN':
-        markerPath = this.mapping.nextMarker('IBAN')
-        fakeValue = fake.fakeIban(value)
-        break
-      case 'password':
-        markerPath = this.mapping.nextMarker('password')
-        fakeValue = fake.fakePassword(value)
-        break
-      case 'company':
-        markerPath = this.mapping.nextMarker('company')
-        fakeValue = fake.fakeCompany(value, loc)
-        break
-      case 'address':
-        markerPath = this.mapping.nextMarker('address')
-        fakeValue = fake.fakeAddress(value, loc)
-        break
-      case 'postalLocation': {
-        markerPath = this.mapping.nextMarker('postalLocation')
-        const match = /^(\d{5})\s+(.+)$/.exec(value.trim())
-        if (match) {
-          const [, zip = '', city = ''] = match
-          // Reuse pre-existing fakes when the city/zip are already mapped
-          // (typically by the contact seeding pass via pickUniqueFake collision
-          // rotation). Without this, the aggregate would compute a fresh
-          // attempt=0 fake here that disagrees with the bare-city marker —
-          // e.g. contact city "Nice" → "Strasbourg" but postalLocation "Nice"
-          // → "Lyon". The LLM would then echo "Lyon" alone in tool args, and
-          // revert() can't map a substring of a multi-word fakeValue.
-          const fakeZip = this.mapping.getFake(zip)?.fakeValue ?? fake.fakeZipCode(zip)
-          const fakeCity = this.mapping.getFake(city)?.fakeValue ?? fake.fakeCity(city, loc)
-          fakeValue = `${fakeZip} ${fakeCity}`
-          // The LLM often splits a postalLocation back into separate tool-call
-          // fields ({ city, postalCode }). Without per-component entries, only
-          // the aggregate fakeValue is registered and revert() cannot map a
-          // bare "Villeneuve" back to "nice". Register zip and city as their
-          // own reversible entries so each fragment has a mapping — the
-          // aggregate still wins during pseudonymization (longer match first).
-          if (!this.mapping.hasOriginal(zip)) {
-            this.addEntry(zip, this.mapping.nextMarker('postalCode'), fakeZip, 'postalCode')
-          }
-          if (!this.mapping.hasOriginal(city)) {
-            this.addEntry(city, this.mapping.nextMarker('city'), fakeCity, 'city')
-          }
-        } else {
-          fakeValue = fake.fakeAddress(value, loc)
-        }
-        break
-      }
-      case 'companyId':
-        markerPath = this.mapping.nextMarker('companyId')
-        // Preserve structure (spaces, dashes) while replacing letters and digits.
-        fakeValue = fake.fakeAlphanumericReference(value)
-        break
-      case 'birthDate':
-        markerPath = this.mapping.nextMarker('birthDate')
-        fakeValue = fake.fakeDate(value)
-        break
-      case 'date':
-        markerPath = this.mapping.nextMarker('date')
-        fakeValue = fake.fakeDate(value)
-        break
-      case 'taxId':
-        markerPath = this.mapping.nextMarker('taxId')
-        fakeValue = fake.fakeAlphanumericReference(value)
-        break
-      case 'driverLicense':
-        markerPath = this.mapping.nextMarker('driverLicense')
-        fakeValue = fake.fakeAlphanumericReference(value)
-        break
-      case 'passport':
-        markerPath = this.mapping.nextMarker('passport')
-        fakeValue = fake.fakeAlphanumericReference(value)
-        break
-      case 'vehicleRegistration':
-        markerPath = this.mapping.nextMarker('vehicleRegistration')
-        fakeValue = fake.fakeAlphanumericReference(value)
-        break
-      case 'creditCard':
-        markerPath = this.mapping.nextMarker('creditCard')
-        fakeValue = fake.fakeAlphanumericReference(value)
-        break
-      case 'BIC':
-        markerPath = this.mapping.nextMarker('BIC')
-        fakeValue = fake.fakeBic(value)
-        break
-      case 'ipAddress':
-        markerPath = this.mapping.nextMarker('ipAddress')
-        fakeValue = fake.fakeIp(value)
-        break
-      case 'macAddress':
-        markerPath = this.mapping.nextMarker('macAddress')
-        fakeValue = fake.fakeMac(value)
-        break
-      case 'identifier':
-        markerPath = this.mapping.nextMarker('identifier')
-        fakeValue = fake.fakeAlphanumericReference(value)
-        break
-      case 'medicalId':
-        markerPath = this.mapping.nextMarker('medicalId')
-        fakeValue = fake.fakeAlphanumericReference(value)
-        break
-      case 'url':
-        markerPath = this.mapping.nextMarker('url')
-        fakeValue = fake.fakeUrl(value)
-        break
-      case 'filePath':
-        markerPath = this.mapping.nextMarker('filePath')
-        fakeValue = fake.fakeFilePath(value)
-        break
-      case 'gpsCoordinates':
-        markerPath = this.mapping.nextMarker('gpsCoordinates')
-        fakeValue = fake.fakeGps(value)
-        break
-      case 'custom':
-        markerPath = this.mapping.nextMarker(`custom.${labelToKey(value)}`)
-        fakeValue = fake.fakeCompany(value, loc)
-        break
-      default: {
-        // name — every name producer (detectCapitalized, salutation/title-anchored,
-        // legal-role, NER fallback) emits one span per token, so `value` is a
-        // single token here. Pick firstName vs lastName based on inferred gender.
-        markerPath = this.mapping.nextMarker('name')
-        const inferredGender = fake.inferGender(value)
-        fakeValue = this.pickUniqueFake(value, (attempt) =>
-          inferredGender !== null
-            ? fake.fakeFirstName(value, loc, inferredGender, attempt)
-            : fake.fakeLastName(value, loc, attempt)
-        )
-        break
-      }
+  private generatePostalLocationEntry(value: string): MappingEntry {
+    const markerPath = this.mapping.nextMarker('postalLocation')
+    const match = /^(\d{5})\s+(.+)$/.exec(value.trim())
+    if (!match) {
+      return this.addEntry(
+        value,
+        markerPath,
+        fake.fakeAddress(value, this.locale),
+        'postalLocation'
+      )
     }
 
-    return this.addEntry(value, markerPath, fakeValue, type)
+    const [, zip = '', city = ''] = match
+    // Reuse pre-existing fakes when the city/zip are already mapped
+    // (typically by the contact seeding pass via pickUniqueFake collision
+    // rotation). Without this, the aggregate would compute a fresh attempt=0
+    // fake here that disagrees with the bare-city value.
+    const fakeZip = this.mapping.getFake(zip)?.fakeValue ?? fake.fakeZipCode(zip)
+    const fakeCity = this.mapping.getFake(city)?.fakeValue ?? fake.fakeCity(city, this.locale)
+
+    // The LLM often splits a postalLocation back into separate tool-call
+    // fields ({ city, postalCode }). Without per-component entries, only the
+    // aggregate fakeValue is registered and revert() cannot map a bare city or
+    // postcode back to the original.
+    if (!this.mapping.hasOriginal(zip)) {
+      this.addEntry(zip, this.mapping.nextMarker('postalCode'), fakeZip, 'postalCode')
+    }
+    if (!this.mapping.hasOriginal(city)) {
+      this.addEntry(city, this.mapping.nextMarker('city'), fakeCity, 'city')
+    }
+
+    return this.addEntry(value, markerPath, `${fakeZip} ${fakeCity}`, 'postalLocation')
+  }
+
+  private generateNameEntry(value: string): MappingEntry {
+    // Every name producer emits one span per token, so `value` is a single
+    // token here. Pick firstName vs lastName based on inferred gender.
+    const inferredGender = fake.inferGender(value)
+    const fakeValue = this.pickUniqueFake(value, (attempt) =>
+      inferredGender !== null
+        ? fake.fakeFirstName(value, this.locale, inferredGender, attempt)
+        : fake.fakeLastName(value, this.locale, attempt)
+    )
+    return this.addEntry(value, this.mapping.nextMarker('name'), fakeValue, 'name')
+  }
+
+  private generateCustomEntry(value: string): MappingEntry {
+    return this.addEntry(
+      value,
+      this.mapping.nextMarker(`custom.${labelToKey(value)}`),
+      fake.fakeCompany(value, this.locale),
+      'custom'
+    )
+  }
+
+  private generateEntry(type: EntityType, value: string): MappingEntry {
+    if (type === 'postalLocation') return this.generatePostalLocationEntry(value)
+    if (type === 'custom') return this.generateCustomEntry(value)
+    if (type === 'name') return this.generateNameEntry(value)
+    // Every remaining entity type maps 1:1 to a fake generator. The `?? name`
+    // guard is defensive: a future EntityType missing from DIRECT_ENTRY_FACTORIES
+    // is still redacted (as a name) rather than slipping through in clear text.
+    return this.createDirectEntry(type, value) ?? this.generateNameEntry(value)
   }
 
   /** Pseudonymize a value that may be a JSON string or plain text */
@@ -708,34 +726,14 @@ export class PiiPseudonymizer {
     if (!text) return text
     if (!this.nerConfig?.enabled) return this.pseudonymize(text)
 
-    // Same pre-registration step as `pseudonymize` — see the comment there for
-    // why this must run before `replaceSeededValues`.
-    this.preRegisterStructuralEntries(text)
-
-    let result = this.replaceSeededValues(text)
-    const masked = this.maskProtectedSegments(result)
-
+    const { result, masked } = this.prepareTextForDetection(text)
     const { hintedText, nerRegions } = await applyNerHints(masked, this.nerConfig)
     const regexSpans = detectPii(hintedText, this.wordlist)
     const fallbackSpans = buildNerFallbackSpans(result, nerRegions, regexSpans)
 
     // Regex spans win on identical ranges via mergeSpans' stable sort; the
     // fallback only fills regions with no regex coverage.
-    const spans: DetectedSpan[] = mergeSpans([...regexSpans, ...fallbackSpans])
-    this.reserveSpanOriginals(result, spans)
-
-    const sortedSpans = [...spans].sort((a, b) => b.start - a.start)
-    for (const span of sortedSpans) {
-      // Always use the original (un-hinted) substring as the mapping key so
-      // revert() round-trips to the exact source casing / diacritics.
-      const originalValue = result.slice(span.start, span.end)
-      const entry =
-        this.mapping.getFake(originalValue) ?? this.generateEntry(span.type, originalValue)
-      const marker = PiiMapping.format(entry.markerPath, entry.fakeValue)
-      result = result.slice(0, span.start) + marker + result.slice(span.end)
-    }
-
-    return result
+    return this.applyDetectedSpans(result, mergeSpans([...regexSpans, ...fallbackSpans]))
   }
 
   /** Async counterpart of pseudonymizeAuto — routes JSON string values through the NER-aware path. */
@@ -755,58 +753,73 @@ export class PiiPseudonymizer {
 
   /** Recursive async variant of pseudonymizeJson. */
   async pseudonymizeJsonAsync(obj: unknown): Promise<unknown> {
-    if (typeof obj === 'string') return this.pseudonymizeAsync(obj)
-    if (Array.isArray(obj)) {
-      const out: unknown[] = []
-      for (const item of obj) out.push(await this.pseudonymizeJsonAsync(item))
-      return out
-    }
-    if (obj !== null && typeof obj === 'object') {
-      const result: Record<string, unknown> = {}
-      for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-        result[key] = await this.pseudonymizeJsonAsync(value)
-      }
-      return result
-    }
-    return obj
+    return this.mapJsonAsync(obj, (value) => this.pseudonymizeAsync(value))
   }
 
   /** Recursively pseudonymize JSON string values, leaving keys untouched */
   pseudonymizeJson(obj: unknown): unknown {
-    if (typeof obj === 'string') return this.pseudonymize(obj)
-    if (Array.isArray(obj)) return obj.map((item) => this.pseudonymizeJson(item))
-    if (obj !== null && typeof obj === 'object') {
-      const result: Record<string, unknown> = {}
-      for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-        result[key] = this.pseudonymizeJson(value)
-      }
-      return result
-    }
-    return obj
+    return this.mapJson(obj, (value) => this.pseudonymize(value))
   }
 
-  /** Revert [[marker]] patterns back to original values */
+  /** Revert fake values back to original values */
   revert(text: string): string {
     return this.mapping.revert(text)
   }
 
   /** Recursively revert JSON object string values AND keys. Keys can carry
-   * markers because the LLM routinely repositions marker-bearing strings
-   * (e.g. template paths from a previous tool result) into key slots. */
+   * fake values because the LLM can reposition value strings into key slots
+   * (e.g. template paths from a previous tool result). */
   revertJson(obj: unknown): unknown {
-    if (typeof obj === 'string') return this.revert(obj)
-    if (Array.isArray(obj)) return obj.map((item) => this.revertJson(item))
+    return this.mapJson(
+      obj,
+      (value) => this.revert(value),
+      (key) => this.revert(key)
+    )
+  }
+
+  exportMapping(): ReturnType<PiiMapping['toJSON']> {
+    return this.mapping.toJSON()
+  }
+
+  private mapJson(
+    obj: unknown,
+    mapString: (value: string) => string,
+    mapKey: (key: string) => string = (key) => key
+  ): unknown {
+    if (typeof obj === 'string') return mapString(obj)
+    if (Array.isArray(obj)) return obj.map((item) => this.mapJson(item, mapString, mapKey))
     if (obj !== null && typeof obj === 'object') {
       const result: Record<string, unknown> = {}
       for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-        result[this.revert(key)] = this.revertJson(value)
+        result[mapKey(key)] = this.mapJson(value, mapString, mapKey)
       }
       return result
     }
     return obj
   }
 
-  exportMapping(): ReturnType<PiiMapping['toJSON']> {
-    return this.mapping.toJSON()
+  // Async counterpart of mapJson. No mapKey parameter: the only async caller
+  // (pseudonymizeJsonAsync) leaves keys untouched, like sync pseudonymizeJson.
+  // Traversal is sequential — never Promise.all — because mapString mutates the
+  // shared PiiMapping (counter-based paths, fake-collision rotation), so
+  // parallel traversal would make path allocation non-deterministic.
+  private async mapJsonAsync(
+    obj: unknown,
+    mapString: (value: string) => Promise<string>
+  ): Promise<unknown> {
+    if (typeof obj === 'string') return mapString(obj)
+    if (Array.isArray(obj)) {
+      const result: unknown[] = []
+      for (const item of obj) result.push(await this.mapJsonAsync(item, mapString))
+      return result
+    }
+    if (obj !== null && typeof obj === 'object') {
+      const result: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+        result[key] = await this.mapJsonAsync(value, mapString)
+      }
+      return result
+    }
+    return obj
   }
 }

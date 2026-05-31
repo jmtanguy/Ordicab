@@ -1,12 +1,4 @@
-import { ZodError } from 'zod'
-
-import {
-  IPC_CHANNELS,
-  IpcErrorCode,
-  type ClaudeMdStatus,
-  type IpcError,
-  type IpcResult
-} from '@shared/types'
+import { IPC_CHANNELS, type ClaudeMdStatus, type IpcError, type IpcResult } from '@shared/types'
 import { claudeMdRegenerateInputSchema } from '@shared/validation/claudeMd'
 
 import {
@@ -14,45 +6,13 @@ import {
   DelegatedInstructionsGeneratorError
 } from '../lib/aiDelegated/aiDelegatedInstructionsGenerator'
 import { type DocumentService, DocumentServiceError } from '../services/domain/documentService'
+import { type IpcMainLike, mapIpcError } from './ipc'
 
-interface IpcMainLike {
-  handle: (
-    channel: string,
-    listener: (_event: unknown, input?: unknown) => Promise<unknown>
-  ) => void
-}
-
-function mapClaudeMdError(error: unknown, fallbackMessage: string): IpcError {
-  if (error instanceof ZodError) {
-    return {
-      success: false,
-      error: 'Invalid CLAUDE.md input.',
-      code: IpcErrorCode.VALIDATION_FAILED
-    }
-  }
-
-  if (error instanceof DelegatedInstructionsGeneratorError) {
-    return {
-      success: false,
-      error: error.message,
-      code: error.code
-    }
-  }
-
-  if (error instanceof DocumentServiceError) {
-    return {
-      success: false,
-      error: error.message,
-      code: error.code
-    }
-  }
-
-  return {
-    success: false,
-    error: error instanceof Error ? error.message : fallbackMessage,
-    code: IpcErrorCode.FILE_SYSTEM_ERROR
-  }
-}
+const mapClaudeMdError = (error: unknown, fallback: string): IpcError =>
+  mapIpcError(error, fallback, {
+    validationMessage: 'Invalid CLAUDE.md input.',
+    errorClasses: [DelegatedInstructionsGeneratorError, DocumentServiceError]
+  })
 
 export function registerInstructionsHandlers(options: {
   ipcMain: IpcMainLike

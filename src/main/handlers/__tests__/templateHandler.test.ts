@@ -344,9 +344,12 @@ describe('templateHandler', () => {
       openPath
     })
 
+    // Email templates intentionally skip the auto-DOCX materialization, which
+    // gives us a clean baseline to assert the missing-DOCX failure modes below.
     const created = (await harness.invoke(IPC_CHANNELS.template.create, {
       name: 'Courrier',
-      content: 'Version 1'
+      content: 'Version 1',
+      tags: ['email']
     })) as IpcResult<TemplateRecord>
     const createdId = created.success ? created.data.id : ''
 

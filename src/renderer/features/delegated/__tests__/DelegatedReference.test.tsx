@@ -48,7 +48,7 @@ describe('DelegatedReference', () => {
     expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual([
       'Dossier Bulk Setup',
       'Add or Update Contact',
-      'Extract Key Dates',
+      'Extract Events',
       'Add Key Reference',
       'Update Firm Profile',
       'Tag Documents',

@@ -9,19 +9,22 @@ import type {
   DocumentWatchStatus
 } from '@shared/types'
 
-import { Card, Button } from '@renderer/components/ui'
-import type { DocumentContentState, DocumentPreviewState } from '@renderer/stores'
+import { Button } from '@renderer/components/ui'
+import { cn } from '@renderer/lib/utils'
+import {
+  useDocumentStore,
+  type DocumentContentState,
+  type DocumentPreviewState
+} from '@renderer/stores'
 
 import { DocumentMetadataPanel } from './DocumentMetadataPanel'
 import { DocumentPreviewPanel } from './DocumentPreviewPanel'
 
-const FOLDER_ROW_HEIGHT = 44
-const FILE_ROW_HEIGHT = 84
-const FILE_ROW_HEIGHT_WITH_ONE_META = 108
-const FILE_ROW_HEIGHT_WITH_BOTH_META = 132
-const MIN_VIEWPORT_HEIGHT = 420
-const SSR_INITIAL_ROW_COUNT = 16
-const INDENT_PX = 16
+const FOLDER_ROW_HEIGHT = 40
+const FILE_ROW_HEIGHT = 52
+const MIN_VIEWPORT_HEIGHT = 480
+const SSR_INITIAL_ROW_COUNT = 24
+const INDENT_PX = 18
 const ALL_EXTENSIONS_VALUE = '__all__'
 
 type SortBy = 'name' | 'date-desc' | 'date-asc'
@@ -43,8 +46,6 @@ function setLocalStorageItem(key: string, value: string): void {
     // Ignore preference persistence failures in restricted environments.
   }
 }
-type ExtractDialogPhase = 'idle' | 'confirm' | 'running' | 'done'
-
 interface FolderNode {
   kind: 'folder'
   name: string
@@ -66,7 +67,8 @@ function getTreeNodeKey(node: TreeNode): string {
 }
 
 function buildFolderMap(
-  documents: DocumentRecord[]
+  documents: DocumentRecord[],
+  extraFolderPaths: readonly string[] = []
 ): Map<string, { subfolders: Set<string>; files: DocumentRecord[] }> {
   const map = new Map<string, { subfolders: Set<string>; files: DocumentRecord[] }>()
 
@@ -92,6 +94,17 @@ function buildFolderMap(
 
     const parentPath = parts.length > 1 ? parts.slice(0, -1).join('/') : ''
     ensure(parentPath).files.push(document)
+  }
+
+  for (const folderPath of extraFolderPaths) {
+    if (!folderPath) continue
+    const parts = folderPath.split('/')
+    for (let index = 1; index <= parts.length; index += 1) {
+      const currentPath = parts.slice(0, index).join('/')
+      const parentPath = parts.slice(0, index - 1).join('/')
+      ensure(currentPath)
+      ensure(parentPath).subfolders.add(currentPath)
+    }
   }
 
   return map
@@ -158,20 +171,11 @@ function flattenVisible(
 function formatTimestamp(value: string, locale: string): string {
   try {
     return new Intl.DateTimeFormat(locale, {
-      dateStyle: 'medium',
-      timeStyle: 'short'
+      dateStyle: 'medium'
     }).format(new Date(value))
   } catch {
     return value
   }
-}
-
-function getFileRowHeight(document: DocumentRecord): number {
-  const hasDescription = Boolean(document.description)
-  const hasTags = document.tags.length > 0
-  if (hasDescription && hasTags) return FILE_ROW_HEIGHT_WITH_BOTH_META
-  if (hasDescription || hasTags) return FILE_ROW_HEIGHT_WITH_ONE_META
-  return FILE_ROW_HEIGHT
 }
 
 function getDocumentExtension(filename: string): string {
@@ -184,13 +188,292 @@ function getDocumentExtension(filename: string): string {
   return filename.slice(lastDotIndex).toLowerCase()
 }
 
-function getExtractionBadgeTone(state: DocumentRecord['textExtraction']['state']): string {
-  if (state === 'extracted') return 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200'
-  if (state === 'extractable') return 'border-amber-300/30 bg-amber-300/10 text-amber-100'
-  return 'border-slate-600/40 bg-slate-800/60 text-slate-300'
+interface FileIconTheme {
+  bg: string
+  fg: string
+  label: string
 }
 
-function getExtractionBadgeLabel(
+const FILE_ICON_FALLBACK: FileIconTheme = {
+  bg: 'bg-[#e8e4d6]',
+  fg: 'text-[#5c5c5a]',
+  label: 'DOC'
+}
+
+const FILE_ICON_THEMES: Record<string, FileIconTheme> = {
+  '.pdf': { bg: 'bg-[#fbe4dc]', fg: 'text-[#a8462f]', label: 'PDF' },
+  '.doc': { bg: 'bg-[#dde7f4]', fg: 'text-[#2c5b91]', label: 'DOC' },
+  '.docx': { bg: 'bg-[#dde7f4]', fg: 'text-[#2c5b91]', label: 'DOC' },
+  '.odt': { bg: 'bg-[#dde7f4]', fg: 'text-[#2c5b91]', label: 'ODT' },
+  '.rtf': { bg: 'bg-[#dde7f4]', fg: 'text-[#2c5b91]', label: 'RTF' },
+  '.txt': { bg: 'bg-[#ece9df]', fg: 'text-[#4a4a48]', label: 'TXT' },
+  '.md': { bg: 'bg-[#ece9df]', fg: 'text-[#4a4a48]', label: 'MD' },
+  '.csv': { bg: 'bg-[#dfeede]', fg: 'text-[#3c6132]', label: 'CSV' },
+  '.xls': { bg: 'bg-[#dfeede]', fg: 'text-[#3c6132]', label: 'XLS' },
+  '.xlsx': { bg: 'bg-[#dfeede]', fg: 'text-[#3c6132]', label: 'XLS' },
+  '.jpg': { bg: 'bg-[#ecdef0]', fg: 'text-[#6b3a8c]', label: 'JPG' },
+  '.jpeg': { bg: 'bg-[#ecdef0]', fg: 'text-[#6b3a8c]', label: 'JPG' },
+  '.png': { bg: 'bg-[#ecdef0]', fg: 'text-[#6b3a8c]', label: 'PNG' },
+  '.gif': { bg: 'bg-[#ecdef0]', fg: 'text-[#6b3a8c]', label: 'GIF' },
+  '.tif': { bg: 'bg-[#ecdef0]', fg: 'text-[#6b3a8c]', label: 'TIF' },
+  '.tiff': { bg: 'bg-[#ecdef0]', fg: 'text-[#6b3a8c]', label: 'TIF' },
+  '.webp': { bg: 'bg-[#ecdef0]', fg: 'text-[#6b3a8c]', label: 'IMG' },
+  '.eml': { bg: 'bg-[#daeaee]', fg: 'text-[#0f6577]', label: 'EML' },
+  '.msg': { bg: 'bg-[#daeaee]', fg: 'text-[#0f6577]', label: 'MSG' }
+}
+
+function getFileIconTheme(filename: string): FileIconTheme {
+  const extension = getDocumentExtension(filename)
+  if (!extension) return FILE_ICON_FALLBACK
+  return (
+    FILE_ICON_THEMES[extension] ?? {
+      ...FILE_ICON_FALLBACK,
+      label: extension.replace('.', '').toUpperCase().slice(0, 3)
+    }
+  )
+}
+
+function FileIcon({ filename }: { filename: string }): React.JSX.Element {
+  const theme = getFileIconTheme(filename)
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-semibold tracking-wider',
+        theme.bg,
+        theme.fg
+      )}
+    >
+      {theme.label}
+    </span>
+  )
+}
+
+const EMPTY_FOLDER_PATHS: readonly string[] = Object.freeze([])
+
+const FORBIDDEN_FS_NAME_CHARS_RE = /[\\/:*?"<>|]/
+
+function isValidFsName(value: string): boolean {
+  const trimmed = value.trim()
+  if (!trimmed || trimmed === '.' || trimmed === '..') return false
+  if (trimmed.startsWith('.')) return false
+  if (FORBIDDEN_FS_NAME_CHARS_RE.test(trimmed)) return false
+  return true
+}
+
+function NewFolderIcon(): React.JSX.Element {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M1.5 4A1.5 1.5 0 0 1 3 2.5h3l1.5 1.5H13A1.5 1.5 0 0 1 14.5 5.5V12A1.5 1.5 0 0 1 13 13.5H3A1.5 1.5 0 0 1 1.5 12V4z" />
+      <path d="M8 7v4M6 9h4" />
+    </svg>
+  )
+}
+
+function PencilGlyph(): React.JSX.Element {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M11.5 2.5 13.5 4.5 5 13 2.5 13.5 3 11Z" />
+      <path d="M10 4 12 6" />
+    </svg>
+  )
+}
+
+function TrashGlyph(): React.JSX.Element {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 4.5h10" />
+      <path d="M6.5 4.5V3h3v1.5" />
+      <path d="M4.5 4.5 5 13.5h6L11.5 4.5" />
+    </svg>
+  )
+}
+
+function NameEditor({
+  initialValue,
+  placeholder,
+  confirmLabel,
+  cancelLabel,
+  invalidLabel,
+  disabled,
+  onConfirm,
+  onCancel
+}: {
+  initialValue: string
+  placeholder?: string
+  confirmLabel: string
+  cancelLabel: string
+  invalidLabel: string
+  disabled?: boolean
+  onConfirm: (value: string) => void
+  onCancel: () => void
+}): React.JSX.Element {
+  const [value, setValue] = useState(initialValue)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    inputRef.current?.focus()
+    inputRef.current?.select()
+  }, [])
+
+  const trimmed = value.trim()
+  const valid = isValidFsName(trimmed)
+
+  return (
+    <form
+      onClick={(event) => event.stopPropagation()}
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (valid) onConfirm(trimmed)
+      }}
+      className="pointer-events-auto relative z-20 flex flex-1 items-center gap-1"
+    >
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        placeholder={placeholder}
+        disabled={disabled}
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            onCancel()
+          }
+        }}
+        aria-invalid={!valid}
+        aria-label={placeholder}
+        className={cn(
+          'h-7 min-w-0 flex-1 rounded-md border bg-white px-2 text-sm text-[#1a1a1a] outline-none transition focus:ring-2 focus:ring-aurora/30',
+          valid ? 'border-[#e5e3da] focus:border-aurora' : 'border-[#e8c7c7] focus:border-[#9c2f2f]'
+        )}
+      />
+      <button
+        type="submit"
+        disabled={!valid || disabled}
+        aria-label={valid ? confirmLabel : invalidLabel}
+        title={valid ? confirmLabel : invalidLabel}
+        className="flex h-7 w-7 items-center justify-center rounded-full text-aurora transition hover:bg-aurora/10 disabled:cursor-not-allowed disabled:text-[#bcbab1] disabled:hover:bg-transparent"
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M3 8.5 6.5 12 13 4.5" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onCancel}
+        aria-label={cancelLabel}
+        title={cancelLabel}
+        className="flex h-7 w-7 items-center justify-center rounded-full text-[#5c5c5a] transition hover:bg-[#fbf0f0] hover:text-[#9c2f2f]"
+      >
+        <svg
+          width="13"
+          height="13"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          aria-hidden="true"
+        >
+          <path d="M4 4l8 8M12 4l-8 8" />
+        </svg>
+      </button>
+    </form>
+  )
+}
+
+function ConfirmDeleteTray({
+  label,
+  confirmLabel,
+  cancelLabel,
+  disabled,
+  onConfirm,
+  onCancel
+}: {
+  label: string
+  confirmLabel: string
+  cancelLabel: string
+  disabled?: boolean
+  onConfirm: () => void
+  onCancel: () => void
+}): React.JSX.Element {
+  return (
+    <div
+      onClick={(event) => event.stopPropagation()}
+      className="relative z-20 flex items-center gap-1.5 rounded-full border border-[#e8c7c7] bg-[#fbf0f0] px-2 py-0.5"
+    >
+      <span className="text-xs font-semibold text-[#9c2f2f]">{label}</span>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onConfirm}
+        aria-label={confirmLabel}
+        className="rounded-full px-2 py-0.5 text-xs font-semibold text-[#9c2f2f] transition hover:bg-[#f7dada] disabled:opacity-50"
+      >
+        {confirmLabel}
+      </button>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onCancel}
+        aria-label={cancelLabel}
+        className="rounded-full px-2 py-0.5 text-xs text-[#5c5c5a] transition hover:bg-white/60 hover:text-[#1a1a1a] disabled:opacity-50"
+      >
+        {cancelLabel}
+      </button>
+    </div>
+  )
+}
+
+function getExtractionDotClass(state: DocumentRecord['textExtraction']['state']): string {
+  if (state === 'extracted') return 'bg-[#5a8a3a]'
+  if (state === 'extractable') return 'bg-[#c79822]'
+  return 'bg-[#bcbab1]'
+}
+
+function getExtractionLabel(
   state: DocumentRecord['textExtraction']['state'],
   t: (key: string) => string
 ): string {
@@ -213,8 +496,6 @@ export function DocumentList({
   onOpenPreview,
   onOpenFile,
   onExtractContent,
-  onExtractPendingContent,
-  onClearContentCache,
   onNavigateToGenerate
 }: {
   dossierId: string
@@ -230,34 +511,36 @@ export function DocumentList({
   onOpenPreview: (input: DocumentPreviewInput) => Promise<void>
   onOpenFile: (input: DocumentPreviewInput) => Promise<void>
   onExtractContent?: (input: DocumentPreviewInput) => Promise<boolean>
-  onExtractPendingContent?: (input: { dossierId: string }) => Promise<{
-    attempted: number
-    succeeded: number
-    failed: number
-  }>
-  onClearContentCache?: (input: { dossierId: string }) => Promise<boolean>
   onNavigateToGenerate?: () => void
 }): React.JSX.Element {
   const parentRef = useRef<HTMLDivElement | null>(null)
   const { t, i18n } = useTranslation()
   void watchStatus
+  const folderPaths = useDocumentStore(
+    (state) => state.foldersByDossierId[dossierId] ?? EMPTY_FOLDER_PATHS
+  )
+  const isMutatingTree = useDocumentStore((state) => state.isMutatingTree)
+  const treeError = useDocumentStore((state) => state.treeError)
+  const createFolderAction = useDocumentStore((state) => state.createFolder)
+  const renameFolderAction = useDocumentStore((state) => state.renameFolder)
+  const deleteFolderAction = useDocumentStore((state) => state.deleteFolder)
+  const renameFileAction = useDocumentStore((state) => state.renameFile)
+  const deleteFileAction = useDocumentStore((state) => state.deleteFile)
+  const clearTreeError = useDocumentStore((state) => state.clearTreeError)
   const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null)
   const [filenameFilter, setFilenameFilter] = useState('')
   const [extensionFilter, setExtensionFilter] = useState(ALL_EXTENSIONS_VALUE)
+  const [creatingFolderAt, setCreatingFolderAt] = useState<string | null>(null)
+  const [renamingFolderPath, setRenamingFolderPath] = useState<string | null>(null)
+  const [renamingFilePath, setRenamingFilePath] = useState<string | null>(null)
+  const [confirmDeleteFolderPath, setConfirmDeleteFolderPath] = useState<string | null>(null)
+  const [confirmDeleteFilePath, setConfirmDeleteFilePath] = useState<string | null>(null)
   const [sortBy, setSortBy] = useState<SortBy>(
     () => (getLocalStorageItem('documents-sort-by') as SortBy) ?? 'name'
   )
-  const [extractDialogPhase, setExtractDialogPhase] = useState<ExtractDialogPhase>('idle')
-  const [extractProgress, setExtractProgress] = useState<{
-    current: number
-    total: number
-    succeeded: number
-    failed: number
-    currentFilename: string | null
-    wasAborted: boolean
-  }>({ current: 0, total: 0, succeeded: 0, failed: 0, currentFilename: null, wasAborted: false })
-  const abortRequestedRef = useRef(false)
-
+  const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(
+    () => activePreviewDocumentId !== null
+  )
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => {
     const initial = new Set<string>()
 
@@ -282,6 +565,12 @@ export function DocumentList({
     }
   }, [documents, editingDocumentId])
 
+  useEffect(() => {
+    if (activePreviewDocumentId) {
+      setIsPreviewOpen(true)
+    }
+  }, [activePreviewDocumentId])
+
   const searchTerms = filenameFilter
     .trim()
     .toLowerCase()
@@ -292,14 +581,6 @@ export function DocumentList({
     documents.find((document) => document.id === activePreviewDocumentId) ?? null
   const handleExtractContent =
     typeof onExtractContent === 'function' ? onExtractContent : async () => false
-  const pendingExtractableCount = documents.filter(
-    (document) =>
-      document.textExtraction.isExtractable && document.textExtraction.state !== 'extracted'
-  ).length
-  const totalExtractableCount = documents.filter(
-    (document) => document.textExtraction.isExtractable
-  ).length
-  const allExtracted = totalExtractableCount > 0 && pendingExtractableCount === 0
   const availableExtensions = useMemo(() => {
     const counts = new Map<string, number>()
 
@@ -340,7 +621,11 @@ export function DocumentList({
       return a.filename.localeCompare(b.filename)
     })
   }, [documents, extensionFilter, searchTerms, sortBy])
-  const folderMap = useMemo(() => buildFolderMap(filteredDocuments), [filteredDocuments])
+  const isFiltering = searchTerms.length > 0 || extensionFilter !== ALL_EXTENSIONS_VALUE
+  const folderMap = useMemo(
+    () => buildFolderMap(filteredDocuments, isFiltering ? [] : folderPaths),
+    [filteredDocuments, folderPaths, isFiltering]
+  )
   const flatNodes = useMemo(
     () => flattenVisible(folderMap, expandedPaths, '', 0, sortBy),
     [folderMap, expandedPaths, sortBy]
@@ -360,6 +645,11 @@ export function DocumentList({
     })
   }
 
+  const openPreviewForDocument = (documentId: string): void => {
+    setIsPreviewOpen(true)
+    void onOpenPreview({ dossierId, documentId })
+  }
+
   // TanStack Virtual is the approved large-list path for this surface.
   // eslint-disable-next-line react-hooks/incompatible-library
   const rowVirtualizer = useVirtualizer({
@@ -371,7 +661,7 @@ export function DocumentList({
         return FILE_ROW_HEIGHT
       }
 
-      return node.kind === 'folder' ? FOLDER_ROW_HEIGHT : getFileRowHeight(node.document)
+      return node.kind === 'folder' ? FOLDER_ROW_HEIGHT : FILE_ROW_HEIGHT
     },
     getItemKey: (index) => {
       const node = flatNodes[index]
@@ -379,7 +669,7 @@ export function DocumentList({
       return node ? getTreeNodeKey(node) : index
     },
     getScrollElement: () => parentRef.current,
-    overscan: 6,
+    overscan: 8,
     initialRect: { height: MIN_VIEWPORT_HEIGHT, width: 0 }
   })
 
@@ -390,16 +680,13 @@ export function DocumentList({
           .map((node, index) => ({
             index,
             key: getTreeNodeKey(node),
-            size: node.kind === 'folder' ? FOLDER_ROW_HEIGHT : getFileRowHeight(node.document),
+            size: node.kind === 'folder' ? FOLDER_ROW_HEIGHT : FILE_ROW_HEIGHT,
             start:
               flatNodes
                 .slice(0, index)
                 .reduce(
                   (sum, currentNode) =>
-                    sum +
-                    (currentNode.kind === 'folder'
-                      ? FOLDER_ROW_HEIGHT
-                      : getFileRowHeight(currentNode.document)),
+                    sum + (currentNode.kind === 'folder' ? FOLDER_ROW_HEIGHT : FILE_ROW_HEIGHT),
                   0
                 ) ?? 0
           }))
@@ -408,130 +695,132 @@ export function DocumentList({
   const totalSize =
     typeof window === 'undefined'
       ? flatNodes.reduce(
-          (sum, node) =>
-            sum + (node.kind === 'folder' ? FOLDER_ROW_HEIGHT : getFileRowHeight(node.document)),
+          (sum, node) => sum + (node.kind === 'folder' ? FOLDER_ROW_HEIGHT : FILE_ROW_HEIGHT),
           0
         )
       : rowVirtualizer.getTotalSize()
 
   const locale = i18n.resolvedLanguage ?? 'en'
-  const hasVisibleDocuments = filteredDocuments.length > 0
+  const hasVisibleDocuments = filteredDocuments.length > 0 || flatNodes.length > 0
+  const isDrawerVisible = isPreviewOpen && activePreviewDocument !== null
+  const totalDocumentCount = documents.length
+  const filteredCount = filteredDocuments.length
+  const countLabel =
+    filteredCount === totalDocumentCount
+      ? t('documents.count_total', {
+          count: totalDocumentCount,
+          defaultValue: '{{count}} fichier(s)'
+        })
+      : t('documents.count_filtered', {
+          count: filteredCount,
+          total: totalDocumentCount,
+          defaultValue: '{{count}} sur {{total}}'
+        })
 
   return (
-    <Card className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+      <div className="flex min-h-10 shrink-0 flex-wrap items-center justify-between gap-3">
+        <div className="flex items-baseline gap-3">
+          <p className="text-xs uppercase tracking-[0.16em] text-[#5c5c5a]">
             {t('documents.section_badge')}
           </p>
+          {totalDocumentCount > 0 ? (
+            <span className="text-xs text-[#8a8a85]">{countLabel}</span>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={isMutatingTree || creatingFolderAt !== null}
+            onClick={() => {
+              clearTreeError()
+              setCreatingFolderAt('')
+            }}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <NewFolderIcon />
+              {t('documents.new_folder_action', { defaultValue: 'Nouveau sous-dossier' })}
+            </span>
+          </Button>
           {onNavigateToGenerate ? (
             <Button type="button" variant="ghost" size="sm" onClick={onNavigateToGenerate}>
               {t('documents.generate_action')}
             </Button>
           ) : null}
-          {onExtractPendingContent ? (
-            allExtracted ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={extractDialogPhase !== 'idle' || !onClearContentCache}
-                onClick={async () => {
-                  if (!onClearContentCache) return
-                  await onClearContentCache({ dossierId })
-                  setExtractDialogPhase('confirm')
-                }}
-              >
-                {t('documents.reextract_all_action')}
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={extractDialogPhase !== 'idle' || pendingExtractableCount === 0}
-                onClick={() => setExtractDialogPhase('confirm')}
-              >
-                {extractDialogPhase === 'running'
-                  ? t('documents.extract_all_running_action')
-                  : t('documents.extract_all_action', { count: pendingExtractableCount })}
-              </Button>
-            )
-          ) : null}
         </div>
       </div>
 
       {!isLoading && documents.length > 0 ? (
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_13rem_13rem]">
-          <label
-            htmlFor="document-list-search"
-            className="flex flex-col gap-2 text-sm text-slate-100"
-          >
-            <span>{t('documents.filter_search_label')}</span>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <div className="relative min-w-48 flex-1">
+            <svg
+              aria-hidden="true"
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8a8a85]"
+              width="14"
+              height="14"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+            >
+              <circle cx="7" cy="7" r="4.5" />
+              <path d="m10.5 10.5 3 3" strokeLinecap="round" />
+            </svg>
             <input
               id="document-list-search"
               type="search"
               value={filenameFilter}
               onChange={(event) => setFilenameFilter(event.target.value)}
               placeholder={t('documents.filter_search_placeholder')}
-              className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-aurora focus:ring-2 focus:ring-aurora/35"
+              aria-label={t('documents.filter_search_label')}
+              className="h-10 w-full rounded-full border border-[#e5e3da] bg-white pl-9 pr-4 text-sm text-[#1a1a1a] outline-none transition placeholder:text-[#8a8a85] focus:border-aurora focus:ring-2 focus:ring-aurora/30"
             />
-          </label>
+          </div>
 
-          <label
-            htmlFor="document-list-extension"
-            className="flex flex-col gap-2 text-sm text-slate-100"
+          <select
+            id="document-list-extension"
+            value={extensionFilter}
+            onChange={(event) => setExtensionFilter(event.target.value)}
+            aria-label={t('documents.filter_extension_label')}
+            className="h-10 rounded-full border border-[#e5e3da] bg-white px-4 text-sm text-[#1a1a1a] outline-none transition focus:border-aurora focus:ring-2 focus:ring-aurora/30"
           >
-            <span>{t('documents.filter_extension_label')}</span>
-            <select
-              id="document-list-extension"
-              value={extensionFilter}
-              onChange={(event) => setExtensionFilter(event.target.value)}
-              className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-aurora focus:ring-2 focus:ring-aurora/35"
-            >
-              <option value={ALL_EXTENSIONS_VALUE}>{t('documents.filter_extension_all')}</option>
-              {availableExtensions.map((extension) => (
-                <option key={extension.value} value={extension.value}>
-                  {`${extension.value} (${extension.count})`}
-                </option>
-              ))}
-            </select>
-          </label>
+            <option value={ALL_EXTENSIONS_VALUE}>{t('documents.filter_extension_all')}</option>
+            {availableExtensions.map((extension) => (
+              <option key={extension.value} value={extension.value}>
+                {`${extension.value} (${extension.count})`}
+              </option>
+            ))}
+          </select>
 
-          <label
-            htmlFor="document-list-sort"
-            className="flex flex-col gap-2 text-sm text-slate-100"
+          <select
+            id="document-list-sort"
+            value={sortBy}
+            onChange={(event) => {
+              const value = event.target.value as SortBy
+              setLocalStorageItem('documents-sort-by', value)
+              setSortBy(value)
+            }}
+            aria-label={t('documents.filter_sort_label')}
+            className="h-10 rounded-full border border-[#e5e3da] bg-white px-4 text-sm text-[#1a1a1a] outline-none transition focus:border-aurora focus:ring-2 focus:ring-aurora/30"
           >
-            <span>{t('documents.filter_sort_label')}</span>
-            <select
-              id="document-list-sort"
-              value={sortBy}
-              onChange={(event) => {
-                const value = event.target.value as SortBy
-                setLocalStorageItem('documents-sort-by', value)
-                setSortBy(value)
-              }}
-              className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-aurora focus:ring-2 focus:ring-aurora/35"
-            >
-              <option value="name">{t('documents.filter_sort_name')}</option>
-              <option value="date-desc">{t('documents.filter_sort_date_desc')}</option>
-              <option value="date-asc">{t('documents.filter_sort_date_asc')}</option>
-            </select>
-          </label>
+            <option value="name">{t('documents.filter_sort_name')}</option>
+            <option value="date-desc">{t('documents.filter_sort_date_desc')}</option>
+            <option value="date-asc">{t('documents.filter_sort_date_asc')}</option>
+          </select>
         </div>
       ) : null}
 
       {editingDocument ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/78 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-[rgba(15,122,138,0.18)] p-4 backdrop-blur-sm">
           <div
             role="dialog"
             aria-modal="true"
-            className="flex max-h-[calc(100vh-3rem)] w-full max-w-lg flex-col overflow-y-auto rounded-[28px] border border-sky-200/18 bg-[rgba(16,26,44,0.985)] p-5 shadow-[0_32px_100px_rgba(2,6,23,0.62)]"
+            className="flex max-h-[calc(100vh-3rem)] w-full max-w-lg flex-col overflow-y-auto rounded-[28px] border border-[#d1cfc6] bg-[#f4f3ee] p-5 shadow-[0_30px_80px_rgba(10,92,104,0.28)] ring-1 ring-aurora/15"
           >
             <DocumentMetadataPanel
-              key={`${dossierId}:${editingDocument.id}:${editingDocument.description ?? ''}:${editingDocument.tags.join('\u0000')}`}
+              key={`${dossierId}:${editingDocument.id}:${editingDocument.description ?? ''}:${editingDocument.tags.join(' ')}`}
               document={editingDocument}
               disabled={isSavingMetadata}
               onCancel={() => setEditingDocumentId(null)}
@@ -541,212 +830,98 @@ export function DocumentList({
         </div>
       ) : null}
 
-      {extractDialogPhase !== 'idle' ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/78 p-4 backdrop-blur-sm">
-          <div
-            role="dialog"
-            aria-modal="true"
-            className="flex w-full max-w-md flex-col gap-5 rounded-[28px] border border-sky-200/18 bg-[rgba(16,26,44,0.985)] p-6 shadow-[0_32px_100px_rgba(2,6,23,0.62)]"
-          >
-            <p className="text-sm font-semibold text-slate-100">
-              {t('documents.extract_all_dialog_title')}
-            </p>
-
-            {extractDialogPhase === 'confirm' ? (
-              <>
-                <p className="text-sm text-slate-300">
-                  {t('documents.extract_all_dialog_confirm_body', {
-                    count: pendingExtractableCount
-                  })}
-                </p>
-                <div className="flex justify-end gap-2">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setExtractDialogPhase('idle')}
-                  >
-                    {t('documents.extract_all_dialog_cancel_action')}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={async () => {
-                      const pendingDocuments = documents.filter(
-                        (document) =>
-                          document.textExtraction.isExtractable &&
-                          document.textExtraction.state !== 'extracted'
-                      )
-                      abortRequestedRef.current = false
-                      setExtractProgress({
-                        current: 0,
-                        total: pendingDocuments.length,
-                        succeeded: 0,
-                        failed: 0,
-                        currentFilename: null,
-                        wasAborted: false
-                      })
-                      setExtractDialogPhase('running')
-
-                      let succeeded = 0
-                      let failed = 0
-                      let aborted = false
-
-                      for (let index = 0; index < pendingDocuments.length; index += 1) {
-                        if (abortRequestedRef.current) {
-                          aborted = true
-                          break
-                        }
-
-                        const document = pendingDocuments[index]!
-                        setExtractProgress((previous) => ({
-                          ...previous,
-                          current: index + 1,
-                          currentFilename: document.filename
-                        }))
-
-                        const ok = await handleExtractContent({
-                          dossierId,
-                          documentId: document.id
-                        })
-
-                        if (ok) {
-                          succeeded += 1
-                        } else {
-                          failed += 1
-                        }
-
-                        setExtractProgress((previous) => ({
-                          ...previous,
-                          succeeded,
-                          failed
-                        }))
-                      }
-
-                      setExtractProgress((previous) => ({
-                        ...previous,
-                        currentFilename: null,
-                        wasAborted: aborted
-                      }))
-                      setExtractDialogPhase('done')
-                    }}
-                  >
-                    {t('documents.extract_all_dialog_confirm_action')}
-                  </Button>
-                </div>
-              </>
-            ) : null}
-
-            {extractDialogPhase === 'running' ? (
-              <>
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span>
-                      {t('documents.extract_all_dialog_progress', {
-                        current: extractProgress.current,
-                        total: extractProgress.total
-                      })}
-                    </span>
-                    <span>
-                      {Math.round(
-                        (extractProgress.current / Math.max(extractProgress.total, 1)) * 100
-                      )}
-                      %
-                    </span>
-                  </div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
-                    <div
-                      className="h-full rounded-full bg-aurora transition-all duration-300"
-                      style={{
-                        width: `${(extractProgress.current / Math.max(extractProgress.total, 1)) * 100}%`
-                      }}
-                    />
-                  </div>
-                  {extractProgress.currentFilename ? (
-                    <p className="truncate text-xs text-slate-400">
-                      {t('documents.extract_all_dialog_current_file', {
-                        name: extractProgress.currentFilename
-                      })}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="flex justify-end">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      abortRequestedRef.current = true
-                    }}
-                  >
-                    {t('documents.extract_all_dialog_abort_action')}
-                  </Button>
-                </div>
-              </>
-            ) : null}
-
-            {extractDialogPhase === 'done' ? (
-              <>
-                <p className="text-sm text-slate-300">
-                  {extractProgress.wasAborted
-                    ? t('documents.extract_all_dialog_aborted_body', {
-                        succeeded: extractProgress.succeeded,
-                        failed: extractProgress.failed,
-                        attempted: extractProgress.current
-                      })
-                    : t('documents.extract_all_dialog_done_body', {
-                        succeeded: extractProgress.succeeded,
-                        failed: extractProgress.failed,
-                        attempted: extractProgress.total
-                      })}
-                </p>
-                <div className="flex justify-end">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setExtractDialogPhase('idle')}
-                  >
-                    {t('documents.extract_all_dialog_close_action')}
-                  </Button>
-                </div>
-              </>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
       {error ? (
-        <div className="rounded-xl border border-rose-300/35 bg-rose-300/10 p-4 text-sm text-rose-100">
+        <div className="rounded-xl border border-[#e8c7c7] bg-[#fbf0f0] p-4 text-sm text-[#9c2f2f]">
           {error}
         </div>
       ) : null}
 
+      {treeError ? (
+        <div className="flex items-start justify-between gap-3 rounded-xl border border-[#e8c7c7] bg-[#fbf0f0] p-3 text-sm text-[#9c2f2f]">
+          <span>{treeError}</span>
+          <button
+            type="button"
+            onClick={clearTreeError}
+            aria-label={t('documents.tree_error_dismiss', { defaultValue: 'Fermer' })}
+            className="rounded-full px-2 py-0.5 text-xs hover:bg-white/60"
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
+
+      {creatingFolderAt !== null ? (
+        <div className="flex items-center gap-2 rounded-xl border border-aurora/30 bg-[#f3fafb] p-2.5">
+          <NewFolderIcon />
+          {creatingFolderAt ? (
+            <span className="truncate text-xs text-[#5c5c5a]">
+              {t('documents.folder_create_in', { defaultValue: 'Dans' })}{' '}
+              <span className="font-semibold text-[#1a1a1a]">{creatingFolderAt}/</span>
+            </span>
+          ) : (
+            <span className="text-xs uppercase tracking-[0.12em] text-[#5c5c5a]">
+              {t('documents.folder_create_at_root', { defaultValue: 'À la racine' })}
+            </span>
+          )}
+          <NameEditor
+            initialValue=""
+            placeholder={t('documents.folder_name_placeholder', { defaultValue: 'Nom du dossier' })}
+            confirmLabel={t('documents.folder_create_confirm', { defaultValue: 'Créer' })}
+            cancelLabel={t('documents.folder_create_cancel', { defaultValue: 'Annuler' })}
+            invalidLabel={t('documents.folder_name_invalid', {
+              defaultValue: 'Nom de dossier invalide'
+            })}
+            disabled={isMutatingTree}
+            onCancel={() => setCreatingFolderAt(null)}
+            onConfirm={async (name) => {
+              const parentPath = creatingFolderAt
+              const ok = await createFolderAction({ dossierId, parentPath, name })
+              if (ok) {
+                setCreatingFolderAt(null)
+                setExpandedPaths((previous) => {
+                  const next = new Set(previous)
+                  next.add(parentPath ? `${parentPath}/${name}` : name)
+                  if (parentPath) next.add(parentPath)
+                  return next
+                })
+              }
+            }}
+          />
+        </div>
+      ) : null}
+
       {isLoading ? (
-        <p className="rounded-2xl border border-dashed border-white/10 bg-slate-950/25 p-4 text-sm text-slate-300">
+        <p className="rounded-2xl border border-dashed border-[#e5e3da] bg-white p-4 text-sm text-[#1a1a1a]">
           {t('documents.loading')}
         </p>
       ) : null}
 
-      {!isLoading && documents.length === 0 ? (
-        <p className="rounded-2xl border border-dashed border-white/10 bg-slate-950/25 p-4 text-sm text-slate-300">
+      {!isLoading && documents.length === 0 && folderPaths.length === 0 && !creatingFolderAt ? (
+        <p className="rounded-2xl border border-dashed border-[#e5e3da] bg-white p-4 text-sm text-[#1a1a1a]">
           {t('documents.empty')}
         </p>
       ) : null}
 
       {!isLoading && documents.length > 0 && !hasVisibleDocuments ? (
-        <p className="rounded-2xl border border-dashed border-white/10 bg-slate-950/25 p-4 text-sm text-slate-300">
+        <p className="rounded-2xl border border-dashed border-[#e5e3da] bg-white p-4 text-sm text-[#1a1a1a]">
           {t('documents.no_results')}
         </p>
       ) : null}
 
       {!isLoading && hasVisibleDocuments ? (
-        <div className="grid min-h-0 flex-1 gap-4 overflow-hidden xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.92fr)]">
-          <div
-            ref={parentRef}
-            className="min-h-[26rem] overflow-auto rounded-2xl border border-white/10 bg-slate-950/25 xl:h-full xl:min-h-0"
-          >
+        <div className="relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-[#e5e3da] bg-white shadow-[0_1px_2px_rgba(15,122,138,0.04)]">
+          <div className="flex h-9 items-center gap-3 border-b border-deep-space bg-[#fbf9f4] px-4 text-xs font-medium uppercase tracking-[0.12em] text-[#8a8a85]">
+            <span className="flex-1">{t('documents.column_name', { defaultValue: 'Nom' })}</span>
+            <span className="hidden w-40 shrink-0 md:block">
+              {t('documents.column_tags', { defaultValue: 'Tags' })}
+            </span>
+            <span className="hidden w-24 shrink-0 text-right md:block">
+              {t('documents.column_date', { defaultValue: 'Date' })}
+            </span>
+            <span className="w-24 shrink-0" aria-hidden="true" />
+          </div>
+
+          <div ref={parentRef} className="h-[calc(100%-2.25rem)] overflow-auto">
             <div style={{ height: totalSize, position: 'relative' }}>
               {virtualItems.map((virtualItem) => {
                 const node = flatNodes[virtualItem.index]
@@ -757,169 +932,525 @@ export function DocumentList({
 
                 if (node.kind === 'folder') {
                   const isExpanded = expandedPaths.has(node.path)
+                  const isRenaming = renamingFolderPath === node.path
+                  const isConfirmingDelete = confirmDeleteFolderPath === node.path
+                  const isEmpty = node.totalDescendants === 0
+                  const folderNode = node
 
                   return (
-                    <button
+                    <div
                       key={getTreeNodeKey(node)}
                       ref={(element) => rowVirtualizer.measureElement(element)}
                       data-index={virtualItem.index}
                       data-folder-row={node.path}
-                      type="button"
-                      className="absolute inset-x-0 flex w-full cursor-pointer items-center gap-2 border-b border-white/6 pr-4 text-left last:border-b-0 hover:bg-white/3"
+                      className="group absolute inset-x-0 border-b border-deep-space transition-colors duration-150 last:border-b-0 hover:bg-[#fbf9f4]"
                       style={{
                         minHeight: FOLDER_ROW_HEIGHT,
-                        transform: `translateY(${virtualItem.start}px)`,
-                        paddingLeft: `${16 + node.depth * INDENT_PX}px`
+                        height: FOLDER_ROW_HEIGHT,
+                        transform: `translateY(${virtualItem.start}px)`
                       }}
-                      onClick={() => toggleFolder(node.path)}
                     >
-                      <svg
-                        className="shrink-0 text-slate-400 transition-transform duration-150"
-                        style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}
-                        width="10"
-                        height="10"
-                        viewBox="0 0 10 10"
-                        fill="currentColor"
-                        aria-hidden="true"
+                      {!isRenaming ? (
+                        <button
+                          type="button"
+                          aria-label={
+                            isExpanded
+                              ? t('documents.folder_collapse_action', { defaultValue: 'Replier' })
+                              : t('documents.folder_expand_action', { defaultValue: 'Déplier' })
+                          }
+                          className="absolute inset-0 z-0 w-full cursor-pointer rounded-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-aurora/40"
+                          onClick={() => toggleFolder(folderNode.path)}
+                        />
+                      ) : null}
+
+                      <div
+                        className="pointer-events-none relative z-10 flex h-full items-center gap-2 pr-3"
+                        style={{ paddingLeft: `${16 + folderNode.depth * INDENT_PX}px` }}
                       >
-                        <path d="M3 1.5l4 3.5-4 3.5V1.5z" />
-                      </svg>
-                      <svg
-                        className="shrink-0 text-aurora/60"
-                        width="14"
-                        height="14"
-                        viewBox="0 0 16 16"
-                        fill="currentColor"
-                        aria-hidden="true"
-                      >
-                        <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3.764c.415 0 .813.165 1.107.46L8.5 3.5H13.5A1.5 1.5 0 0 1 15 5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12V3.5z" />
-                      </svg>
-                      <span className="truncate text-sm font-medium text-slate-200">
-                        {node.name}
-                      </span>
-                      <span className="ml-auto shrink-0 rounded-full bg-slate-700 px-1.5 py-0.5 text-[11px] text-slate-300">
-                        {node.totalDescendants}
-                      </span>
-                    </button>
+                        <svg
+                          className="shrink-0 text-[#8a8a85] transition-transform duration-200"
+                          style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}
+                          width="10"
+                          height="10"
+                          viewBox="0 0 10 10"
+                          fill="currentColor"
+                          aria-hidden="true"
+                        >
+                          <path d="M3 1.5l4 3.5-4 3.5V1.5z" />
+                        </svg>
+                        <svg
+                          className="shrink-0 text-aurora/70"
+                          width="14"
+                          height="14"
+                          viewBox="0 0 16 16"
+                          fill="currentColor"
+                          aria-hidden="true"
+                        >
+                          <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3.764c.415 0 .813.165 1.107.46L8.5 3.5H13.5A1.5 1.5 0 0 1 15 5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12V3.5z" />
+                        </svg>
+
+                        {isRenaming ? (
+                          <NameEditor
+                            initialValue={folderNode.name}
+                            placeholder={t('documents.folder_name_placeholder', {
+                              defaultValue: 'Nom du dossier'
+                            })}
+                            confirmLabel={t('documents.folder_rename_confirm', {
+                              defaultValue: 'Renommer'
+                            })}
+                            cancelLabel={t('documents.folder_rename_cancel', {
+                              defaultValue: 'Annuler'
+                            })}
+                            invalidLabel={t('documents.folder_name_invalid', {
+                              defaultValue: 'Nom de dossier invalide'
+                            })}
+                            disabled={isMutatingTree}
+                            onCancel={() => setRenamingFolderPath(null)}
+                            onConfirm={async (newName) => {
+                              if (newName === folderNode.name) {
+                                setRenamingFolderPath(null)
+                                return
+                              }
+                              const ok = await renameFolderAction({
+                                dossierId,
+                                fromPath: folderNode.path,
+                                newName
+                              })
+                              if (ok) setRenamingFolderPath(null)
+                            }}
+                          />
+                        ) : (
+                          <span className="truncate text-sm font-semibold uppercase tracking-[0.04em] text-[#1a1a1a]">
+                            {folderNode.name}
+                          </span>
+                        )}
+
+                        {!isRenaming && folderNode.totalDescendants > 0 ? (
+                          <span className="ml-auto shrink-0 rounded-full bg-deep-space px-2 py-0.5 text-xs font-medium text-[#5c5c5a]">
+                            {folderNode.totalDescendants}
+                          </span>
+                        ) : !isRenaming ? (
+                          <span className="ml-auto" aria-hidden="true" />
+                        ) : null}
+
+                        {!isRenaming ? (
+                          <div className="pointer-events-auto flex shrink-0 items-center gap-1">
+                            {isConfirmingDelete ? (
+                              <ConfirmDeleteTray
+                                label={t('documents.folder_delete_confirm_label', {
+                                  defaultValue: 'Supprimer ?'
+                                })}
+                                confirmLabel={t('documents.folder_delete_confirm_action', {
+                                  defaultValue: 'Confirmer'
+                                })}
+                                cancelLabel={t('documents.folder_delete_cancel_action', {
+                                  defaultValue: 'Annuler'
+                                })}
+                                disabled={isMutatingTree}
+                                onCancel={() => setConfirmDeleteFolderPath(null)}
+                                onConfirm={async () => {
+                                  const ok = await deleteFolderAction({
+                                    dossierId,
+                                    path: folderNode.path
+                                  })
+                                  if (ok) setConfirmDeleteFolderPath(null)
+                                }}
+                              />
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  aria-label={t('documents.folder_new_child_action', {
+                                    defaultValue: 'Nouveau sous-dossier ici'
+                                  })}
+                                  title={t('documents.folder_new_child_action', {
+                                    defaultValue: 'Nouveau sous-dossier ici'
+                                  })}
+                                  disabled={isMutatingTree || creatingFolderAt !== null}
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    clearTreeError()
+                                    setExpandedPaths((previous) => {
+                                      const next = new Set(previous)
+                                      next.add(folderNode.path)
+                                      return next
+                                    })
+                                    setCreatingFolderAt(folderNode.path)
+                                  }}
+                                  className="flex h-7 w-7 items-center justify-center rounded-full text-[#5c5c5a] opacity-0 transition focus-visible:opacity-100 group-hover:opacity-100 hover:bg-aurora/10 hover:text-aurora disabled:cursor-not-allowed disabled:opacity-30"
+                                >
+                                  <NewFolderIcon />
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label={t('documents.folder_rename_action', {
+                                    defaultValue: 'Renommer'
+                                  })}
+                                  title={t('documents.folder_rename_action', {
+                                    defaultValue: 'Renommer'
+                                  })}
+                                  disabled={isMutatingTree}
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    clearTreeError()
+                                    setRenamingFolderPath(folderNode.path)
+                                  }}
+                                  className="flex h-7 w-7 items-center justify-center rounded-full text-[#5c5c5a] opacity-0 transition focus-visible:opacity-100 group-hover:opacity-100 hover:bg-aurora/10 hover:text-aurora"
+                                >
+                                  <PencilGlyph />
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label={
+                                    isEmpty
+                                      ? t('documents.folder_delete_action', {
+                                          defaultValue: 'Supprimer'
+                                        })
+                                      : t('documents.folder_delete_blocked_action', {
+                                          defaultValue: 'Le dossier doit être vide'
+                                        })
+                                  }
+                                  title={
+                                    isEmpty
+                                      ? t('documents.folder_delete_action', {
+                                          defaultValue: 'Supprimer'
+                                        })
+                                      : t('documents.folder_delete_blocked_action', {
+                                          defaultValue: 'Le dossier doit être vide'
+                                        })
+                                  }
+                                  disabled={isMutatingTree || !isEmpty}
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    clearTreeError()
+                                    setConfirmDeleteFolderPath(folderNode.path)
+                                  }}
+                                  className="flex h-7 w-7 items-center justify-center rounded-full text-[#5c5c5a] opacity-0 transition focus-visible:opacity-100 group-hover:opacity-100 hover:bg-[#fbf0f0] hover:text-[#9c2f2f] disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[#5c5c5a]"
+                                >
+                                  <TrashGlyph />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
                   )
                 }
 
+                const isPreviewActive = activePreviewDocumentId === node.document.id
                 const hasMetadata = Boolean(
                   node.document.description || node.document.tags.length > 0
                 )
-                const isPreviewActive = activePreviewDocumentId === node.document.id
+                const tags = [...node.document.tags].sort((a, b) => a.localeCompare(b))
+                const visibleTags = tags.slice(0, 1)
+                const hiddenTags = tags.slice(visibleTags.length)
+                const overflowTagCount = hiddenTags.length
+                const allTagsLabel = tags.join(', ')
+                const isFileRenaming = renamingFilePath === node.document.id
+                const isFileConfirmingDelete = confirmDeleteFilePath === node.document.id
+                const fileNode = node
 
                 return (
-                  <article
+                  <div
                     key={getTreeNodeKey(node)}
                     ref={(element) => rowVirtualizer.measureElement(element)}
                     data-index={virtualItem.index}
                     data-document-row={node.document.id}
-                    className={`absolute inset-x-0 border-b border-white/6 py-3 pr-4 last:border-b-0 ${
-                      isPreviewActive ? 'bg-aurora/8' : ''
-                    }`}
+                    className={cn(
+                      'group absolute inset-x-0 border-b border-deep-space transition-colors duration-150 last:border-b-0 hover:z-30 focus-within:z-30',
+                      isPreviewActive ? 'bg-aurora/6' : 'hover:bg-[#fbf9f4]'
+                    )}
                     style={{
-                      minHeight: getFileRowHeight(node.document),
-                      transform: `translateY(${virtualItem.start}px)`,
-                      paddingLeft: `${16 + node.depth * INDENT_PX}px`
+                      minHeight: FILE_ROW_HEIGHT,
+                      height: FILE_ROW_HEIGHT,
+                      transform: `translateY(${virtualItem.start}px)`
                     }}
                   >
-                    {/* Ligne 1 : nom + timestamp + actions */}
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="min-w-0 truncate text-sm font-medium text-slate-100">
-                        {node.document.filename}
-                      </p>
-                      <div className="flex shrink-0 items-center gap-3">
-                        <p className="text-xs text-slate-400">
-                          {formatTimestamp(node.document.modifiedAt, locale)}
-                        </p>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            void onOpenPreview({
-                              dossierId,
-                              documentId: node.document.id
-                            })
-                          }
-                        >
-                          {t('documents.preview_show_action')}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          disabled={isSavingMetadata}
-                          onClick={() => setEditingDocumentId(node.document.id)}
-                        >
-                          {hasMetadata
-                            ? t('documents.metadata_edit_action')
-                            : t('documents.metadata_add_action')}
-                        </Button>
-                      </div>
-                    </div>
-
-                    {/* Ligne 2 : description */}
-                    {node.document.description ? (
-                      <p className="mt-1.5 truncate text-xs text-slate-400">
-                        {node.document.description}
-                      </p>
+                    {isPreviewActive ? (
+                      <span
+                        aria-hidden="true"
+                        className="absolute inset-y-0 left-0 w-0.75 bg-aurora"
+                      />
                     ) : null}
 
-                    {/* Ligne 3 : tags + badge d'extraction */}
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {[...node.document.tags]
-                        .sort((a, b) => a.localeCompare(b))
-                        .map((tag) => {
-                          return (
-                            <span
-                              key={tag}
-                              className="rounded-full border border-aurora/25 bg-aurora/10 px-2 py-0.5 text-[11px] text-aurora-soft"
-                            >
-                              {tag}
-                            </span>
-                          )
-                        })}
-                      <span
-                        className={`rounded-full border px-2 py-0.5 text-[11px] ${getExtractionBadgeTone(
-                          node.document.textExtraction.state
-                        )}`}
+                    {!isFileRenaming ? (
+                      <button
+                        type="button"
+                        aria-label={t('documents.preview_show_action')}
+                        className="absolute inset-0 z-0 w-full cursor-pointer rounded-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-aurora/40"
+                        onClick={() => openPreviewForDocument(fileNode.document.id)}
+                      />
+                    ) : null}
+
+                    <div
+                      className="pointer-events-none relative z-10 flex h-full items-center gap-3 pr-3"
+                      style={{ paddingLeft: `${16 + fileNode.depth * INDENT_PX}px` }}
+                    >
+                      <FileIcon filename={fileNode.document.filename} />
+
+                      <div className="min-w-0 flex-1">
+                        {isFileRenaming ? (
+                          <NameEditor
+                            initialValue={fileNode.document.filename}
+                            placeholder={t('documents.file_name_placeholder', {
+                              defaultValue: 'Nom du fichier'
+                            })}
+                            confirmLabel={t('documents.file_rename_confirm', {
+                              defaultValue: 'Renommer'
+                            })}
+                            cancelLabel={t('documents.file_rename_cancel', {
+                              defaultValue: 'Annuler'
+                            })}
+                            invalidLabel={t('documents.file_name_invalid', {
+                              defaultValue: 'Nom de fichier invalide'
+                            })}
+                            disabled={isMutatingTree}
+                            onCancel={() => setRenamingFilePath(null)}
+                            onConfirm={async (newFilename) => {
+                              if (newFilename === fileNode.document.filename) {
+                                setRenamingFilePath(null)
+                                return
+                              }
+                              const ok = await renameFileAction({
+                                dossierId,
+                                documentId: fileNode.document.id,
+                                newFilename
+                              })
+                              if (ok) setRenamingFilePath(null)
+                            }}
+                          />
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-2">
+                              <p className="min-w-0 truncate text-sm font-medium text-[#1a1a1a]">
+                                {fileNode.document.filename}
+                              </p>
+                              <span
+                                className={cn(
+                                  'h-1.5 w-1.5 shrink-0 rounded-full',
+                                  getExtractionDotClass(fileNode.document.textExtraction.state)
+                                )}
+                                title={getExtractionLabel(
+                                  fileNode.document.textExtraction.state,
+                                  t
+                                )}
+                                aria-label={getExtractionLabel(
+                                  fileNode.document.textExtraction.state,
+                                  t
+                                )}
+                              />
+                            </div>
+                            {fileNode.document.description ? (
+                              <p className="truncate text-xs text-[#8a8a85]">
+                                {fileNode.document.description}
+                              </p>
+                            ) : null}
+                          </>
+                        )}
+                      </div>
+
+                      {!isFileConfirmingDelete ? (
+                        <>
+                          <div
+                            aria-label={allTagsLabel || undefined}
+                            className="group/tagcell pointer-events-auto relative hidden w-40 shrink-0 items-center gap-1 overflow-visible md:flex"
+                          >
+                            <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
+                              {visibleTags.map((tag) => (
+                                <span
+                                  key={tag}
+                                  title={allTagsLabel}
+                                  className="truncate rounded-full border border-aurora/40 bg-aurora/15 px-2 py-0.5 text-xs text-aurora"
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                              {overflowTagCount > 0 ? (
+                                <span
+                                  title={allTagsLabel}
+                                  className="shrink-0 rounded-full bg-deep-space px-1.5 py-0.5 text-xs text-[#5c5c5a]"
+                                >
+                                  +{overflowTagCount}
+                                </span>
+                              ) : null}
+                            </div>
+                            {hiddenTags.length > 0 ? (
+                              <div className="pointer-events-none invisible absolute top-full right-0 z-50 mt-1 flex max-w-70 flex-wrap items-center gap-1 rounded-xl border border-[#e5e3da] bg-white p-2 opacity-0 shadow-[0_8px_24px_rgba(15,122,138,0.16)] transition-opacity duration-150 group-hover/tagcell:visible group-hover/tagcell:opacity-100">
+                                {hiddenTags.map((tag) => (
+                                  <span
+                                    key={tag}
+                                    className="rounded-full border border-aurora/40 bg-aurora/15 px-2 py-0.5 text-xs text-aurora"
+                                  >
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+
+                          <span className="hidden w-24 shrink-0 text-right text-xs tabular-nums text-[#5c5c5a] md:block">
+                            {formatTimestamp(fileNode.document.modifiedAt, locale)}
+                          </span>
+                        </>
+                      ) : null}
+
+                      <div
+                        className={cn(
+                          'pointer-events-auto flex shrink-0 items-center justify-end gap-1',
+                          isFileConfirmingDelete ? 'w-auto' : 'w-24'
+                        )}
                       >
-                        {getExtractionBadgeLabel(node.document.textExtraction.state, t)}
-                      </span>
+                        {isFileConfirmingDelete ? (
+                          <ConfirmDeleteTray
+                            label={t('documents.file_delete_confirm_label', {
+                              defaultValue: 'Supprimer ?'
+                            })}
+                            confirmLabel={t('documents.file_delete_confirm_action', {
+                              defaultValue: 'Confirmer'
+                            })}
+                            cancelLabel={t('documents.file_delete_cancel_action', {
+                              defaultValue: 'Annuler'
+                            })}
+                            disabled={isMutatingTree}
+                            onCancel={() => setConfirmDeleteFilePath(null)}
+                            onConfirm={async () => {
+                              const ok = await deleteFileAction({
+                                dossierId,
+                                documentId: fileNode.document.id
+                              })
+                              if (ok) setConfirmDeleteFilePath(null)
+                            }}
+                          />
+                        ) : isFileRenaming ? null : (
+                          <>
+                            <button
+                              type="button"
+                              aria-label={
+                                hasMetadata
+                                  ? t('documents.metadata_edit_action')
+                                  : t('documents.metadata_add_action')
+                              }
+                              title={
+                                hasMetadata
+                                  ? t('documents.metadata_edit_action')
+                                  : t('documents.metadata_add_action')
+                              }
+                              disabled={isSavingMetadata}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                setEditingDocumentId(fileNode.document.id)
+                              }}
+                              className={cn(
+                                'flex h-7 w-7 items-center justify-center rounded-full text-[#5c5c5a] opacity-0 transition focus-visible:opacity-100 group-hover:opacity-100 hover:bg-aurora/10 hover:text-aurora',
+                                (isPreviewActive || hasMetadata) && 'opacity-100',
+                                hasMetadata && 'text-aurora'
+                              )}
+                            >
+                              <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 16 16"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <path d="M8.5 1.5H2.5v6L9 14l5.5-5.5z" />
+                                <circle cx="5.5" cy="4.5" r="0.75" fill="currentColor" />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={t('documents.file_rename_action', {
+                                defaultValue: 'Renommer le fichier'
+                              })}
+                              title={t('documents.file_rename_action', {
+                                defaultValue: 'Renommer le fichier'
+                              })}
+                              disabled={isMutatingTree}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                clearTreeError()
+                                setRenamingFilePath(fileNode.document.id)
+                              }}
+                              className="flex h-7 w-7 items-center justify-center rounded-full text-[#5c5c5a] opacity-0 transition focus-visible:opacity-100 group-hover:opacity-100 hover:bg-aurora/10 hover:text-aurora"
+                            >
+                              <PencilGlyph />
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={t('documents.file_delete_action', {
+                                defaultValue: 'Supprimer le fichier'
+                              })}
+                              title={t('documents.file_delete_action', {
+                                defaultValue: 'Supprimer le fichier'
+                              })}
+                              disabled={isMutatingTree}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                clearTreeError()
+                                setConfirmDeleteFilePath(fileNode.document.id)
+                              }}
+                              className="flex h-7 w-7 items-center justify-center rounded-full text-[#5c5c5a] opacity-0 transition focus-visible:opacity-100 group-hover:opacity-100 hover:bg-[#fbf0f0] hover:text-[#9c2f2f]"
+                            >
+                              <TrashGlyph />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
-                  </article>
+                  </div>
                 )
               })}
             </div>
           </div>
 
-          <DocumentPreviewPanel
-            activeDocument={activePreviewDocument}
-            previewState={previewState}
-            contentState={contentState}
-            onOpen={() => {
-              if (activePreviewDocument) {
-                void onOpenFile({
-                  dossierId: activePreviewDocument.dossierId,
-                  documentId: activePreviewDocument.id
-                })
-              }
-            }}
-            onExtractContent={(forceRefresh, readCacheOnly) => {
-              if (activePreviewDocument) {
-                void handleExtractContent({
-                  dossierId: activePreviewDocument.dossierId,
-                  documentId: activePreviewDocument.id,
-                  forceRefresh,
-                  readCacheOnly
-                })
-              }
-            }}
-          />
+          {isDrawerVisible ? (
+            <button
+              type="button"
+              aria-label={t('documents.preview_close_action')}
+              className="absolute inset-0 z-20 cursor-default bg-[rgba(15,122,138,0.06)] backdrop-blur-[1px] transition-opacity duration-200 lg:hidden"
+              onClick={() => setIsPreviewOpen(false)}
+            />
+          ) : null}
+
+          <div
+            className={cn(
+              'absolute inset-y-0 right-0 z-30 flex w-full max-w-full transform border-l border-[#e5e3da] bg-[#fbfaf6] shadow-[-12px_0_28px_rgba(15,122,138,0.08)] transition-transform duration-300 ease-out sm:w-105 lg:w-120 xl:w-140',
+              isDrawerVisible ? 'translate-x-0' : 'pointer-events-none translate-x-full'
+            )}
+            aria-hidden={!isDrawerVisible}
+          >
+            <DocumentPreviewPanel
+              activeDocument={activePreviewDocument}
+              previewState={previewState}
+              contentState={contentState}
+              onClose={() => setIsPreviewOpen(false)}
+              onOpen={() => {
+                if (activePreviewDocument) {
+                  void onOpenFile({
+                    dossierId: activePreviewDocument.dossierId,
+                    documentId: activePreviewDocument.id
+                  })
+                }
+              }}
+              onExtractContent={(forceRefresh, readCacheOnly) => {
+                if (activePreviewDocument) {
+                  void handleExtractContent({
+                    dossierId: activePreviewDocument.dossierId,
+                    documentId: activePreviewDocument.id,
+                    forceRefresh,
+                    readCacheOnly
+                  })
+                }
+              }}
+            />
+          </div>
         </div>
       ) : null}
-    </Card>
+    </div>
   )
 }

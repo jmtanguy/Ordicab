@@ -244,9 +244,18 @@ app
     })
 
     // Tear down container resources on quit so dangling handles don't keep
-    // the process alive.
-    app.on('before-quit', () => {
-      appContainer?.dispose()
+    // the process alive. We prevent the default quit, await async cleanup
+    // (file watchers, worker threads, etc.), then re-trigger quit — this
+    // prevents the V8 "Cannot create a handle without a HandleScope" crash
+    // that occurs when chokidar callbacks fire after V8 starts tearing down.
+    let isQuitting = false
+    app.on('before-quit', (event) => {
+      if (isQuitting) return
+      event.preventDefault()
+      isQuitting = true
+      void (appContainer?.dispose() ?? Promise.resolve()).finally(() => {
+        app.quit()
+      })
     })
 
     await bootstrapApplication({
@@ -291,10 +300,43 @@ app
           stateFilePath,
           tessDataPath: resolveTessDataPath(),
           modelsPath: resolveModelsPath(),
+          // Sibling of out/main/index.js — emitted by the electron-vite
+          // additional input. The indexing queue posts batches to this
+          // worker so transformers.js inference runs off the Electron
+          // main thread (otherwise the UI freezes per inference call).
+          embeddingWorkerPath: join(__dirname, 'embeddingWorker.js'),
           domainService,
           mainI18n,
           safeStorage,
-          getWebContents: () => mainWindowLifecycle?.getWindow()?.webContents ?? null
+          getWebContents: () => mainWindowLifecycle?.getWindow()?.webContents ?? null,
+          printHtmlToPdf: async (html, outputPath) => {
+            // Lightweight off-screen BrowserWindow whose sole purpose is to
+            // load the invoice HTML and emit a PDF via webContents.printToPDF.
+            // The window is destroyed in finally to avoid leaking a hidden
+            // renderer if printing throws.
+            const { writeFile } = await import('node:fs/promises')
+            const pdfWindow = new BrowserWindow({
+              show: false,
+              webPreferences: {
+                contextIsolation: true,
+                nodeIntegration: false,
+                sandbox: true,
+                javascript: false
+              }
+            })
+            try {
+              const dataUrl = `data:text/html;charset=utf-8;base64,${Buffer.from(html, 'utf8').toString('base64')}`
+              await pdfWindow.loadURL(dataUrl)
+              const pdf = await pdfWindow.webContents.printToPDF({
+                printBackground: true,
+                pageSize: 'A4',
+                margins: { marginType: 'custom', top: 0.5, bottom: 0.5, left: 0.5, right: 0.5 }
+              })
+              await writeFile(outputPath, pdf)
+            } finally {
+              if (!pdfWindow.isDestroyed()) pdfWindow.destroy()
+            }
+          }
         })
 
         registerAllHandlers({
@@ -305,7 +347,7 @@ app
           mainI18n,
           rebuildApplicationMenu: () => buildApplicationMenu(mainI18n, isDev),
           eulaStore: createEulaStore({
-            stateFilePath,
+            appState: appContainer.appState,
             appContext: { isPackaged: app.isPackaged, getAppPath: () => app.getAppPath() }
           }),
           showOpenDialog: dialog.showOpenDialog,

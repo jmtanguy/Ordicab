@@ -5,7 +5,7 @@
  * Shape (added alongside the existing ContentCacheEntry fields):
  *
  *   {
- *     version: 2,
+ *     version: 3,
  *     text: "...",
  *     ...,
  *     embeddings?: {

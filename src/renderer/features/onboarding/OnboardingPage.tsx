@@ -31,20 +31,20 @@ export function OnboardingPage({
 
   return (
     <motion.section
-      className="overflow-hidden rounded-[2rem] border border-white/[0.12] bg-[linear-gradient(180deg,rgba(10,18,32,0.76),rgba(7,14,26,0.7))] shadow-[0_34px_110px_rgba(2,6,23,0.34)]"
+      className="overflow-hidden rounded-[2rem] border border-[#e5e3da] bg-white shadow-[0_24px_60px_rgba(0,0,0,0.08)]"
       initial={reduceMotion ? undefined : { opacity: 0, y: 18 }}
       animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
       transition={reduceMotion ? undefined : { duration: 0.45, ease: 'easeOut' }}
     >
-      <div className="relative border-b border-white/10 bg-[linear-gradient(90deg,rgba(255,255,255,0.06),rgba(125,211,252,0.07),transparent)] px-6 py-5 md:px-8">
+      <div className="relative border-b border-[#e5e3da] bg-[#f4f3ee] px-6 py-5 md:px-8">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3.5">
             <OrdicabBrandMark alt={t('shell.brand_name')} />
             <div>
-              <h1 className="text-3xl font-semibold tracking-wide text-slate-50">
+              <h1 className="text-3xl font-semibold tracking-wide text-[#1a1a1a]">
                 {t('shell.brand_name')}
               </h1>
-              <p className="mt-1 text-xs tracking-[0.14em] uppercase text-slate-400">
+              <p className="mt-1 text-xs tracking-[0.14em] uppercase text-[#8a8a85]">
                 {t('shell.header_release_badge')}
               </p>
             </div>
@@ -62,21 +62,21 @@ export function OnboardingPage({
 
       <div className="relative grid items-start gap-6 px-6 py-6 md:px-8 md:py-7 lg:grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.92fr)] lg:gap-8">
         <div className="flex flex-col gap-10 self-center">
-          <Card className="border-amber-200/25 bg-amber-950/30 p-5">
+          <Card className="border-[#e8d5a3] bg-[#fbf5e3] p-5">
             <div className="warning-banner-body">
-              <h4 className="text-lg font-semibold tracking-tight text-amber-50">
+              <h4 className="text-lg font-semibold tracking-tight text-[#7a5a00]">
                 {t('onboarding.beta_warning_title')}
               </h4>
-              <p className="mt-3 text-sm leading-relaxed text-amber-100/90">
+              <p className="mt-3 text-sm leading-relaxed text-[#7a5a00]">
                 {t('onboarding.beta_warning_body1_prefix')}{' '}
-                <strong style={{ color: '#fde68a', fontWeight: 600 }}>
+                <strong className="font-semibold text-[#5c4500]">
                   {t('onboarding.beta_warning_body1_strong')}
                 </strong>{' '}
                 {t('onboarding.beta_warning_body1_suffix')}
               </p>
-              <p className="mt-3 text-sm leading-relaxed text-amber-100/90">
+              <p className="mt-3 text-sm leading-relaxed text-[#7a5a00]">
                 {t('onboarding.beta_warning_body2_prefix')}{' '}
-                <strong style={{ color: '#fde68a', fontWeight: 600 }}>
+                <strong className="font-semibold text-[#5c4500]">
                   {t('onboarding.beta_warning_body2_strong')}
                 </strong>{' '}
                 {t('onboarding.beta_warning_body2_suffix')}

@@ -9,6 +9,7 @@ import { IPC_CHANNELS, IpcErrorCode, type ContactRecord, type IpcResult } from '
 import { type DocumentService, DocumentServiceError } from '../../services/domain/documentService'
 import { createContactService } from '../../services/domain/contactService'
 import { registerContactHandlers } from '../contactHandler'
+import { pathExists } from '../../lib/system/domainState'
 
 const tempDirs: string[] = []
 
@@ -52,7 +53,7 @@ afterEach(async () => {
 })
 
 describe('contactHandler', () => {
-  it('lists contacts from contacts.json and returns an empty array when the file is missing', async () => {
+  it('lists contacts from per-file storage and returns an empty array when the directory is missing', async () => {
     const dossierPath = await createTempDir()
     await mkdir(join(dossierPath, '.ordicab'), { recursive: true })
 
@@ -73,20 +74,20 @@ describe('contactHandler', () => {
       data: []
     })
 
-    const storedContacts: ContactRecord[] = [
-      {
-        uuid: 'contact-1',
-        dossierId: 'dos-1',
-        firstName: 'Camille',
-        lastName: 'Martin',
-        role: 'Client',
-        institution: 'Martin SARL',
-        email: 'camille@example.com'
-      }
-    ]
+    const contact: ContactRecord = {
+      uuid: 'contact-1',
+      dossierId: 'dos-1',
+      firstName: 'Camille',
+      lastName: 'Martin',
+      role: 'Client',
+      institution: 'Martin SARL',
+      email: 'camille@example.com'
+    }
+    const contactsDir = join(dossierPath, '.ordicab', 'contacts')
+    await mkdir(contactsDir, { recursive: true })
     await writeFile(
-      join(dossierPath, '.ordicab', 'contacts.json'),
-      `${JSON.stringify(storedContacts, null, 2)}\n`,
+      join(contactsDir, `${contact.uuid}.json`),
+      `${JSON.stringify(contact, null, 2)}\n`,
       'utf8'
     )
 
@@ -94,7 +95,7 @@ describe('contactHandler', () => {
       harness.invoke(IPC_CHANNELS.contact.list, { dossierId: 'dos-1' })
     ).resolves.toMatchObject({
       success: true,
-      data: [expect.objectContaining(storedContacts[0]!)]
+      data: [expect.objectContaining(contact)]
     })
   })
 
@@ -165,10 +166,10 @@ describe('contactHandler', () => {
     })
 
     const written = JSON.parse(
-      await readFile(join(dossierPath, '.ordicab', 'contacts.json'), 'utf8')
-    ) as ContactRecord[]
+      await readFile(join(dossierPath, '.ordicab', 'contacts', `${createdId}.json`), 'utf8')
+    ) as ContactRecord
 
-    expect(written).toMatchObject([
+    expect(written).toMatchObject(
       expect.objectContaining({
         uuid: createdId,
         dossierId: 'dos-1',
@@ -179,29 +180,12 @@ describe('contactHandler', () => {
         phone: '+33 6 00 00 00 00',
         information: 'Handles client validation and follow-up'
       })
-    ])
+    )
   })
 
-  it('deletes contacts from contacts.json', async () => {
+  it('deletes a contact that was created via the service', async () => {
     const dossierPath = await createTempDir()
     await mkdir(join(dossierPath, '.ordicab'), { recursive: true })
-    await writeFile(
-      join(dossierPath, '.ordicab', 'contacts.json'),
-      `${JSON.stringify(
-        [
-          {
-            uuid: 'contact-1',
-            dossierId: 'dos-1',
-            firstName: 'Camille',
-            lastName: 'Martin',
-            role: 'Client'
-          }
-        ],
-        null,
-        2
-      )}\n`,
-      'utf8'
-    )
 
     const harness = createIpcMainHarness()
     const documentService = {
@@ -213,21 +197,28 @@ describe('contactHandler', () => {
       contactService: createContactService({ documentService })
     })
 
+    // Create the contact via the service so it lands in per-file storage
+    const created = (await harness.invoke(IPC_CHANNELS.contact.upsert, {
+      dossierId: 'dos-1',
+      firstName: 'Camille',
+      lastName: 'Martin',
+      role: 'Client'
+    })) as IpcResult<ContactRecord>
+    const contactId = created.success ? created.data.uuid : ''
+
     await expect(
       harness.invoke(IPC_CHANNELS.contact.delete, {
         dossierId: 'dos-1',
-        contactUuid: 'contact-1'
+        contactUuid: contactId
       })
     ).resolves.toEqual({
       success: true,
       data: null
     })
 
-    const written = JSON.parse(
-      await readFile(join(dossierPath, '.ordicab', 'contacts.json'), 'utf8')
-    ) as ContactRecord[]
-
-    expect(written).toEqual([])
+    // The per-file record should no longer exist
+    const recordPath = join(dossierPath, '.ordicab', 'contacts', `${contactId}.json`)
+    await expect(pathExists(recordPath)).resolves.toBe(false)
   })
 
   it('rejects invalid input and dossier path traversal attempts', async () => {

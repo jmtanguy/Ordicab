@@ -1,4 +1,4 @@
-import { buildTagToken } from './tagPaths'
+import { buildTagToken, shouldExposeTemplateTagPath } from './tagPaths'
 import { ensureTemplateHtml, RAW_TAG_PATTERN, TAG_SPAN_PATTERN } from './html'
 
 function decodeHtmlEntities(value: string): string {
@@ -40,14 +40,14 @@ export function extractSmartTagPaths(content: string): string[] {
 
   for (const match of html.matchAll(TAG_SPAN_PATTERN)) {
     const rawPath = match[2]?.trim()
-    if (rawPath) {
+    if (rawPath && shouldExposeTemplateTagPath(rawPath)) {
       paths.add(rawPath)
     }
   }
 
   for (const match of html.matchAll(RAW_TAG_PATTERN)) {
     const rawPath = match[1]?.trim()
-    if (rawPath) {
+    if (rawPath && shouldExposeTemplateTagPath(rawPath)) {
       paths.add(rawPath)
     }
   }

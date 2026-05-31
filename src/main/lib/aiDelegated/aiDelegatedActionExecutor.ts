@@ -27,11 +27,14 @@ import {
 import { GenerateServiceError, type GenerateService } from '../../services/domain/generateService'
 import { atomicWrite } from '../system/atomicWrite'
 import { pathExists } from '../system/domainState'
+import { deleteRecord, saveRecord } from '../system/perFileStore'
 import {
   getDomainEntityPath,
   getDomainTemplatesPath,
-  getDossierContactsPath
+  getDossierContactRecordPath,
+  getDossierContactsDirectoryPath
 } from '../ordicab/ordicabPaths'
+import { readContactsForDossierPath } from '../../services/domain/contactService'
 import {
   delegatedAiActionPayloadSchemas,
   type DelegatedAiAction
@@ -136,32 +139,20 @@ function normalizeTemplateNameForComparison(name: string): string {
   return name.trim().toLocaleLowerCase()
 }
 
-async function loadContacts(contactsPath: string): Promise<ContactRecord[]> {
-  if (!(await pathExists(contactsPath))) {
-    return []
-  }
-
-  let parsed: unknown
-
-  try {
-    parsed = JSON.parse(await readFile(contactsPath, 'utf8')) as unknown
-  } catch {
-    throw new OrdicabActionError(IpcErrorCode.FILE_SYSTEM_ERROR, 'Unable to read dossier contacts.')
-  }
-
-  const result = contactRecordSchema.array().safeParse(parsed)
-  if (!result.success) {
-    throw new OrdicabActionError(
-      IpcErrorCode.VALIDATION_FAILED,
-      'Stored dossier contacts are invalid.'
-    )
-  }
-
-  return result.data
+async function loadContacts(dossierPath: string): Promise<ContactRecord[]> {
+  return readContactsForDossierPath(dossierPath)
 }
 
-async function saveContacts(contactsPath: string, contacts: ContactRecord[]): Promise<void> {
-  await atomicWrite(contactsPath, `${JSON.stringify(contacts, null, 2)}\n`)
+async function saveContact(dossierPath: string, contact: ContactRecord): Promise<void> {
+  return saveRecord(
+    getDossierContactsDirectoryPath(dossierPath),
+    getDossierContactRecordPath(dossierPath, contact.uuid),
+    contact
+  )
+}
+
+async function deleteContact(dossierPath: string, contactId: string): Promise<void> {
+  return deleteRecord(getDossierContactRecordPath(dossierPath, contactId))
 }
 
 async function loadEntityProfile(entityPath: string): Promise<EntityProfileDraft | null> {
@@ -353,22 +344,17 @@ export function createFileBackedOrdicabActionContactService(options: {
 }): OrdicabActionContactService {
   const { documentService } = options
 
-  // AI external only:
-  // delegated intents operate from canonical files under the active domain and
-  // therefore need a contact service backed by dossier JSON files. Internal AI
-  // stays outside this executor and uses its regular contact service directly.
   return {
     async list(dossierId: string): Promise<ContactRecord[]> {
       const dossierPath = await documentService.resolveRegisteredDossierRoot({ dossierId })
-      return loadContacts(getDossierContactsPath(dossierPath))
+      return loadContacts(dossierPath)
     },
 
     async upsert(input: ContactUpsertInput): Promise<ContactRecord> {
       const dossierPath = await documentService.resolveRegisteredDossierRoot({
         dossierId: input.dossierId
       })
-      const contactsPath = getDossierContactsPath(dossierPath)
-      const contacts = await loadContacts(contactsPath)
+      const contacts = await loadContacts(dossierPath)
       const existingIndex = input.id
         ? contacts.findIndex((contact) => contact.uuid === input.id)
         : -1
@@ -377,7 +363,7 @@ export function createFileBackedOrdicabActionContactService(options: {
         throw new OrdicabActionError(
           IpcErrorCode.NOT_FOUND,
           'This contact was not found.',
-          `The contact id "${input.id}" does not exist in this dossier. Read the contacts.json file to find the correct id, then re-emit the intent with the correct id. To create a new contact instead, omit the id field.`
+          `The contact id "${input.id}" does not exist in this dossier. To create a new contact instead, omit the id field.`
         )
       }
 
@@ -385,35 +371,24 @@ export function createFileBackedOrdicabActionContactService(options: {
         ...pickDefined(input),
         uuid: input.id ?? randomUUID()
       })
-      const nextContacts = [...contacts]
 
-      if (existingIndex >= 0) {
-        nextContacts[existingIndex] = nextContact
-      } else {
-        nextContacts.push(nextContact)
-      }
-
-      await saveContacts(contactsPath, nextContacts)
+      await saveContact(dossierPath, nextContact)
       return nextContact
     },
 
     async delete(dossierId: string, contactId: string): Promise<void> {
       const dossierPath = await documentService.resolveRegisteredDossierRoot({ dossierId })
-      const contactsPath = getDossierContactsPath(dossierPath)
-      const contacts = await loadContacts(contactsPath)
+      const contacts = await loadContacts(dossierPath)
 
       if (!contacts.some((contact) => contact.uuid === contactId)) {
         throw new OrdicabActionError(
           IpcErrorCode.NOT_FOUND,
           'This contact was not found.',
-          `The contact id "${contactId}" does not exist in this dossier. Read the contacts.json file to find the correct id, then re-emit the intent with the correct id.`
+          `The contact id "${contactId}" does not exist in this dossier.`
         )
       }
 
-      await saveContacts(
-        contactsPath,
-        contacts.filter((contact) => contact.uuid !== contactId)
-      )
+      await deleteContact(dossierPath, contactId)
     }
   }
 }
@@ -441,7 +416,7 @@ export function createDelegatedAiActionExecutor(
             throw new OrdicabActionError(
               IpcErrorCode.NOT_FOUND,
               'This contact was not found.',
-              `The contact id "${payload.id}" does not exist in this dossier. Read the contacts.json file to find the correct id, then re-emit the intent with the correct id. To create a new contact instead, omit the id field.`
+              `The contact id "${payload.id}" does not exist in this dossier. List contacts first (contact.list) to find the correct id, then re-emit the intent with the correct id. To create a new contact instead, omit the id field.`
             )
           }
 
@@ -550,7 +525,7 @@ export function createDelegatedAiActionExecutor(
           const normalized: EntityProfileDraft = {
             ...payload,
             managedFields: payload.managedFields
-              ? normalizeManagedFieldsConfig(payload.managedFields, payload.profession)
+              ? normalizeManagedFieldsConfig(payload.managedFields)
               : undefined
           }
           await saveEntityProfile(entityPath, normalized)

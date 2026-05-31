@@ -169,97 +169,32 @@ describe('schema contracts', () => {
     ).toThrowError()
   })
 
-  it('derives profession-specific managed contact field defaults for entity profiles', () => {
-    const architectEntity = entityProfileSchema.parse({
-      firmName: 'Cabinet ABC',
-      profession: 'architect'
-    })
-    const realEstateEntity = entityProfileSchema.parse({
-      firmName: 'Agence XYZ',
-      profession: 'real_estate'
-    })
-    const buildingTradesEntity = entityProfileSchema.parse({
-      firmName: 'Atelier 123',
-      profession: 'building_trades'
-    })
-    const consultingEntity = entityProfileSchema.parse({
-      firmName: 'Studio Conseil',
-      profession: 'consulting_services'
+  it('applies lawyer managed contact field defaults for entity profiles', () => {
+    const entity = entityProfileSchema.parse({
+      firmName: 'Cabinet ABC'
     })
 
-    expect(architectEntity.managedFields!.contacts!.map((entry) => entry.label)).toEqual([
+    expect(entity.managedFields!.contacts!.map((entry) => entry.label)).toEqual([
+      'Prénoms complémentaires',
+      'Nom de jeune fille',
       'Date de naissance',
       'Nationalité',
+      'Pays de naissance',
       'Profession',
-      'Qualité',
-      'Représentant légal',
-      'Référence assurance',
-      'N° police assurance'
+      'N° sécurité sociale'
     ])
-    expect(realEstateEntity.managedFields!.contacts!.map((entry) => entry.label)).toEqual([
-      'Date de naissance',
-      'Nationalité',
-      'Profession',
-      'Situation matrimoniale',
-      'Régime matrimonial',
-      "N° pièce d'identité",
-      "Date d'expiration pièce d'identité"
+    expect(entity.managedFields!.keyDates!.map((entry) => entry.label)).toEqual([
+      "Date d'audience",
+      'Date de délibéré',
+      'Date de renvoi'
     ])
-    expect(architectEntity.managedFields!.keyDates!.map((entry) => entry.label)).toEqual([
-      "Date d'ouverture du chantier",
-      "Date de réunion d'expertise",
-      'Date de réception des travaux'
-    ])
-    expect(architectEntity.managedFields!.keyReferences!.map((entry) => entry.label)).toEqual([
-      'N° projet',
-      'N° mission',
-      'Référence sinistre'
-    ])
-    expect(realEstateEntity.managedFields!.keyDates!.map((entry) => entry.label)).toEqual([
-      'Date du compromis',
-      "Date de signature de l'acte",
-      "Date d'entrée dans les lieux"
-    ])
-    expect(realEstateEntity.managedFields!.keyReferences!.map((entry) => entry.label)).toEqual([
+    expect(entity.managedFields!.keyReferences!.map((entry) => entry.label)).toEqual([
+      'Juridiction',
+      'Tribunal',
       'N° dossier',
-      'N° mandat',
-      'Référence du bien'
-    ])
-    expect(buildingTradesEntity.managedFields!.contacts!.map((entry) => entry.label)).toEqual([
-      'Qualité',
-      'Représentant légal',
-      'SIRET',
-      'Référence chantier',
-      'Référence assurance',
-      'N° police assurance'
-    ])
-    expect(buildingTradesEntity.managedFields!.keyDates!.map((entry) => entry.label)).toEqual([
-      'Date du devis',
-      'Date de commande',
-      "Date d'intervention"
-    ])
-    expect(buildingTradesEntity.managedFields!.keyReferences!.map((entry) => entry.label)).toEqual([
-      'N° devis',
-      'N° facture',
-      'N° chantier'
-    ])
-    expect(consultingEntity.managedFields!.contacts!.map((entry) => entry.label)).toEqual([
-      'Fonction',
-      'Service',
-      'SIRET',
-      'TVA intracommunautaire',
-      'Référence achat',
-      'Référence client'
-    ])
-    expect(consultingEntity.managedFields!.keyDates!.map((entry) => entry.label)).toEqual([
-      'Date de mission',
-      'Date de livraison',
-      "Date d'échéance"
-    ])
-    expect(consultingEntity.managedFields!.keyReferences!.map((entry) => entry.label)).toEqual([
-      'N° mission',
-      'N° commande',
-      'N° facture'
+      'N° RG',
+      'N° Portalis',
+      'N° dossier adverse'
     ])
   })
 

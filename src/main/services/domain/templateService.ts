@@ -22,15 +22,29 @@ import { randomUUID } from 'node:crypto'
 import { copyFile, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
+import HTMLToDOCX from 'html-to-docx'
 import mammoth from 'mammoth'
+import PizZip from 'pizzip'
 
-import { IpcErrorCode, type DomainStatusSnapshot, type TemplateRecord } from '@shared/types'
+import {
+  IpcErrorCode,
+  type DomainStatusSnapshot,
+  type TemplateDocumentKind,
+  type TemplateRecord
+} from '@shared/types'
 
 import { templateRecordSchema } from '@shared/validation'
-import { normalizeTagPath, RAW_TAG_PATTERN, TAG_SPAN_PATTERN } from '@shared/templateContent'
+import {
+  normalizeTagPath,
+  RAW_TAG_PATTERN,
+  shouldExposeTemplateTagPath,
+  TAG_SPAN_PATTERN
+} from '@shared/templateContent'
+import { ESSENTIAL_TEMPLATE_IDS, getLibraryItem } from '@shared/templateLibrary'
 
 import { pathExists } from '../../lib/system/domainState'
 import {
+  getDomainCabinetDefaultTemplateDocxPath,
   getDomainTemplateContentPath,
   getDomainTemplateDocxPath,
   getDomainTemplatesPath
@@ -80,12 +94,20 @@ export class TemplateServiceError extends Error {
 export interface TemplateService {
   list(): Promise<TemplateRecord[]>
   getContent(templateId: string): Promise<string>
-  create(input: { name: string; content: string; description?: string }): Promise<TemplateRecord>
+  create(input: {
+    name: string
+    content: string
+    description?: string
+    tags?: string[]
+    documentKind?: TemplateDocumentKind
+  }): Promise<TemplateRecord>
   update(input: {
     id: string
     name?: string
     content?: string
     description?: string
+    tags?: string[]
+    documentKind?: TemplateDocumentKind
   }): Promise<TemplateRecord>
   delete(input: { id: string }): Promise<void>
   /**
@@ -97,10 +119,36 @@ export interface TemplateService {
    * Container.ts invokes this once at startup; nothing else should call it.
    */
   migrateLegacyTemplatesIfNeeded(): Promise<{ migrated: boolean }>
+  /**
+   * Seed the essential default templates (factures, conventions, première
+   * correspondance) when `templates.json` is empty or missing. Idempotent:
+   * a no-op once any template exists. Safe to call when no domain is
+   * configured — it just resolves to `{ seeded: 0 }`. Triggered at app
+   * startup and after every successful domain selection.
+   */
+  seedDefaultTemplatesIfEmpty(): Promise<{ seeded: number }>
+  /**
+   * Re-wrap every existing non-email template that has a DOCX companion in
+   * the current cabinet default DOCX. The body of each template's `.docx`
+   * is extracted as-is (preserving any manual Word edits) and re-injected
+   * into a fresh copy of the cabinet template. Used by the renderer right
+   * after the user uploads a new cabinet DOCX.
+   */
+  applyCabinetDocxToAllExisting(): Promise<{
+    updated: number
+    skipped: number
+    failed: string[]
+  }>
   /** Convert a .docx at the given path to HTML — used by handler for preview before import. */
   convertDocxToHtml(filePath: string): Promise<string>
   /** Import a .docx file as the source for an existing template id and rebuild HTML + macros. */
   importDocxFromPath(input: { id: string; sourceFilePath: string }): Promise<TemplateRecord>
+  /**
+   * Copies the cabinet-level default DOCX template (set on the EntityProfile) onto a text
+   * template, making it a DOCX-backed template. The existing HTML content is preserved and
+   * will be injected at generation time into the cabinet template's `{{app.content}}` placeholder.
+   */
+  applyCabinetDefaultDocx(input: { id: string }): Promise<TemplateRecord>
   /** Remove the .docx companion of a template; flips hasDocxSource to false. */
   removeDocx(input: { id: string }): Promise<TemplateRecord>
   /** Whether the template currently has a `.docx` companion in the active domain. */
@@ -163,12 +211,12 @@ function extractMacrosFromHtml(html: string): string[] {
 
   for (const match of html.matchAll(TAG_SPAN_PATTERN)) {
     const path = normalizeTagPath((match[2] ?? '').trim())
-    if (path) seen.add(path)
+    if (path && shouldExposeTemplateTagPath(path)) seen.add(path)
   }
 
   for (const match of html.matchAll(RAW_TAG_PATTERN)) {
     const path = normalizeTagPath((match[1] ?? '').trim())
-    if (path) seen.add(path)
+    if (path && shouldExposeTemplateTagPath(path)) seen.add(path)
   }
 
   return [...seen].sort()
@@ -177,8 +225,72 @@ function extractMacrosFromHtml(html: string): string[] {
 function toTemplateIndexRecord(template: TemplateRecord): TemplateRecord {
   const indexRecord = { ...template }
   delete indexRecord.content
-  delete indexRecord.tags
   return indexRecord
+}
+
+function isEmailTemplate(tags: string[] | undefined): boolean {
+  return (tags ?? []).some((tag) => tag.trim().toLowerCase() === 'email')
+}
+
+async function htmlToStandaloneDocxBuffer(html: string, title: string): Promise<Buffer> {
+  const output = await HTMLToDOCX(
+    `<!DOCTYPE html><html><head><meta charset="utf-8" /></head><body>${html || '<p></p>'}</body></html>`,
+    undefined,
+    {
+      title,
+      creator: 'Ordicab',
+      font: 'Aptos',
+      fontSize: 22,
+      decodeUnicode: true,
+      lang: 'fr-FR'
+    }
+  )
+  return Buffer.isBuffer(output) ? output : Buffer.from(output as ArrayBuffer)
+}
+
+function extractBodyInnerFromDocxBuffer(docxBuffer: Buffer): string {
+  const zip = new PizZip(docxBuffer)
+  const docXml = zip.file('word/document.xml')?.asText()
+  if (!docXml) {
+    throw new Error('Le contenu DOCX est introuvable (word/document.xml manquant).')
+  }
+  const match = /<w:body[^>]*>([\s\S]*?)<\/w:body>/.exec(docXml)
+  if (!match) {
+    throw new Error('Impossible de localiser le corps du document DOCX.')
+  }
+  return match[1]!.replace(/<w:sectPr[\s\S]*?<\/w:sectPr>/g, '')
+}
+
+function wrapBodyInCabinetDocx(bodyInner: string, cabinetDocxBuffer: Buffer): Buffer {
+  const cabinetZip = new PizZip(cabinetDocxBuffer)
+  const cabinetDocFile = cabinetZip.file('word/document.xml')
+  if (!cabinetDocFile) {
+    throw new Error('Le modèle DOCX cabinet est invalide (word/document.xml manquant).')
+  }
+  const cabinetDocXml = cabinetDocFile.asText()
+  const cabinetBodyOpenRe = /<w:body[^>]*>/
+  if (!cabinetBodyOpenRe.test(cabinetDocXml)) {
+    throw new Error('Le modèle DOCX cabinet est invalide (balise <w:body> introuvable).')
+  }
+  const mergedDocXml = cabinetDocXml.replace(
+    cabinetBodyOpenRe,
+    (openTag) => `${openTag}${bodyInner}`
+  )
+  cabinetZip.file('word/document.xml', mergedDocXml)
+  return cabinetZip.generate({ type: 'nodebuffer', compression: 'DEFLATE' }) as Buffer
+}
+
+async function renderTemplateDocxBuffer(args: {
+  html: string
+  name: string
+  cabinetDocxBuffer: Buffer | null
+}): Promise<Buffer> {
+  const standalone = await htmlToStandaloneDocxBuffer(args.html, args.name)
+  if (!args.cabinetDocxBuffer) {
+    return standalone
+  }
+  const bodyInner = extractBodyInnerFromDocxBuffer(standalone)
+  return wrapBodyInCabinetDocx(bodyInner, args.cabinetDocxBuffer)
 }
 
 function normalizeTemplateNameForComparison(name: string): string {
@@ -372,8 +484,10 @@ export function createTemplateService(options: {
     id: string
     name: string
     description?: string
+    tags?: string[]
     macros: string[]
     hasDocxSource?: boolean
+    documentKind?: TemplateDocumentKind
     updatedAt: string
   }): TemplateRecord {
     return templateRecordSchema.parse(input)
@@ -398,6 +512,99 @@ export function createTemplateService(options: {
       return runLegacyMigration(getDomainTemplatesPath(domainPath), domainPath)
     },
 
+    async seedDefaultTemplatesIfEmpty(): Promise<{ seeded: number }> {
+      const status = await domainService.getStatus()
+      if (!status.registeredDomainPath || !status.isAvailable) {
+        return { seeded: 0 }
+      }
+      const domainPath = status.registeredDomainPath
+      const templatesPath = getDomainTemplatesPath(domainPath)
+      const existing = await loadTemplates(templatesPath)
+      if (existing.length > 0) {
+        return { seeded: 0 }
+      }
+
+      let seeded = 0
+      for (const id of ESSENTIAL_TEMPLATE_IDS) {
+        const item = getLibraryItem(id)
+        if (!item) {
+          console.warn(`[TemplateService] Essential template id "${id}" not found in library.`)
+          continue
+        }
+        try {
+          await this.create({
+            name: item.name,
+            content: item.content,
+            description: item.description,
+            tags: item.tags,
+            documentKind: item.kind ?? 'document'
+          })
+          seeded += 1
+        } catch (error) {
+          console.warn(
+            `[TemplateService] Failed to seed essential template "${item.name}": ${error instanceof Error ? error.message : String(error)}`
+          )
+        }
+      }
+      return { seeded }
+    },
+
+    async applyCabinetDocxToAllExisting(): Promise<{
+      updated: number
+      skipped: number
+      failed: string[]
+    }> {
+      const domainPath = await resolveDomainPath()
+      const cabinetDocxPath = getDomainCabinetDefaultTemplateDocxPath(domainPath)
+
+      if (!(await pathExists(cabinetDocxPath))) {
+        throw new TemplateServiceError(
+          IpcErrorCode.NOT_FOUND,
+          'Modèle DOCX cabinet par défaut introuvable.'
+        )
+      }
+
+      const cabinetBuffer = await readFile(cabinetDocxPath)
+      const templatesPath = getDomainTemplatesPath(domainPath)
+      const templates = await loadTemplates(templatesPath)
+
+      let updated = 0
+      let skipped = 0
+      const failed: string[] = []
+      const nextTemplates = [...templates]
+
+      for (let i = 0; i < nextTemplates.length; i += 1) {
+        const template = nextTemplates[i]!
+        if (isEmailTemplate(template.tags) || !template.hasDocxSource) {
+          skipped += 1
+          continue
+        }
+        try {
+          const existingDocxPath = getDomainTemplateDocxPath(domainPath, template.id)
+          const existingBuffer = await readFile(existingDocxPath)
+          const bodyInner = extractBodyInnerFromDocxBuffer(existingBuffer)
+          const merged = wrapBodyInCabinetDocx(bodyInner, cabinetBuffer)
+          await mkdir(dirname(existingDocxPath), { recursive: true })
+          await atomicWrite(existingDocxPath, merged)
+          nextTemplates[i] = buildTemplateRecord({
+            ...template,
+            updatedAt: new Date().toISOString()
+          })
+          updated += 1
+        } catch (error) {
+          console.warn(
+            `[TemplateService] Failed to re-wrap template "${template.name}" with new cabinet DOCX: ${error instanceof Error ? error.message : String(error)}`
+          )
+          failed.push(template.id)
+        }
+      }
+
+      if (updated > 0) {
+        await saveTemplates(templatesPath, nextTemplates)
+      }
+      return { updated, skipped, failed }
+    },
+
     async list(): Promise<TemplateRecord[]> {
       const domainPath = await resolveDomainPath()
       return loadTemplates(getDomainTemplatesPath(domainPath))
@@ -418,12 +625,40 @@ export function createTemplateService(options: {
       const id = randomUUID()
       await writeTemplateContent(domainPath, id, input.content)
 
+      // Non-email templates get a DOCX companion materialized at creation time:
+      // cabinet wrapper if available, plain html-to-docx otherwise. Failure is
+      // logged and falls back to hasDocxSource=false — never blocks creation.
+      let hasDocxSource = false
+      if (!isEmailTemplate(input.tags) && input.content) {
+        try {
+          const cabinetDocxPath = getDomainCabinetDefaultTemplateDocxPath(domainPath)
+          const cabinetBuffer = (await pathExists(cabinetDocxPath))
+            ? await readFile(cabinetDocxPath)
+            : null
+          const docxBuffer = await renderTemplateDocxBuffer({
+            html: input.content,
+            name: input.name,
+            cabinetDocxBuffer: cabinetBuffer
+          })
+          const destinationPath = getDomainTemplateDocxPath(domainPath, id)
+          await mkdir(dirname(destinationPath), { recursive: true })
+          await atomicWrite(destinationPath, docxBuffer)
+          hasDocxSource = true
+        } catch (error) {
+          console.warn(
+            `[TemplateService] Failed to materialize DOCX for template "${input.name}": ${error instanceof Error ? error.message : String(error)}`
+          )
+        }
+      }
+
       const nextTemplate = buildTemplateRecord({
         id,
         name: input.name,
         description: input.description,
+        tags: input.tags,
         macros: extractMacrosFromHtml(input.content),
-        hasDocxSource: false,
+        hasDocxSource,
+        documentKind: input.documentKind ?? 'document',
         updatedAt: new Date().toISOString()
       })
 
@@ -453,8 +688,10 @@ export function createTemplateService(options: {
         id: input.id,
         name: nextName,
         description: input.description ?? template.description,
+        tags: input.tags ?? template.tags,
         macros: nextMacros,
         hasDocxSource: template.hasDocxSource,
+        documentKind: input.documentKind ?? template.documentKind,
         updatedAt: new Date().toISOString()
       })
 
@@ -528,6 +765,53 @@ export function createTemplateService(options: {
       const nextTemplate = buildTemplateRecord({
         ...template,
         macros: extractMacrosFromHtml(extractedContent),
+        hasDocxSource: true,
+        updatedAt: new Date().toISOString()
+      })
+      const nextTemplates = [...templates]
+      nextTemplates[index] = nextTemplate
+      await saveTemplates(templatesPath, nextTemplates)
+      return nextTemplate
+    },
+
+    async applyCabinetDefaultDocx(input): Promise<TemplateRecord> {
+      const domainPath = await resolveDomainPath()
+      const cabinetDocxPath = getDomainCabinetDefaultTemplateDocxPath(domainPath)
+
+      if (!(await pathExists(cabinetDocxPath))) {
+        throw new TemplateServiceError(
+          IpcErrorCode.NOT_FOUND,
+          'Modèle DOCX cabinet par défaut introuvable.'
+        )
+      }
+
+      const templatesPath = getDomainTemplatesPath(domainPath)
+      const templates = await loadTemplates(templatesPath)
+      const { index, template } = requireTemplate(templates, input.id)
+      const destinationPath = getDomainTemplateDocxPath(domainPath, input.id)
+
+      const templateHtml = await readTemplateContent(domainPath, template.id)
+
+      let renderedBuffer: Buffer
+      try {
+        const cabinetBuffer = await readFile(cabinetDocxPath)
+        renderedBuffer = await renderTemplateDocxBuffer({
+          html: templateHtml,
+          name: template.name,
+          cabinetDocxBuffer: cabinetBuffer
+        })
+      } catch (error) {
+        throw new TemplateServiceError(
+          IpcErrorCode.FILE_SYSTEM_ERROR,
+          `Impossible d'insérer le contenu dans le modèle DOCX cabinet : ${error instanceof Error ? error.message : String(error)}`
+        )
+      }
+
+      await mkdir(dirname(destinationPath), { recursive: true })
+      await atomicWrite(destinationPath, renderedBuffer)
+
+      const nextTemplate = buildTemplateRecord({
+        ...template,
         hasDocxSource: true,
         updatedAt: new Date().toISOString()
       })

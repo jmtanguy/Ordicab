@@ -1,9 +1,14 @@
 import { randomUUID } from 'node:crypto'
-import { readdir, readFile, rm, stat } from 'node:fs/promises'
-import { basename, dirname, extname, join, relative, sep } from 'node:path'
+import { mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
+import { basename, dirname, extname, join, relative, resolve, sep } from 'node:path'
 
 import type {
   DocumentExtractedContent,
+  DocumentFileDeleteInput,
+  DocumentFileRenameInput,
+  DocumentFolderCreateInput,
+  DocumentFolderDeleteInput,
+  DocumentFolderRenameInput,
   DocumentMetadataUpdate,
   DocumentTextExtractionStatus,
   DocumentPreview,
@@ -20,6 +25,11 @@ import { IpcErrorCode } from '@shared/types'
 import {
   dossierMetadataFileSchema,
   dossierScopedQuerySchema,
+  documentFileDeleteInputSchema,
+  documentFileRenameInputSchema,
+  documentFolderCreateInputSchema,
+  documentFolderDeleteInputSchema,
+  documentFolderRenameInputSchema,
   documentRelocationInputSchema,
   documentMetadataUpdateSchema,
   type DossierMetadataFile,
@@ -46,6 +56,10 @@ import {
   type ExtractProgressCallback
 } from '../../lib/aiEmbedded/documentContentService'
 import { getDossierContentCachePath } from '../../lib/ordicab/ordicabPaths'
+import {
+  computeFileSha256,
+  writeIndexedHashToCache
+} from '../../lib/aiEmbedded/embeddings/contentHashStore'
 import { indexDocumentEmbeddings } from '../../lib/aiEmbedded/embeddings/embeddingIndexer'
 import {
   searchDossier,
@@ -73,10 +87,16 @@ export interface DocumentServiceOptions {
   previewLoaders?: Partial<DocumentPreviewLoaders>
   /** Embedding-model configuration used for both post-extraction indexing and query-time search. */
   embeddingConfig?: EmbeddingServiceConfig
+  /**
+   * Optional embedder for semantic search. Defaults to the in-process embeddingService.
+   * Pass the worker-thread client to keep ONNX off the Electron main thread.
+   */
+  embedder?: (texts: string[], config?: EmbeddingServiceConfig) => Promise<Float32Array[] | null>
 }
 
 export interface DocumentService {
   listDocuments: (input: DossierScopedQuery) => Promise<DocumentRecord[]>
+  listFolders: (input: DossierScopedQuery) => Promise<string[]>
   getPreview: (input: DocumentPreviewInput) => Promise<DocumentPreview>
   getContentStatus: (input: DocumentPreviewInput) => Promise<DocumentTextExtractionStatus>
   extractContent: (
@@ -88,6 +108,11 @@ export interface DocumentService {
   relocateMetadata: (input: DocumentRelocationInput) => Promise<DocumentRecord>
   resolveRegisteredDossierRoot: (input: DossierScopedQuery) => Promise<string>
   semanticSearch: (input: SemanticSearchQuery) => Promise<SemanticSearchResult>
+  createFolder: (input: DocumentFolderCreateInput) => Promise<string>
+  renameFolder: (input: DocumentFolderRenameInput) => Promise<string>
+  deleteFolder: (input: DocumentFolderDeleteInput) => Promise<void>
+  renameFile: (input: DocumentFileRenameInput) => Promise<DocumentRecord>
+  deleteFile: (input: DocumentFileDeleteInput) => Promise<void>
 }
 
 interface DocumentFileSnapshot {
@@ -471,10 +496,12 @@ async function indexSearchableDocument(args: {
   cacheDir: string
   relativePath: string
   embeddingConfig?: EmbeddingServiceConfig
+  embedder?: (texts: string[], config?: EmbeddingServiceConfig) => Promise<Float32Array[] | null>
 }): Promise<void> {
   const cachePath = await getSearchCachePath(args.filePath, args.cacheDir)
   const outcome = await indexDocumentEmbeddings(cachePath, {
     embeddingConfig: args.embeddingConfig,
+    embedder: args.embedder,
     dim: DEFAULT_EMBEDDING_DIM
   })
 
@@ -862,6 +889,38 @@ async function collectFiles(rootPath: string): Promise<string[]> {
   return files.flat()
 }
 
+async function collectDirectories(rootPath: string): Promise<string[]> {
+  const directories: string[] = []
+
+  async function walk(current: string): Promise<void> {
+    let entries
+    try {
+      entries = await readdir(current, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      if (entry.name.startsWith('.')) continue
+      const entryPath = join(current, entry.name)
+      directories.push(entryPath)
+      await walk(entryPath)
+    }
+  }
+
+  await walk(rootPath)
+  return directories
+}
+
+function resolveSafePathInDossier(dossierPath: string, relativePath: string): string {
+  const target = resolve(join(dossierPath, relativePath))
+  const root = resolve(dossierPath)
+  if (target !== root && !target.startsWith(root + sep)) {
+    throw new DocumentServiceError(IpcErrorCode.INVALID_INPUT, 'Path escapes the dossier root.')
+  }
+  return target
+}
+
 async function resolveActiveDomainPath(stateFilePath: string): Promise<string> {
   const state = await loadDomainState(stateFilePath)
   const selectedDomainPath = state?.selectedDomainPath ?? null
@@ -1174,12 +1233,27 @@ export function createDocumentService(options: DocumentServiceOptions): Document
         )
       }
 
+      if (fileStats.size === 0) {
+        const cacheDir = getDossierContentCachePath(dossierPath)
+        await markDocumentExtractionEmpty(filePath, cacheDir)
+        const status = await getDocumentExtractionStatus(dossierPath, relativePath)
+        return {
+          documentId: relativePath,
+          filename: basename(filePath),
+          text: '',
+          textLength: 0,
+          method: 'cached',
+          status
+        }
+      }
+
       const cacheDir = getDossierContentCachePath(dossierPath)
       if (input.forceRefresh && !isPlainTextDocument(filePath)) {
         const cachePath = getDocumentContentCachePath(cacheDir, filePath)
         await rm(cachePath, { force: true })
       }
       let result: Awaited<ReturnType<typeof extractDocumentText>>
+      let extractedHash: string | null = null
 
       try {
         if (input.readCacheOnly) {
@@ -1192,7 +1266,16 @@ export function createDocumentService(options: DocumentServiceOptions): Document
           }
           result = cached
         } else {
-          result = await extractDocumentText(filePath, cacheDir, options.tessDataPath, onProgress)
+          // Hash in parallel with extraction: cost is dominated by OCR/parsing
+          // and the streamed sha256 over the same file pages doesn't compete
+          // for CPU meaningfully. The hash is captured at extraction time so a
+          // later edit will be detected as a mismatch by the indexing queue.
+          const [hash, extractResult] = await Promise.all([
+            computeFileSha256(filePath),
+            extractDocumentText(filePath, cacheDir, options.tessDataPath, onProgress)
+          ])
+          extractedHash = hash
+          result = extractResult
         }
       } catch (error) {
         if (error instanceof DocumentServiceError) {
@@ -1203,6 +1286,13 @@ export function createDocumentService(options: DocumentServiceOptions): Document
           `[DocumentService] Extraction failed for "${relativePath}", storing empty extracted content: ${message}`
         )
         await markDocumentExtractionEmpty(filePath, cacheDir)
+        try {
+          const failedHash = await computeFileSha256(filePath)
+          const failedCachePath = await getSearchCachePath(filePath, cacheDir)
+          await writeIndexedHashToCache(failedCachePath, failedHash, fileStats.size)
+        } catch {
+          // best-effort tag: the next file event will retry.
+        }
         const status = await getDocumentExtractionStatus(dossierPath, relativePath)
 
         return {
@@ -1217,6 +1307,18 @@ export function createDocumentService(options: DocumentServiceOptions): Document
 
       const status = await getDocumentExtractionStatus(dossierPath, relativePath)
 
+      if (extractedHash !== null) {
+        try {
+          const cachePath = await getSearchCachePath(filePath, cacheDir)
+          await writeIndexedHashToCache(cachePath, extractedHash, fileStats.size)
+        } catch (error) {
+          console.warn(
+            `[DocumentService] hash tag failed for ${relativePath}:`,
+            error instanceof Error ? error.message : error
+          )
+        }
+      }
+
       // Post-extraction hook: trigger the embeddings indexing pass in the
       // background. Fire-and-forget — failures are logged inside the indexer
       // and the user-facing extract call must not wait on model inference.
@@ -1224,7 +1326,8 @@ export function createDocumentService(options: DocumentServiceOptions): Document
         filePath,
         cacheDir,
         relativePath,
-        embeddingConfig: options.embeddingConfig
+        embeddingConfig: options.embeddingConfig,
+        embedder: options.embedder
       }).catch((error) => {
         console.warn(
           `[DocumentService] embeddings failed for ${relativePath}:`,
@@ -1376,18 +1479,283 @@ export function createDocumentService(options: DocumentServiceOptions): Document
       })
     },
 
+    listFolders: async (input): Promise<string[]> => {
+      const parsed = dossierScopedQuerySchema.parse(input)
+      const dossierPath = await resolveRegisteredDossierRoot(parsed)
+      const dossierStats = await stat(dossierPath).catch(() => null)
+
+      if (!dossierStats?.isDirectory()) {
+        throw new DocumentServiceError(
+          IpcErrorCode.NOT_FOUND,
+          'Selected dossier folder was not found.'
+        )
+      }
+
+      const absoluteDirectories = await collectDirectories(dossierPath)
+      return absoluteDirectories
+        .map((absolutePath) => normalizeRelativePath(relative(dossierPath, absolutePath)))
+        .filter((relativePath) => relativePath.length > 0)
+        .sort((left, right) => left.localeCompare(right))
+    },
+
+    createFolder: async (input): Promise<string> => {
+      const parsed = documentFolderCreateInputSchema.parse(input)
+      const dossierPath = await resolveRegisteredDossierRoot({ dossierId: parsed.dossierId })
+      const parentPath = parsed.parentPath ?? ''
+      const newRelativePath = parentPath ? `${parentPath}/${parsed.name}` : parsed.name
+      const absoluteTarget = resolveSafePathInDossier(dossierPath, newRelativePath)
+
+      if (parentPath) {
+        const parentAbsolute = resolveSafePathInDossier(dossierPath, parentPath)
+        const parentStats = await stat(parentAbsolute).catch(() => null)
+        if (!parentStats?.isDirectory()) {
+          throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'The parent folder was not found.')
+        }
+      }
+
+      const existing = await stat(absoluteTarget).catch(() => null)
+      if (existing) {
+        throw new DocumentServiceError(
+          IpcErrorCode.VALIDATION_FAILED,
+          'A file or folder with that name already exists.'
+        )
+      }
+
+      await mkdir(absoluteTarget, { recursive: false })
+      return newRelativePath
+    },
+
+    renameFolder: async (input): Promise<string> => {
+      const parsed = documentFolderRenameInputSchema.parse(input)
+      const dossierPath = await resolveRegisteredDossierRoot({ dossierId: parsed.dossierId })
+      const domainPath = dirname(dossierPath)
+      const registry = await loadRegistry(domainPath)
+      const registryEntry = resolveRegistryEntryByRef(registry, parsed.dossierId)
+
+      if (!registryEntry) {
+        throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'This dossier is not registered.')
+      }
+
+      const fromPath = parsed.fromPath
+      const parentPath = fromPath.includes('/') ? fromPath.slice(0, fromPath.lastIndexOf('/')) : ''
+      const newPath = parentPath ? `${parentPath}/${parsed.newName}` : parsed.newName
+
+      if (newPath === fromPath) {
+        return newPath
+      }
+
+      const fromAbsolute = resolveSafePathInDossier(dossierPath, fromPath)
+      const toAbsolute = resolveSafePathInDossier(dossierPath, newPath)
+
+      const fromStats = await stat(fromAbsolute).catch(() => null)
+      if (!fromStats?.isDirectory()) {
+        throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'The folder was not found.')
+      }
+
+      const conflict = await stat(toAbsolute).catch(() => null)
+      if (conflict) {
+        throw new DocumentServiceError(
+          IpcErrorCode.VALIDATION_FAILED,
+          'A file or folder with that name already exists.'
+        )
+      }
+
+      await rename(fromAbsolute, toAbsolute)
+
+      await withDossierMetadataLock(dossierPath, async () => {
+        const currentMetadata = await loadOrInitDossierMetadata(dossierPath, registryEntry)
+        const prefix = `${fromPath}/`
+        const nextDocuments = currentMetadata.documents.map((entry) => {
+          if (entry.relativePath === fromPath || entry.relativePath.startsWith(prefix)) {
+            const tail = entry.relativePath.slice(fromPath.length)
+            return normalizeStoredDocumentEntry(
+              { ...entry, relativePath: `${newPath}${tail}` },
+              `${newPath}${tail}`
+            )
+          }
+          return entry
+        })
+
+        const nextMetadata = dossierMetadataFileSchema.parse({
+          ...currentMetadata,
+          documents: nextDocuments.sort((left, right) =>
+            left.relativePath.localeCompare(right.relativePath)
+          )
+        })
+        await writeDossierMetadataFile(dossierPath, nextMetadata)
+      })
+
+      return newPath
+    },
+
+    deleteFolder: async (input): Promise<void> => {
+      const parsed = documentFolderDeleteInputSchema.parse(input)
+      const dossierPath = await resolveRegisteredDossierRoot({ dossierId: parsed.dossierId })
+      const absoluteTarget = resolveSafePathInDossier(dossierPath, parsed.path)
+
+      const targetStats = await stat(absoluteTarget).catch(() => null)
+      if (!targetStats?.isDirectory()) {
+        throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'The folder was not found.')
+      }
+
+      const filesInside = await collectFiles(absoluteTarget)
+      if (filesInside.length > 0) {
+        throw new DocumentServiceError(IpcErrorCode.VALIDATION_FAILED, 'The folder is not empty.')
+      }
+
+      await rm(absoluteTarget, { recursive: true, force: true })
+    },
+
+    renameFile: async (input): Promise<DocumentRecord> => {
+      const parsed = documentFileRenameInputSchema.parse(input)
+      const dossierPath = await resolveRegisteredDossierRoot({ dossierId: parsed.dossierId })
+      const domainPath = dirname(dossierPath)
+      const registry = await loadRegistry(domainPath)
+      const registryEntry = resolveRegistryEntryByRef(registry, parsed.dossierId)
+
+      if (!registryEntry) {
+        throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'This dossier is not registered.')
+      }
+
+      const canonicalDossierId = registryEntry.id
+      const fromRelativePath = validateDocumentRelativePath(parsed.documentId)
+      const parentDir = fromRelativePath.includes('/')
+        ? fromRelativePath.slice(0, fromRelativePath.lastIndexOf('/'))
+        : ''
+      const toRelativePath = parentDir ? `${parentDir}/${parsed.newFilename}` : parsed.newFilename
+
+      if (toRelativePath === fromRelativePath) {
+        const metadata = (await loadStoredDocumentMetadata(dossierPath)).get(fromRelativePath)
+        return buildDocumentRecord({
+          dossierId: canonicalDossierId,
+          dossierPath,
+          relativePath: fromRelativePath,
+          metadata
+        })
+      }
+
+      const fromAbsolute = resolveSafePathInDossier(dossierPath, fromRelativePath)
+      const toAbsolute = resolveSafePathInDossier(dossierPath, toRelativePath)
+
+      const fromStats = await stat(fromAbsolute).catch(() => null)
+      if (!fromStats?.isFile()) {
+        throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'The document was not found.')
+      }
+
+      const conflict = await stat(toAbsolute).catch(() => null)
+      if (conflict) {
+        throw new DocumentServiceError(
+          IpcErrorCode.VALIDATION_FAILED,
+          'A file with that name already exists.'
+        )
+      }
+
+      await rename(fromAbsolute, toAbsolute)
+
+      return withDossierMetadataLock(dossierPath, async () => {
+        const currentMetadata = await loadOrInitDossierMetadata(dossierPath, registryEntry)
+        const snapshot = await createDocumentFileSnapshot(dossierPath, toRelativePath)
+
+        const existingEntry = currentMetadata.documents.find(
+          (entry) => entry.relativePath === fromRelativePath
+        )
+        const nextEntry = normalizeStoredDocumentEntry(
+          existingEntry
+            ? { ...existingEntry, relativePath: toRelativePath }
+            : storedDocumentMetadataSchema.parse({
+                uuid: randomUUID(),
+                relativePath: toRelativePath,
+                filename: snapshot.filename,
+                byteLength: snapshot.byteLength,
+                modifiedAt: snapshot.modifiedAt,
+                description: undefined,
+                tags: []
+              }),
+          toRelativePath,
+          snapshot
+        )
+
+        const nextDocuments = currentMetadata.documents
+          .filter((entry) => entry.relativePath !== fromRelativePath)
+          .concat(nextEntry)
+          .sort((left, right) => left.relativePath.localeCompare(right.relativePath))
+
+        const nextMetadata = dossierMetadataFileSchema.parse({
+          ...currentMetadata,
+          documents: nextDocuments
+        })
+        await writeDossierMetadataFile(dossierPath, nextMetadata)
+
+        return buildDocumentRecord({
+          dossierId: canonicalDossierId,
+          dossierPath,
+          relativePath: toRelativePath,
+          metadata: nextEntry
+        })
+      })
+    },
+
+    deleteFile: async (input): Promise<void> => {
+      const parsed = documentFileDeleteInputSchema.parse(input)
+      const dossierPath = await resolveRegisteredDossierRoot({ dossierId: parsed.dossierId })
+      const domainPath = dirname(dossierPath)
+      const registry = await loadRegistry(domainPath)
+      const registryEntry = resolveRegistryEntryByRef(registry, parsed.dossierId)
+
+      if (!registryEntry) {
+        throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'This dossier is not registered.')
+      }
+
+      const relativePath = validateDocumentRelativePath(parsed.documentId)
+      const absolute = resolveSafePathInDossier(dossierPath, relativePath)
+      const fileStats = await stat(absolute).catch(() => null)
+
+      if (!fileStats?.isFile()) {
+        throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'The document was not found.')
+      }
+
+      const cacheDir = getDossierContentCachePath(dossierPath)
+      const cachePath = getDocumentContentCachePath(cacheDir, absolute)
+
+      await rm(absolute, { force: true })
+      await rm(cachePath, { force: true })
+
+      await withDossierMetadataLock(dossierPath, async () => {
+        const currentMetadata = await loadOrInitDossierMetadata(dossierPath, registryEntry)
+        const nextDocuments = currentMetadata.documents.filter(
+          (entry) => entry.relativePath !== relativePath
+        )
+
+        if (nextDocuments.length === currentMetadata.documents.length) {
+          return
+        }
+
+        const nextMetadata = dossierMetadataFileSchema.parse({
+          ...currentMetadata,
+          documents: nextDocuments
+        })
+        await writeDossierMetadataFile(dossierPath, nextMetadata)
+      })
+    },
+
     semanticSearch: async (input): Promise<SemanticSearchResult> => {
       const parsed = dossierScopedQuerySchema.parse({ dossierId: input.dossierId })
       const dossierPath = await resolveRegisteredDossierRoot(parsed)
       const cacheDir = getDossierContentCachePath(dossierPath)
 
-      const documents = await listDocumentsForSemanticSearch(dossierPath, cacheDir)
+      const documents = await listDocumentsForSemanticSearch(
+        dossierPath,
+        cacheDir,
+        options.embeddingConfig,
+        options.embedder
+      )
       const hits = await searchDossier({
         documents,
         query: input.query,
         topK: input.topK,
         embeddingConfig: options.embeddingConfig,
-        dim: DEFAULT_EMBEDDING_DIM
+        dim: DEFAULT_EMBEDDING_DIM,
+        embedder: options.embedder
       })
 
       return {
@@ -1399,7 +1767,9 @@ export function createDocumentService(options: DocumentServiceOptions): Document
           charStart: hit.charStart,
           charEnd: hit.charEnd,
           score: hit.score,
-          snippet: hit.snippet
+          snippet: hit.snippet,
+          snippetMatchStart: hit.snippetMatchStart,
+          snippetMatchEnd: hit.snippetMatchEnd
         }))
       }
     }
@@ -1408,7 +1778,9 @@ export function createDocumentService(options: DocumentServiceOptions): Document
 
 async function listDocumentsForSemanticSearch(
   dossierPath: string,
-  cacheDir: string
+  cacheDir: string,
+  embeddingConfig?: EmbeddingServiceConfig,
+  embedder?: (texts: string[], config?: EmbeddingServiceConfig) => Promise<Float32Array[] | null>
 ): Promise<IndexedDocument[]> {
   // Walk the dossier directory looking for extractable documents. The
   // semanticSearch path deliberately does not consume listDocuments here —
@@ -1445,7 +1817,9 @@ async function listDocumentsForSemanticSearch(
         await indexSearchableDocument({
           filePath: absolute,
           cacheDir,
-          relativePath: rel
+          relativePath: rel,
+          embeddingConfig,
+          embedder
         })
       }
       documents.push({

@@ -6,8 +6,8 @@ import { cn } from '@renderer/lib/utils'
 const fieldVariants = cva('flex flex-col text-sm', {
   variants: {
     density: {
-      default: 'gap-2 text-slate-100',
-      compact: 'gap-1.5 text-slate-200'
+      default: 'gap-2 text-[#1a1a1a]',
+      compact: 'gap-1.5 text-[#1a1a1a]'
     }
   },
   defaultVariants: {
@@ -15,11 +15,11 @@ const fieldVariants = cva('flex flex-col text-sm', {
   }
 })
 
-const fieldLabelVariants = cva('', {
+const fieldLabelVariants = cva('font-medium', {
   variants: {
     tone: {
-      default: '',
-      eyebrow: 'text-xs uppercase tracking-[0.16em] text-slate-400'
+      default: 'text-[#1a1a1a]',
+      eyebrow: 'text-xs uppercase tracking-[0.16em] text-[#8a8a85]'
     }
   },
   defaultVariants: {
@@ -30,8 +30,8 @@ const fieldLabelVariants = cva('', {
 const fieldMessageVariants = cva('text-xs', {
   variants: {
     tone: {
-      subtle: 'text-slate-400',
-      error: 'text-rose-300'
+      subtle: 'text-[#8a8a85]',
+      error: 'text-[#b23a3a]'
     }
   },
   defaultVariants: {
@@ -40,7 +40,7 @@ const fieldMessageVariants = cva('text-xs', {
 })
 
 const controlVariants = cva(
-  'w-full rounded-2xl border border-white/10 bg-slate-950/60 text-sm text-slate-100 outline-none transition focus:border-aurora focus:ring-2 focus:ring-aurora/35 disabled:pointer-events-none disabled:opacity-50',
+  'w-full rounded-xl border border-[#d1cfc6] bg-white text-sm text-[#1a1a1a] outline-none transition placeholder:text-[#8a8a85] focus:border-aurora focus:ring-2 focus:ring-aurora/45 disabled:pointer-events-none disabled:opacity-50',
   {
     variants: {
       density: {

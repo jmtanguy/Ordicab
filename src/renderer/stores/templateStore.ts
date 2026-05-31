@@ -18,7 +18,7 @@ import type {
 import { IpcErrorCode } from '@shared/types'
 import type { TemplateDocxSyncedEvent } from '@shared/contracts/documents'
 
-import { getOrdicabApi, IPC_NOT_AVAILABLE_ERROR } from './ipc'
+import { getOrdicabApi, IPC_NOT_AVAILABLE_ERROR, requireApi } from './ipc'
 
 interface TemplateStoreState {
   templates: TemplateRecord[]
@@ -39,6 +39,10 @@ interface TemplateStoreActions {
   importDocx: (id: string, pickToken?: string) => Promise<void>
   openDocx: (id: string) => Promise<IpcResult<null>>
   removeDocx: (id: string) => Promise<void>
+  applyCabinetDefaultDocx: (id: string) => Promise<void>
+  applyCabinetDocxToAllExisting: () => Promise<
+    IpcResult<{ updated: number; skipped: number; failed: string[] }>
+  >
   generate: (input: GenerateDocumentInput) => Promise<IpcResult<GeneratedDocumentResult>>
   preview: (input: GeneratePreviewInput) => Promise<IpcResult<GeneratedDraftResult>>
   previewDocx: (input: GeneratePreviewInput) => Promise<IpcResult<DocxPreviewResult>>
@@ -47,6 +51,7 @@ interface TemplateStoreActions {
     input: SaveGeneratedDocumentInput
   ) => Promise<IpcResult<GeneratedDocumentResult>>
   openGeneratedFile: (path: string) => Promise<void>
+  copyToClipboard: (input: { text?: string; html?: string }) => Promise<void>
   /**
    * Subscribes to "DOCX file synced from disk" events. Used by the template
    * editor to refresh its draft when the user edits the file in Word.
@@ -79,15 +84,8 @@ export const useTemplateStore = create<TemplateStore>()(
     error: null,
     errorCode: null,
     load: async () => {
-      const api = getOrdicabApi()
-
-      if (!api) {
-        set((state) => {
-          state.error = IPC_NOT_AVAILABLE_ERROR
-          state.errorCode = null
-        })
-        return
-      }
+      const api = requireApi(set)
+      if (!api) return
 
       set((state) => {
         state.isLoading = true
@@ -123,15 +121,8 @@ export const useTemplateStore = create<TemplateStore>()(
       return api.template.getContent({ id })
     },
     create: async (input) => {
-      const api = getOrdicabApi()
-
-      if (!api) {
-        set((state) => {
-          state.error = IPC_NOT_AVAILABLE_ERROR
-          state.errorCode = null
-        })
-        return
-      }
+      const api = requireApi(set)
+      if (!api) return
 
       const result = await api.template.create(input)
 
@@ -148,15 +139,8 @@ export const useTemplateStore = create<TemplateStore>()(
       })
     },
     update: async (input) => {
-      const api = getOrdicabApi()
-
-      if (!api) {
-        set((state) => {
-          state.error = IPC_NOT_AVAILABLE_ERROR
-          state.errorCode = null
-        })
-        return
-      }
+      const api = requireApi(set)
+      if (!api) return
 
       const result = await api.template.update(input)
 
@@ -176,15 +160,8 @@ export const useTemplateStore = create<TemplateStore>()(
       })
     },
     remove: async (id) => {
-      const api = getOrdicabApi()
-
-      if (!api) {
-        set((state) => {
-          state.error = IPC_NOT_AVAILABLE_ERROR
-          state.errorCode = null
-        })
-        return
-      }
+      const api = requireApi(set)
+      if (!api) return
 
       const result = await api.template.delete({ id })
 
@@ -214,15 +191,8 @@ export const useTemplateStore = create<TemplateStore>()(
       return api.template.pickDocxFile()
     },
     importDocx: async (id, pickToken) => {
-      const api = getOrdicabApi()
-
-      if (!api) {
-        set((state) => {
-          state.error = IPC_NOT_AVAILABLE_ERROR
-          state.errorCode = null
-        })
-        return
-      }
+      const api = requireApi(set)
+      if (!api) return
 
       const result = await api.template.importDocx(pickToken ? { id, pickToken } : { id })
 
@@ -252,15 +222,8 @@ export const useTemplateStore = create<TemplateStore>()(
       return api.template.openDocx({ id } satisfies TemplateDocxInput)
     },
     removeDocx: async (id) => {
-      const api = getOrdicabApi()
-
-      if (!api) {
-        set((state) => {
-          state.error = IPC_NOT_AVAILABLE_ERROR
-          state.errorCode = null
-        })
-        return
-      }
+      const api = requireApi(set)
+      if (!api) return
 
       const result = await api.template.removeDocx({ id } satisfies TemplateDocxInput)
 
@@ -275,6 +238,45 @@ export const useTemplateStore = create<TemplateStore>()(
         state.error = null
         state.errorCode = null
       })
+    },
+    applyCabinetDefaultDocx: async (id) => {
+      const api = requireApi(set)
+      if (!api) return
+
+      const result = await api.template.applyCabinetDefaultDocx({ id } satisfies TemplateDocxInput)
+
+      set((state) => {
+        if (!result.success) {
+          state.error = result.error
+          state.errorCode = result.code
+          return
+        }
+
+        state.templates = replaceTemplate(state.templates, result.data)
+        state.error = null
+        state.errorCode = null
+      })
+    },
+    applyCabinetDocxToAllExisting: async () => {
+      const api = getOrdicabApi()
+      if (!api) {
+        return {
+          success: false as const,
+          error: IPC_NOT_AVAILABLE_ERROR,
+          code: IpcErrorCode.UNKNOWN
+        }
+      }
+      const result = await api.template.applyCabinetDocxToAllExisting()
+      if (result.success) {
+        // Re-fetch templates so updatedAt and any visual indicators refresh.
+        const refreshed = await api.template.list()
+        if (refreshed.success) {
+          set((state) => {
+            state.templates = refreshed.data
+          })
+        }
+      }
+      return result
     },
     generate: async (input) => {
       const api = getOrdicabApi()
@@ -349,6 +351,11 @@ export const useTemplateStore = create<TemplateStore>()(
       }
 
       await api.app.openFolder({ path })
+    },
+    copyToClipboard: async (input) => {
+      const api = getOrdicabApi()
+      if (!api) return
+      await api.app.writeClipboard(input)
     },
     subscribeToDocxSynced: (listener) => {
       const api = getOrdicabApi()

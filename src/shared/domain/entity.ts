@@ -1,10 +1,10 @@
 import type { EntityManagedFieldsConfig } from '../managedFields'
 
+import type { Gender } from './gender'
+
 export interface EntityProfile {
   firmName: string
-  profession?: 'lawyer' | 'architect' | 'real_estate' | 'building_trades' | 'consulting_services'
-  title?: string
-  gender?: 'M' | 'F' | 'N'
+  gender?: Gender
   firstName?: string
   lastName?: string
   addressLine?: string
@@ -14,8 +14,20 @@ export interface EntityProfile {
   country?: string
   address?: string
   vatNumber?: string
+  siren?: string
+  legalForm?: string
+  shareCapital?: string
+  rcsNumber?: string
+  rcsCity?: string
+  iban?: string
+  bic?: string
+  carpaIban?: string
   phone?: string
   email?: string
+  barreau?: string
+  toque?: string
+  defaultTemplateFileName?: string
+  defaultTemplateImportedAt?: string
   managedFields?: EntityManagedFieldsConfig
 }
 

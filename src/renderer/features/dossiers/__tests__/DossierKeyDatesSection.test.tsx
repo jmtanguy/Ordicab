@@ -36,7 +36,7 @@ async function renderSection(
 }
 
 describe('DossierKeyDatesSection', () => {
-  it('pre-fills the editor date with the local format when editing', async () => {
+  it('pre-fills the editor date with the ISO value when editing', async () => {
     await renderSection({
       entries: [
         {
@@ -51,37 +51,43 @@ describe('DossierKeyDatesSection', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Modifier' }))
 
-    expect((screen.getByLabelText('Date') as HTMLInputElement).value).toBe('01/04/2026')
+    expect((screen.getByLabelText('Date') as HTMLInputElement).value).toBe('2026-04-01')
   })
 
-  it('normalizes a local date to ISO before saving', async () => {
+  it('saves the ISO date directly when the form is submitted', async () => {
     const onSave = vi.fn(async () => true)
     await renderSection({ onSave })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Ajouter une date clé' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Ajouter un événement' }))
     fireEvent.change(screen.getByLabelText('Libellé'), { target: { value: 'Audience' } })
-    fireEvent.change(screen.getByLabelText('Date'), { target: { value: '01/04/2026' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Enregistrer la date clé' }))
+    fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-04-01' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
 
     await waitFor(() => {
-      expect(onSave).toHaveBeenCalledWith({
-        dossierId: 'dos-1',
-        id: undefined,
-        label: 'Audience',
-        date: '2026-04-01',
-        note: undefined
-      })
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dossierId: 'dos-1',
+          label: 'Audience',
+          date: '2026-04-01'
+        })
+      )
     })
   })
 
-  it('blocks invalid local dates and shows an inline error', async () => {
+  it('shows an inline error and does not save when date is empty', async () => {
     const onSave = vi.fn(async () => true)
     await renderSection({ onSave })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Ajouter une date clé' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Ajouter un événement' }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Libellé')).toBeTruthy()
+    })
+
     fireEvent.change(screen.getByLabelText('Libellé'), { target: { value: 'Audience' } })
-    fireEvent.change(screen.getByLabelText('Date'), { target: { value: '31/31/2026' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Enregistrer la date clé' }))
+    // leave date empty — submit the form directly to bypass native date validation
+    const form = screen.getByRole('dialog').querySelector('form')!
+    fireEvent.submit(form)
 
     await waitFor(() => {
       expect(screen.getByText('Saisissez une date valide.')).toBeTruthy()

@@ -2,7 +2,7 @@
  * piiToolGateway — single decision point for PII wrapping around tool executors.
  *
  * Without PII enabled, the gateway returns raw executor passthroughs. With PII
- * enabled, every tool call is wrapped: arguments are reverted from markers,
+ * enabled, every tool call is wrapped: arguments are reverted from fake values,
  * tool-specific post-revert sanitization runs, the underlying executor is
  * invoked, and the JSON result is pseudonymized via a per-tool dispatch table
  * before being fed back to the LLM.
@@ -35,9 +35,9 @@ export interface ToolGateway {
   executeActionTool: (toolName: string, args: Record<string, unknown>) => Promise<string>
 }
 
-// ── Contact upsert post-revert sanitization ──────────────────────────────────
-// PII reversion can leave behind stray markers, backticks, or stuck
-// "<zip> <city>" pairs that the LLM combined. Sanitize before persistence.
+// ── Contact create/update post-revert sanitization ───────────────────────────
+// PII reversion can leave behind stray quotes or stuck "<zip> <city>" pairs
+// that the LLM combined. Sanitize before persistence.
 
 const CONTACT_UPSERT_TEXT_FIELDS = [
   'firstName',
@@ -59,14 +59,10 @@ function sanitizePiiRevertedStringValue(
   value: string,
   revertPiiText: (text: string) => string
 ): string {
-  return revertPiiText(value)
-    .replace(/\[\[[^\]]+\]\]/g, ' ')
-    .replace(/[`'"]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
+  return revertPiiText(value).replace(/[`'"]/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
-function sanitizeContactUpsertArgsAfterPiiRevert(
+function sanitizeContactMutationArgsAfterPiiRevert(
   args: Record<string, unknown>,
   revertPiiText: (text: string) => string
 ): Record<string, unknown> {
@@ -135,7 +131,7 @@ async function pseudonymizeToolResult(
 ): Promise<string> {
   const handler = toolResultPseudonymizers[toolName]
   if (handler) return handler(result, helpers)
-  // Batchable action tools (contact_upsert, contact_delete, dossier_select, …):
+  // Batchable action tools (contact_create, contact_update, contact_delete, dossier_select, …):
   // pseudonymize only the human-readable `feedback` field. Structural fields
   // (contactId, dossierId, templateId, entity.id) are UUIDs that must not be
   // altered — PII detection can match digit sequences inside UUIDs as phone
@@ -180,8 +176,8 @@ export function createPiiToolGateway(
       console.log(`\n[aiService] executeActionTool:start name=${toolName}`)
       const revertedArgs = helpers.revertPiiJson(args) as Record<string, unknown>
       const normalizedArgs =
-        toolName === 'contact_upsert'
-          ? sanitizeContactUpsertArgsAfterPiiRevert(revertedArgs, helpers.revertPiiText)
+        toolName === 'contact_create' || toolName === 'contact_update'
+          ? sanitizeContactMutationArgsAfterPiiRevert(revertedArgs, helpers.revertPiiText)
           : revertedArgs
       const result = await actionToolExecutor.execute(toolName, normalizedArgs)
       console.log(

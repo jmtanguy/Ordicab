@@ -1,23 +1,18 @@
-import { ZodError } from 'zod'
-
-import {
-  IPC_CHANNELS,
-  IpcErrorCode,
-  type DossierDetail,
-  type DossierEligibleFolder,
-  type DossierScopedQuery,
-  type DossierSummary,
-  type DossierUpdateInput,
-  type IpcError,
-  type IpcResult
-} from '@shared/types'
+import { IPC_CHANNELS, type IpcError } from '@shared/types'
 
 import {
   dossierRegistrationInputSchema,
   dossierScopedQuerySchema,
-  dossierUnregisterInputSchema,
-  dossierUpdateInputSchema
+  dossierUnregisterInputSchema
 } from '@shared/validation/dossier'
+import {
+  dossierBillingItemDeleteInputSchema,
+  dossierBillingItemUpsertInputSchema,
+  dossierFeeAgreementArchiveInputSchema,
+  dossierFeeAgreementDeleteInputSchema,
+  dossierFeeAgreementSetActiveInputSchema,
+  dossierFeeAgreementUpsertInputSchema
+} from '@shared/validation/billing'
 import {
   dossierKeyDateDeleteInputSchema,
   dossierKeyDateUpsertInputSchema
@@ -31,202 +26,157 @@ import {
   DossierRegistryError,
   type DossierRegistryService
 } from '../services/domain/dossierRegistryService'
+import { type IpcMainLike, mapIpcError, registerIpcHandler } from './ipc'
 
-interface IpcMainLike {
-  handle: (
-    channel: string,
-    listener: (_event: unknown, input?: unknown) => Promise<unknown>
-  ) => void
-}
-
-function mapDossierError(error: unknown, fallbackMessage: string): IpcError {
-  if (error instanceof ZodError) {
-    return {
-      success: false,
-      error: 'Invalid dossier input.',
-      code: IpcErrorCode.VALIDATION_FAILED
-    }
-  }
-
-  if (error instanceof DossierRegistryError) {
-    return {
-      success: false,
-      error: error.message,
-      code: error.code
-    }
-  }
-
-  return {
-    success: false,
-    error: error instanceof Error ? error.message : fallbackMessage,
-    code: IpcErrorCode.FILE_SYSTEM_ERROR
-  }
-}
+const mapDossierError = (error: unknown, fallback: string): IpcError =>
+  mapIpcError(error, fallback, {
+    validationMessage: 'Invalid dossier input.',
+    errorClasses: [DossierRegistryError]
+  })
 
 export function registerDossierHandlers(options: {
   dossierService: DossierRegistryService
   ipcMain: IpcMainLike
 }): void {
-  options.ipcMain.handle(
-    IPC_CHANNELS.dossier.listEligible,
-    async (): Promise<IpcResult<DossierEligibleFolder[]>> => {
-      try {
-        return {
-          success: true,
-          data: await options.dossierService.listEligibleFolders()
-        }
-      } catch (error) {
-        return mapDossierError(error, 'Unable to load eligible dossier folders.')
-      }
-    }
-  )
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.listEligible,
+    fallback: 'Unable to load eligible dossier folders.',
+    mapError: mapDossierError,
+    handle: () => options.dossierService.listEligibleFolders()
+  })
 
-  options.ipcMain.handle(
-    IPC_CHANNELS.dossier.list,
-    async (): Promise<IpcResult<DossierSummary[]>> => {
-      try {
-        return {
-          success: true,
-          data: await options.dossierService.listRegisteredDossiers()
-        }
-      } catch (error) {
-        return mapDossierError(error, 'Unable to load registered dossiers.')
-      }
-    }
-  )
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.list,
+    fallback: 'Unable to load registered dossiers.',
+    mapError: mapDossierError,
+    handle: () => options.dossierService.listRegisteredDossiers()
+  })
 
-  options.ipcMain.handle(
-    IPC_CHANNELS.dossier.get,
-    async (_event, input: unknown): Promise<IpcResult<DossierDetail>> => {
-      try {
-        const parsed = dossierScopedQuerySchema.parse(input) as DossierScopedQuery
-        return {
-          success: true,
-          data: await options.dossierService.getDossier(parsed)
-        }
-      } catch (error) {
-        return mapDossierError(error, 'Unable to load dossier details.')
-      }
-    }
-  )
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.get,
+    schema: dossierScopedQuerySchema,
+    fallback: 'Unable to load dossier details.',
+    mapError: mapDossierError,
+    handle: (input) => options.dossierService.getDossier(input)
+  })
 
-  options.ipcMain.handle(
-    IPC_CHANNELS.dossier.open,
-    async (_event, input: unknown): Promise<IpcResult<DossierDetail>> => {
-      try {
-        const parsed = dossierScopedQuerySchema.parse(input) as DossierScopedQuery
-        return {
-          success: true,
-          data: await options.dossierService.openDossier(parsed)
-        }
-      } catch (error) {
-        return mapDossierError(error, 'Unable to open dossier details.')
-      }
-    }
-  )
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.open,
+    schema: dossierScopedQuerySchema,
+    fallback: 'Unable to open dossier details.',
+    mapError: mapDossierError,
+    handle: (input) => options.dossierService.openDossier(input)
+  })
 
-  options.ipcMain.handle(
-    IPC_CHANNELS.dossier.register,
-    async (_event, input: unknown): Promise<IpcResult<DossierSummary>> => {
-      try {
-        const parsed = dossierRegistrationInputSchema.parse(input)
-        return {
-          success: true,
-          data: await options.dossierService.registerDossier(parsed)
-        }
-      } catch (error) {
-        return mapDossierError(error, 'Unable to register dossier.')
-      }
-    }
-  )
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.register,
+    schema: dossierRegistrationInputSchema,
+    fallback: 'Unable to register dossier.',
+    mapError: mapDossierError,
+    handle: (input) => options.dossierService.registerDossier(input)
+  })
 
-  options.ipcMain.handle(
-    IPC_CHANNELS.dossier.update,
-    async (_event, input: unknown): Promise<IpcResult<DossierDetail>> => {
-      try {
-        const parsed = dossierUpdateInputSchema.parse(input) as DossierUpdateInput
-        return {
-          success: true,
-          data: await options.dossierService.updateDossier(parsed)
-        }
-      } catch (error) {
-        return mapDossierError(error, 'Unable to update dossier details.')
-      }
-    }
-  )
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.upsertKeyDate,
+    schema: dossierKeyDateUpsertInputSchema,
+    fallback: 'Unable to save dossier key date.',
+    mapError: mapDossierError,
+    handle: (input) => options.dossierService.upsertKeyDate(input)
+  })
 
-  options.ipcMain.handle(
-    IPC_CHANNELS.dossier.upsertKeyDate,
-    async (_event, input: unknown): Promise<IpcResult<DossierDetail>> => {
-      try {
-        const parsed = dossierKeyDateUpsertInputSchema.parse(input)
-        return {
-          success: true,
-          data: await options.dossierService.upsertKeyDate(parsed)
-        }
-      } catch (error) {
-        return mapDossierError(error, 'Unable to save dossier key date.')
-      }
-    }
-  )
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.deleteKeyDate,
+    schema: dossierKeyDateDeleteInputSchema,
+    fallback: 'Unable to delete dossier key date.',
+    mapError: mapDossierError,
+    handle: (input) => options.dossierService.deleteKeyDate(input)
+  })
 
-  options.ipcMain.handle(
-    IPC_CHANNELS.dossier.deleteKeyDate,
-    async (_event, input: unknown): Promise<IpcResult<DossierDetail>> => {
-      try {
-        const parsed = dossierKeyDateDeleteInputSchema.parse(input)
-        return {
-          success: true,
-          data: await options.dossierService.deleteKeyDate(parsed)
-        }
-      } catch (error) {
-        return mapDossierError(error, 'Unable to delete dossier key date.')
-      }
-    }
-  )
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.upsertKeyReference,
+    schema: dossierKeyReferenceUpsertInputSchema,
+    fallback: 'Unable to save dossier key reference.',
+    mapError: mapDossierError,
+    handle: (input) => options.dossierService.upsertKeyReference(input)
+  })
 
-  options.ipcMain.handle(
-    IPC_CHANNELS.dossier.upsertKeyReference,
-    async (_event, input: unknown): Promise<IpcResult<DossierDetail>> => {
-      try {
-        const parsed = dossierKeyReferenceUpsertInputSchema.parse(input)
-        return {
-          success: true,
-          data: await options.dossierService.upsertKeyReference(parsed)
-        }
-      } catch (error) {
-        return mapDossierError(error, 'Unable to save dossier key reference.')
-      }
-    }
-  )
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.deleteKeyReference,
+    schema: dossierKeyReferenceDeleteInputSchema,
+    fallback: 'Unable to delete dossier key reference.',
+    mapError: mapDossierError,
+    handle: (input) => options.dossierService.deleteKeyReference(input)
+  })
 
-  options.ipcMain.handle(
-    IPC_CHANNELS.dossier.deleteKeyReference,
-    async (_event, input: unknown): Promise<IpcResult<DossierDetail>> => {
-      try {
-        const parsed = dossierKeyReferenceDeleteInputSchema.parse(input)
-        return {
-          success: true,
-          data: await options.dossierService.deleteKeyReference(parsed)
-        }
-      } catch (error) {
-        return mapDossierError(error, 'Unable to delete dossier key reference.')
-      }
-    }
-  )
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.upsertFeeAgreement,
+    schema: dossierFeeAgreementUpsertInputSchema,
+    fallback: 'Unable to save dossier fee agreement.',
+    mapError: mapDossierError,
+    handle: (input) => options.dossierService.upsertFeeAgreement(input)
+  })
 
-  options.ipcMain.handle(
-    IPC_CHANNELS.dossier.unregister,
-    async (_event, input: unknown): Promise<IpcResult<null>> => {
-      try {
-        const parsed = dossierUnregisterInputSchema.parse(input)
-        return {
-          success: true,
-          data: await options.dossierService.unregisterDossier(parsed)
-        }
-      } catch (error) {
-        return mapDossierError(error, 'Unable to unregister dossier.')
-      }
-    }
-  )
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.deleteFeeAgreement,
+    schema: dossierFeeAgreementDeleteInputSchema,
+    fallback: 'Unable to delete dossier fee agreement.',
+    mapError: mapDossierError,
+    handle: (input) => options.dossierService.deleteFeeAgreement(input)
+  })
+
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.archiveFeeAgreement,
+    schema: dossierFeeAgreementArchiveInputSchema,
+    fallback: 'Unable to archive dossier fee agreement.',
+    mapError: mapDossierError,
+    handle: (input) => options.dossierService.archiveFeeAgreement(input)
+  })
+
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.setActiveFeeAgreement,
+    schema: dossierFeeAgreementSetActiveInputSchema,
+    fallback: 'Unable to activate dossier fee agreement.',
+    mapError: mapDossierError,
+    handle: (input) => options.dossierService.setActiveFeeAgreement(input)
+  })
+
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.upsertBillingItem,
+    schema: dossierBillingItemUpsertInputSchema,
+    fallback: 'Unable to save dossier billing item.',
+    mapError: mapDossierError,
+    handle: (input) => options.dossierService.upsertBillingItem(input)
+  })
+
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.deleteBillingItem,
+    schema: dossierBillingItemDeleteInputSchema,
+    fallback: 'Unable to delete dossier billing item.',
+    mapError: mapDossierError,
+    handle: (input) => options.dossierService.deleteBillingItem(input)
+  })
+
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.unregister,
+    schema: dossierUnregisterInputSchema,
+    fallback: 'Unable to unregister dossier.',
+    mapError: mapDossierError,
+    handle: (input) => options.dossierService.unregisterDossier(input)
+  })
 }

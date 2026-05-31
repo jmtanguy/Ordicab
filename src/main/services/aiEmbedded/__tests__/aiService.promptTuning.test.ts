@@ -33,7 +33,6 @@ interface PromptTuningScenario {
 interface CapturedRuntimeCall {
   command: string
   context: AiCommandContext
-  systemPrompt: string
   toolSystemPrompt: string
   history?: Array<{ role: 'user' | 'assistant'; content: string }>
   model?: string
@@ -129,6 +128,8 @@ const DOSSIER_DETAIL: DossierDetail = {
   nextUpcomingKeyDate: null,
   nextUpcomingKeyDateLabel: null,
   registeredAt: '2026-03-20T10:00:00.000Z',
+  feeAgreements: [],
+  billingItems: [],
   keyDates: [],
   keyReferences: []
 }
@@ -177,7 +178,6 @@ function makeRuntime(intent: InternalAiCommand = { type: 'contact_lookup', query
     getLastToolLoopEntries: vi.fn().mockReturnValue([]),
     appendHistory: vi.fn(),
     resetConversation: vi.fn().mockResolvedValue(undefined),
-    generateText: vi.fn().mockResolvedValue('generated text'),
     generateOneShot: vi.fn().mockResolvedValue('generated text'),
     streamText: vi.fn().mockResolvedValue('generated text'),
     cancelCommand: vi.fn(),
@@ -234,8 +234,6 @@ function logPromptDetails(name: string, runtimeCall: CapturedRuntimeCall): void 
   console.log(`\n[aiService prompt tuning] ${name}`)
   console.log(`command: ${runtimeCall.command}`)
   console.log(`context: ${JSON.stringify(runtimeCall.context)}`)
-  console.log('\n--- systemPrompt ---')
-  console.log(runtimeCall.systemPrompt)
   console.log('\n--- toolSystemPrompt ---')
   console.log(runtimeCall.toolSystemPrompt)
 }
@@ -289,7 +287,13 @@ describe('aiService prompt tuning harness', () => {
         upsertKeyDate: vi.fn().mockResolvedValue(undefined),
         deleteKeyDate: vi.fn().mockResolvedValue(undefined),
         upsertKeyReference: vi.fn().mockResolvedValue(undefined),
-        deleteKeyReference: vi.fn().mockResolvedValue(undefined)
+        deleteKeyReference: vi.fn().mockResolvedValue(undefined),
+        upsertBillingItem: vi.fn().mockResolvedValue(undefined),
+        deleteBillingItem: vi.fn().mockResolvedValue(undefined)
+      },
+      invoiceService: {
+        list: vi.fn().mockResolvedValue([]),
+        get: vi.fn().mockResolvedValue(undefined)
       },
       documentService: {
         listDocuments: vi.fn().mockResolvedValue(DOCUMENTS),
@@ -344,10 +348,7 @@ describe('aiService prompt tuning harness', () => {
 
     expect(runtimeCall.command).toBe(scenario.command)
     expect(runtimeCall.context).toEqual(scenario.context)
-    expect(runtimeCall.systemPrompt).toContain("Today's date: vendredi 27 mars 2026")
-    expect(runtimeCall.systemPrompt).toContain('Succession TestCase-A')
-    expect(runtimeCall.systemPrompt).toContain('John Martin')
-    expect(runtimeCall.systemPrompt).toContain('Lettre de mise en demeure')
+    expect(runtimeCall.toolSystemPrompt).toContain("Today's date: vendredi 27 mars 2026")
     expect(runtimeCall.toolSystemPrompt).toContain('## Runtime contract')
     expect(runtimeCall.toolSystemPrompt).toContain('contact_lookup')
     expect(runtimeCall.toolSystemPrompt).toContain('managed_fields_get')
@@ -372,14 +373,13 @@ describe('aiService prompt tuning harness', () => {
     expect({
       command: runtimeCall.command,
       context: runtimeCall.context,
-      systemPrompt: runtimeCall.systemPrompt,
       toolSystemPrompt: runtimeCall.toolSystemPrompt
     }).toMatchSnapshot()
 
     vi.useRealTimers()
   })
 
-  it('explicitly forbids literal placeholders in contact_get arguments', async () => {
+  it('documents contact_update as the correct tool for partial contact updates like email', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-03-27T12:00:00.000Z'))
 
@@ -416,80 +416,13 @@ describe('aiService prompt tuning harness', () => {
         upsertKeyDate: vi.fn().mockResolvedValue(undefined),
         deleteKeyDate: vi.fn().mockResolvedValue(undefined),
         upsertKeyReference: vi.fn().mockResolvedValue(undefined),
-        deleteKeyReference: vi.fn().mockResolvedValue(undefined)
+        deleteKeyReference: vi.fn().mockResolvedValue(undefined),
+        upsertBillingItem: vi.fn().mockResolvedValue(undefined),
+        deleteBillingItem: vi.fn().mockResolvedValue(undefined)
       },
-      documentService: {
-        listDocuments: vi.fn().mockResolvedValue(DOCUMENTS),
-        saveMetadata: vi.fn(),
-        relocateMetadata: vi.fn(),
-        resolveRegisteredDossierRoot: vi.fn(),
-        semanticSearch: vi.fn().mockResolvedValue({ dossierId: '', query: '', hits: [] })
-      },
-      domainService: {
-        getStatus: vi.fn().mockResolvedValue({
-          registeredDomainPath: domainPath,
-          isAvailable: true
-        })
-      },
-      localeService: {
-        getLocale: vi.fn().mockReturnValue('fr')
-      },
-      stateFilePath,
-      tessDataPath: '/tmp/tessdata'
-    })
-
-    await service.executeCommand({
-      command: 'Telephone de John Martin',
-      context: { dossierId: 'dossier-testcase-a' }
-    })
-
-    const runtimeCall = runtimeProbe.capturedCall
-    expect(runtimeCall).not.toBeNull()
-    expect(runtimeCall?.systemPrompt).toContain(
-      'User: "Phone number for John Martin" → { "type": "contact_get", "contactId": "contact-john-martin" }'
-    )
-
-    vi.useRealTimers()
-  })
-
-  it('documents contact_upsert as the correct tool for partial contact updates like email', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-03-27T12:00:00.000Z'))
-
-    const stateFilePath = await writeStateFile()
-    const domainPath = await writeDomainRegistry([
-      {
-        id: 'Client Alpha',
-        uuid: 'uuid-dossier-testcase-a',
-        name: 'Succession TestCase-A'
-      }
-    ])
-    const runtimeProbe = makeRuntime()
-
-    const service = createAiService({
-      aiAgentRuntime: runtimeProbe.runtime,
-      intentDispatcher: makeDispatcher(),
-      contactService: {
-        list: vi.fn().mockResolvedValue(CONTACTS),
-        upsert: vi.fn(),
-        delete: vi.fn()
-      },
-      templateService: {
-        list: vi.fn().mockResolvedValue(TEMPLATES),
-        getContent: vi.fn(),
-        create: vi.fn(),
-        update: vi.fn(),
-        delete: vi.fn()
-      },
-      dossierService: {
-        listRegisteredDossiers: vi.fn().mockResolvedValue(DOSSIERS),
-        getDossier: vi.fn().mockResolvedValue(DOSSIER_DETAIL),
-        registerDossier: vi.fn().mockResolvedValue(undefined),
-        updateDossier: vi.fn().mockResolvedValue(undefined),
-        upsertKeyDate: vi.fn().mockResolvedValue(undefined),
-        deleteKeyDate: vi.fn().mockResolvedValue(undefined),
-        upsertKeyReference: vi.fn().mockResolvedValue(undefined),
-        deleteKeyReference: vi.fn().mockResolvedValue(undefined)
+      invoiceService: {
+        list: vi.fn().mockResolvedValue([]),
+        get: vi.fn().mockResolvedValue(undefined)
       },
       documentService: {
         listDocuments: vi.fn().mockResolvedValue(DOCUMENTS),
@@ -518,16 +451,13 @@ describe('aiService prompt tuning harness', () => {
 
     const runtimeCall = runtimeProbe.capturedCall
     expect(runtimeCall).not.toBeNull()
-    expect(runtimeCall?.systemPrompt).toContain(
-      'Use this for any partial update such as adding an email'
+    expect(runtimeCall?.toolSystemPrompt).toContain(
+      'For contact creation, call `managed_fields_get` first, then `contact_create`'
     )
     expect(runtimeCall?.toolSystemPrompt).toContain(
-      'For add/update contact flows, call `managed_fields_get` first'
+      'then `contact_update` with the exact `contactId`'
     )
     expect(runtimeCall?.toolSystemPrompt).toContain('Managed fields are optional')
-    expect(runtimeCall?.systemPrompt).toContain(
-      'User: "Add email john.martin@test-example.com to John Martin" → { "type": "contact_upsert", "id": "contact-john-martin", "email": "john.martin@test-example.com" }'
-    )
 
     vi.useRealTimers()
   })
@@ -546,7 +476,6 @@ describe('aiService prompt tuning harness', () => {
     ])
     await writeEntityProfile(domainPath, {
       firmName: 'Cabinet Exemple',
-      profession: 'lawyer',
       managedFields: {
         contactRoles: ['Partie représentée', 'Partie adverse'],
         contacts: [
@@ -567,7 +496,6 @@ describe('aiService prompt tuning harness', () => {
       getLastToolLoopEntries: vi.fn().mockReturnValue([]),
       appendHistory: vi.fn(),
       resetConversation: vi.fn().mockResolvedValue(undefined),
-      generateText: vi.fn().mockResolvedValue('generated text'),
       generateOneShot: vi.fn().mockResolvedValue('generated text'),
       streamText: vi.fn().mockResolvedValue('generated text'),
       cancelCommand: vi.fn(),
@@ -606,7 +534,13 @@ describe('aiService prompt tuning harness', () => {
         upsertKeyDate: vi.fn().mockResolvedValue(undefined),
         deleteKeyDate: vi.fn().mockResolvedValue(undefined),
         upsertKeyReference: vi.fn().mockResolvedValue(undefined),
-        deleteKeyReference: vi.fn().mockResolvedValue(undefined)
+        deleteKeyReference: vi.fn().mockResolvedValue(undefined),
+        upsertBillingItem: vi.fn().mockResolvedValue(undefined),
+        deleteBillingItem: vi.fn().mockResolvedValue(undefined)
+      },
+      invoiceService: {
+        list: vi.fn().mockResolvedValue([]),
+        get: vi.fn().mockResolvedValue(undefined)
       },
       documentService: {
         listDocuments: vi.fn().mockResolvedValue(DOCUMENTS),
@@ -664,7 +598,6 @@ describe('aiService prompt tuning harness', () => {
     ])
     await writeEntityProfile(domainPath, {
       firmName: 'Cabinet Exemple',
-      profession: 'lawyer',
       managedFields: {
         contactRoles: ['Huissier de justice'],
         contacts: [{ label: 'Profession', type: 'text' }],
@@ -685,7 +618,6 @@ describe('aiService prompt tuning harness', () => {
       getLastToolLoopEntries: vi.fn().mockReturnValue([]),
       appendHistory: vi.fn(),
       resetConversation: vi.fn().mockResolvedValue(undefined),
-      generateText: vi.fn().mockResolvedValue('generated text'),
       generateOneShot: vi.fn().mockResolvedValue('generated text'),
       streamText: vi.fn().mockResolvedValue('generated text'),
       cancelCommand: vi.fn(),
@@ -724,7 +656,13 @@ describe('aiService prompt tuning harness', () => {
         upsertKeyDate: vi.fn().mockResolvedValue(undefined),
         deleteKeyDate: vi.fn().mockResolvedValue(undefined),
         upsertKeyReference: vi.fn().mockResolvedValue(undefined),
-        deleteKeyReference: vi.fn().mockResolvedValue(undefined)
+        deleteKeyReference: vi.fn().mockResolvedValue(undefined),
+        upsertBillingItem: vi.fn().mockResolvedValue(undefined),
+        deleteBillingItem: vi.fn().mockResolvedValue(undefined)
+      },
+      invoiceService: {
+        list: vi.fn().mockResolvedValue([]),
+        get: vi.fn().mockResolvedValue(undefined)
       },
       documentService: {
         listDocuments: vi.fn().mockResolvedValue(DOCUMENTS),
@@ -778,10 +716,12 @@ describe('aiService prompt tuning harness', () => {
 
     const runtime: AiAgentRuntime = {
       sendCommand: vi.fn().mockImplementation(async (payload) => {
-        const markerMatch = payload.command.match(/\[\[contact_1\.lastName\]\]\s+'[^']+'/)
+        const fakeContactRef = payload.command.replace(/^supprimer\s+/i, '').trim()
+        expect(fakeContactRef).not.toContain('[[')
+        expect(fakeContactRef).not.toBe('merlin')
         const result = await payload.executeDataTool?.('contact_get', {
           dossierId: 'dossier-testcase-a',
-          contactId: markerMatch?.[0] ?? 'contact-1'
+          contactId: fakeContactRef || 'contact-1'
         })
         return { type: 'direct_response', message: result ?? '' }
       }),
@@ -789,7 +729,6 @@ describe('aiService prompt tuning harness', () => {
       getLastToolLoopEntries: vi.fn().mockReturnValue([]),
       appendHistory: vi.fn(),
       resetConversation: vi.fn().mockResolvedValue(undefined),
-      generateText: vi.fn().mockResolvedValue('generated text'),
       generateOneShot: vi.fn().mockResolvedValue('generated text'),
       streamText: vi.fn().mockResolvedValue('generated text'),
       cancelCommand: vi.fn(),
@@ -835,7 +774,13 @@ describe('aiService prompt tuning harness', () => {
         upsertKeyDate: vi.fn().mockResolvedValue(undefined),
         deleteKeyDate: vi.fn().mockResolvedValue(undefined),
         upsertKeyReference: vi.fn().mockResolvedValue(undefined),
-        deleteKeyReference: vi.fn().mockResolvedValue(undefined)
+        deleteKeyReference: vi.fn().mockResolvedValue(undefined),
+        upsertBillingItem: vi.fn().mockResolvedValue(undefined),
+        deleteBillingItem: vi.fn().mockResolvedValue(undefined)
+      },
+      invoiceService: {
+        list: vi.fn().mockResolvedValue([]),
+        get: vi.fn().mockResolvedValue(undefined)
       },
       documentService: {
         listDocuments: vi.fn().mockResolvedValue(DOCUMENTS),
@@ -921,7 +866,13 @@ describe('aiService prompt tuning harness', () => {
         upsertKeyDate: vi.fn().mockResolvedValue(undefined),
         deleteKeyDate: vi.fn().mockResolvedValue(undefined),
         upsertKeyReference: vi.fn().mockResolvedValue(undefined),
-        deleteKeyReference: vi.fn().mockResolvedValue(undefined)
+        deleteKeyReference: vi.fn().mockResolvedValue(undefined),
+        upsertBillingItem: vi.fn().mockResolvedValue(undefined),
+        deleteBillingItem: vi.fn().mockResolvedValue(undefined)
+      },
+      invoiceService: {
+        list: vi.fn().mockResolvedValue([]),
+        get: vi.fn().mockResolvedValue(undefined)
       },
       documentService: {
         listDocuments: vi.fn().mockResolvedValue(DOCUMENTS),
@@ -955,7 +906,6 @@ describe('aiService prompt tuning harness', () => {
     expect(runtimeCall?.command).not.toContain('John Martin')
     expect(runtimeCall?.command).not.toContain('FR76 1234 5678 9012 3456 7890 123')
     expect(runtimeCall?.history?.[0]?.content).not.toContain('John Martin')
-    expect(runtimeCall?.systemPrompt).not.toContain('John Martin')
     expect(runtimeCall?.toolSystemPrompt).not.toContain('John Martin')
     expect(runtimeCall?.toolSystemPrompt).toContain('vendredi 27 mars 2026')
     expect(pseudonymizeAsyncSpy).toHaveBeenCalled()
@@ -1003,7 +953,6 @@ describe('aiService prompt tuning harness', () => {
       getLastToolLoopEntries: vi.fn().mockReturnValue([]),
       appendHistory: vi.fn(),
       resetConversation: vi.fn().mockResolvedValue(undefined),
-      generateText: vi.fn().mockResolvedValue('generated text'),
       generateOneShot: vi.fn().mockResolvedValue('generated text'),
       streamText: vi.fn().mockResolvedValue('generated text'),
       cancelCommand: vi.fn(),
@@ -1035,7 +984,13 @@ describe('aiService prompt tuning harness', () => {
         upsertKeyDate: vi.fn().mockResolvedValue(undefined),
         deleteKeyDate: vi.fn().mockResolvedValue(undefined),
         upsertKeyReference: vi.fn().mockResolvedValue(undefined),
-        deleteKeyReference: vi.fn().mockResolvedValue(undefined)
+        deleteKeyReference: vi.fn().mockResolvedValue(undefined),
+        upsertBillingItem: vi.fn().mockResolvedValue(undefined),
+        deleteBillingItem: vi.fn().mockResolvedValue(undefined)
+      },
+      invoiceService: {
+        list: vi.fn().mockResolvedValue([]),
+        get: vi.fn().mockResolvedValue(undefined)
       },
       documentService: {
         listDocuments: vi.fn().mockResolvedValue(DOCUMENTS),
@@ -1076,7 +1031,7 @@ describe('aiService prompt tuning harness', () => {
       context: { dossierId: 'dossier-testcase-a' }
     })
 
-    expect(safeToolResult).toContain('"query":"[[contact.client.firstName]]')
+    expect(safeToolResult).not.toContain('[[')
     expect(safeToolResult).not.toContain('"query":"John Martin"')
 
     vi.useRealTimers()
@@ -1139,7 +1094,13 @@ describe('aiService prompt tuning harness', () => {
         upsertKeyDate: vi.fn().mockResolvedValue(undefined),
         deleteKeyDate: vi.fn().mockResolvedValue(undefined),
         upsertKeyReference: vi.fn().mockResolvedValue(undefined),
-        deleteKeyReference: vi.fn().mockResolvedValue(undefined)
+        deleteKeyReference: vi.fn().mockResolvedValue(undefined),
+        upsertBillingItem: vi.fn().mockResolvedValue(undefined),
+        deleteBillingItem: vi.fn().mockResolvedValue(undefined)
+      },
+      invoiceService: {
+        list: vi.fn().mockResolvedValue([]),
+        get: vi.fn().mockResolvedValue(undefined)
       },
       documentService: {
         listDocuments: vi.fn().mockResolvedValue(DOCUMENTS),
@@ -1177,7 +1138,7 @@ describe('aiService prompt tuning harness', () => {
     expect(historyPayload).toContain('document-note-strategie')
     expect(historyPayload).not.toContain('John Martin')
     expect(historyPayload).not.toContain('06 12 34 56 78')
-    expect(historyPayload).toContain('[[')
+    expect(historyPayload).not.toContain('[[')
 
     vi.useRealTimers()
   })

@@ -165,16 +165,20 @@ function createApi(overrides: Partial<OrdicabAPI> = {}): OrdicabAPI {
 }
 
 describe('TemplatesPanel', () => {
-  it('renders the library and navigates into create, edit, and generate subscreens', async () => {
+  it('renders the library and navigates into create and edit subscreens', async () => {
     ;(globalThis as MutableGlobal).ordicabAPI = createApi()
 
     await renderPanel()
 
     await waitFor(() => {
-      expect(
-        screen.getByRole('button', { name: 'Generate a document from template Courrier client' })
-      ).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy()
     })
+
+    // Generation has moved to the dossier sidebar — no Generate action in the
+    // library row.
+    expect(
+      screen.queryByRole('button', { name: 'Generate a document from template Courrier client' })
+    ).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'New Template' }))
     await waitFor(() => {
@@ -190,25 +194,12 @@ describe('TemplatesPanel', () => {
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Back to library' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Edit template Courrier client' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
     await waitFor(() => {
       expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Courrier client')
       expect((screen.getByLabelText('Content') as HTMLTextAreaElement).value).toBe(
         '<p>Stored content</p>'
       )
-    })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Generate a document from template Courrier client' })
-    )
-    await waitFor(() => {
-      expect(
-        screen.getByText(
-          'Choose a dossier, pick a template, then either generate immediately or review the draft before saving.'
-        )
-      ).toBeTruthy()
-      expect(screen.getByRole('button', { name: 'Courrier client' })).toBeTruthy()
     })
   })
 
@@ -276,10 +267,10 @@ describe('TemplatesPanel', () => {
     await renderPanel()
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Edit template Courrier client' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit template Courrier client' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
 
     expect(screen.getByText('Loading templates...')).toBeTruthy()
     expect(screen.queryByLabelText('Content')).toBeNull()

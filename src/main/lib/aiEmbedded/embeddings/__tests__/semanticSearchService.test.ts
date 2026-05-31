@@ -59,7 +59,7 @@ function buildIndexedDoc(
 
 async function materializeDoc(doc: ReturnType<typeof buildIndexedDoc>): Promise<IndexedDocument> {
   const cachePath = await writeDoc({
-    version: 2,
+    version: 3,
     text: doc.text,
     embeddings: {
       model: doc.model,
@@ -110,7 +110,7 @@ describe('searchDossier', () => {
     expect(hits).toHaveLength(2)
     expect(hits[0]!.documentId).toBe('docA.pdf')
     expect(hits[0]!.charStart).toBe(35)
-    expect(hits[0]!.score).toBeCloseTo(1, 6)
+    expect(hits[0]!.score).toBeGreaterThan(hits[1]!.score)
     expect(hits[0]!.snippet).toBe('Relevant passage wins.')
   })
 
@@ -332,6 +332,53 @@ describe('searchDossier', () => {
     })
 
     expect(hits[0]!.snippet).toBe('First chunk.')
+  })
+
+  it('refines multi-sentence chunks down to the best-matching sentence', async () => {
+    // Chunk contains four sentences. The third one should be picked because
+    // its sentence embedding matches the query vector exactly.
+    const text =
+      'Premier paragraphe sans rapport. Deuxième idée sur autre chose. Le passage pertinent gagne ici. Conclusion neutre.'
+    const doc = await materializeDoc(
+      buildIndexedDoc('doc.pdf', 'D', text, [
+        { charStart: 0, charEnd: text.length, vector: new Float32Array([1, 0, 0, 0]) }
+      ])
+    )
+
+    // The pipeline mock encodes intent into the returned vector:
+    //   - "query: ..."     → [1, 0, 0, 0]
+    //   - any "passage: " sentence containing "pertinent" → [1, 0, 0, 0]
+    //   - any other "passage: " sentence → [0, 1, 0, 0]
+    pipelineSpy.mockResolvedValue(async (inputs: unknown) => {
+      const arr = Array.isArray(inputs) ? (inputs as string[]) : [String(inputs)]
+      const flat = new Float32Array(arr.length * 4)
+      for (let i = 0; i < arr.length; i++) {
+        const input = arr[i]!
+        const match = input.startsWith('query: ') || input.includes('pertinent')
+        flat.set(match ? [1, 0, 0, 0] : [0, 1, 0, 0], i * 4)
+      }
+      return { data: flat, dims: [arr.length, 4] }
+    })
+
+    const hits = await searchDossier({
+      documents: [doc],
+      query: 'quel passage est le bon',
+      topK: 1,
+      dim: 4
+    })
+
+    expect(hits).toHaveLength(1)
+    const hit = hits[0]!
+    expect(hit.snippet).toContain('pertinent')
+    // The highlighted span must be the "pertinent" sentence, not just any
+    // substring containing the word.
+    expect(hit.snippetMatchStart).toBeDefined()
+    expect(hit.snippetMatchEnd).toBeDefined()
+    const highlighted = hit.snippet.slice(hit.snippetMatchStart!, hit.snippetMatchEnd!)
+    expect(highlighted).toBe('Le passage pertinent gagne ici.')
+    // Context sentences are included around the match.
+    expect(hit.snippet).toContain('Deuxième idée')
+    expect(hit.snippet).toContain('Conclusion neutre')
   })
 })
 

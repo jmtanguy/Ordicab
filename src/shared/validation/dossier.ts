@@ -20,6 +20,7 @@ import type {
 } from '@shared/domain/dossier'
 
 import { dossierIdSchema } from './dossierId'
+import { dossierBillingItemSchema, feeAgreementSchema } from './billing'
 import { storedDocumentMetadataSchema } from './document'
 import { keyDateSchema } from './keyDate'
 import { keyReferenceSchema } from './keyReference'
@@ -69,6 +70,10 @@ export const dossierSchema = z.object({
 export const dossierDetailSchema = dossierSchema.extend({
   registeredAt: z.string().min(1),
   information: optionalInformationTextSchema,
+  juridiction: optionalInformationTextSchema,
+  tribunal: optionalInformationTextSchema,
+  feeAgreements: z.array(feeAgreementSchema).default([]),
+  billingItems: z.array(dossierBillingItemSchema).default([]),
   keyDates: z.array(keyDateSchema),
   keyReferences: z.array(keyReferenceSchema)
 })
@@ -181,7 +186,9 @@ export const dossierUpdateInputSchema = z.object({
   id: dossierIdSchema,
   status: dossierStatusSchema,
   type: dossierTypeSchema,
-  information: optionalInformationTextSchema
+  information: optionalInformationTextSchema,
+  juridiction: optionalInformationTextSchema,
+  tribunal: optionalInformationTextSchema
 })
 
 export type {

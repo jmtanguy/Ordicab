@@ -7,7 +7,7 @@
  *     main process via the ordicabAPI bridge before any component renders, so
  *     the very first paint is already in the correct language.
  *     Falls back to 'en' if the bridge is unavailable (e.g. browser/test env).
- *  2. `initializeI18n` — initialises i18next with the resolved locale.
+ *  2. `createRendererI18n` — initialises i18next with the resolved locale.
  *  3. React root is created and the component tree is rendered wrapped in
  *     StrictMode and I18nextProvider.
  *
@@ -21,7 +21,7 @@ import { I18nextProvider } from 'react-i18next'
 
 import App from './App'
 import { getOrdicabApi } from './stores/ipc'
-import { initializeI18n, normalizeAppLocale } from './i18n'
+import { createRendererI18n, normalizeAppLocale } from './i18n'
 import './styles.css'
 
 async function resolveInitialLocale(): Promise<ReturnType<typeof normalizeAppLocale>> {
@@ -40,7 +40,7 @@ async function resolveInitialLocale(): Promise<ReturnType<typeof normalizeAppLoc
 }
 
 async function boot(): Promise<void> {
-  const i18n = await initializeI18n(await resolveInitialLocale())
+  const i18n = await createRendererI18n(await resolveInitialLocale())
 
   createRoot(document.getElementById('root')!).render(
     <StrictMode>

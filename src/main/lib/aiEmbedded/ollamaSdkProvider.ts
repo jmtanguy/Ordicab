@@ -13,8 +13,6 @@ import { wrapLanguageModel } from 'ai'
 import type { LanguageModel, LanguageModelMiddleware } from 'ai'
 import type { LanguageModelV3GenerateResult } from '@ai-sdk/provider'
 
-import { deepStripCitationAnnotations } from './pii/citationStrip'
-
 export interface OllamaSdkProviderOptions {
   baseUrl: string
   model: string
@@ -48,10 +46,7 @@ function patchGenerateResult(result: LanguageModelV3GenerateResult): LanguageMod
           parsed = {}
         }
 
-        return {
-          ...item,
-          input: JSON.stringify(deepStripCitationAnnotations(parsed))
-        }
+        return { ...item, input: JSON.stringify(parsed) }
       }
 
       if (item.type === 'text') {

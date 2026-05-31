@@ -11,17 +11,23 @@
  *   dossier_select     → dossierService.listRegisteredDossiers() — resolves uuid/id, returns contextUpdate
  *   document_list      → documentService.listDocuments()
  *   contact_lookup     → contactService.list()  (active dossier by default, explicit dossier override)
- *   contact_lookup_active → contactService.list()  (active dossier only)
  *   contact_get        → contactService.list()  (find by id, return full detail)
- *   contact_upsert     → contactService.list() + contactService.upsert()
+ *   contact_create     → contactService.upsert()
+ *   contact_update     → contactService.list() + contactService.upsert()
  *   contact_delete     → contactService.delete()
+ *   dossier_create_key_date → dossierService.upsertKeyDate()
+ *   dossier_update_key_date → dossierService.getDossier() + dossierService.upsertKeyDate()
+ *   dossier_delete_key_date → dossierService.deleteKeyDate()
+ *   dossier_create_key_reference → dossierService.upsertKeyReference()
+ *   dossier_update_key_reference → dossierService.getDossier() + dossierService.upsertKeyReference()
+ *   dossier_delete_key_reference → dossierService.deleteKeyReference()
  *   template_list      → templateService.list()
  *   template_select    → templateService.list() + fuzzy match
  *   field_populate     → contactService.list()  (resolve name for feedback)
  *   document_generate  → generateService.generateDocument()
  *   text_generate      → handled upstream in aiService (second LLM call)
  *   direct_response    → plain assistant answer passed through as feedback
- *   clarification_request → returned as-is; AiCommandPanel renders options
+ *   clarification_request → returned as-is; AiPage renders the options inline
  *   unknown            → message passed through as feedback
  *
  * Template matching (template_select) uses a two-pass strategy:
@@ -45,6 +51,7 @@ import type {
   GenerateDocumentInput,
   GeneratedDocumentResult,
   InternalAiCommand,
+  InvoiceRecord,
   TemplateRecord
 } from '@shared/types'
 import type { SemanticSearchResult } from '@shared/contracts/documents'
@@ -90,6 +97,10 @@ export interface DossierServiceLike {
     id?: string
     label: string
     date: string
+    time?: string
+    duration?: number
+    tags?: string[]
+    isClosed?: boolean
     note?: string
   }): Promise<DossierDetail>
   deleteKeyDate(input: { dossierId: string; keyDateId: string }): Promise<DossierDetail>
@@ -101,6 +112,29 @@ export interface DossierServiceLike {
     note?: string
   }): Promise<DossierDetail>
   deleteKeyReference(input: { dossierId: string; keyReferenceId: string }): Promise<DossierDetail>
+  upsertBillingItem(input: {
+    dossierId: string
+    id?: string
+    date: string
+    label: string
+    description?: string
+    sourceServicePresetId?: string
+    quantity: number
+    quantityUnit: 'hours' | 'units'
+    unitPriceHtCents: number
+    discountKind?: 'percent' | 'amount'
+    discountPercentBasisPoints?: number
+    discountAmountHtCents?: number
+    vatRateBasisPoints: number
+    status: 'draft' | 'billed' | 'cancelled'
+    sourceKeyDateId?: string
+  }): Promise<DossierDetail>
+  deleteBillingItem(input: { dossierId: string; billingItemId: string }): Promise<DossierDetail>
+}
+
+export interface InvoiceServiceLike {
+  list(): Promise<InvoiceRecord[]>
+  get(invoiceId: string): Promise<InvoiceRecord>
 }
 
 export interface DocumentServiceLike {
@@ -123,6 +157,15 @@ export interface DocumentServiceLike {
     query: string
     topK?: number
   }): Promise<SemanticSearchResult>
+  /**
+   * Same surface as `DocumentService.extractContent`: reads cache when
+   * available, otherwise runs DOCX/PDF/OCR extraction in-process and persists
+   * the result. Optional on this interface so older test doubles can omit it.
+   */
+  extractContent?(input: {
+    dossierId: string
+    documentId: string
+  }): Promise<{ text: string; filename: string }>
 }
 
 export interface InternalAICommandDispatcherOptions {
@@ -276,6 +319,117 @@ function formatContactOption(contact: ContactRecord): string {
   return details ? `${name} — ${details}` : name || contact.uuid
 }
 
+function isNonEmptyString(value: string | undefined): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+type ContactMutationIntent = Extract<
+  InternalAiCommand,
+  { type: 'contact_create' | 'contact_update' }
+>
+
+function hasContactIdentityFields(intent: ContactMutationIntent): boolean {
+  return (
+    isNonEmptyString(intent.firstName) ||
+    isNonEmptyString(intent.lastName) ||
+    isNonEmptyString(intent.institution)
+  )
+}
+
+function hasContactMutationChanges(intent: ContactMutationIntent): boolean {
+  return (
+    [
+      intent.firstName,
+      intent.lastName,
+      intent.role,
+      intent.email,
+      intent.phone,
+      intent.title,
+      intent.institution,
+      intent.addressLine,
+      intent.addressLine2,
+      intent.city,
+      intent.zipCode,
+      intent.country,
+      intent.information
+    ].some(isNonEmptyString) || Object.keys(intent.customFields ?? {}).length > 0
+  )
+}
+
+function hasDossierUpdateChanges(
+  intent: Extract<InternalAiCommand, { type: 'dossier_update' }>
+): boolean {
+  return (
+    isNonEmptyString(intent.status) ||
+    isNonEmptyString(intent.dossierType) ||
+    isNonEmptyString(intent.information)
+  )
+}
+
+function hasKeyDateOptionalChanges(
+  intent: Extract<InternalAiCommand, { type: 'dossier_update_key_date' }>
+): boolean {
+  return (
+    isNonEmptyString(intent.time) ||
+    typeof intent.duration === 'number' ||
+    Array.isArray(intent.tags) ||
+    typeof intent.isClosed === 'boolean' ||
+    isNonEmptyString(intent.note)
+  )
+}
+
+function hasKeyReferenceOptionalChanges(
+  intent: Extract<InternalAiCommand, { type: 'dossier_update_key_reference' }>
+): boolean {
+  return isNonEmptyString(intent.note)
+}
+
+function hasTemplateUpdateChanges(
+  intent: Extract<InternalAiCommand, { type: 'template_update' }>
+): boolean {
+  return (
+    isNonEmptyString(intent.name) ||
+    isNonEmptyString(intent.content) ||
+    isNonEmptyString(intent.description)
+  )
+}
+
+function hasDocumentMetadataChanges(
+  intent: Extract<InternalAiCommand, { type: 'document_metadata_save' }>
+): boolean {
+  return isNonEmptyString(intent.description) || intent.tags.length > 0
+}
+
+function resolveContactUpdateTarget(
+  contacts: ContactRecord[],
+  intent: ContactMutationIntent,
+  context: AiCommandContext
+): { contact?: ContactRecord; ambiguousCandidates?: ContactRecord[] } {
+  if (intent.type === 'contact_update' && isNonEmptyString(intent.contactId)) {
+    return { contact: contacts.find((contact) => contact.uuid === intent.contactId) }
+  }
+
+  if (isNonEmptyString(context.contactId)) {
+    const fromContext = resolveContactRecord(contacts, context.contactId)
+    if (fromContext) return { contact: fromContext }
+  }
+
+  const identifiers = [
+    [intent.title, intent.firstName, intent.lastName].filter(isNonEmptyString).join(' ').trim(),
+    intent.institution,
+    intent.email,
+    intent.phone
+  ].filter(isNonEmptyString)
+
+  for (const identifier of identifiers) {
+    const candidates = resolveContactCandidates(contacts, identifier)
+    if (candidates.length === 1) return { contact: candidates[0] }
+    if (candidates.length > 1) return { ambiguousCandidates: candidates }
+  }
+
+  return {}
+}
+
 // ── Tag path → human-readable label ──────────────────────────────────────
 
 /**
@@ -284,7 +438,7 @@ function formatContactOption(contact: ContactRecord): string {
  * Examples:
  *   "dossier.keyDate.audience.long"  → "Date d'audience"
  *   "dossier.keyDate.renvoi"         → "Date de renvoi"
- *   "dossier.keyRef.tribunal"        → "Référence tribunal"
+ *   "dossier.nRg"                    → "Référence nRg"
  *   "contact.avocatAdverse.email"    → "Email (avocatAdverse)"
  */
 function tagPathToLabel(path: string): string {
@@ -298,9 +452,9 @@ function tagPathToLabel(path: string): string {
     return `Date ${prep}${key}`
   }
 
-  // dossier.keyRef.<name>
-  if (segments[0] === 'dossier' && segments[1] === 'keyRef' && segments[2]) {
-    return `Référence ${segments[2]}`
+  // direct dossier reference, e.g. dossier.nRg
+  if (segments[0] === 'dossier' && segments.length === 2) {
+    return `Référence ${segments[1]}`
   }
 
   // contact.<role>.<field>
@@ -459,6 +613,9 @@ export function createInternalAICommandDispatcher(
         case 'document_metadata_save': {
           const rawRef = intent.dossierId ?? context.dossierId ?? ''
           if (!rawRef) return askForDossier(dossierService, intent)
+          if (!hasDocumentMetadataChanges(intent)) {
+            return { intent, feedback: 'Aucune métadonnée à enregistrer.' }
+          }
           const dossierId = intent.dossierId
             ? ((await resolveDossierRef(intent.dossierId, dossierService)) ??
               context.dossierId ??
@@ -517,29 +674,6 @@ export function createInternalAICommandDispatcher(
           return { intent, feedback, contextUpdate }
         }
 
-        case 'contact_lookup_active': {
-          const dossierId = context.dossierId ?? ''
-          if (!dossierId) return askForDossier(dossierService, intent)
-          const contacts = await contactService.list(dossierId)
-          const count = contacts.length
-          if (count === 0) {
-            const hint = !dossierId ? ' (aucun dossier actif)' : ''
-            return { intent, feedback: `Aucun contact dans ce dossier${hint}.` }
-          }
-
-          const lines = contacts
-            .map((c) => {
-              const name = `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim()
-              const role = c.role ? ` — ${c.role}` : ''
-              const email = c.email ? ` <${c.email}>` : ''
-              return `• ${name}${role}${email}`
-            })
-            .join('\n')
-
-          const feedback = `${count} contact(s):\n${lines}`
-          return { intent, feedback }
-        }
-
         case 'contact_get': {
           const rawRef = intent.dossierId ?? context.dossierId ?? ''
           if (!rawRef) return askForDossier(dossierService, intent)
@@ -581,17 +715,62 @@ export function createInternalAICommandDispatcher(
           return { intent, feedback: lines.join('\n') }
         }
 
-        case 'contact_upsert': {
+        case 'contact_create':
+        case 'contact_update': {
           const dossierId = context.dossierId ?? ''
           if (!dossierId) return askForDossier(dossierService, intent)
-          const existingContact = intent.id
-            ? (await contactService.list(dossierId)).find((contact) => contact.uuid === intent.id)
-            : undefined
+          const contacts =
+            intent.type === 'contact_update' ? await contactService.list(dossierId) : []
+          const upsertTarget =
+            intent.type === 'contact_update'
+              ? resolveContactUpdateTarget(contacts, intent, context)
+              : { contact: undefined, ambiguousCandidates: undefined }
+          const existingContact = upsertTarget.contact
 
-          if (intent.id && !existingContact) {
+          if (intent.type === 'contact_update' && intent.contactId && !existingContact) {
             return {
               intent,
               feedback: 'Contact introuvable.'
+            }
+          }
+
+          if (!existingContact && upsertTarget.ambiguousCandidates?.length) {
+            const clarification: ClarificationRequestIntent = {
+              type: 'clarification_request',
+              question: 'Plusieurs contacts correspondent. Lequel mettre à jour ?',
+              options: upsertTarget.ambiguousCandidates.map(formatContactOption),
+              optionIds: upsertTarget.ambiguousCandidates.map((contact) => contact.uuid)
+            }
+            return { intent: clarification, feedback: clarification.question }
+          }
+
+          const isPatchWithoutTarget =
+            intent.type === 'contact_update' &&
+            !existingContact &&
+            !hasContactIdentityFields(intent) &&
+            hasContactMutationChanges(intent)
+
+          if (isPatchWithoutTarget) {
+            if (contacts.length === 0) {
+              return {
+                intent,
+                feedback: 'Aucun contact existant à mettre à jour dans ce dossier.'
+              }
+            }
+
+            const clarification: ClarificationRequestIntent = {
+              type: 'clarification_request',
+              question: 'Quel contact faut-il mettre à jour ?',
+              options: contacts.map(formatContactOption),
+              optionIds: contacts.map((contact) => contact.uuid)
+            }
+            return { intent: clarification, feedback: clarification.question }
+          }
+
+          if (intent.type === 'contact_create' && !hasContactIdentityFields(intent)) {
+            return {
+              intent,
+              feedback: "Impossible de créer un contact sans élément d'identité explicite."
             }
           }
 
@@ -610,7 +789,7 @@ export function createInternalAICommandDispatcher(
             dossierId,
             ...(existingContact ?? {}),
             ...pickDefined({
-              id: intent.id,
+              id: existingContact?.uuid,
               firstName: intent.firstName,
               lastName: intent.lastName,
               role: intent.role,
@@ -619,6 +798,7 @@ export function createInternalAICommandDispatcher(
               title: intent.title,
               institution: intent.institution,
               addressLine: intent.addressLine,
+              addressLine2: intent.addressLine2,
               city: intent.city,
               zipCode: intent.zipCode,
               country: intent.country,
@@ -632,7 +812,7 @@ export function createInternalAICommandDispatcher(
           } satisfies ContactUpsertInput
           const saved = (await contactService.upsert(input)) as ContactRecord
           const name = `${saved.firstName ?? ''} ${saved.lastName ?? ''}`.trim()
-          const action = intent.id ? 'mis à jour' : 'ajouté'
+          const action = existingContact ? 'mis à jour' : 'ajouté'
           return {
             intent,
             feedback: `Contact "${name}" ${action}.`,
@@ -856,8 +1036,8 @@ export function createInternalAICommandDispatcher(
                 `[document_generate] generateService reported unresolvedTags=${JSON.stringify(err.unresolvedTags)} retried=${hasRetried}`
               )
 
-              // First pass through the catch: try auto-resolving keyDate / keyRef tags
-              // from the live dossier before bothering the user.
+              // First pass through the catch: try auto-resolving chronology dates and
+              // direct dossier references from the live dossier before bothering the user.
               if (!hasRetried) {
                 hasRetried = true
                 let dossierDetail: DossierDetail | undefined
@@ -945,6 +1125,9 @@ export function createInternalAICommandDispatcher(
         }
 
         case 'dossier_update': {
+          if (!hasDossierUpdateChanges(intent)) {
+            return { intent, feedback: 'Aucune modification de dossier fournie.' }
+          }
           await dossierService.updateDossier({
             id: intent.id,
             status: intent.status,
@@ -954,33 +1137,45 @@ export function createInternalAICommandDispatcher(
           return { intent, feedback: `Dossier "${intent.id}" mis à jour.` }
         }
 
-        case 'dossier_upsert_key_date': {
+        case 'dossier_create_key_date':
+        case 'dossier_update_key_date': {
           const rawRef = intent.dossierId ?? context.dossierId ?? ''
           const dossierId = rawRef
             ? ((await resolveDossierRef(rawRef, dossierService)) ?? rawRef)
             : rawRef
           if (!dossierId) return askForDossier(dossierService, intent)
+          if (intent.type === 'dossier_update_key_date' && !hasKeyDateOptionalChanges(intent)) {
+            return { intent, feedback: "Aucune modification d'événement fournie." }
+          }
           const updatedDossier = await dossierService.upsertKeyDate({
             dossierId,
-            id: intent.id,
+            id: intent.type === 'dossier_update_key_date' ? intent.keyDateId : undefined,
             label: intent.label,
             date: intent.date,
+            time: intent.time,
+            duration: intent.duration,
+            tags: intent.tags,
+            isClosed: intent.isClosed,
             note: intent.note
           })
           const savedKeyDate = updatedDossier.keyDates.find((kd) =>
-            intent.id
-              ? kd.id === intent.id
+            intent.type === 'dossier_update_key_date'
+              ? kd.id === intent.keyDateId
               : kd.label === intent.label.trim() && kd.date === intent.date
           )
-          const action = intent.id ? 'mise à jour' : 'ajoutée'
+          const action = intent.type === 'dossier_update_key_date' ? 'mis à jour' : 'ajouté'
           return {
             intent,
-            feedback: `Date clé "${intent.label}" ${action}.`,
+            feedback: `Événement "${intent.label}" ${action}.`,
             entity: savedKeyDate
               ? {
                   id: savedKeyDate.id,
                   label: savedKeyDate.label,
                   date: savedKeyDate.date,
+                  time: savedKeyDate.time,
+                  duration: savedKeyDate.duration,
+                  tags: savedKeyDate.tags,
+                  isClosed: savedKeyDate.isClosed,
                   note: savedKeyDate.note
                 }
               : undefined
@@ -994,28 +1189,35 @@ export function createInternalAICommandDispatcher(
             : rawRef
           if (!dossierId) return askForDossier(dossierService, intent)
           await dossierService.deleteKeyDate({ dossierId, keyDateId: intent.keyDateId })
-          return { intent, feedback: 'Date clé supprimée.' }
+          return { intent, feedback: 'Événement supprimé.' }
         }
 
-        case 'dossier_upsert_key_reference': {
+        case 'dossier_create_key_reference':
+        case 'dossier_update_key_reference': {
           const rawRef = intent.dossierId ?? context.dossierId ?? ''
           const dossierId = rawRef
             ? ((await resolveDossierRef(rawRef, dossierService)) ?? rawRef)
             : rawRef
           if (!dossierId) return askForDossier(dossierService, intent)
+          if (
+            intent.type === 'dossier_update_key_reference' &&
+            !hasKeyReferenceOptionalChanges(intent)
+          ) {
+            return { intent, feedback: 'Aucune modification de référence clé fournie.' }
+          }
           const updatedDossier = await dossierService.upsertKeyReference({
             dossierId,
-            id: intent.id,
+            id: intent.type === 'dossier_update_key_reference' ? intent.keyReferenceId : undefined,
             label: intent.label,
             value: intent.value,
             note: intent.note
           })
           const savedKeyRef = updatedDossier.keyReferences.find((kr) =>
-            intent.id
-              ? kr.id === intent.id
+            intent.type === 'dossier_update_key_reference'
+              ? kr.id === intent.keyReferenceId
               : kr.label === intent.label.trim() && kr.value === intent.value.trim()
           )
-          const action = intent.id ? 'mise à jour' : 'ajoutée'
+          const action = intent.type === 'dossier_update_key_reference' ? 'mise à jour' : 'ajoutée'
           return {
             intent,
             feedback: `Référence clé "${intent.label}" ${action}.`,
@@ -1043,6 +1245,78 @@ export function createInternalAICommandDispatcher(
           return { intent, feedback: 'Référence clé supprimée.' }
         }
 
+        case 'dossier_create_billing_item':
+        case 'dossier_update_billing_item': {
+          const rawRef = intent.dossierId ?? context.dossierId ?? ''
+          const dossierId = rawRef
+            ? ((await resolveDossierRef(rawRef, dossierService)) ?? rawRef)
+            : rawRef
+          if (!dossierId) return askForDossier(dossierService, intent)
+          try {
+            const updatedDossier = await dossierService.upsertBillingItem({
+              dossierId,
+              id: intent.type === 'dossier_update_billing_item' ? intent.billingItemId : undefined,
+              date: intent.date,
+              label: intent.label,
+              description: intent.description,
+              sourceServicePresetId: intent.sourceServicePresetId,
+              quantity: intent.quantity,
+              quantityUnit: intent.quantityUnit,
+              unitPriceHtCents: intent.unitPriceHtCents,
+              discountKind: intent.discountKind,
+              discountPercentBasisPoints: intent.discountPercentBasisPoints,
+              discountAmountHtCents: intent.discountAmountHtCents,
+              vatRateBasisPoints: intent.vatRateBasisPoints,
+              status: intent.status,
+              sourceKeyDateId: intent.sourceKeyDateId
+            })
+            const savedItem = updatedDossier.billingItems.find((bi) =>
+              intent.type === 'dossier_update_billing_item'
+                ? bi.id === intent.billingItemId
+                : bi.label === intent.label.trim() && bi.date === intent.date
+            )
+            const action = intent.type === 'dossier_update_billing_item' ? 'mise à jour' : 'ajoutée'
+            return {
+              intent,
+              feedback: `Prestation "${intent.label}" ${action}.`,
+              entity: savedItem
+                ? {
+                    id: savedItem.id,
+                    label: savedItem.label,
+                    date: savedItem.date,
+                    quantity: savedItem.quantity,
+                    quantityUnit: savedItem.quantityUnit,
+                    unitPriceHtCents: savedItem.unitPriceHtCents,
+                    totalHtCents: savedItem.totalHtCents,
+                    totalTtcCents: savedItem.totalTtcCents,
+                    status: savedItem.status
+                  }
+                : undefined
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : 'Erreur inconnue.'
+            return { intent: { type: 'unknown', message }, feedback: message }
+          }
+        }
+
+        case 'dossier_delete_billing_item': {
+          const rawRef = intent.dossierId ?? context.dossierId ?? ''
+          const dossierId = rawRef
+            ? ((await resolveDossierRef(rawRef, dossierService)) ?? rawRef)
+            : rawRef
+          if (!dossierId) return askForDossier(dossierService, intent)
+          try {
+            await dossierService.deleteBillingItem({
+              dossierId,
+              billingItemId: intent.billingItemId
+            })
+            return { intent, feedback: 'Prestation supprimée.' }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : 'Erreur inconnue.'
+            return { intent: { type: 'unknown', message }, feedback: message }
+          }
+        }
+
         case 'template_create': {
           const created = await templateService.create({
             name: intent.name,
@@ -1053,6 +1327,9 @@ export function createInternalAICommandDispatcher(
         }
 
         case 'template_update': {
+          if (!hasTemplateUpdateChanges(intent)) {
+            return { intent, feedback: 'Aucune modification de modèle fournie.' }
+          }
           const updated = await templateService.update({
             id: intent.id,
             name: intent.name,
@@ -1072,6 +1349,12 @@ export function createInternalAICommandDispatcher(
             ? ((await resolveDossierRef(intent.dossierId, dossierService)) ?? intent.dossierId)
             : (context.dossierId ?? '')
           if (!dossierId) return askForDossier(dossierService, intent)
+          if (intent.fromDocumentId && intent.fromDocumentId === intent.toDocumentId) {
+            return {
+              intent,
+              feedback: 'La nouvelle localisation du document est identique a l ancienne.'
+            }
+          }
           await documentService.relocateMetadata({
             documentUuid: intent.documentUuid,
             dossierId,

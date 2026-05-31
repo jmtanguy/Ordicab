@@ -3,21 +3,18 @@ import { z } from 'zod'
 import type { EntityProfile, EntityProfileDraft } from '@shared/domain/entity'
 import { normalizeManagedFieldsConfig, type EntityManagedFieldsConfig } from '@shared/managedFields'
 
-export const PROFESSION_VALUES = [
-  'lawyer',
-  'architect',
-  'real_estate',
-  'building_trades',
-  'consulting_services'
-] as const
+// Re-exported so existing consumers of `@shared/validation` (e.g. EntityPanel)
+// keep working; the canonical source is now @shared/domain/gender.
+import { GENDER_VALUES } from '@shared/domain/gender'
 
-export const professionSchema = z.enum(PROFESSION_VALUES).optional()
-
-export type Profession = z.infer<typeof professionSchema>
+export { GENDER_VALUES }
 
 export const TITLE_VALUES = ['M.', 'Mme', 'Me', 'Dr', 'Pr'] as const
 
-export const GENDER_VALUES = ['M', 'F', 'N'] as const
+// Ordicab is lawyer-only: the entity (user of the app) is always an avocat,
+// so the title is a constant rather than an editable field.
+export const ENTITY_TITLE_SHORT = 'Me'
+export const ENTITY_TITLE_LONG = 'Maître'
 
 const optionalGenderSchema = z.preprocess(
   (v) => (v === '' ? undefined : v),
@@ -47,20 +44,13 @@ function normalizeEntityProfileInput(input: unknown): unknown {
   }
 
   const record = input as Record<string, unknown>
-  const profession =
-    record.profession === 'lawyer' ||
-    record.profession === 'architect' ||
-    record.profession === 'real_estate' ||
-    record.profession === 'building_trades' ||
-    record.profession === 'consulting_services'
-      ? record.profession
-      : undefined
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { profession: _, ...rest } = record
 
   return {
-    ...record,
+    ...rest,
     managedFields: normalizeManagedFieldsConfig(
-      (record.managedFields as Partial<EntityManagedFieldsConfig> | undefined) ?? undefined,
-      profession
+      (record.managedFields as Partial<EntityManagedFieldsConfig> | undefined) ?? undefined
     )
   }
 }
@@ -68,8 +58,6 @@ function normalizeEntityProfileInput(input: unknown): unknown {
 // Used for reading entity.json from disk — lenient email to tolerate external writes.
 const entityProfileBaseSchema = z.object({
   firmName: z.string().trim().min(1),
-  profession: professionSchema,
-  title: z.string().trim().optional(),
   gender: optionalGenderSchema,
   firstName: z.string().trim().optional(),
   lastName: z.string().trim().optional(),
@@ -82,8 +70,20 @@ const entityProfileBaseSchema = z.object({
   // Legacy field — kept for backward-compat migration of existing entity.json files
   address: z.string().trim().optional(),
   vatNumber: z.string().trim().optional(),
+  siren: z.string().trim().optional(),
+  legalForm: z.string().trim().optional(),
+  shareCapital: z.string().trim().optional(),
+  rcsNumber: z.string().trim().optional(),
+  rcsCity: z.string().trim().optional(),
+  iban: z.string().trim().optional(),
+  bic: z.string().trim().optional(),
+  carpaIban: z.string().trim().optional(),
   phone: z.string().trim().optional(),
   email: z.string().trim().optional(),
+  barreau: z.string().trim().optional(),
+  toque: z.string().trim().optional(),
+  defaultTemplateFileName: z.string().trim().optional(),
+  defaultTemplateImportedAt: z.string().trim().optional(),
   managedFields: entityManagedFieldsConfigSchema
 })
 
@@ -110,7 +110,8 @@ export type { EntityProfile, EntityProfileDraft }
 export function toEntityTemplateContext(profile: EntityProfile | null): Record<string, string> {
   return {
     'entity.firmName': profile?.firmName ?? '',
-    'entity.title': profile?.title ?? '',
+    'entity.title': ENTITY_TITLE_SHORT,
+    'entity.titleLong': ENTITY_TITLE_LONG,
     'entity.gender': profile?.gender ?? '',
     'entity.firstName': profile?.firstName ?? '',
     'entity.lastName': profile?.lastName ?? '',
@@ -120,7 +121,20 @@ export function toEntityTemplateContext(profile: EntityProfile | null): Record<s
     'entity.city': profile?.city ?? '',
     'entity.country': profile?.country ?? '',
     'entity.vatNumber': profile?.vatNumber ?? '',
+    'entity.siren': profile?.siren ?? '',
+    'entity.legalForm': profile?.legalForm ?? '',
+    'entity.shareCapital': profile?.shareCapital ?? '',
+    'entity.rcsNumber': profile?.rcsNumber ?? '',
+    'entity.rcsCity': profile?.rcsCity ?? '',
+    'entity.iban': profile?.iban ?? '',
+    'entity.bic': profile?.bic ?? '',
+    'entity.carpaIban': profile?.carpaIban ?? '',
     'entity.phone': profile?.phone ?? '',
-    'entity.email': profile?.email ?? ''
+    'entity.email': profile?.email ?? '',
+    'entity.barreau': profile?.barreau ?? '',
+    'entity.toque': profile?.toque ?? '',
+    // Backward-compat alias for templates that already use {{entity.avocat.titre}}.
+    // Prefer {{entity.titleLong}} going forward.
+    'entity.avocat.titre': ENTITY_TITLE_LONG
   }
 }

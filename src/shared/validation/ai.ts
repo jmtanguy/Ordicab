@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { REMOTE_PROVIDER_KIND_VALUES } from '../ai/remoteProviders'
+import { AI_MODE_VALUES } from '../types/ai'
 
 const httpUrlSchema = z
   .string()
@@ -9,7 +10,7 @@ const httpUrlSchema = z
   })
 
 export const aiSettingsSchema = z.object({
-  mode: z.enum(['none', 'local', 'remote', 'claude-code', 'copilot', 'codex']),
+  mode: z.enum(AI_MODE_VALUES),
   ollamaEndpoint: httpUrlSchema.optional(),
   remoteProviderKind: z.enum(REMOTE_PROVIDER_KIND_VALUES).optional(),
   remoteProjectRef: z.string().optional(),
@@ -17,7 +18,7 @@ export const aiSettingsSchema = z.object({
 })
 
 export const aiSettingsSaveSchema = z.object({
-  mode: z.enum(['none', 'local', 'remote', 'claude-code', 'copilot', 'codex']),
+  mode: z.enum(AI_MODE_VALUES),
   ollamaEndpoint: httpUrlSchema.optional(),
   remoteProviderKind: z.enum(REMOTE_PROVIDER_KIND_VALUES).optional(),
   remoteProjectRef: z.string().optional(),
@@ -56,8 +57,7 @@ export const aiIntentSchema = z.discriminatedUnion('type', [
     dossierId: z.string().optional()
   }),
   z.object({
-    type: z.literal('contact_upsert'),
-    id: z.string().optional(),
+    type: z.literal('contact_create'),
     firstName: z.string().optional(),
     lastName: z.string().optional(),
     role: z.string().optional(),
@@ -66,10 +66,30 @@ export const aiIntentSchema = z.discriminatedUnion('type', [
     title: z.string().optional(),
     institution: z.string().optional(),
     addressLine: z.string().optional(),
+    addressLine2: z.string().optional(),
     city: z.string().optional(),
     zipCode: z.string().optional(),
     country: z.string().optional(),
-    information: z.string().optional()
+    information: z.string().optional(),
+    customFields: z.record(z.string(), z.string()).optional()
+  }),
+  z.object({
+    type: z.literal('contact_update'),
+    contactId: z.string(),
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+    role: z.string().optional(),
+    email: z.string().optional(),
+    phone: z.string().optional(),
+    title: z.string().optional(),
+    institution: z.string().optional(),
+    addressLine: z.string().optional(),
+    addressLine2: z.string().optional(),
+    city: z.string().optional(),
+    zipCode: z.string().optional(),
+    country: z.string().optional(),
+    information: z.string().optional(),
+    customFields: z.record(z.string(), z.string()).optional()
   }),
   z.object({ type: z.literal('contact_delete'), contactId: z.string() }),
   z.object({ type: z.literal('template_select'), templateName: z.string() }),
@@ -89,6 +109,54 @@ export const aiIntentSchema = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('dossier_list') }),
   z.object({ type: z.literal('dossier_select'), dossierId: z.string() }),
+  z.object({
+    type: z.literal('dossier_create_key_date'),
+    dossierId: z.string(),
+    label: z.string(),
+    date: z.string(),
+    time: z.string().optional(),
+    duration: z.number().optional(),
+    tags: z.array(z.string()).optional(),
+    isClosed: z.boolean().optional(),
+    note: z.string().optional()
+  }),
+  z.object({
+    type: z.literal('dossier_update_key_date'),
+    dossierId: z.string(),
+    keyDateId: z.string(),
+    label: z.string(),
+    date: z.string(),
+    time: z.string().optional(),
+    duration: z.number().optional(),
+    tags: z.array(z.string()).optional(),
+    isClosed: z.boolean().optional(),
+    note: z.string().optional()
+  }),
+  z.object({
+    type: z.literal('dossier_delete_key_date'),
+    dossierId: z.string(),
+    keyDateId: z.string()
+  }),
+  z.object({
+    type: z.literal('dossier_create_key_reference'),
+    dossierId: z.string(),
+    label: z.string(),
+    value: z.string(),
+    note: z.string().optional()
+  }),
+  z.object({
+    type: z.literal('dossier_update_key_reference'),
+    dossierId: z.string(),
+    keyReferenceId: z.string(),
+    label: z.string(),
+    value: z.string(),
+    note: z.string().optional()
+  }),
+  z.object({
+    type: z.literal('dossier_delete_key_reference'),
+    dossierId: z.string(),
+    keyReferenceId: z.string()
+  }),
   z.object({
     type: z.literal('text_generate'),
     textType: z.enum(['email', 'letter', 'analysis', 'summary', 'text']),

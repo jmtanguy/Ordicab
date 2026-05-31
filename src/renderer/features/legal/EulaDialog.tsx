@@ -32,12 +32,12 @@ export function EulaDialog({
   return (
     <DialogShell aria-label={title} size="lg">
       <div className="space-y-4">
-        <h2 className="text-lg font-semibold text-slate-50">{title}</h2>
-        <p className="text-sm text-slate-300">{summary}</p>
+        <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
+        <p className="text-sm text-slate-600">{summary}</p>
         <p className="text-xs uppercase tracking-[0.12em] text-slate-400">{versionLabel}</p>
 
-        <div className="max-h-[48vh] overflow-y-auto rounded-xl border border-white/10 bg-black/20 p-4">
-          <pre className="whitespace-pre-wrap text-xs leading-relaxed text-slate-200">
+        <div className="max-h-[48vh] overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <pre className="whitespace-pre-wrap text-xs leading-relaxed text-slate-700">
             {content}
           </pre>
         </div>

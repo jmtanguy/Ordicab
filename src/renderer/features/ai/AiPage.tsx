@@ -9,14 +9,17 @@
  *   - Animated typing dots for loading state
  *   - Welcome screen with suggested prompts on empty state
  *
- * Mounted by: DomainDashboard (AI Assistant tab).
+ * Mounted by: DossierDetail (AI Assistant sidebar section). Always scoped to
+ * the dossier the user is viewing — there is no in-panel dossier override.
  * Reads from: aiStore (messages, commandLoading, availableModels, selectedModel…)
  */
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import type { DocumentRecord } from '@shared/types'
+
 import { useAiStore } from '@renderer/stores/aiStore'
-import { useDossierStore } from '@renderer/stores/dossierStore'
+import { useDocumentStore } from '@renderer/stores/documentStore'
 import { useUiStore } from '@renderer/stores/uiStore'
 import { useToast } from '@renderer/contexts/ToastContext'
 import { getRemoteToolModelDetails, inferRemoteProviderKind } from '@shared/ai/remoteProviders'
@@ -24,31 +27,6 @@ import { AiDialog } from '../settings/AiSettings'
 import { DelegatedReference } from '../delegated/DelegatedReference'
 
 const CLOUD_MANAGED_MODES = ['claude-code', 'copilot', 'codex'] as const
-const AI_LAST_DOSSIER_STORAGE_KEY = 'ordicab.ai.lastDossierId'
-
-function readStoredPreference(key: string): string | null {
-  if (typeof window === 'undefined') return null
-
-  try {
-    return window.localStorage.getItem(key)
-  } catch {
-    return null
-  }
-}
-
-function writeStoredPreference(key: string, value: string | null): void {
-  if (typeof window === 'undefined') return
-
-  try {
-    if (value) {
-      window.localStorage.setItem(key, value)
-    } else {
-      window.localStorage.removeItem(key)
-    }
-  } catch {
-    // Ignore storage errors in renderer-only preference persistence.
-  }
-}
 
 interface AiPageProps {
   entityName: string | null
@@ -192,13 +170,47 @@ function IconInfo(): React.JSX.Element {
   )
 }
 
+// ── Clipboard helper ───────────────────────────────────────────────────────
+
+/**
+ * Copy text to the clipboard with a legacy fallback. In the Electron renderer
+ * `navigator.clipboard.writeText` can reject (e.g. the document is not focused),
+ * which previously made the copy buttons silently no-op. The textarea +
+ * execCommand path keeps copying working in that case.
+ */
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // fall through to the legacy path below
+  }
+
+  try {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    textarea.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(textarea)
+    return ok
+  } catch {
+    return false
+  }
+}
+
 // ── Copy button ────────────────────────────────────────────────────────────
 
 function CopyButton({ text }: { text: string }): React.JSX.Element {
   const [copied, setCopied] = useState(false)
 
   const handleCopy = (): void => {
-    void navigator.clipboard.writeText(text).then(() => {
+    void copyToClipboard(text).then((ok) => {
+      if (!ok) return
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     })
@@ -207,6 +219,47 @@ function CopyButton({ text }: { text: string }): React.JSX.Element {
   return (
     <button onClick={handleCopy} title={copied ? 'Copié !' : 'Copier'} className="ai-copy-btn">
       {copied ? <IconCheck /> : <IconCopy />}
+    </button>
+  )
+}
+
+// ── Assistant avatar — doubles as a debug-trace copy button ─────────────────
+
+/**
+ * The assistant avatar is clickable: it copies the full debug payload of the
+ * message. On success the sparkle icon is temporarily swapped for a check mark
+ * (in-place confirmation); only the rare empty/failure cases fall back to a toast.
+ */
+function DebugCopyAvatar({ debugText }: { debugText: string }): React.JSX.Element {
+  const { t } = useTranslation()
+  const { showToast } = useToast()
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = (): void => {
+    if (!debugText) {
+      showToast(t('ai.page.debug_copy_empty'), 'warning')
+      return
+    }
+    void copyToClipboard(debugText).then((ok) => {
+      if (!ok) {
+        showToast(t('ai.page.debug_copy_error'), 'error')
+        return
+      }
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
+
+  return (
+    <button
+      className={`ai-avatar ai-avatar--assistant ai-avatar--copyable${
+        copied ? ' ai-avatar--copied' : ''
+      }`}
+      title={copied ? t('ai.page.debug_copy_success') : t('ai.page.debug_copy_title')}
+      aria-label={t('ai.page.debug_copy_title')}
+      onClick={handleCopy}
+    >
+      {copied ? <IconCheck /> : <IconSparkle />}
     </button>
   )
 }
@@ -698,6 +751,86 @@ function WelcomeScreen({ onPrompt }: { onPrompt: (p: string) => void }): React.J
   )
 }
 
+// ── @<filename> mention resolver ───────────────────────────────────────────
+
+/**
+ * Scan the user message for `@<filename>` mentions matching documents of the
+ * active dossier. A match must begin at the start of the text or right after
+ * whitespace (so `user@example.com` is not picked up). For each candidate `@`,
+ * we pick the longest filename whose lowercase form is a prefix of the
+ * lowercase slice — robust to filenames containing spaces.
+ */
+function parseDocumentMentions(
+  text: string,
+  documents: DocumentRecord[]
+): Array<{ uuid: string; filename: string }> {
+  if (documents.length === 0) return []
+
+  const sortedByLengthDesc = [...documents].sort((a, b) => b.filename.length - a.filename.length)
+  const lowerText = text.toLowerCase()
+  const out: Array<{ uuid: string; filename: string }> = []
+  const seen = new Set<string>()
+
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== '@') continue
+    const prev = i > 0 ? text[i - 1] : ''
+    if (i > 0 && !/\s/.test(prev ?? '')) continue
+    for (const doc of sortedByLengthDesc) {
+      const name = doc.filename
+      if (!name) continue
+      const end = i + 1 + name.length
+      if (end > text.length) continue
+      if (lowerText.slice(i + 1, end) !== name.toLowerCase()) continue
+      const key = doc.uuid ?? doc.id
+      if (!seen.has(key)) {
+        seen.add(key)
+        out.push({ uuid: key, filename: name })
+      }
+      i = end - 1
+      break
+    }
+  }
+
+  return out
+}
+
+/**
+ * Merge the explicit popup-inserted mentions with the text-based parse so the
+ * UUID survives even when the parser cannot recover the filename (PII
+ * pseudonymization, manual edits, unusual chars). An inserted mention is kept
+ * only if `@<filename>` still appears in the message — if the user deleted the
+ * inserted token before sending we drop it.
+ *
+ * UUIDs survive the server-side PII pseudonymizer verbatim, so feeding them
+ * through the system prompt's `## Active document references` block lets the
+ * LLM skip the fuzzy filename match against the pseudonymized `document_list`.
+ */
+function collectDocumentMentions(
+  text: string,
+  documents: DocumentRecord[],
+  inserted: Map<string, string>
+): Array<{ uuid: string; filename: string }> {
+  const lowerText = text.toLowerCase()
+  const out: Array<{ uuid: string; filename: string }> = []
+  const seen = new Set<string>()
+
+  for (const [uuid, filename] of inserted.entries()) {
+    if (!filename) continue
+    if (!lowerText.includes(`@${filename.toLowerCase()}`)) continue
+    if (seen.has(uuid)) continue
+    seen.add(uuid)
+    out.push({ uuid, filename })
+  }
+
+  for (const parsed of parseDocumentMentions(text, documents)) {
+    if (seen.has(parsed.uuid)) continue
+    seen.add(parsed.uuid)
+    out.push(parsed)
+  }
+
+  return out
+}
+
 // ── Main component ─────────────────────────────────────────────────────────
 
 export function AiPage({
@@ -715,7 +848,6 @@ export function AiPage({
   const executeCommand = useAiStore((s) => s.executeCommand)
   const cancelCommand = useAiStore((s) => s.cancelCommand)
   const resolveClarification = useAiStore((s) => s.resolveClarification)
-  const subscribeToIntentEvents = useAiStore((s) => s.subscribeToIntentEvents)
   const subscribeToTextTokens = useAiStore((s) => s.subscribeToTextTokens)
   const subscribeToReflections = useAiStore((s) => s.subscribeToReflections)
   const reflections = useAiStore((s) => s.reflections)
@@ -728,58 +860,55 @@ export function AiPage({
   const settings = useAiStore((s) => s.settings)
   const saveSettings = useAiStore((s) => s.saveSettings)
 
-  const dossiers = useDossierStore((s) => s.dossiers)
   const openFolder = useUiStore((state) => state.openFolder)
   const { showToast } = useToast()
 
-  // Dossier context for the AI — initialized from the active dashboard dossier,
-  // but overrideable by the user directly in the AI panel.
-  const [selectedDossierId, setSelectedDossierId] = useState<string | null>(
-    () => dossierId ?? readStoredPreference(AI_LAST_DOSSIER_STORAGE_KEY)
+  // Dossier context comes from the active dossier (DossierDetail mounts this page
+  // inside its sidebar). No in-panel override.
+  const activeDossierId = dossierId ?? null
+
+  // Documents of the active dossier — fuel the `@` mention suggestion popup.
+  // Subscribe to the raw map so the selector returns a stable reference
+  // (returning `?? []` here would create a new array on every render and
+  // re-trigger the subscription in an infinite loop).
+  const documentsByDossierId = useDocumentStore((s) => s.documentsByDossierId)
+  const dossierDocuments = useMemo<DocumentRecord[]>(
+    () => (activeDossierId ? (documentsByDossierId[activeDossierId] ?? []) : []),
+    [activeDossierId, documentsByDossierId]
   )
-  const availableDossierIds = dossiers.map((d) => d.id)
-  const resolvedSelectedDossierId =
-    selectedDossierId && availableDossierIds.includes(selectedDossierId) ? selectedDossierId : null
 
   const [input, setInput] = useState('')
   const [aiDialogOpen, setAiDialogOpen] = useState(false)
   const [showModelInfo, setShowModelInfo] = useState(false)
+  const [mention, setMention] = useState<{ start: number; query: string } | null>(null)
+  const [mentionIndex, setMentionIndex] = useState(0)
+  // Mentions inserted via the popup. We keep the UUID/filename pair here so the
+  // mention survives even when the text-based parser cannot recover the
+  // filename (PII pseudonymization, manual edits, unusual chars). Cleared on
+  // send and when starting a new conversation.
+  const insertedMentionsRef = useRef<Map<string, string>>(new Map())
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const lastSyncedDossierIdRef = useRef<string | null>(dossierId ?? null)
+
+  // Must stay above the early returns below to keep the hook order stable
+  // when the AI mode toggles between `none`/`local`/`remote`/cloud-managed.
+  const filteredMentionDocs = useMemo<DocumentRecord[]>(() => {
+    if (!mention) return []
+    const q = mention.query.trim().toLowerCase()
+    const matches = q
+      ? dossierDocuments.filter((d) => d.filename.toLowerCase().includes(q))
+      : dossierDocuments
+    return matches.slice(0, 8)
+  }, [dossierDocuments, mention])
 
   useEffect(() => {
     if (!settings) void loadSettings()
   }, [settings, loadSettings])
 
   useEffect(() => {
-    if (!dossierId) {
-      lastSyncedDossierIdRef.current = null
-      return
-    }
-    if (!dossiers.some((dossier) => dossier.id === dossierId)) return
-    if (lastSyncedDossierIdRef.current === dossierId) return
+    setActiveDossierId(activeDossierId)
+  }, [activeDossierId, setActiveDossierId])
 
-    lastSyncedDossierIdRef.current = dossierId
-
-    const timer = setTimeout(() => {
-      setSelectedDossierId((current) => (current === dossierId ? current : dossierId))
-    }, 0)
-
-    return () => {
-      clearTimeout(timer)
-    }
-  }, [dossierId, dossiers])
-
-  useEffect(() => {
-    writeStoredPreference(AI_LAST_DOSSIER_STORAGE_KEY, resolvedSelectedDossierId)
-  }, [resolvedSelectedDossierId])
-
-  useEffect(() => {
-    setActiveDossierId(resolvedSelectedDossierId)
-  }, [resolvedSelectedDossierId, setActiveDossierId])
-
-  useEffect(() => subscribeToIntentEvents(), [subscribeToIntentEvents])
   useEffect(() => subscribeToTextTokens(), [subscribeToTextTokens])
   useEffect(() => subscribeToReflections(), [subscribeToReflections])
 
@@ -800,6 +929,13 @@ export function AiPage({
     ta.style.height = 'auto'
     ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`
   }, [input])
+
+  // Refocus prompt after AI response completes
+  useEffect(() => {
+    if (!commandLoading) {
+      textareaRef.current?.focus()
+    }
+  }, [commandLoading])
 
   if ((CLOUD_MANAGED_MODES as readonly string[]).includes(mode)) {
     return <DelegatedReference entityName={entityName} sampleDossierName={sampleDossierName} />
@@ -824,10 +960,101 @@ export function AiPage({
     const trimmed = (text ?? input).trim()
     if (!trimmed || commandLoading) return
     setInput('')
-    void executeCommand(trimmed, { dossierId: resolvedSelectedDossierId ?? undefined })
+    setMention(null)
+    const documentMentions = collectDocumentMentions(
+      trimmed,
+      dossierDocuments,
+      insertedMentionsRef.current
+    )
+    insertedMentionsRef.current = new Map()
+    void executeCommand(trimmed, {
+      dossierId: activeDossierId ?? undefined,
+      ...(documentMentions.length > 0 ? { documentMentions } : {})
+    })
+  }
+
+  // Detect an in-progress `@mention` near the caret: walk back from the cursor
+  // until we hit `@` at a word boundary (start-of-string or whitespace before),
+  // or any whitespace/non-mention character that aborts the match.
+  const recomputeMention = (text: string, cursorPos: number): void => {
+    const MAX_LEN = 80
+    for (let i = cursorPos - 1; i >= Math.max(0, cursorPos - MAX_LEN); i--) {
+      const ch = text[i]
+      if (ch === '@') {
+        const prev = i > 0 ? text[i - 1] : ''
+        if (i === 0 || /\s/.test(prev ?? '')) {
+          setMention((current) => {
+            const next = { start: i, query: text.slice(i + 1, cursorPos) }
+            if (current && current.start === next.start && current.query === next.query) {
+              return current
+            }
+            return next
+          })
+          setMentionIndex(0)
+          return
+        }
+        setMention(null)
+        return
+      }
+      if (/\s/.test(ch ?? '')) {
+        setMention(null)
+        return
+      }
+    }
+    setMention(null)
+  }
+
+  const applyMention = (doc: DocumentRecord): void => {
+    if (!mention) return
+    const before = input.slice(0, mention.start)
+    const after = input.slice(mention.start + 1 + mention.query.length)
+    const inserted = `@${doc.filename}`
+    const trail = after.startsWith(' ') ? '' : ' '
+    const newText = `${before}${inserted}${trail}${after}`
+    const newCaret = before.length + inserted.length + trail.length
+    const key = doc.uuid ?? doc.id
+    if (key) {
+      insertedMentionsRef.current.set(key, doc.filename)
+    }
+    setInput(newText)
+    setMention(null)
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current
+      if (!ta) return
+      ta.focus()
+      ta.setSelectionRange(newCaret, newCaret)
+    })
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (mention && filteredMentionDocs.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setMentionIndex((idx) => (idx + 1) % filteredMentionDocs.length)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setMentionIndex(
+          (idx) => (idx - 1 + filteredMentionDocs.length) % filteredMentionDocs.length
+        )
+        return
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        const doc = filteredMentionDocs[mentionIndex]
+        if (doc) {
+          e.preventDefault()
+          applyMention(doc)
+          return
+        }
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setMention(null)
+        return
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
@@ -836,6 +1063,7 @@ export function AiPage({
 
   const handleNewConversation = (): void => {
     setInput('')
+    insertedMentionsRef.current = new Map()
     void resetConversation()
   }
 
@@ -862,20 +1090,19 @@ export function AiPage({
 
   return (
     <div className="ai-page">
+      {/* ── Floating new conversation button ── */}
+      <button
+        onClick={handleNewConversation}
+        disabled={commandLoading}
+        className="ai-new-conversation-btn"
+      >
+        <IconPlus />
+        {t('ai.page.new_conversation')}
+      </button>
+
       {/* ── Messages area ── */}
       <div className="ai-messages-area">
         <div className="ai-messages-column">
-          <div className="mb-4 flex justify-end">
-            <button
-              onClick={handleNewConversation}
-              disabled={commandLoading}
-              className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <IconPlus />
-              {t('ai.page.new_conversation')}
-            </button>
-          </div>
-
           {messages.length === 0 && !commandLoading && (
             <WelcomeScreen onPrompt={(p) => handleSend(p)} />
           )}
@@ -904,20 +1131,20 @@ export function AiPage({
             }
 
             // assistant
+            // Assemble the full debug payload: the request sent to the LLM, the
+            // raw runtime trace, and the response. Falls back gracefully so the
+            // copy button is never a silent no-op when the trace is missing.
             const buildDebugText = (): string => {
-              return msg.systemPrompt ?? ''
+              const sections: string[] = []
+              if (msg.userRequest) sections.push(`=== USER REQUEST ===\n${msg.userRequest}`)
+              if (msg.systemPrompt) sections.push(`=== LLM TRACE ===\n${msg.systemPrompt}`)
+              if (msg.text) sections.push(`=== RESPONSE ===\n${msg.text}`)
+              return sections.join('\n\n')
             }
 
             return (
               <div key={msg.id} className="ai-row ai-row--assistant">
-                <button
-                  className="ai-avatar ai-avatar--assistant ai-avatar--copyable"
-                  title={t('ai.page.debug_copy_title')}
-                  aria-label={t('ai.page.debug_copy_title')}
-                  onClick={() => void navigator.clipboard.writeText(buildDebugText())}
-                >
-                  <IconSparkle />
-                </button>
+                <DebugCopyAvatar debugText={buildDebugText()} />
                 <div className="ai-bubble-wrapper group">
                   <div className="ai-bubble ai-bubble--assistant">
                     <MarkdownBubble text={msg.text} />
@@ -998,11 +1225,60 @@ export function AiPage({
       {/* ── Input bar ── */}
       <div className="ai-input-bar">
         <div className="ai-input-column">
+          {mention && filteredMentionDocs.length > 0 && (
+            <div
+              className="ai-mention-popup"
+              role="listbox"
+              aria-label={t('ai.page.mention_aria', 'Documents du dossier')}
+            >
+              <div className="ai-mention-popup-header">
+                {t('ai.page.mention_header', 'Pièces du dossier')}
+              </div>
+              <ul className="ai-mention-list">
+                {filteredMentionDocs.map((doc, idx) => (
+                  <li key={doc.id}>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={idx === mentionIndex}
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        applyMention(doc)
+                      }}
+                      onMouseEnter={() => setMentionIndex(idx)}
+                      className={`ai-mention-item${
+                        idx === mentionIndex ? ' ai-mention-item--active' : ''
+                      }`}
+                    >
+                      <IconFolder />
+                      <span className="ai-mention-item-name">{doc.filename}</span>
+                      {doc.description ? (
+                        <span className="ai-mention-item-desc">{doc.description}</span>
+                      ) : null}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <div className="ai-input-box">
             <textarea
               ref={textareaRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                const value = e.target.value
+                setInput(value)
+                recomputeMention(value, e.target.selectionStart ?? value.length)
+              }}
+              onSelect={(e) => {
+                recomputeMention(
+                  e.currentTarget.value,
+                  e.currentTarget.selectionStart ?? e.currentTarget.value.length
+                )
+              }}
+              onBlur={() => {
+                window.setTimeout(() => setMention(null), 120)
+              }}
               onKeyDown={handleKeyDown}
               disabled={commandLoading}
               rows={1}
@@ -1029,119 +1305,92 @@ export function AiPage({
             )}
           </div>
 
-          {(mode === 'remote' ||
-            dossiers.length > 0 ||
-            (mode === 'local' && availableModels.length > 0)) && (
-            <div className="flex items-center gap-3 rounded-xl border border-slate-700/40 bg-slate-800/40 px-3 py-1.5">
-              <div className="flex w-full min-w-0 items-center gap-3">
-                {dossiers.length > 0 && (
-                  <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
-                    <span className="ai-model-label shrink-0">
-                      {t('ai.page.dossier_selector_label', 'Dossier')}
-                    </span>
-                    <select
-                      value={resolvedSelectedDossierId ?? ''}
-                      onChange={(e) => setSelectedDossierId(e.target.value || null)}
-                      className="ai-model-select"
-                    >
-                      <option value="" className="bg-slate-900 text-slate-400">
-                        {t('ai.page.dossier_selector_none', '— aucun —')}
-                      </option>
-                      {dossiers.map((d) => (
-                        <option key={d.id} value={d.id} className="bg-slate-900 text-slate-300">
-                          {d.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {(mode === 'local' || mode === 'remote') && availableModels.length > 0 && (
-                  <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
-                    <span className="ai-model-label shrink-0">
-                      {t('ai.page.model_selector_label')}
-                    </span>
-                    <div className="flex min-w-0 flex-col gap-1">
-                      <div className="relative flex items-center gap-1">
-                        <select
-                          value={selectedModel ?? ''}
-                          onChange={(e) => {
-                            setSelectedModel(e.target.value)
-                            setShowModelInfo(false)
-                          }}
-                          className="ai-model-select"
+          {(mode === 'remote' || (mode === 'local' && availableModels.length > 0)) && (
+            <div className="flex w-full min-w-0 items-center gap-3">
+              {(mode === 'local' || mode === 'remote') && availableModels.length > 0 && (
+                <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
+                  <span className="ai-model-label shrink-0">
+                    {t('ai.page.model_selector_label')}
+                  </span>
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <div className="relative flex items-center gap-1">
+                      <select
+                        value={selectedModel ?? ''}
+                        onChange={(e) => {
+                          setSelectedModel(e.target.value)
+                          setShowModelInfo(false)
+                        }}
+                        className="ai-model-select"
+                      >
+                        {availableModels.map((m) => (
+                          <option key={m} value={m} className="bg-[#f4f3ee] text-[#1a1a1a]">
+                            {m}
+                          </option>
+                        ))}
+                      </select>
+                      {hasModelInfoToShow && (
+                        <button
+                          type="button"
+                          onClick={() => setShowModelInfo((v) => !v)}
+                          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#d1cfc6] text-[#1a1a1a] transition hover:bg-[#e5e3da]/50"
+                          title={t('ai.page.model_info', 'Model info')}
+                          aria-label={t('ai.page.model_info', 'Model info')}
                         >
-                          {availableModels.map((m) => (
-                            <option key={m} value={m} className="bg-slate-900 text-slate-300">
-                              {m}
-                            </option>
-                          ))}
-                        </select>
-                        {hasModelInfoToShow && (
-                          <button
-                            type="button"
-                            onClick={() => setShowModelInfo((v) => !v)}
-                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-700/70 text-slate-300 transition hover:bg-slate-700/50"
-                            title={t('ai.page.model_info', 'Model info')}
-                            aria-label={t('ai.page.model_info', 'Model info')}
-                          >
-                            <IconInfo />
-                          </button>
-                        )}
-                        {hasModelInfoToShow && showModelInfo && selectedRemoteModelDetails && (
-                          <div className="absolute bottom-9 right-0 z-20 w-72 rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-[11px] text-slate-200 shadow-xl">
-                            {selectedRemoteModelDetails.costPerformance && (
-                              <div className="font-medium text-slate-100">
-                                {costPerformanceLabel(selectedRemoteModelDetails.costPerformance)}
-                              </div>
-                            )}
-                            {selectedRemoteModelDetails.comment && (
-                              <div className="mt-1 text-slate-300">
-                                {selectedRemoteModelDetails.comment}
-                              </div>
-                            )}
-                            {selectedRemoteModelDetails.pricing && (
-                              <div className="mt-2 border-t border-slate-700/70 pt-2 text-slate-400">
-                                {t('ai.page.model_pricing', {
-                                  input:
-                                    selectedRemoteModelDetails.pricing.inputEurPer10k.toFixed(3),
-                                  output:
-                                    selectedRemoteModelDetails.pricing.outputEurPer10k.toFixed(3)
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
+                          <IconInfo />
+                        </button>
+                      )}
+                      {hasModelInfoToShow && showModelInfo && selectedRemoteModelDetails && (
+                        <div className="absolute bottom-9 right-0 z-20 w-72 rounded-md border border-[#d1cfc6] bg-[#f4f3ee] px-3 py-2 text-[11px] text-[#1a1a1a] shadow-xl">
+                          {selectedRemoteModelDetails.costPerformance && (
+                            <div className="font-medium text-[#1a1a1a]">
+                              {costPerformanceLabel(selectedRemoteModelDetails.costPerformance)}
+                            </div>
+                          )}
+                          {selectedRemoteModelDetails.comment && (
+                            <div className="mt-1 text-[#1a1a1a]">
+                              {selectedRemoteModelDetails.comment}
+                            </div>
+                          )}
+                          {selectedRemoteModelDetails.pricing && (
+                            <div className="mt-2 border-t border-[#d1cfc6] pt-2 text-[#5c5c5a]">
+                              {t('ai.page.model_pricing', {
+                                input: selectedRemoteModelDetails.pricing.inputEurPer10k.toFixed(3),
+                                output:
+                                  selectedRemoteModelDetails.pricing.outputEurPer10k.toFixed(3)
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
-                )}
+                </div>
+              )}
 
-                {mode === 'remote' && (
-                  <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
-                    <span className="ai-model-label shrink-0">{t('ai_settings.pii_label')}</span>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={settings?.piiEnabled ?? true}
-                      onClick={() =>
-                        void saveSettings({
-                          mode: 'remote',
-                          piiEnabled: !(settings?.piiEnabled ?? true)
-                        })
-                      }
-                      className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${(settings?.piiEnabled ?? true) ? 'bg-sky-500' : 'bg-slate-600'}`}
-                    >
-                      <span
-                        className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${(settings?.piiEnabled ?? true) ? 'translate-x-3' : 'translate-x-0'}`}
-                      />
-                    </button>
-                  </div>
-                )}
+              {mode === 'remote' && (
+                <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
+                  <span className="ai-model-label shrink-0">{t('ai_settings.pii_label')}</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={settings?.piiEnabled ?? true}
+                    onClick={() =>
+                      void saveSettings({
+                        mode: 'remote',
+                        piiEnabled: !(settings?.piiEnabled ?? true)
+                      })
+                    }
+                    className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${(settings?.piiEnabled ?? true) ? 'bg-aurora' : 'bg-[#d1cfc6]'}`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${(settings?.piiEnabled ?? true) ? 'translate-x-3' : 'translate-x-0'}`}
+                    />
+                  </button>
+                </div>
+              )}
 
-                <p className="ai-hint flex flex-1 items-center justify-center text-center">
-                  {t('ai.page.send_hint')}
-                </p>
+              <div className="ai-hint-wrap flex flex-1 items-center justify-center gap-3 text-center">
+                <p className="ai-hint">{t('ai.page.send_hint')}</p>
               </div>
             </div>
           )}

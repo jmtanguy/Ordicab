@@ -42,7 +42,7 @@ export class DocumentContentError extends Error {
 const READABLE_CHARS_MIN = 50
 const DEFAULT_MAX_OCR_PAGES = 100
 const OCR_PAGE_TIMEOUT_MS = 60_000
-const PARAGRAPH_SEPARATOR = '<NL>'
+const PARAGRAPH_SEPARATOR = '\n\n'
 const MIN_OCR_READABLE_CHARS = 20
 const MIN_OCR_CANDIDATE_SCORE = 80
 const EARLY_ACCEPT_OCR_SCORE = 140
@@ -73,7 +73,7 @@ export function isPlainTextDocument(filePath: string): boolean {
 export type ExtractMethod = 'direct' | 'docx' | 'embedded' | 'tesseract' | 'cached'
 
 interface ContentCacheEntry {
-  version: 2
+  version: 3
   name: string
   method: Exclude<ExtractMethod, 'cached'>
   extractedAt: string
@@ -190,24 +190,17 @@ async function readCache(cachePath: string): Promise<string | null> {
   try {
     const raw = await readFile(cachePath, 'utf8')
     const entry = JSON.parse(raw) as {
-      version?: 1 | 2
+      version?: number
       text?: string
       isEmpty?: boolean
       [key: string]: unknown
     }
-    const version = entry.version
-    // Re-normalize on read so cache files written before the current
-    // normalization rules (or by an older app version) still produce clean
-    // output for downstream PII detection, embeddings, and NER.
-    if (version === 1 && typeof entry.text === 'string' && entry.text.length > 0) {
-      return normalizeExtractedText(entry.text)
-    }
     if (
-      version === 2 &&
+      entry.version === 3 &&
       typeof entry.text === 'string' &&
       (entry.text.length > 0 || entry.isEmpty === true)
     ) {
-      return entry.text.length > 0 ? normalizeExtractedText(entry.text) : entry.text
+      return entry.text
     }
   } catch {
     // corrupt cache — fall through to re-process
@@ -222,7 +215,7 @@ async function writeCache(
   method: Exclude<ExtractMethod, 'cached'>
 ): Promise<void> {
   const entry: ContentCacheEntry = {
-    version: 2,
+    version: 3,
     name: basename(filePath),
     method,
     extractedAt: new Date().toISOString(),
@@ -238,7 +231,7 @@ async function writeEmptyCache(
   method: Exclude<ExtractMethod, 'direct' | 'cached'>
 ): Promise<void> {
   const entry: ContentCacheEntry = {
-    version: 2,
+    version: 3,
     name: basename(filePath),
     method,
     extractedAt: new Date().toISOString(),
@@ -249,6 +242,22 @@ async function writeEmptyCache(
 }
 
 function cachePathFor(cacheDir: string, filePath: string): string {
+  // Normalize the basename to NFC before hashing so the cache key is stable
+  // regardless of how the filename reached us — macOS reads HFS+ filenames as
+  // NFD, persisted metadata is typically NFC, and the two would otherwise hash
+  // to different paths.
+  const name = basename(filePath).normalize('NFC')
+  const key = createHash('sha1').update(name).digest('hex').slice(0, 16)
+  return join(cacheDir, `${key}.json`)
+}
+
+/**
+ * Legacy cache key — basename hashed without Unicode normalization. Read-only
+ * fallback used by `readCache` so caches written before the NFC normalization
+ * fix are still discoverable on disk; once readers migrate them through
+ * writeCache the NFC path takes over.
+ */
+function legacyCachePathFor(cacheDir: string, filePath: string): string {
   const key = createHash('sha1').update(basename(filePath)).digest('hex').slice(0, 16)
   return join(cacheDir, `${key}.json`)
 }
@@ -1105,6 +1114,17 @@ export async function readCachedDocumentText(
     return { text: cached, method: 'cached' }
   }
 
+  // Fallback: an older cache may live at the legacy un-normalized path. If we
+  // find it, return its contents without rewriting — the next extraction pass
+  // (write path) will migrate to the NFC key.
+  const legacyPath = legacyCachePathFor(cacheDir, filePath)
+  if (legacyPath !== cachePath) {
+    const legacy = await readCache(legacyPath)
+    if (legacy !== null) {
+      return { text: legacy, method: 'cached' }
+    }
+  }
+
   return null
 }
 
@@ -1169,6 +1189,17 @@ export async function extractDocumentText(
   const cached = await readCache(cachePath)
   if (cached !== null) {
     return { text: cached, method: 'cached' }
+  }
+
+  // Fallback to the legacy un-normalized cache path so caches written before
+  // the NFC fix are still usable. Writes always go through the NFC key, so the
+  // legacy entry naturally retires once content is re-extracted.
+  const legacyPath = legacyCachePathFor(cacheDir, filePath)
+  if (legacyPath !== cachePath) {
+    const legacy = await readCache(legacyPath)
+    if (legacy !== null) {
+      return { text: legacy, method: 'cached' }
+    }
   }
 
   // DOCX: mammoth extraction.

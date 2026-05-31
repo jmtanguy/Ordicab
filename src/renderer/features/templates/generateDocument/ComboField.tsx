@@ -51,7 +51,7 @@ export function ComboField({
         className={inputClassName}
       />
       {open && options.length > 0 ? (
-        <ul className="absolute z-20 mt-1 w-full overflow-hidden rounded-xl border border-white/10 bg-slate-900 shadow-[0_8px_24px_rgba(2,6,23,0.55)]">
+        <ul className="absolute z-20 mt-1 w-full overflow-hidden rounded-xl border border-[#e5e3da] bg-[#f4f3ee] shadow-[0_8px_24px_rgba(0,0,0,0.12)]">
           {options.map((opt) => (
             <li key={opt.value}>
               <button
@@ -62,12 +62,12 @@ export function ComboField({
                   setOpen(false)
                 }}
                 className={cn(
-                  'flex w-full items-center justify-between gap-3 px-4 py-2 text-left text-sm transition hover:bg-slate-800',
-                  opt.value === value ? 'text-aurora' : 'text-slate-100'
+                  'flex w-full items-center justify-between gap-3 px-4 py-2 text-left text-sm transition hover:bg-[#e4e1d5]',
+                  opt.value === value ? 'text-aurora' : 'text-[#1a1a1a]'
                 )}
               >
                 <span className="font-medium">{opt.label}</span>
-                <span className="shrink-0 font-mono text-xs text-slate-400">{opt.value}</span>
+                <span className="shrink-0 font-mono text-xs text-[#5c5c5a]">{opt.value}</span>
               </button>
             </li>
           ))}

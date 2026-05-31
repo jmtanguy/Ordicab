@@ -1,6 +1,11 @@
 import { z } from 'zod'
 
 import type {
+  DocumentFileDeleteInput,
+  DocumentFileRenameInput,
+  DocumentFolderCreateInput,
+  DocumentFolderDeleteInput,
+  DocumentFolderRenameInput,
   DocumentMetadataDraft,
   DocumentMetadataUpdate,
   DocumentPreviewInput,
@@ -108,6 +113,58 @@ export const documentRelocationInputSchema = z.object({
   fromDocumentId: safeRelativePathSchema.optional()
 })
 
+const FORBIDDEN_NAME_CHARS = /[\\/:*?"<>|]/
+
+function isSafeFsName(value: string): boolean {
+  if (!value || value === '.' || value === '..') return false
+  if (value.startsWith('.')) return false
+  if (FORBIDDEN_NAME_CHARS.test(value)) return false
+  if ([...value].some((char) => char.charCodeAt(0) < 32)) return false
+  if (value.trim() !== value) return false
+  return true
+}
+
+const SAFE_FS_NAME_MESSAGE =
+  'Name cannot start with a dot, end with whitespace, or contain / \\ : * ? " < > |'
+
+const safeFsNameSchema = z.string().min(1).max(255).refine(isSafeFsName, {
+  message: SAFE_FS_NAME_MESSAGE
+})
+
+export const documentFolderCreateInputSchema = z.object({
+  dossierId: dossierIdSchema,
+  parentPath: z
+    .string()
+    .optional()
+    .transform((value) => (value ? normalizeRelativePath(value) : ''))
+    .refine((value) => value === '' || isSafeRelativePath(value), {
+      message: SAFE_RELATIVE_PATH_MESSAGE
+    }),
+  name: safeFsNameSchema
+})
+
+export const documentFolderRenameInputSchema = z.object({
+  dossierId: dossierIdSchema,
+  fromPath: safeRelativePathSchema,
+  newName: safeFsNameSchema
+})
+
+export const documentFolderDeleteInputSchema = z.object({
+  dossierId: dossierIdSchema,
+  path: safeRelativePathSchema
+})
+
+export const documentFileRenameInputSchema = z.object({
+  dossierId: dossierIdSchema,
+  documentId: safeRelativePathSchema,
+  newFilename: safeFsNameSchema
+})
+
+export const documentFileDeleteInputSchema = z.object({
+  dossierId: dossierIdSchema,
+  documentId: safeRelativePathSchema
+})
+
 export const semanticSearchQuerySchema: z.ZodType<SemanticSearchQuery> = z.object({
   dossierId: dossierIdSchema,
   query: z.string().trim().min(1),
@@ -125,6 +182,11 @@ export const documentMetadataDraftSchema = z
   }))
 
 export type {
+  DocumentFileDeleteInput,
+  DocumentFileRenameInput,
+  DocumentFolderCreateInput,
+  DocumentFolderDeleteInput,
+  DocumentFolderRenameInput,
   DocumentMetadataDraft,
   DocumentMetadataUpdate,
   DocumentPreviewInput,

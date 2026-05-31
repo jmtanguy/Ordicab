@@ -24,7 +24,10 @@ describe('OrdicabDataWatcher', () => {
 
   it('infers typed renderer refresh targets from watched .ordicab files', () => {
     expect(
-      inferOrdicabDataChangeTarget('/tmp/domain', '/tmp/domain/Client Alpha/.ordicab/contacts.json')
+      inferOrdicabDataChangeTarget(
+        '/tmp/domain',
+        '/tmp/domain/Client Alpha/.ordicab/contacts/abc123.json'
+      )
     ).toEqual({
       dossierId: 'Client Alpha',
       type: 'contacts'
@@ -86,7 +89,7 @@ describe('OrdicabDataWatcher', () => {
 
     await watcher.watchDomain('/tmp/domain')
 
-    watchers[0]!.emit('change', '/tmp/domain/Client Alpha/.ordicab/contacts.json')
+    watchers[0]!.emit('change', '/tmp/domain/Client Alpha/.ordicab/contacts/abc123.json')
     watchers[0]!.emit('change', '/tmp/domain/Client Alpha/.ordicab/dossier.json')
 
     await vi.advanceTimersByTimeAsync(499)
@@ -313,8 +316,8 @@ describe('OrdicabDataWatcher', () => {
 
     await watcher.watchDomain('/tmp/domain')
 
-    watchers[0]!.emit('change', '/tmp/domain/Client Alpha/.ordicab/contacts.json')
-    watchers[0]!.emit('change', '/tmp/domain/Client Alpha/.ordicab/contacts.json')
+    watchers[0]!.emit('change', '/tmp/domain/Client Alpha/.ordicab/contacts/abc123.json')
+    watchers[0]!.emit('change', '/tmp/domain/Client Alpha/.ordicab/contacts/abc123.json')
 
     await vi.advanceTimersByTimeAsync(500)
     await Promise.resolve()
@@ -357,7 +360,7 @@ describe('OrdicabDataWatcher', () => {
 
     await watcher.watchDomain('/tmp/domain')
 
-    watchers[0]!.emit('change', '/tmp/domain/Client Alpha/.ordicab/contacts.json')
+    watchers[0]!.emit('change', '/tmp/domain/Client Alpha/.ordicab/contacts/abc123.json')
     watchers[0]!.emit('change', '/tmp/domain/.ordicab/templates.json')
 
     await vi.advanceTimersByTimeAsync(500)

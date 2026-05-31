@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { detectPii } from '../piiDetector'
+import { detectPii, isStopwordToken } from '../piiDetector'
 
 describe('detectPii', () => {
   it('does not treat common imperative verbs at sentence start as names and splits person names into separate spans', () => {
@@ -249,6 +249,36 @@ describe('detectPii', () => {
     expect(spans).toEqual(
       expect.arrayContaining([expect.objectContaining({ type: 'date', value: '12/05/2026' })])
     )
+  })
+
+  it('detects textual dates whose OCR rendered the day/month gap as a hyphen or dot', () => {
+    // OCR of "Fait en notre cabinet, le 16-octobre 2024" used to leak the real
+    // date entirely — the textual-date branch required whitespace between the
+    // day and the month name.
+    for (const [text, expected] of [
+      ['Fait en notre cabinet, le 16-octobre 2024', '16-octobre 2024'],
+      ['Signé le 3.février.2023', '3.février.2023'],
+      ['le 1er-avril-2025 au greffe', '1er-avril-2025']
+    ] as const) {
+      const spans = detectPii(text)
+      expect(spans).toEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'date', value: expected })])
+      )
+    }
+  })
+
+  it('does not tag an all-caps legal-boilerplate heading as a fake company or person name (FR + EN)', () => {
+    // Regression: "JAF ORDONNANCE DE DESISTEMENT" (a filename / heading, here
+    // with the contact name already masked upstream) used to be split into
+    // name_/company_ markers — parasitic over-pseudonymization.
+    expect(detectPii('JAF ORDONNANCE DE DESISTEMENT')).toEqual([])
+    expect(detectPii('RECEPISSE DE DEPOT — GREFFE')).toEqual([])
+    // Same behaviour for English-language case files.
+    expect(detectPii('NOTICE OF HEARING')).toEqual([])
+    expect(detectPii('ORDER OF DISMISSAL')).toEqual([])
+    // A run that still contains a real surname is left for the name detectors.
+    const withName = detectPii('REQUETE MARTINEZ')
+    expect(withName.length).toBeGreaterThan(0)
   })
 
   it('keeps the more specific "birthDate" marker when both birth-context and loose date detectors hit the same span', () => {
@@ -514,5 +544,43 @@ describe('detectPii', () => {
     expect(spans2).toEqual(
       expect.arrayContaining([expect.objectContaining({ type: 'medicalId', value: 'A1234567' })])
     )
+  })
+})
+
+describe('isStopwordToken', () => {
+  it('flags FR/EN function words and structural document terms regardless of casing or diacritics', () => {
+    for (const token of ['la', 'La', 'LA', 'de', 'De', 'du', 'DU', 'vu', 'des', 'the', 'and']) {
+      expect(isStopwordToken(token)).toBe(true)
+    }
+    // legal / civil-status headings and month names are never person names either
+    for (const token of ['article', 'ARTICLE', 'naissance', 'octobre', 'Octobre']) {
+      expect(isStopwordToken(token)).toBe(true)
+    }
+    // French legal-procedure acronyms & terms
+    for (const token of ['jaf', 'JAF', 'CPC', 'desistement', 'DÉSISTEMENT', 'greffe', 'audience']) {
+      expect(isStopwordToken(token)).toBe(true)
+    }
+    // English legal-procedure terms (i18n parity with the FR block)
+    for (const token of ['hearing', 'HEARING', 'attorney', 'dismissal', 'subpoena', 'registrar']) {
+      expect(isStopwordToken(token)).toBe(true)
+    }
+  })
+
+  it('strips surrounding punctuation before matching ("de," → "de")', () => {
+    expect(isStopwordToken('de,')).toBe(true)
+    expect(isStopwordToken('(la')).toBe(true)
+    expect(isStopwordToken('la.')).toBe(true)
+  })
+
+  it('does not flag real person-name tokens', () => {
+    for (const token of ['Fontaine', 'Moreau', 'Pillot', 'Comitogianni', 'Séverine', 'Brunet']) {
+      expect(isStopwordToken(token)).toBe(false)
+    }
+  })
+
+  it('returns false for empty or punctuation-only input', () => {
+    expect(isStopwordToken('')).toBe(false)
+    expect(isStopwordToken('  ')).toBe(false)
+    expect(isStopwordToken('—')).toBe(false)
   })
 })

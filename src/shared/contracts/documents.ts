@@ -1,5 +1,12 @@
 export interface GeneratedDocumentResult {
   outputPath: string
+  /**
+   * Stable UUID of the persisted document record, when metadata was saved
+   * during generation (i.e. when description or tags were provided). Callers
+   * that need to reference the generated document immediately should prefer
+   * this UUID over resolving the path against a possibly stale documents list.
+   */
+  documentUuid?: string
 }
 
 export interface GeneratedDraftResult {
@@ -33,7 +40,7 @@ export interface DocumentChangeEvent {
 
 export interface OrdicabDataChangedEvent {
   dossierId: string | null
-  type: 'contacts' | 'dossier' | 'entity' | 'templates'
+  type: 'contacts' | 'dossier' | 'entity' | 'cabinet-billing' | 'templates'
   changedAt: string
 }
 
@@ -82,8 +89,12 @@ export interface SemanticSearchHit {
   charEnd: number
   /** Cosine similarity in [-1, 1]. Higher = more relevant. */
   score: number
-  /** Matched passage text, capped to ~280 chars. */
+  /** Matched passage text framed by surrounding sentences for context. */
   snippet: string
+  /** Offset within `snippet` where the best-matching sentence starts. */
+  snippetMatchStart?: number
+  /** Offset within `snippet` where the best-matching sentence ends. */
+  snippetMatchEnd?: number
 }
 
 export interface SemanticSearchResult {

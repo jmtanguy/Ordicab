@@ -32,6 +32,18 @@ import {
   type EmbeddingServiceConfig
 } from './embeddingService'
 
+// Smaller than the semanticSearchService cap (32): the indexing path runs in
+// the background, so we prioritise keeping each embed call short (~10s of ms)
+// over throughput. Shorter calls give the event loop more chances to drain
+// pending IPC and keep the renderer responsive. The query path on the other
+// hand is a one-shot user-facing call where throughput wins.
+const INDEXER_BATCH_SIZE = 4
+
+/** Forces a setImmediate yield so accumulated IPC / UI work can drain. */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise<void>((resolve) => setImmediate(resolve))
+}
+
 export interface IndexDocumentOptions {
   /** Embedding model configuration — passed to modelRegistry via embeddingService. */
   embeddingConfig?: EmbeddingServiceConfig
@@ -41,6 +53,12 @@ export interface IndexDocumentOptions {
   dim?: number
   /** Forces re-indexing even when a fresh embedding set already exists. */
   force?: boolean
+  /**
+   * Optional embedder. Defaults to the in-process embeddingService.embedBatch.
+   * The indexing queue passes the worker-thread client here so ONNX inference
+   * runs off the Electron main thread and the UI stays responsive.
+   */
+  embedder?: (texts: string[], config?: EmbeddingServiceConfig) => Promise<Float32Array[] | null>
 }
 
 export type IndexDocumentResult =
@@ -93,13 +111,25 @@ export async function indexDocumentEmbeddings(
     return { status: 'skipped', reason: 'no-chunks' }
   }
 
-  const vectors = await embedBatch(
-    chunks.map((c) => c.text),
-    options.embeddingConfig
-  )
-  if (!vectors) {
-    return { status: 'skipped', reason: 'embedding-failed' }
+  const embedder = options.embedder ?? embedBatch
+  const chunkTexts = chunks.map((c) => c.text)
+  const collected: Float32Array[] = []
+  for (let i = 0; i < chunkTexts.length; i += INDEXER_BATCH_SIZE) {
+    const slice = chunkTexts.slice(i, i + INDEXER_BATCH_SIZE)
+    const part = await embedder(slice, options.embeddingConfig)
+    if (!part || part.length !== slice.length) {
+      return { status: 'skipped', reason: 'embedding-failed' }
+    }
+    for (const vec of part) collected.push(vec)
+    // Cooperative throttling: each embed call blocks the main thread for tens
+    // to a hundred-ish ms (ONNX runtime is synchronous JS+C++). Yielding
+    // setImmediate between batches lets the IPC layer answer renderer
+    // requests, so the UI stays interactive even while we're indexing.
+    if (i + INDEXER_BATCH_SIZE < chunkTexts.length) {
+      await yieldToEventLoop()
+    }
   }
+  const vectors = collected
   if (vectors.length !== chunks.length) {
     return { status: 'skipped', reason: 'length-mismatch' }
   }

@@ -24,7 +24,6 @@ import {
   buildDataTools,
   terminalActionTools
 } from './aiToolDefinitions'
-import { deepStripCitationAnnotations } from './pii/citationStrip'
 
 export type AiChatHistoryEntry =
   | { role: 'user'; content: string }
@@ -41,7 +40,12 @@ export interface AiAgentRuntimePayload {
   command: string
   context: AiCommandContext
   locale?: 'fr' | 'en'
-  systemPrompt: string
+  /**
+   * Tool-mode system prompt. `toolSystemPrompt` is the canonical field;
+   * `systemPrompt` is kept only as an optional fallback for callers/tests that
+   * pass a single prompt.
+   */
+  systemPrompt?: string
   toolSystemPrompt?: string
   model?: string
   history?: AiChatHistoryEntry[]
@@ -70,18 +74,19 @@ export interface AiAgentRuntime {
   resetConversation(): Promise<void>
   setLocalLanguageModel(model: LanguageModel | null): void
   setRemoteLanguageModel(model: LanguageModel | null): void
-  generateText(
-    prompt: string,
-    systemPrompt: string,
-    history?: AiChatHistoryEntry[],
-    mode?: 'local' | 'remote'
-  ): Promise<string>
   /**
    * One-shot text generation that bypasses the persisted conversation history.
    * Use for isolated sub-LLM calls (e.g. per-document batch tasks) where each
    * call must start with a fresh context to avoid token bloat.
    */
   generateOneShot(prompt: string, systemPrompt: string, mode?: 'local' | 'remote'): Promise<string>
+  /**
+   * Streaming text generation that bypasses the persisted conversation history
+   * (like generateOneShot). Used for isolated drafting calls — e.g. text_generate
+   * — where the dedicated system prompt already carries the needed context and
+   * the tool-loop transcript (assistant tool-calls) must not leak into this
+   * no-tools call. An explicit `history` argument is still honoured when passed.
+   */
   streamText(
     prompt: string,
     systemPrompt: string,
@@ -104,6 +109,12 @@ export class AiRuntimeError extends Error {
 
 const MAX_HISTORY_ENTRY_CHARS = 4000
 const MAX_MESSAGES_TOTAL_CHARS = 24000
+/**
+ * Rolling cap on persisted conversation entries. Counts individual messages
+ * (user / assistant / tool), not turns — a single turn can produce several
+ * tool-call/tool-result entries.
+ */
+const MAX_HISTORY_ENTRIES = 12
 
 function truncateForModelInput(value: string, maxChars = MAX_HISTORY_ENTRY_CHARS): string {
   if (value.length <= maxChars) return value
@@ -160,13 +171,27 @@ function compactMessagesForContextWindow(
     break
   }
 
-  return kept.reverse()
+  kept.reverse()
+
+  // The truncated suffix can begin with a tool-result message whose assistant
+  // tool-call was cut off — providers reject a tool message with no preceding
+  // tool-call. Drop leading orphan tool messages so the window always starts on
+  // a user or assistant message.
+  while (kept.length > 1 && kept[0]?.role === 'tool') {
+    kept.shift()
+  }
+
+  return kept
 }
 
 function sanitizeHistoryToolIntegrity(history: AiChatHistoryEntry[]): AiChatHistoryEntry[] {
   if (history.length === 0) return history
 
-  // Track tool results available in this history (by toolCallId).
+  // A tool-call/tool-result pair is only valid when both sides are present.
+  // A history slice or a staleness prune can leave either side dangling:
+  //   - an assistant tool-call whose result was dropped, or
+  //   - a tool result whose declaring assistant message was dropped.
+  // Providers reject both, so track each side and keep only matched pairs.
   const resolvedToolCallIds = new Set(
     history
       .filter(
@@ -175,9 +200,24 @@ function sanitizeHistoryToolIntegrity(history: AiChatHistoryEntry[]): AiChatHist
       .map((entry) => entry.toolCallId)
       .filter((id): id is string => typeof id === 'string' && id.length > 0)
   )
+  const declaredToolCallIds = new Set(
+    history
+      .filter(
+        (entry): entry is Extract<AiChatHistoryEntry, { role: 'assistant' }> =>
+          entry.role === 'assistant'
+      )
+      .flatMap((entry) => entry.toolCalls ?? [])
+      .map((toolCall) => toolCall.id)
+  )
 
   const sanitized: AiChatHistoryEntry[] = []
   for (const entry of history) {
+    // Drop tool results whose declaring assistant tool-call is gone.
+    if (entry.role === 'tool') {
+      if (declaredToolCallIds.has(entry.toolCallId)) sanitized.push(entry)
+      continue
+    }
+
     if (entry.role !== 'assistant' || !entry.toolCalls || entry.toolCalls.length === 0) {
       sanitized.push(entry)
       continue
@@ -336,8 +376,7 @@ function parseBracketedToolCallsText(raw: string): InternalAiCommand | null {
     }
 
     if (!isRecord(args)) args = {}
-    const cleaned = deepStripCitationAnnotations(args) as Record<string, unknown>
-    return { type: name, ...cleaned } as unknown as InternalAiCommand
+    return { type: name, ...(args as Record<string, unknown>) } as unknown as InternalAiCommand
   } catch {
     // Lenient fallback for partially malformed JSON payloads.
     const nameMatch = trimmed.match(/"name"\s*:\s*"([^"]+)"/)
@@ -352,8 +391,7 @@ function parseBracketedToolCallsText(raw: string): InternalAiCommand | null {
     try {
       const parsedArgs = JSON.parse(argsObject) as unknown
       if (!isRecord(parsedArgs)) return null
-      const cleaned = deepStripCitationAnnotations(parsedArgs) as Record<string, unknown>
-      return { type: name, ...cleaned } as unknown as InternalAiCommand
+      return { type: name, ...parsedArgs } as unknown as InternalAiCommand
     } catch {
       return null
     }
@@ -603,7 +641,7 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
     })
 
     // The SDK may emit multiple tool calls in one step and execute them concurrently.
-    // For mutating action tools (e.g. contact_upsert), we must serialize execution to
+    // For mutating action tools (e.g. contact_create/contact_update), we must serialize execution to
     // avoid read-modify-write races in persistence layers.
     let actionToolExecutionChain: Promise<void> = Promise.resolve()
     async function runBatchableActionSerially<T>(task: () => Promise<T>): Promise<T> {
@@ -624,7 +662,7 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
       const result = await runBatchableActionSerially(() => payload.executeActionTool!(name, args))
       const locale = resolveRuntimeLocale(payload.locale)
 
-      if (name === 'contact_upsert') {
+      if (name === 'contact_create' || name === 'contact_update') {
         const parsed = tryParseJsonObject(result)
         if (parsed?.hasMoreContactCandidates) {
           const remaining = parsed.remainingContactCandidates as number | undefined
@@ -925,36 +963,17 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
         staleNames.has(entry.name ?? '')
 
       const pruned = conversationHistory.filter((entry) => !isStale(entry))
-      conversationHistory = sanitizeHistoryToolIntegrity([
-        ...pruned,
-        ...entries.filter((entry) => !isStale(entry))
-      ]).slice(-12)
+      // Slice to the rolling cap FIRST, then sanitize: the slice can sever a
+      // tool-call from its result, and sanitize drops whichever side is now
+      // dangling. Sanitizing before slicing would let the slice re-introduce
+      // an orphan at the head of the window.
+      conversationHistory = sanitizeHistoryToolIntegrity(
+        [...pruned, ...entries.filter((entry) => !isStale(entry))].slice(-MAX_HISTORY_ENTRIES)
+      )
     },
 
     async resetConversation(): Promise<void> {
       conversationHistory = []
-    },
-
-    async generateText(
-      prompt: string,
-      systemPrompt: string,
-      history?: AiChatHistoryEntry[],
-      mode: 'local' | 'remote' = 'local'
-    ): Promise<string> {
-      const sdkModel = resolveLanguageModel(mode)
-      if (!sdkModel) {
-        throw new AiRuntimeError(
-          `No ${mode} AI model configured.`,
-          IpcErrorCode.AI_RUNTIME_UNAVAILABLE
-        )
-      }
-
-      const result = await sdkGenerateText({
-        model: sdkModel,
-        system: systemPrompt,
-        messages: buildSdkMessages(prompt, history)
-      })
-      return result.text
     },
 
     async generateOneShot(
@@ -1000,7 +1019,9 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
         const result = sdkStreamText({
           model: sdkModel,
           system: systemPrompt,
-          messages: buildSdkMessages(prompt, history),
+          // useConversationHistory = false: this is an isolated drafting call,
+          // never the persisted tool-loop transcript (see interface doc).
+          messages: buildSdkMessages(prompt, history, false),
           abortSignal: abortController.signal
         })
 

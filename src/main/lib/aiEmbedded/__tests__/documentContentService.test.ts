@@ -33,10 +33,10 @@ afterEach(async () => {
 })
 
 describe('documentContentService paragraph normalization', () => {
-  it('joins paragraph blocks with <NL> while flattening line wraps inside a paragraph', () => {
+  it('joins paragraph blocks with a blank line while flattening line wraps inside a paragraph', () => {
     expect(
       normalizeExtractedText('First line\nwrapped\n\nSecond paragraph\r\n\r\nThird    paragraph')
-    ).toBe('First line wrapped<NL>Second paragraph<NL>Third paragraph')
+    ).toBe('First line wrapped\n\nSecond paragraph\n\nThird paragraph')
   })
 
   it('returns normalized text for plain text extraction', async () => {
@@ -47,7 +47,7 @@ describe('documentContentService paragraph normalization', () => {
     await writeFile(filePath, 'Alpha line 1\nAlpha line 2\n\nBeta paragraph', 'utf8')
 
     await expect(extractDocumentText(filePath, cacheDir)).resolves.toEqual({
-      text: 'Alpha line 1 Alpha line 2<NL>Beta paragraph',
+      text: 'Alpha line 1 Alpha line 2\n\nBeta paragraph',
       method: 'direct'
     })
   })
@@ -83,7 +83,7 @@ describe('documentContentService paragraph normalization', () => {
           }
         ]
       })
-    ).toBe('First OCR paragraph<NL>Second line 1 Second line 2<NL>Third OCR paragraph')
+    ).toBe('First OCR paragraph\n\nSecond line 1 Second line 2\n\nThird OCR paragraph')
   })
 
   it('splits OCR paragraphs when line geometry shows a clear vertical gap', () => {
@@ -116,7 +116,7 @@ describe('documentContentService paragraph normalization', () => {
           }
         ]
       })
-    ).toBe('Paragraph one line 1 Paragraph one line 2<NL>Paragraph two line 1')
+    ).toBe('Paragraph one line 1 Paragraph one line 2\n\nParagraph two line 1')
   })
 
   it('treats very short OCR output as unreadable', () => {
@@ -173,7 +173,7 @@ describe('documentContentService paragraph normalization', () => {
     expect(shouldTrySidewaysRotations(scoreOcrText('xqz', 10), 'xqz')).toBe(true)
   })
 
-  it('rewrites cached extracted text using the same <NL>-separated paragraph format', async () => {
+  it('rewrites cached extracted text using a blank-line paragraph format', async () => {
     const root = await createTempDir()
     const filePath = join(root, 'contract.docx')
     const cacheDir = join(root, 'cache')
@@ -184,7 +184,7 @@ describe('documentContentService paragraph normalization', () => {
       cachePath,
       JSON.stringify(
         {
-          version: 2,
+          version: 3,
           method: 'docx',
           extractedAt: '2026-04-08T10:00:00.000Z',
           text: 'stale',
@@ -200,7 +200,7 @@ describe('documentContentService paragraph normalization', () => {
 
     const cached = await readFile(cachePath, 'utf8')
     expect(cached).toContain('"name": "contract.docx"')
-    expect(cached).toContain('"text": "One wrapped<NL>Two"')
+    expect(cached).toContain('"text": "One wrapped\\n\\nTwo"')
   })
 
   it('uses the tesseract cache method when rewriting image OCR text', async () => {
@@ -214,6 +214,6 @@ describe('documentContentService paragraph normalization', () => {
     const cached = await readFile(cachePath, 'utf8')
     expect(cached).toContain('"name": "scan.png"')
     expect(cached).toContain('"method": "tesseract"')
-    expect(cached).toContain('"text": "Image OCR<NL>Text"')
+    expect(cached).toContain('"text": "Image OCR\\n\\nText"')
   })
 })

@@ -6,7 +6,7 @@
  * via @huggingface/transformers. The model tells us WHERE names / addresses /
  * organisations are; the regex-based detectors in piiDetector then decide HOW
  * to tokenize and tag them. This avoids the LLM seeing bundled "FirstName
- * LastName" (or full addresses) as a single marker — the regex's
+ * LastName" (or full addresses) as a single fake value — the regex's
  * detectCapitalized already emits one span per name token, which lets the LLM
  * split the identity into distinct firstName / lastName tool-call fields.
  *
@@ -29,6 +29,7 @@
 import {
   __resetModelRegistryForTests,
   getPipeline as getRegistryPipeline,
+  runWithInferenceLock,
   warmup as warmupPipeline,
   type PipelineFn
 } from '../modelRegistry'
@@ -671,7 +672,7 @@ export async function applyNerHints(
     // predicts a different label for it (e.g. "mer" PER + "##lin" O). We need
     // every token to run our own subword-continuation merge in aggregateBioEntities.
     const pipeOpts = { ignore_labels: [] as string[] }
-    const raw = (await pipe(text, pipeOpts)) as NerRawEntity[]
+    const raw = (await runWithInferenceLock(async () => pipe(text, pipeOpts))) as NerRawEntity[]
     const firstPass = mapEntitiesToSpans(text, pipe, raw, minScore)
 
     const titleCaseCandidate = buildTitleCaseCandidate(text)
@@ -679,7 +680,9 @@ export async function applyNerHints(
       ? mapEntitiesToSpans(
           text,
           pipe,
-          (await pipe(titleCaseCandidate, pipeOpts)) as NerRawEntity[],
+          (await runWithInferenceLock(async () =>
+            pipe(titleCaseCandidate, pipeOpts)
+          )) as NerRawEntity[],
           minScore,
           titleCaseCandidate
         )

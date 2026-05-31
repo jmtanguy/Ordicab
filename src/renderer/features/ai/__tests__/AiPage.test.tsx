@@ -12,7 +12,6 @@ const mockAiStore = {
   executeCommand: vi.fn(),
   cancelCommand: vi.fn(),
   resolveClarification: vi.fn(),
-  subscribeToIntentEvents: vi.fn(() => () => undefined),
   subscribeToTextTokens: vi.fn(() => () => undefined),
   subscribeToReflections: vi.fn(() => () => undefined),
   reflections: [] as Array<{ id: string; text: string }>,
@@ -22,13 +21,6 @@ const mockAiStore = {
   setActiveDossierId: vi.fn(),
   loadSettings: vi.fn(),
   resetConversation: vi.fn()
-}
-
-const mockDossierStore = {
-  dossiers: [
-    { id: 'dos-1', name: 'Client Alpha' },
-    { id: 'dos-2', name: 'Client Beta' }
-  ]
 }
 
 vi.mock('react-i18next', () => ({
@@ -41,9 +33,39 @@ vi.mock('@renderer/stores/aiStore', () => ({
   useAiStore: (selector: (state: typeof mockAiStore) => unknown) => selector(mockAiStore)
 }))
 
-vi.mock('@renderer/stores/dossierStore', () => ({
-  useDossierStore: (selector: (state: typeof mockDossierStore) => unknown) =>
-    selector(mockDossierStore)
+const mockDocumentStore = {
+  documentsByDossierId: {
+    'dos-1': [
+      {
+        id: 'doc-a',
+        uuid: 'uuid-a',
+        dossierId: 'dos-1',
+        filename: 'Convocation Tribunal.pdf',
+        byteLength: 1024,
+        relativePath: 'Convocation Tribunal.pdf',
+        modifiedAt: '2026-04-01T10:00:00.000Z',
+        description: 'Convocation pour audience',
+        tags: [] as string[],
+        textExtraction: { state: 'extracted' as const, isExtractable: true }
+      },
+      {
+        id: 'doc-b',
+        uuid: 'uuid-b',
+        dossierId: 'dos-1',
+        filename: 'Notes internes.docx',
+        byteLength: 2048,
+        relativePath: 'Notes internes.docx',
+        modifiedAt: '2026-04-02T10:00:00.000Z',
+        tags: [] as string[],
+        textExtraction: { state: 'extracted' as const, isExtractable: true }
+      }
+    ]
+  } as Record<string, unknown>
+}
+
+vi.mock('@renderer/stores/documentStore', () => ({
+  useDocumentStore: (selector: (state: typeof mockDocumentStore) => unknown) =>
+    selector(mockDocumentStore)
 }))
 
 const mockUiStore = {
@@ -72,19 +94,6 @@ vi.mock('../delegated/DelegatedReference', () => ({
 
 import { AiPage, MarkdownBubble } from '../AiPage'
 
-function getDossierSelect(): HTMLSelectElement {
-  const selects = screen.getAllByRole('combobox') as HTMLSelectElement[]
-  const dossierSelect = selects.find((select) =>
-    Array.from(select.options).some(
-      (option) => option.value === 'dos-1' || option.value === 'dos-2'
-    )
-  )
-  if (!dossierSelect) {
-    throw new Error('Dossier select not found')
-  }
-  return dossierSelect
-}
-
 describe('AiPage', () => {
   beforeEach(() => {
     mockAiStore.messages = []
@@ -95,7 +104,6 @@ describe('AiPage', () => {
     mockAiStore.executeCommand.mockClear()
     mockAiStore.cancelCommand.mockClear()
     mockAiStore.resolveClarification.mockClear()
-    mockAiStore.subscribeToIntentEvents.mockClear()
     mockAiStore.subscribeToTextTokens.mockClear()
     mockAiStore.subscribeToReflections.mockClear()
     mockAiStore.reflections = []
@@ -113,17 +121,8 @@ describe('AiPage', () => {
     cleanup()
   })
 
-  it('lets the user override the initial dossier selection from the selector', async () => {
+  it('uses the active dossier prop as the context for executeCommand', async () => {
     render(<AiPage entityName={null} sampleDossierName={null} dossierId="dos-1" />)
-
-    const dossierSelect = getDossierSelect()
-    expect(dossierSelect.value).toBe('dos-1')
-
-    fireEvent.change(dossierSelect, { target: { value: 'dos-2' } })
-
-    await waitFor(() => {
-      expect(dossierSelect.value).toBe('dos-2')
-    })
 
     fireEvent.change(screen.getByPlaceholderText('ai.panel.placeholder'), {
       target: { value: 'Liste les contacts' }
@@ -132,23 +131,47 @@ describe('AiPage', () => {
 
     await waitFor(() => {
       expect(mockAiStore.executeCommand).toHaveBeenCalledWith('Liste les contacts', {
-        dossierId: 'dos-2'
+        dossierId: 'dos-1'
       })
     })
   })
 
-  it('re-syncs the selector when the parent dossier prop changes', async () => {
+  it('shows the document suggestion popup when the user types `@` and inserts the chosen filename', async () => {
+    render(<AiPage entityName={null} sampleDossierName={null} dossierId="dos-1" />)
+
+    const textarea = screen.getByPlaceholderText('ai.panel.placeholder') as HTMLTextAreaElement
+    fireEvent.change(textarea, { target: { value: '@' } })
+    textarea.setSelectionRange(1, 1)
+    fireEvent.select(textarea)
+
+    await waitFor(() => {
+      expect(screen.getByRole('listbox')).toBeTruthy()
+    })
+
+    const options = screen.getAllByRole('option')
+    const convocation = options.find((opt) => opt.textContent?.includes('Convocation Tribunal.pdf'))
+    expect(convocation).toBeTruthy()
+
+    fireEvent.mouseDown(convocation!)
+
+    await waitFor(() => {
+      expect(textarea.value).toBe('@Convocation Tribunal.pdf ')
+    })
+  })
+
+  it('notifies the AI store when the active dossier prop changes', async () => {
     const { rerender } = render(
       <AiPage entityName={null} sampleDossierName={null} dossierId="dos-1" />
     )
 
-    const dossierSelect = getDossierSelect()
-    expect(dossierSelect.value).toBe('dos-1')
+    await waitFor(() => {
+      expect(mockAiStore.setActiveDossierId).toHaveBeenCalledWith('dos-1')
+    })
 
     rerender(<AiPage entityName={null} sampleDossierName={null} dossierId="dos-2" />)
 
     await waitFor(() => {
-      expect(dossierSelect.value).toBe('dos-2')
+      expect(mockAiStore.setActiveDossierId).toHaveBeenCalledWith('dos-2')
     })
   })
 

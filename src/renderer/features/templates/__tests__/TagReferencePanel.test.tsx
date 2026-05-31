@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { I18nextProvider } from 'react-i18next'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -52,13 +52,23 @@ describe('TagReferencePanel', () => {
     fireEvent.click(button)
 
     expect(onInsertTag).toHaveBeenCalledWith('{{entity.firmName}}')
-    expect(button.getAttribute('data-copied')).toBe('true')
+    await waitFor(() => expect(button.getAttribute('data-copied')).toBe('true'))
+  })
+
+  it('does not confirm copy when reference mode copy fails', async () => {
+    const onInsertTag = await renderPanel(vi.fn().mockResolvedValue(false), { referenceMode: true })
+
+    const button = screen.getByRole('button', { name: /{{entity\.firmName}}/i })
+    fireEvent.click(button)
+
+    await waitFor(() => expect(onInsertTag).toHaveBeenCalledWith('{{entity.firmName}}'))
+    expect(button.getAttribute('data-copied')).toBe('false')
   })
 
   it('shows all key date format variants for a dynamic label', async () => {
     await renderPanel()
 
-    fireEvent.change(screen.getAllByPlaceholderText('E.g.: Hearing, Case No…')[1]!, {
+    fireEvent.change(screen.getByPlaceholderText('E.g.: Hearing, Deliberation…'), {
       target: { value: 'Hearing Date' }
     })
 
@@ -66,6 +76,19 @@ describe('TagReferencePanel', () => {
     expect(screen.getByText('{{dossier.keyDate.hearingDate.formatted}}')).toBeTruthy()
     expect(screen.getByText('{{dossier.keyDate.hearingDate.long}}')).toBeTruthy()
     expect(screen.getByText('{{dossier.keyDate.hearingDate.short}}')).toBeTruthy()
+    expect(screen.getByText('{{dossier.keyDate.hearingDate.label}}')).toBeTruthy()
+  })
+
+  it('shows default variant placeholder buttons when no key date label is typed', async () => {
+    await renderPanel()
+
+    // All 5 placeholders are displayed before the author chooses a label,
+    // including the raw ISO entry without a variant suffix.
+    expect(screen.getByText('{{dossier.keyDate}}')).toBeTruthy()
+    expect(screen.getByText('{{dossier.keyDate.formatted}}')).toBeTruthy()
+    expect(screen.getByText('{{dossier.keyDate.long}}')).toBeTruthy()
+    expect(screen.getByText('{{dossier.keyDate.short}}')).toBeTruthy()
+    expect(screen.getByText('{{dossier.keyDate.label}}')).toBeTruthy()
   })
 
   it('renders groups in the expected order and generates contact role tags on the fly', async () => {
@@ -86,12 +109,13 @@ describe('TagReferencePanel', () => {
 
     const headings = screen.getAllByRole('heading', { level: 5 }).map((node) => node.textContent)
     expect(headings).toEqual([
-      'Key References',
-      'Key Dates',
+      'Timeline',
       'Contact',
       'Dossier',
       'Entity',
-      'System'
+      'System',
+      'Fee Agreement',
+      'Invoice'
     ])
 
     fireEvent.click(screen.getByRole('button', { name: 'Client' }))

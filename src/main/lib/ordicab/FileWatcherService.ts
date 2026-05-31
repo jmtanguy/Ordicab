@@ -1,5 +1,6 @@
 import chokidar, { type ChokidarOptions } from 'chokidar'
 import { access } from 'node:fs/promises'
+import { relative, sep } from 'node:path'
 
 import type { DocumentChangeEvent, DocumentWatchStatus, DossierScopedQuery } from '@shared/types'
 import { ORDICAB_DIRECTORY_NAME } from './ordicabPaths'
@@ -11,15 +12,35 @@ export interface FileWatcherLike {
 
 export type WatchFactory = (path: string, options: ChokidarOptions) => FileWatcherLike
 
-interface FileWatcherEntry {
+export type FileEventKind = 'add' | 'change' | 'unlink'
+
+export interface FileLevelEvent {
+  dossierId: string
+  dossierPath: string
+  kind: FileEventKind
+  absolutePath: string
+  /** POSIX-separated path relative to the dossier root. */
+  relativePath: string
+}
+
+export type FileEventListener = (event: FileLevelEvent) => void
+
+interface AggregatedSubscriber {
+  onDocumentsChanged: (event: DocumentChangeEvent) => void
+  onAvailabilityChanged: (status: DocumentWatchStatus) => void
+}
+
+interface WatcherState {
   dossierId: string
   dossierPath: string
   watcher: FileWatcherLike | null
   changeTimer: ReturnType<typeof setTimeout> | null
   recoveryTimer: ReturnType<typeof setTimeout> | null
   status: DocumentWatchStatus
-  onDocumentsChanged: (event: DocumentChangeEvent) => void
-  onAvailabilityChanged: (status: DocumentWatchStatus) => void
+  /** Single aggregated subscriber (the renderer panel watching this dossier). */
+  aggregated: AggregatedSubscriber | null
+  /** Multiple file-level subscribers (typically the indexing queue at boot). */
+  fileListeners: Set<FileEventListener>
 }
 
 export interface FileWatcherServiceOptions {
@@ -31,6 +52,11 @@ export interface FileWatcherServiceOptions {
 }
 
 export interface FileWatcherService {
+  /**
+   * Renderer-facing subscription: debounced "documents changed" plus
+   * availability transitions. Replaces any previous aggregated subscriber for
+   * the same dossier (the renderer only opens one dossier at a time).
+   */
   subscribe: (
     input: DossierScopedQuery & {
       dossierPath: string
@@ -38,14 +64,32 @@ export interface FileWatcherService {
       onAvailabilityChanged: (status: DocumentWatchStatus) => void
     }
   ) => Promise<DocumentWatchStatus>
+  /**
+   * Removes the aggregated subscriber. The underlying chokidar watcher stays
+   * alive if any file-level listener is still registered (typical when the
+   * indexing queue is watching at boot independently of the UI).
+   */
   unsubscribe: (input: DossierScopedQuery) => Promise<void>
+  /**
+   * Main-process subscription used by the indexing queue. Listener is called
+   * per raw file event (add/change/unlink). The watcher is started lazily on
+   * the first subscriber and shared across subscriber types.
+   *
+   * Returns an unsubscribe callback. Multiple file-level listeners per dossier
+   * are supported.
+   */
+  subscribeFileEvents: (input: {
+    dossierId: string
+    dossierPath: string
+    listener: FileEventListener
+  }) => Promise<{ unsubscribe: () => Promise<void>; status: DocumentWatchStatus }>
   disposeAll: () => Promise<void>
 }
 
 const DEFAULT_CHANGE_DEBOUNCE_MS = 250
 const DEFAULT_RECOVERY_POLL_INTERVAL_MS = 2_000
 const DEFAULT_UNAVAILABLE_MESSAGE = 'Waiting for dossier folder to come back online.'
-const WATCHER_CHANGE_EVENTS = ['add', 'change', 'unlink'] as const
+const WATCHER_CHANGE_EVENTS: readonly FileEventKind[] = ['add', 'change', 'unlink']
 
 function createChangedEvent(dossierId: string, now: () => Date): DocumentChangeEvent {
   return {
@@ -85,6 +129,10 @@ function shouldIgnoreDossierWatchPath(path: string): boolean {
   return isOrdicabPath(path) || isIgnoredGeneratedPath(path)
 }
 
+function toRelativePosix(dossierPath: string, absolutePath: string): string {
+  return relative(dossierPath, absolutePath).split(sep).join('/')
+}
+
 async function defaultCheckPathAccessible(path: string): Promise<boolean> {
   try {
     await access(path)
@@ -105,85 +153,104 @@ export function createFileWatcherService(
     options.watchFactory ??
     ((path, watchOptions) => chokidar.watch(path, watchOptions) as unknown as FileWatcherLike)
 
-  const entries = new Map<string, FileWatcherEntry>()
+  const states = new Map<string, WatcherState>()
 
-  async function closeWatcher(entry: FileWatcherEntry): Promise<void> {
-    const watcher = entry.watcher
-    entry.watcher = null
-
+  async function closeWatcher(state: WatcherState): Promise<void> {
+    const watcher = state.watcher
+    state.watcher = null
     if (watcher) {
       await watcher.close()
     }
   }
 
+  function hasAnySubscriber(state: WatcherState): boolean {
+    return state.aggregated !== null || state.fileListeners.size > 0
+  }
+
   function emitAvailability(
-    entry: FileWatcherEntry,
+    state: WatcherState,
     status: DocumentWatchStatus['status'],
     message: string | null
   ): DocumentWatchStatus {
-    entry.status = createStatus(entry.dossierId, status, now, message)
-    entry.onAvailabilityChanged(entry.status)
-    return entry.status
-  }
-
-  function emitDocumentsChanged(entry: FileWatcherEntry): void {
-    entry.onDocumentsChanged(createChangedEvent(entry.dossierId, now))
-  }
-
-  function scheduleDocumentsChanged(entry: FileWatcherEntry): void {
-    if (entry.changeTimer) {
-      clearTimeout(entry.changeTimer)
+    state.status = createStatus(state.dossierId, status, now, message)
+    if (state.aggregated) {
+      state.aggregated.onAvailabilityChanged(state.status)
     }
+    return state.status
+  }
 
-    entry.changeTimer = setTimeout(() => {
-      entry.changeTimer = null
-      emitDocumentsChanged(entry)
+  function emitDocumentsChangedToAggregated(state: WatcherState): void {
+    if (!state.aggregated) return
+    state.aggregated.onDocumentsChanged(createChangedEvent(state.dossierId, now))
+  }
+
+  function scheduleAggregatedEmit(state: WatcherState): void {
+    if (!state.aggregated) return
+    if (state.changeTimer) {
+      clearTimeout(state.changeTimer)
+    }
+    state.changeTimer = setTimeout(() => {
+      state.changeTimer = null
+      emitDocumentsChangedToAggregated(state)
     }, changeDebounceMs)
   }
 
-  async function scheduleRecovery(entry: FileWatcherEntry): Promise<void> {
-    if (entry.recoveryTimer) {
-      return
+  function fanOutFileEvent(state: WatcherState, kind: FileEventKind, absolutePath: string): void {
+    if (state.fileListeners.size === 0) return
+    const relativePath = toRelativePosix(state.dossierPath, absolutePath)
+    const event: FileLevelEvent = {
+      dossierId: state.dossierId,
+      dossierPath: state.dossierPath,
+      kind,
+      absolutePath,
+      relativePath
     }
+    // Copy the set so a listener mutating it during emission (subscribing or
+    // unsubscribing inside the callback) doesn't reshape the iteration.
+    for (const listener of [...state.fileListeners]) {
+      try {
+        listener(event)
+      } catch {
+        // Listener failures must not crash the watcher.
+      }
+    }
+  }
 
-    entry.recoveryTimer = setTimeout(async () => {
-      entry.recoveryTimer = null
-      const isAccessible = await checkPathAccessible(entry.dossierPath)
-
+  async function scheduleRecovery(state: WatcherState): Promise<void> {
+    if (state.recoveryTimer) return
+    state.recoveryTimer = setTimeout(async () => {
+      state.recoveryTimer = null
+      if (!hasAnySubscriber(state)) return
+      const isAccessible = await checkPathAccessible(state.dossierPath)
       if (!isAccessible) {
-        await scheduleRecovery(entry)
+        await scheduleRecovery(state)
         return
       }
-
-      await createWatcher(entry)
-      emitAvailability(entry, 'available', null)
-      emitDocumentsChanged(entry)
+      await createWatcher(state)
+      emitAvailability(state, 'available', null)
+      emitDocumentsChangedToAggregated(state)
     }, recoveryPollIntervalMs)
   }
 
   async function markUnavailable(
-    entry: FileWatcherEntry,
+    state: WatcherState,
     message = DEFAULT_UNAVAILABLE_MESSAGE
   ): Promise<void> {
-    if (entry.status.status === 'unavailable' && entry.recoveryTimer) {
-      return
+    if (state.status.status === 'unavailable' && state.recoveryTimer) return
+    if (state.changeTimer) {
+      clearTimeout(state.changeTimer)
+      state.changeTimer = null
     }
-
-    if (entry.changeTimer) {
-      clearTimeout(entry.changeTimer)
-      entry.changeTimer = null
-    }
-
-    await closeWatcher(entry)
-    emitAvailability(entry, 'unavailable', message)
-    await scheduleRecovery(entry)
+    await closeWatcher(state)
+    emitAvailability(state, 'unavailable', message)
+    await scheduleRecovery(state)
   }
 
-  async function createWatcher(entry: FileWatcherEntry): Promise<void> {
-    await closeWatcher(entry)
-    const normalizedDossierPath = normalizePath(entry.dossierPath)
+  async function createWatcher(state: WatcherState): Promise<void> {
+    await closeWatcher(state)
+    const normalizedDossierPath = normalizePath(state.dossierPath)
 
-    const watcher = watchFactory(entry.dossierPath, {
+    const watcher = watchFactory(state.dossierPath, {
       atomic: true,
       awaitWriteFinish: {
         stabilityThreshold: 200,
@@ -202,28 +269,24 @@ export function createFileWatcherService(
       persistent: true
     })
 
-    entry.watcher = watcher
+    state.watcher = watcher
 
     for (const eventName of WATCHER_CHANGE_EVENTS) {
       watcher.on(eventName, (path) => {
-        if (typeof path === 'string' && !shouldIgnoreDossierWatchPath(path)) {
-          scheduleDocumentsChanged(entry)
-        }
+        if (typeof path !== 'string' || shouldIgnoreDossierWatchPath(path)) return
+        fanOutFileEvent(state, eventName, path)
+        scheduleAggregatedEmit(state)
       })
     }
     watcher.on('unlinkDir', (path) => {
-      if (typeof path !== 'string') {
-        return
-      }
-
+      if (typeof path !== 'string') return
       const normalizedPath = normalizePath(path)
       if (normalizedPath === normalizedDossierPath) {
-        void markUnavailable(entry)
+        void markUnavailable(state)
         return
       }
-
       if (!shouldIgnoreDossierWatchPath(normalizedPath)) {
-        scheduleDocumentsChanged(entry)
+        scheduleAggregatedEmit(state)
       }
     })
     watcher.on('addDir', (path) => {
@@ -232,84 +295,114 @@ export function createFileWatcherService(
         !shouldIgnoreDossierWatchPath(path) &&
         normalizePath(path) !== normalizedDossierPath
       ) {
-        scheduleDocumentsChanged(entry)
+        scheduleAggregatedEmit(state)
       }
     })
     watcher.on('error', () => {
-      void markUnavailable(entry)
+      void markUnavailable(state)
     })
+  }
+
+  async function ensureState(
+    dossierId: string,
+    dossierPath: string
+  ): Promise<{ state: WatcherState; createdNow: boolean }> {
+    const existing = states.get(dossierId)
+    if (existing) {
+      if (existing.dossierPath !== dossierPath) {
+        // Dossier moved on disk. Rebuild the watcher rooted at the new path.
+        await closeWatcher(existing)
+        existing.dossierPath = dossierPath
+        if (await checkPathAccessible(dossierPath)) {
+          await createWatcher(existing)
+        } else {
+          await markUnavailable(existing)
+        }
+      }
+      return { state: existing, createdNow: false }
+    }
+    const state: WatcherState = {
+      dossierId,
+      dossierPath,
+      watcher: null,
+      changeTimer: null,
+      recoveryTimer: null,
+      status: createStatus(dossierId, 'available', now, null),
+      aggregated: null,
+      fileListeners: new Set()
+    }
+    states.set(dossierId, state)
+    if (!(await checkPathAccessible(dossierPath))) {
+      await markUnavailable(state)
+    } else {
+      await createWatcher(state)
+    }
+    return { state, createdNow: true }
+  }
+
+  async function teardownIfIdle(state: WatcherState): Promise<void> {
+    if (hasAnySubscriber(state)) return
+    if (state.changeTimer) {
+      clearTimeout(state.changeTimer)
+      state.changeTimer = null
+    }
+    if (state.recoveryTimer) {
+      clearTimeout(state.recoveryTimer)
+      state.recoveryTimer = null
+    }
+    await closeWatcher(state)
+    states.delete(state.dossierId)
   }
 
   return {
     subscribe: async (input) => {
-      await createFileWatcherServiceCleanup(input.dossierId)
-
-      const entry: FileWatcherEntry = {
-        dossierId: input.dossierId,
-        dossierPath: input.dossierPath,
-        watcher: null,
-        changeTimer: null,
-        recoveryTimer: null,
-        status: createStatus(input.dossierId, 'available', now, null),
+      const { state } = await ensureState(input.dossierId, input.dossierPath)
+      state.aggregated = {
         onDocumentsChanged: input.onDocumentsChanged,
         onAvailabilityChanged: input.onAvailabilityChanged
       }
-
-      entries.set(input.dossierId, entry)
-
-      if (!(await checkPathAccessible(input.dossierPath))) {
-        await markUnavailable(entry)
-        return entry.status
-      }
-
-      await createWatcher(entry)
-      return entry.status
+      return state.status
     },
 
     unsubscribe: async (input) => {
-      const entry = entries.get(input.dossierId)
-
-      if (!entry) {
-        return
+      const state = states.get(input.dossierId)
+      if (!state) return
+      state.aggregated = null
+      if (state.changeTimer) {
+        clearTimeout(state.changeTimer)
+        state.changeTimer = null
       }
+      await teardownIfIdle(state)
+    },
 
-      if (entry.changeTimer) {
-        clearTimeout(entry.changeTimer)
+    subscribeFileEvents: async (input) => {
+      const { state } = await ensureState(input.dossierId, input.dossierPath)
+      state.fileListeners.add(input.listener)
+      return {
+        status: state.status,
+        unsubscribe: async () => {
+          state.fileListeners.delete(input.listener)
+          await teardownIfIdle(state)
+        }
       }
-
-      if (entry.recoveryTimer) {
-        clearTimeout(entry.recoveryTimer)
-      }
-
-      await closeWatcher(entry)
-      entries.delete(input.dossierId)
     },
 
     disposeAll: async () => {
+      const all = [...states.values()]
+      states.clear()
       await Promise.all(
-        [...entries.keys()].map(async (dossierId) => createFileWatcherServiceCleanup(dossierId))
+        all.map(async (state) => {
+          if (state.changeTimer) {
+            clearTimeout(state.changeTimer)
+            state.changeTimer = null
+          }
+          if (state.recoveryTimer) {
+            clearTimeout(state.recoveryTimer)
+            state.recoveryTimer = null
+          }
+          await closeWatcher(state)
+        })
       )
     }
-  }
-
-  async function createFileWatcherServiceCleanup(dossierId: string): Promise<void> {
-    const entry = entries.get(dossierId)
-
-    if (!entry) {
-      return
-    }
-
-    if (entry.changeTimer) {
-      clearTimeout(entry.changeTimer)
-      entry.changeTimer = null
-    }
-
-    if (entry.recoveryTimer) {
-      clearTimeout(entry.recoveryTimer)
-      entry.recoveryTimer = null
-    }
-
-    await closeWatcher(entry)
-    entries.delete(dossierId)
   }
 }

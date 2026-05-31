@@ -18,5 +18,7 @@ export enum IpcErrorCode {
   /** OCR processing failed. */
   OCR_FAILED = 'OCR_FAILED',
   /** Managed cloud provider CLI is not installed or not authenticated. */
-  CLOUD_PROVIDER_UNAVAILABLE = 'CLOUD_PROVIDER_UNAVAILABLE'
+  CLOUD_PROVIDER_UNAVAILABLE = 'CLOUD_PROVIDER_UNAVAILABLE',
+  /** Operation refused because referential or business-rule constraints would be violated (e.g. deleting an entity still referenced elsewhere). */
+  INTEGRITY_CONFLICT = 'INTEGRITY_CONFLICT'
 }

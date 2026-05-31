@@ -22,17 +22,17 @@ vi.mock('../AuroraBackground', () => ({
   AuroraBackground: () => null
 }))
 
-vi.mock('../TopNav', () => ({
-  TopNav: ({
-    activeTab,
-    onTabChange
+vi.mock('../Sidebar', () => ({
+  Sidebar: ({
+    destination,
+    onSelectDestination
   }: {
-    activeTab: 'dossiers' | 'modeles' | 'delegated' | 'parametres'
-    onTabChange: (tab: 'dossiers' | 'modeles' | 'delegated' | 'parametres') => void
+    destination: 'dossiers' | 'cabinet' | 'modeles' | 'parametres'
+    onSelectDestination: (destination: 'dossiers' | 'cabinet' | 'modeles' | 'parametres') => void
   }) => (
     <div>
-      <div data-testid="top-nav-active-tab">{activeTab}</div>
-      <button type="button" onClick={() => onTabChange('parametres')}>
+      <div data-testid="sidebar-active-destination">{destination}</div>
+      <button type="button" onClick={() => onSelectDestination('parametres')}>
         go-settings
       </button>
     </div>
@@ -41,15 +41,15 @@ vi.mock('../TopNav', () => ({
 
 vi.mock('@renderer/features/domain/DomainDashboard', () => ({
   DomainDashboard: ({
-    activeTab,
+    activeDestination,
     onChangeDomain
   }: {
-    activeTab: 'dossiers' | 'modeles' | 'delegated' | 'parametres'
+    activeDestination: 'dossiers' | 'cabinet' | 'modeles' | 'parametres'
     onChangeDomain: () => Promise<void>
   }) => (
     <div>
-      <div data-testid="domain-dashboard-active-tab">{activeTab}</div>
-      {activeTab === 'parametres' ? (
+      <div data-testid="domain-dashboard-active-tab">{activeDestination}</div>
+      {activeDestination === 'parametres' ? (
         <button type="button" onClick={() => void onChangeDomain()}>
           change-domain
         </button>

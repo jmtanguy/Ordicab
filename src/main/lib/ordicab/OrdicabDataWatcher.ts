@@ -1,5 +1,5 @@
 import chokidar, { type ChokidarOptions } from 'chokidar'
-import { basename, isAbsolute, relative } from 'node:path'
+import { basename, dirname, isAbsolute, relative } from 'node:path'
 
 import type { AiMode, DomainStatusSnapshot, OrdicabDataChangedEvent } from '@shared/types'
 
@@ -79,8 +79,13 @@ function getRelativeDomainPath(domainPath: string, filePath: unknown): string | 
 
 function inferOrdicabDataType(filePath: string): OrdicabDataChangedEvent['type'] | null {
   const filename = basename(filePath)
+  const parentDir = basename(dirname(filePath))
 
-  if (filename === 'contacts.json') {
+  if (parentDir === 'contacts' && filename.endsWith('.json')) {
+    return 'contacts'
+  }
+
+  if (filename === 'contacts-index.json') {
     return 'contacts'
   }
 
@@ -88,8 +93,20 @@ function inferOrdicabDataType(filePath: string): OrdicabDataChangedEvent['type']
     return 'dossier'
   }
 
+  if ((parentDir === 'billing-items' || parentDir === 'key-dates') && filename.endsWith('.json')) {
+    return 'dossier'
+  }
+
+  if (filename === 'billing-items-index.json' || filename === 'key-dates-index.json') {
+    return 'dossier'
+  }
+
   if (filename === 'entity.json') {
     return 'entity'
+  }
+
+  if (filename === 'cabinet-billing.json') {
+    return 'cabinet-billing'
   }
 
   if (filename === 'templates.json') {
@@ -121,17 +138,14 @@ export function inferOrdicabDataChangeTarget(
   const segments = relativePath.split(/[/\\]+/)
 
   if (segments[0] === ORDICAB_DIRECTORY_NAME) {
-    return dataType === 'entity' || dataType === 'templates'
+    return dataType === 'entity' || dataType === 'cabinet-billing' || dataType === 'templates'
       ? { dossierId: null, type: dataType }
       : null
   }
 
   if (segments.length >= 3 && segments[1] === ORDICAB_DIRECTORY_NAME && segments[0]) {
     return dataType === 'contacts' || dataType === 'dossier'
-      ? {
-          dossierId: segments[0],
-          type: dataType
-        }
+      ? { dossierId: segments[0], type: dataType }
       : null
   }
 
@@ -334,7 +348,16 @@ export function createOrdicabDataWatcher(
     }
 
     if (segments.length >= 3 && segments[1] === ORDICAB_DIRECTORY_NAME && segments[0]) {
-      if (filename !== 'contacts.json' && filename !== 'dossier.json') {
+      const parentDir = segments[2]
+      const isDossierMetadataFile =
+        filename === 'dossier.json' ||
+        filename === 'contacts-index.json' ||
+        filename === 'billing-items-index.json' ||
+        filename === 'key-dates-index.json' ||
+        parentDir === 'contacts' ||
+        parentDir === 'billing-items' ||
+        parentDir === 'key-dates'
+      if (!isDossierMetadataFile) {
         return null
       }
 

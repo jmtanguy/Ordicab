@@ -42,10 +42,6 @@ function resolveDocxPreviewErrorMessage(error: unknown, t: (key: string) => stri
   return t('documents.preview_error_body')
 }
 
-function formatExtractedTextForPreview(text: string | null | undefined): string {
-  return text?.replace(/<NL>/g, '\n') ?? ''
-}
-
 function ImagePreview({ preview }: { preview: ImageDocumentPreview }): React.JSX.Element | null {
   const { t } = useTranslation()
   const isTiff = preview.sourceType === 'tif' || preview.sourceType === 'tiff'
@@ -64,11 +60,11 @@ function ImagePreview({ preview }: { preview: ImageDocumentPreview }): React.JSX
   }
 
   if (!imageUrl || renderError) {
-    return <p className="text-sm text-rose-100">{t('documents.preview_error_body')}</p>
+    return <p className="text-sm text-[#9c2f2f]">{t('documents.preview_error_body')}</p>
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/45 p-2">
+    <div className="overflow-hidden rounded-2xl border border-[#e5e3da] bg-white p-2">
       <img
         alt={preview.filename}
         className="max-h-[480px] w-full rounded-xl object-contain"
@@ -139,11 +135,11 @@ function TiffPreview({ preview }: { preview: TiffImagePreview }): React.JSX.Elem
   }, [preview.data, t])
 
   if (renderError) {
-    return <p className="text-sm text-rose-100">{renderError}</p>
+    return <p className="text-sm text-[#9c2f2f]">{renderError}</p>
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/45 p-2">
+    <div className="overflow-hidden rounded-2xl border border-[#e5e3da] bg-white p-2">
       <canvas ref={canvasRef} className="max-h-[480px] w-full rounded-xl bg-white object-contain" />
     </div>
   )
@@ -221,7 +217,7 @@ function DocxPreview({
   }, [preview.data, preview.mimeType, t])
 
   if (renderError) {
-    return <p className="text-sm text-rose-100">{renderError}</p>
+    return <p className="text-sm text-[#9c2f2f]">{renderError}</p>
   }
 
   return (
@@ -287,7 +283,7 @@ function PdfPreview({
 
           canvas.width = viewport.width
           canvas.height = viewport.height
-          canvas.className = 'w-full rounded-xl bg-white shadow-[0_18px_45px_rgba(15,23,42,0.28)]'
+          canvas.className = 'w-full rounded-xl bg-white shadow-[0_8px_24px_rgba(0,0,0,0.10)]'
 
           const renderTask = page.render({ canvas, canvasContext: context, viewport })
           activeRenderTask = renderTask
@@ -307,7 +303,7 @@ function PdfPreview({
 
           const pageContainer = document.createElement('div')
           pageContainer.className =
-            'overflow-hidden rounded-2xl border border-white/10 bg-slate-900/55 p-2'
+            'overflow-hidden rounded-2xl border border-[#e5e3da] bg-[#f4f3ee] p-2'
           pageContainer.appendChild(canvas)
           container.appendChild(pageContainer)
         }
@@ -331,7 +327,7 @@ function PdfPreview({
   }, [onPageCountChange, preview.data, t])
 
   if (renderError) {
-    return <p className="text-sm text-rose-100">{renderError}</p>
+    return <p className="text-sm text-[#9c2f2f]">{renderError}</p>
   }
 
   return <div ref={containerRef} className="space-y-3" />
@@ -374,13 +370,13 @@ function EmailPreview({
   return (
     <div className="space-y-4">
       {previewFields.length > 0 ? (
-        <div className="grid gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+        <div className="grid gap-3 rounded-2xl border border-[#e5e3da] bg-white p-4">
           {previewFields.map((field) => (
             <div key={field.label} className="space-y-1">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-[#5c5c5a]">
                 {field.label}
               </p>
-              <p className="text-sm text-slate-100">{field.value}</p>
+              <p className="text-sm text-[#1a1a1a]">{field.value}</p>
             </div>
           ))}
         </div>
@@ -388,14 +384,14 @@ function EmailPreview({
 
       {preview.attachments.length > 0 ? (
         <div className="space-y-2">
-          <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">
+          <p className="text-[11px] uppercase tracking-[0.14em] text-[#5c5c5a]">
             {t('documents.preview_email_attachments')}
           </p>
           <div className="flex flex-wrap gap-2">
             {preview.attachments.map((attachment) => (
               <span
                 key={attachment}
-                className="rounded-full border border-white/10 bg-slate-900/60 px-2.5 py-1 text-xs text-slate-200"
+                className="rounded-full border border-[#e5e3da] bg-[#f4f3ee] px-2.5 py-1 text-xs text-[#1a1a1a]"
               >
                 {attachment}
               </span>
@@ -404,8 +400,8 @@ function EmailPreview({
         </div>
       ) : null}
 
-      <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-4">
-        <pre className="whitespace-pre-wrap wrap-break-word text-sm leading-6 text-slate-200">
+      <div className="rounded-2xl border border-[#e5e3da] bg-white p-4">
+        <pre className="whitespace-pre-wrap wrap-break-word text-sm leading-6 text-[#1a1a1a]">
           {preview.text || t('documents.preview_email_empty')}
         </pre>
       </div>
@@ -433,8 +429,8 @@ function PreviewBody({
 
   if (!activeDocument) {
     return (
-      <div className="space-y-2 text-sm text-slate-300">
-        <p className="font-medium text-slate-100">{t('documents.preview_empty_title')}</p>
+      <div className="space-y-2 text-sm text-[#1a1a1a]">
+        <p className="font-medium text-[#1a1a1a]">{t('documents.preview_empty_title')}</p>
         <p>{t('documents.preview_empty_body')}</p>
       </div>
     )
@@ -442,8 +438,8 @@ function PreviewBody({
 
   if (previewState.status === 'loading') {
     return (
-      <div className="space-y-2 text-sm text-slate-300">
-        <p className="font-medium text-slate-100">{t('documents.preview_loading_title')}</p>
+      <div className="space-y-2 text-sm text-[#1a1a1a]">
+        <p className="font-medium text-[#1a1a1a]">{t('documents.preview_loading_title')}</p>
         <p>{t('documents.preview_loading_body', { name: activeDocument.filename })}</p>
       </div>
     )
@@ -451,7 +447,7 @@ function PreviewBody({
 
   if (previewState.status === 'error') {
     return (
-      <div className="space-y-2 text-sm text-rose-100">
+      <div className="space-y-2 text-sm text-[#9c2f2f]">
         <p className="font-medium">{t('documents.preview_error_title')}</p>
         <p>{previewState.error ?? t('documents.preview_error_body')}</p>
       </div>
@@ -462,16 +458,16 @@ function PreviewBody({
     if (contentState.status === 'loading') {
       const progress = contentState.progress
       return (
-        <div className="flex min-h-full flex-col items-center justify-center gap-4 text-center text-sm text-slate-300">
+        <div className="flex min-h-full flex-col items-center justify-center gap-4 text-center text-sm text-[#1a1a1a]">
           <div className="relative h-12 w-12">
-            <div className="absolute inset-0 rounded-full border-2 border-slate-700/70" />
+            <div className="absolute inset-0 rounded-full border-2 border-[#d1cfc6]" />
             <div className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-sky-300 border-r-sky-400" />
           </div>
           <div className="space-y-2">
-            <p className="font-medium text-slate-100">{t('documents.extraction_loading_title')}</p>
+            <p className="font-medium text-[#1a1a1a]">{t('documents.extraction_loading_title')}</p>
             <p>{t('documents.extraction_loading_body', { name: activeDocument.filename })}</p>
             {progress && progress.totalPages > 0 ? (
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-[#5c5c5a]">
                 {t(
                   progress.phase === 'ocr'
                     ? 'documents.extraction_progress_ocr'
@@ -487,7 +483,7 @@ function PreviewBody({
 
     if (contentState.status === 'error') {
       return (
-        <div className="space-y-2 text-sm text-rose-100">
+        <div className="space-y-2 text-sm text-[#9c2f2f]">
           <p className="font-medium">{t('documents.extraction_error_title')}</p>
           <p>{contentState.error ?? t('documents.extraction_error_body')}</p>
         </div>
@@ -497,7 +493,7 @@ function PreviewBody({
     if (contentState.status === 'ready') {
       return (
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-3 text-xs uppercase tracking-[0.14em] text-slate-400">
+          <div className="flex flex-wrap items-center gap-3 text-xs uppercase tracking-[0.14em] text-[#5c5c5a]">
             <span>
               {t('documents.extraction_method_label', {
                 method: contentState.content?.method ?? 'unknown'
@@ -509,9 +505,8 @@ function PreviewBody({
               })}
             </span>
           </div>
-          <pre className="whitespace-pre-wrap wrap-break-word text-sm leading-6 text-slate-200">
-            {formatExtractedTextForPreview(contentState.content?.text) ||
-              t('documents.preview_text_empty')}
+          <pre className="whitespace-pre-wrap wrap-break-word text-sm leading-6 text-[#1a1a1a]">
+            {contentState.content?.text || t('documents.preview_text_empty')}
           </pre>
         </div>
       )
@@ -521,15 +516,15 @@ function PreviewBody({
   if (previewState.status === 'ready' && preview) {
     if (preview.kind === 'unsupported') {
       return (
-        <div className="space-y-3 text-sm text-slate-300">
-          <p className="font-medium text-slate-100">{t('documents.preview_unsupported_title')}</p>
+        <div className="space-y-3 text-sm text-[#1a1a1a]">
+          <p className="font-medium text-[#1a1a1a]">{t('documents.preview_unsupported_title')}</p>
           <p>{preview.message}</p>
         </div>
       )
     }
     if (preview.kind === 'text') {
       return (
-        <pre className="whitespace-pre-wrap wrap-break-word text-sm leading-6 text-slate-200">
+        <pre className="whitespace-pre-wrap wrap-break-word text-sm leading-6 text-[#1a1a1a]">
           {preview.text || t('documents.preview_text_empty')}
         </pre>
       )
@@ -557,12 +552,14 @@ export function DocumentPreviewPanel({
   previewState,
   contentState,
   onOpen,
+  onClose,
   onExtractContent
 }: {
   activeDocument: DocumentRecord | null
   previewState: DocumentPreviewState
   contentState: DocumentContentState
   onOpen: () => void
+  onClose?: () => void
   onExtractContent?: (forceRefresh: boolean, readCacheOnly?: boolean) => void
 }): React.JSX.Element {
   const { t, i18n } = useTranslation()
@@ -597,120 +594,143 @@ export function DocumentPreviewPanel({
   return (
     <aside
       aria-label={t('documents.preview_panel_title')}
-      className="flex min-h-72 flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950/30 p-4 xl:h-full xl:min-h-0"
+      className="flex min-h-0 w-full flex-col overflow-hidden bg-[#fbfaf6]"
     >
-      <div className="flex items-start justify-between gap-4 border-b border-white/8 pb-3">
-        <div className="min-w-0 flex-1 space-y-2">
-          <p className="truncate text-sm font-medium text-slate-100">
+      <div className="flex shrink-0 items-start justify-between gap-3 border-b border-deep-space px-5 py-4">
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="flex items-center gap-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-aurora-soft">
+              {t('documents.preview_panel_badge')}
+            </p>
+          </div>
+          <p className="truncate text-base font-semibold text-[#1a1a1a]">
             {activeDocument?.filename ?? t('documents.preview_empty_title')}
           </p>
           {activeDocument ? (
-            <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium uppercase tracking-[0.12em] text-slate-300">
+            <div className="flex flex-wrap items-center gap-1.5 text-xs font-medium uppercase tracking-widest text-[#5c5c5a]">
               {extractionBadgeLabel ? (
-                <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
+                <span className="rounded-full border border-[#e5e3da] bg-white px-2 py-0.5">
                   {extractionBadgeLabel}
                 </span>
               ) : null}
               {previewMetaLabel ? (
-                <span className="rounded-full border border-white/10 bg-slate-900/70 px-2.5 py-1 text-slate-400">
+                <span className="rounded-full border border-[#e5e3da] bg-white px-2 py-0.5">
                   {previewMetaLabel}
                 </span>
               ) : null}
             </div>
           ) : (
-            <p className="text-xs text-slate-400">{t('documents.preview_empty_body')}</p>
+            <p className="text-xs normal-case tracking-normal text-[#5c5c5a]">
+              {t('documents.preview_empty_body')}
+            </p>
           )}
         </div>
-        <div className="flex shrink-0 flex-wrap justify-end gap-2">
-          {activeDocument &&
-          isExtractable &&
-          activeDocument.textExtraction.state !== 'extracted' &&
-          !hasLoadedExtractedText ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              disabled={contentState.status === 'loading' || !onExtractContent}
-              onClick={() => {
-                if (!onExtractContent) {
-                  return
-                }
-
-                setExtractedTextDocumentId(activeDocumentId)
-                onExtractContent?.(false)
-              }}
+        {onClose ? (
+          <button
+            type="button"
+            aria-label={t('documents.preview_close_action')}
+            title={t('documents.preview_close_action')}
+            onClick={onClose}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#5c5c5a] transition hover:bg-aurora/10 hover:text-aurora focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aurora/40"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              aria-hidden="true"
             >
-              {t('documents.extraction_run_action')}
-            </Button>
-          ) : null}
-          {activeDocument &&
-          isExtractable &&
-          activeDocument.textExtraction.state === 'extracted' &&
-          !hasLoadedExtractedText ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              disabled={contentState.status === 'loading' || !onExtractContent}
-              onClick={() => {
-                if (!onExtractContent) {
-                  return
-                }
-
-                setExtractedTextDocumentId(activeDocumentId)
-                onExtractContent?.(false, true)
-              }}
-            >
-              {t('documents.extraction_show_text_action')}
-            </Button>
-          ) : null}
-          {activeDocument && isExtractable && showExtractedText ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              disabled={contentState.status === 'loading' || !onExtractContent}
-              onClick={() => {
-                if (!onExtractContent) {
-                  return
-                }
-
-                setExtractedTextDocumentId(activeDocumentId)
-                onExtractContent?.(true)
-              }}
-            >
-              {t('documents.extraction_view_action')}
-            </Button>
-          ) : null}
-          {activeDocument && hasLoadedExtractedText ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() =>
-                setExtractedTextDocumentId((current) =>
-                  current === activeDocumentId ? null : activeDocumentId
-                )
-              }
-            >
-              {showExtractedText
-                ? t('documents.extraction_show_preview_action')
-                : t('documents.extraction_show_text_action')}
-            </Button>
-          ) : null}
+              <path d="m4 4 8 8M12 4l-8 8" />
+            </svg>
+          </button>
+        ) : null}
+      </div>
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 border-b border-deep-space bg-white/40 px-5 py-2">
+        {activeDocument &&
+        isExtractable &&
+        activeDocument.textExtraction.state !== 'extracted' &&
+        !hasLoadedExtractedText ? (
           <Button
             type="button"
             size="sm"
             variant="ghost"
-            disabled={!activeDocument}
-            onClick={onOpen}
+            disabled={contentState.status === 'loading' || !onExtractContent}
+            onClick={() => {
+              if (!onExtractContent) {
+                return
+              }
+
+              setExtractedTextDocumentId(activeDocumentId)
+              onExtractContent?.(false)
+            }}
           >
-            {t('documents.preview_open_action')}
+            {t('documents.extraction_run_action')}
           </Button>
-        </div>
+        ) : null}
+        {activeDocument &&
+        isExtractable &&
+        activeDocument.textExtraction.state === 'extracted' &&
+        !hasLoadedExtractedText ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={contentState.status === 'loading' || !onExtractContent}
+            onClick={() => {
+              if (!onExtractContent) {
+                return
+              }
+
+              setExtractedTextDocumentId(activeDocumentId)
+              onExtractContent?.(false, true)
+            }}
+          >
+            {t('documents.extraction_show_text_action')}
+          </Button>
+        ) : null}
+        {activeDocument && isExtractable && showExtractedText ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={contentState.status === 'loading' || !onExtractContent}
+            onClick={() => {
+              if (!onExtractContent) {
+                return
+              }
+
+              setExtractedTextDocumentId(activeDocumentId)
+              onExtractContent?.(true)
+            }}
+          >
+            {t('documents.extraction_view_action')}
+          </Button>
+        ) : null}
+        {activeDocument && hasLoadedExtractedText ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() =>
+              setExtractedTextDocumentId((current) =>
+                current === activeDocumentId ? null : activeDocumentId
+              )
+            }
+          >
+            {showExtractedText
+              ? t('documents.extraction_show_preview_action')
+              : t('documents.extraction_show_text_action')}
+          </Button>
+        ) : null}
+        <Button type="button" size="sm" variant="ghost" disabled={!activeDocument} onClick={onOpen}>
+          {t('documents.preview_open_action')}
+        </Button>
       </div>
 
-      <div className="mt-4 flex-1 overflow-auto rounded-2xl border border-white/8 bg-slate-950/35 p-4">
+      <div className="flex-1 overflow-auto bg-white px-5 py-4">
         <PreviewBody
           activeDocument={activeDocument}
           previewState={previewState}

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS, IpcErrorCode } from '@shared/types'
 
 import { registerAiHandlers } from '../aiHandler'
+import { createAppStateStore } from '../../lib/system/appStateStore'
 
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
@@ -67,12 +68,13 @@ vi.mock('node:fs', () => ({
 
 describe('aiHandler', () => {
   const stateFilePath = '/tmp/app-state.json'
+  const appState = createAppStateStore(stateFilePath)
 
   it('ai:settings-get returns default settings, hasApiKey flag without exposing raw key', async () => {
     // default settings when no config
     const harness = createIpcMainHarness()
     const credentialStore = createCredentialStoreMock(null)
-    registerAiHandlers({ ipcMain: harness.ipcMain, credentialStore, stateFilePath })
+    registerAiHandlers({ ipcMain: harness.ipcMain, credentialStore, appState })
 
     const result = await harness.invoke(IPC_CHANNELS.ai.settingsGet)
     expect(result).toEqual({
@@ -95,7 +97,7 @@ describe('aiHandler', () => {
     registerAiHandlers({
       ipcMain: harness2.ipcMain,
       credentialStore: credentialStore2,
-      stateFilePath
+      appState
     })
 
     const resultWithKey = (await harness2.invoke(IPC_CHANNELS.ai.settingsGet)) as {
@@ -113,7 +115,7 @@ describe('aiHandler', () => {
     registerAiHandlers({
       ipcMain: harness3.ipcMain,
       credentialStore: credentialStore3,
-      stateFilePath
+      appState
     })
 
     const resultNoKey = (await harness3.invoke(IPC_CHANNELS.ai.settingsGet)) as {
@@ -132,7 +134,7 @@ describe('aiHandler', () => {
 
     const harness = createIpcMainHarness()
     const credentialStore = createCredentialStoreMock(null)
-    registerAiHandlers({ ipcMain: harness.ipcMain, credentialStore, stateFilePath })
+    registerAiHandlers({ ipcMain: harness.ipcMain, credentialStore, appState })
 
     const result = await harness.invoke(IPC_CHANNELS.ai.settingsSave, {
       mode: 'remote',
@@ -156,7 +158,7 @@ describe('aiHandler', () => {
     registerAiHandlers({
       ipcMain: harness2.ipcMain,
       credentialStore: credentialStore2,
-      stateFilePath
+      appState
     })
     await harness2.invoke(IPC_CHANNELS.ai.settingsSave, {
       mode: 'remote',
@@ -173,7 +175,7 @@ describe('aiHandler', () => {
     registerAiHandlers({
       ipcMain: harness3.ipcMain,
       credentialStore: credentialStore3,
-      stateFilePath
+      appState
     })
     const invalidResult = await harness3.invoke(IPC_CHANNELS.ai.settingsSave, {
       mode: 'invalid-mode',
@@ -194,7 +196,7 @@ describe('aiHandler', () => {
     registerAiHandlers({
       ipcMain: harness.ipcMain,
       credentialStore,
-      stateFilePath,
+      appState,
       onModeChanged
     })
 
@@ -218,7 +220,7 @@ describe('aiHandler', () => {
     } as Response)
     const harness = createIpcMainHarness()
     const credentialStore = createCredentialStoreMock(null)
-    registerAiHandlers({ ipcMain: harness.ipcMain, credentialStore, stateFilePath })
+    registerAiHandlers({ ipcMain: harness.ipcMain, credentialStore, appState })
     const result = await harness.invoke(IPC_CHANNELS.ai.connectionStatus)
     expect(result).toEqual({ success: true, data: { reachable: true, models: ['llama3'] } })
 
@@ -233,7 +235,7 @@ describe('aiHandler', () => {
     registerAiHandlers({
       ipcMain: harness2.ipcMain,
       credentialStore: credentialStore2,
-      stateFilePath
+      appState
     })
     const result2 = (await harness2.invoke(IPC_CHANNELS.ai.connectionStatus)) as {
       success: boolean
@@ -246,7 +248,7 @@ describe('aiHandler', () => {
   it('ai:delete-api-key calls credentialStore.deleteApiKey and returns success', async () => {
     const harness = createIpcMainHarness()
     const credentialStore = createCredentialStoreMock('sk-existing-key')
-    registerAiHandlers({ ipcMain: harness.ipcMain, credentialStore, stateFilePath })
+    registerAiHandlers({ ipcMain: harness.ipcMain, credentialStore, appState })
 
     const result = await harness.invoke(IPC_CHANNELS.ai.deleteApiKey, 'openai')
     expect(result).toEqual({ success: true, data: null })
@@ -261,7 +263,7 @@ describe('aiHandler', () => {
     registerAiHandlers({
       ipcMain: harness1.ipcMain,
       credentialStore: credentialStore1,
-      stateFilePath,
+      appState,
       checker: checkerFound
     })
     const result1 = await harness1.invoke(IPC_CHANNELS.ai.cloudProviderStatus, 'claude-code')
@@ -280,7 +282,7 @@ describe('aiHandler', () => {
     registerAiHandlers({
       ipcMain: harness2.ipcMain,
       credentialStore: credentialStore2,
-      stateFilePath,
+      appState,
       checker: checkerMissing
     })
     const result2 = (await harness2.invoke(IPC_CHANNELS.ai.cloudProviderStatus, 'claude-code')) as {
@@ -298,7 +300,7 @@ describe('aiHandler', () => {
     registerAiHandlers({
       ipcMain: harness3.ipcMain,
       credentialStore: credentialStore3,
-      stateFilePath,
+      appState,
       checker: checkerNone
     })
     await harness3.invoke(IPC_CHANNELS.ai.cloudProviderStatus, 'not-a-valid-mode')
@@ -332,7 +334,7 @@ describe('aiHandler', () => {
     registerAiHandlers({
       ipcMain: harness.ipcMain,
       credentialStore,
-      stateFilePath,
+      appState,
       aiService: aiService as never,
       getWebContents: () => currentWebContents
     })
@@ -353,10 +355,6 @@ describe('aiHandler', () => {
     })
     expect(send).toHaveBeenCalledWith(IPC_CHANNELS.ai.reflection, 'step intermédiaire')
     expect(send).toHaveBeenCalledWith(IPC_CHANNELS.ai.textToken, 'token')
-    expect(send).toHaveBeenCalledWith(IPC_CHANNELS.ai.intentReceived, {
-      type: 'direct_response',
-      message: 'Réponse finale'
-    })
   })
 
   it('ai:execute-command prefers the invoking renderer sender for push events', async () => {
@@ -385,7 +383,7 @@ describe('aiHandler', () => {
     registerAiHandlers({
       ipcMain: harness.ipcMain,
       credentialStore,
-      stateFilePath,
+      appState,
       aiService: aiService as never,
       getWebContents: () => ({ send: fallbackSend })
     })

@@ -1,16 +1,18 @@
 import { z } from 'zod'
 
-import type {
-  TemplateDeleteInput,
-  TemplateDocxInput,
-  TemplateDraft,
-  TemplateRecord,
-  TemplateUpdate
+import {
+  TEMPLATE_DOCUMENT_KIND_VALUES,
+  type TemplateDeleteInput,
+  type TemplateDocxInput,
+  type TemplateDraft,
+  type TemplateRecord,
+  type TemplateUpdate
 } from '@shared/domain/template'
 
 export const templateFormatSchema = z.enum(['txt', 'docx'])
 const requiredTemplateNameSchema = z.string().trim().min(1)
 const templateContentSchema = z.string().default('')
+export const templateDocumentKindSchema = z.enum(TEMPLATE_DOCUMENT_KIND_VALUES).default('document')
 
 export const templateRecordSchema = z.object({
   id: z.string().min(1),
@@ -20,6 +22,7 @@ export const templateRecordSchema = z.object({
   tags: z.array(z.string()).optional(),
   macros: z.array(z.string()).default([]),
   hasDocxSource: z.boolean().default(false),
+  documentKind: templateDocumentKindSchema.optional(),
   updatedAt: z.string().min(1)
 })
 
@@ -27,7 +30,8 @@ export const templateDraftSchema = z.object({
   name: requiredTemplateNameSchema,
   content: templateContentSchema,
   description: z.string().optional(),
-  tags: z.array(z.string()).optional()
+  tags: z.array(z.string()).optional(),
+  documentKind: templateDocumentKindSchema.optional()
 })
 
 export const templateUpdateSchema = templateDraftSchema.extend({

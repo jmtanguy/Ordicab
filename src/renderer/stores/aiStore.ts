@@ -6,7 +6,7 @@
  * the current mode to decide whether to render the input or a guard message.
  *
  * Settings slice (Epic 1):  loadSettings, saveSettings, checkConnection, etc.
- * Command slice  (Epic 2):  executeCommand, resolveClarification, subscribeToIntentEvents.
+ * Command slice  (Epic 2):  executeCommand, resolveClarification, resetConversation.
  *
  * Model selection (session only, never persisted):
  *   availableModels — populated by checkConnection() from ollama.list().
@@ -17,8 +17,11 @@
  *   can forward it to ollamaClient.generateIntent().
  *
  * Chat history (session only):
- *   messages — AiChatMessage[] appended by executeCommand(); displayed in
- *   the scrollable panel in AiPage. Cleared by clearMessages().
+ *   messages — AiChatMessage[] appended by executeCommand(); displayed in the
+ *   scrollable panel in AiPage. Cleared by clearMessages(). Bounded to the last
+ *   MAX_DISPLAY_MESSAGES entries — this list is display-only and is NOT sent to
+ *   the LLM. The main-process runtime owns the conversation history it feeds to
+ *   the model (rolling MAX_HISTORY_ENTRIES window in aiSdkAgentRuntime).
  *
  * Clarification flow:
  *   1. executeCommand() stores originalCommand + pendingClarification in state.
@@ -27,15 +30,11 @@
  *      to originalCommand and calls executeCommand() again.
  *   4. clarificationRound tracks depth; at round ≥ 2 a rephrasing hint is
  *      appended to prevent infinite loops.
- *
- * subscribeToIntentEvents() registers the ai:intent-received push listener and
- * returns an unsubscribe function suitable for useEffect cleanup.
  */
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 
 import type {
-  AiChatHistoryEntry,
   AiCommandContext,
   AiCommandResult,
   AiDelegatedProviderStatus,
@@ -43,7 +42,6 @@ import type {
   AiSettingsResponse,
   AiSettingsSaveInput,
   ClarificationRequestIntent,
-  InternalAiCommand,
   RemoteApiError
 } from '@shared/types'
 import {
@@ -52,7 +50,12 @@ import {
   REMOTE_PROVIDER_TOOL_MODEL_NAMES
 } from '@shared/ai/remoteProviders'
 
-import { getOrdicabApi, IPC_NOT_AVAILABLE_ERROR } from './ipc'
+import {
+  getOrdicabApi,
+  IPC_NOT_AVAILABLE_ERROR,
+  safeLocalStorageGet,
+  safeLocalStorageSet
+} from './ipc'
 
 const CLOUD_MANAGED_MODES: AiMode[] = ['claude-code', 'copilot', 'codex']
 const MODEL_CACHE_STORAGE_KEY = 'ordicab.ai.modelCache.v1'
@@ -67,26 +70,8 @@ interface ModelCacheEntry {
   models: string[]
 }
 
-function safeGetStorageItem(key: string): string | null {
-  if (typeof window === 'undefined') return null
-  try {
-    return window.localStorage.getItem(key)
-  } catch {
-    return null
-  }
-}
-
-function safeSetStorageItem(key: string, value: string): void {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.setItem(key, value)
-  } catch {
-    // Ignore renderer preference persistence failures.
-  }
-}
-
 function loadModelCache(): Record<string, ModelCacheEntry> {
-  const raw = safeGetStorageItem(MODEL_CACHE_STORAGE_KEY)
+  const raw = safeLocalStorageGet(MODEL_CACHE_STORAGE_KEY)
   if (!raw) return {}
   try {
     const parsed = JSON.parse(raw) as Record<string, ModelCacheEntry>
@@ -97,7 +82,7 @@ function loadModelCache(): Record<string, ModelCacheEntry> {
 }
 
 function saveModelCache(cache: Record<string, ModelCacheEntry>): void {
-  safeSetStorageItem(MODEL_CACHE_STORAGE_KEY, JSON.stringify(cache))
+  safeLocalStorageSet(MODEL_CACHE_STORAGE_KEY, JSON.stringify(cache))
 }
 
 function resolveModelContextKey(
@@ -133,11 +118,11 @@ function selectedModelStorageKey(contextKey: string): string {
 }
 
 function loadPersistedSelectedModel(contextKey: string): string | null {
-  return safeGetStorageItem(selectedModelStorageKey(contextKey))
+  return safeLocalStorageGet(selectedModelStorageKey(contextKey))
 }
 
 function persistSelectedModel(contextKey: string, model: string): void {
-  safeSetStorageItem(selectedModelStorageKey(contextKey), model)
+  safeLocalStorageSet(selectedModelStorageKey(contextKey), model)
 }
 
 function resolveSelectedModelForContext(
@@ -231,11 +216,18 @@ export interface AiReflectionMessage {
   text: string
 }
 
-function toAiChatHistory(messages: AiChatMessage[]): AiChatHistoryEntry[] {
-  return messages.flatMap((message) => {
-    if (message.role !== 'user' && message.role !== 'assistant') return []
-    return [{ role: message.role, content: message.text }]
-  })
+/**
+ * Upper bound on the in-memory chat panel. The list is display-only (the
+ * main-process runtime owns the conversation history sent to the model), so
+ * older messages can safely scroll out once the panel grows past this cap.
+ */
+const MAX_DISPLAY_MESSAGES = 200
+
+/** Trim the chat panel in place to the last MAX_DISPLAY_MESSAGES entries. */
+function capMessages(messages: AiChatMessage[]): void {
+  if (messages.length > MAX_DISPLAY_MESSAGES) {
+    messages.splice(0, messages.length - MAX_DISPLAY_MESSAGES)
+  }
 }
 
 interface AiStoreState {
@@ -250,9 +242,6 @@ interface AiStoreState {
   cloudAvailability: AiDelegatedProviderStatus | null
   // Command panel state
   commandLoading: boolean
-  commandFeedback: string | null
-  commandError: string | null
-  lastIntent: InternalAiCommand | null
   pendingClarification: ClarificationRequestIntent | null
   lastContext: AiCommandContext
   originalCommand: string | null
@@ -289,7 +278,6 @@ interface AiStoreActions {
   executeCommand: (command: string, context?: AiCommandContext) => Promise<void>
   cancelCommand: () => void
   resolveClarification: (selectedOption: string) => Promise<void>
-  subscribeToIntentEvents: () => () => void
   setSelectedModel: (model: string) => void
   setActiveDossierId: (id: string | null) => void
   clearMessages: () => void
@@ -312,9 +300,6 @@ export const useAiStore = create<AiStore>()(
     remoteApiError: null,
     cloudAvailability: null,
     commandLoading: false,
-    commandFeedback: null,
-    commandError: null,
-    lastIntent: null,
     pendingClarification: null,
     lastContext: {},
     originalCommand: null,
@@ -383,7 +368,8 @@ export const useAiStore = create<AiStore>()(
         remoteProjectRef: patch.remoteProjectRef ?? current?.remoteProjectRef,
         remoteProvider: patch.remoteProvider ?? current?.remoteProvider,
         apiKey: patch.apiKey,
-        piiEnabled: patch.piiEnabled ?? current?.piiEnabled
+        piiEnabled: patch.piiEnabled ?? current?.piiEnabled,
+        claudeCoworkEnabled: patch.claudeCoworkEnabled ?? current?.claudeCoworkEnabled
       }
 
       set((state) => {
@@ -652,7 +638,11 @@ export const useAiStore = create<AiStore>()(
 
       if (!api) {
         set((state) => {
-          state.commandError = IPC_NOT_AVAILABLE_ERROR
+          state.messages.push({
+            id: crypto.randomUUID(),
+            role: 'error',
+            text: IPC_NOT_AVAILABLE_ERROR
+          })
         })
         return
       }
@@ -670,37 +660,36 @@ export const useAiStore = create<AiStore>()(
         ...get().lastContext,
         ...(context ?? {})
       }
-      const history = toAiChatHistory(get().messages)
 
       const streamingId = crypto.randomUUID()
       set((state) => {
         state.commandLoading = true
-        state.commandError = null
-        state.commandFeedback = null
         state.lastContext = resolvedContext
         state.originalCommand = command
         state.streamingMessageId = null
         state.reflections = []
         state.messages.push({ id: crypto.randomUUID(), role: 'user', text: command })
+        // Bound the panel once per turn — the main-process runtime owns the
+        // conversation history sent to the model, this list is display-only.
+        capMessages(state.messages)
       })
 
       const startTime = Date.now()
       try {
         const model = get().selectedModel ?? undefined
 
+        // No `history` is sent: the main-process runtime is the single source
+        // of truth for the conversation context fed to the LLM.
         const result = await api.ai.executeCommand({
           command,
           context: resolvedContext,
-          model,
-          history
+          model
         })
         const executionTime = Date.now() - startTime
 
         set((state) => {
           if (result.success) {
             const data: AiCommandResult = result.data
-            state.lastIntent = data.intent
-            state.commandFeedback = data.feedback
             // Use the actual streaming message ID if streaming started, otherwise use streamingId
             const actualStreamingId = state.streamingMessageId ?? streamingId
             state.streamingMessageId = null
@@ -745,7 +734,6 @@ export const useAiStore = create<AiStore>()(
               state.clarificationRound = 0
             }
           } else {
-            state.commandError = result.error
             state.streamingMessageId = null
             state.messages.push({
               id: crypto.randomUUID(),
@@ -765,7 +753,6 @@ export const useAiStore = create<AiStore>()(
           const errMsg = err instanceof Error ? err.message : 'Command failed.'
           const executionTime = Date.now() - startTime
           set((state) => {
-            state.commandError = errMsg
             const actualStreamingId = state.streamingMessageId ?? streamingId
             state.streamingMessageId = null
             // Remove any partial streaming placeholder
@@ -854,11 +841,23 @@ export const useAiStore = create<AiStore>()(
     },
 
     setActiveDossierId: (id: string | null) => {
+      const previousId = get().activeDossierId
+      if (previousId === id) return
+
       set((state) => {
         state.activeDossierId = id
         // Keep lastContext in sync so clarification re-runs use the right dossier
         state.lastContext = { ...state.lastContext, dossierId: id ?? undefined }
       })
+
+      // Switching dossiers invalidates the current conversation: both the
+      // displayed messages and the runtime's persisted tool-call history
+      // reference the previous dossier's documents and contacts. Without this
+      // reset the old conversation leaks into the new dossier's system prompt
+      // and history. resetConversation() preserves lastContext.dossierId.
+      if (get().messages.length > 0) {
+        void get().resetConversation()
+      }
     },
 
     clearMessages: () => {
@@ -872,7 +871,7 @@ export const useAiStore = create<AiStore>()(
 
       if (!api) {
         set((state) => {
-          state.commandError = IPC_NOT_AVAILABLE_ERROR
+          state.error = IPC_NOT_AVAILABLE_ERROR
         })
         return
       }
@@ -881,15 +880,12 @@ export const useAiStore = create<AiStore>()(
 
       set((state) => {
         if (!result.success) {
-          state.commandError = result.error
+          state.error = result.error
           return
         }
 
         state.messages = []
         state.commandLoading = false
-        state.commandFeedback = null
-        state.commandError = null
-        state.lastIntent = null
         state.pendingClarification = null
         state.originalCommand = null
         state.clarificationRound = 0
@@ -900,17 +896,6 @@ export const useAiStore = create<AiStore>()(
           templateId: undefined,
           pendingTagPaths: undefined
         }
-      })
-    },
-
-    subscribeToIntentEvents: () => {
-      const api = getOrdicabApi()
-      if (!api) return () => undefined
-
-      return api.ai.onIntentReceived((intent: InternalAiCommand) => {
-        set((state) => {
-          state.lastIntent = intent
-        })
       })
     },
 

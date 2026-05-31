@@ -12,8 +12,9 @@ import {
   getDomainDelegatedInboxPath,
   getDomainDelegatedProcessedCommandsPath,
   getDomainDelegatedResponsesPath,
-  getDossierContactsPath
+  getDossierContactsDirectoryPath
 } from '../../../lib/ordicab/ordicabPaths'
+import { readContactsForDossierPath } from '../../../services/domain/contactService'
 import {
   createDelegatedAiActionProcessor,
   type DelegatedAiActionFileWatcherLike,
@@ -64,6 +65,8 @@ describe('DelegatedAiActionProcessor', () => {
       nextUpcomingKeyDate: null,
       nextUpcomingKeyDateLabel: null,
       registeredAt: '2026-03-01T09:00:00.000Z',
+      feeAgreements: [],
+      billingItems: [],
       keyDates: [],
       keyReferences: []
     }
@@ -185,6 +188,8 @@ describe('DelegatedAiActionProcessor', () => {
           nextUpcomingKeyDate: null,
           nextUpcomingKeyDateLabel: null,
           registeredAt: '2026-03-01T09:00:00.000Z',
+          feeAgreements: [],
+          billingItems: [],
           keyDates: [],
           keyReferences: []
         })),
@@ -254,6 +259,8 @@ describe('DelegatedAiActionProcessor', () => {
       nextUpcomingKeyDate: null,
       nextUpcomingKeyDateLabel: null,
       registeredAt: '2026-03-01T09:00:00.000Z',
+      feeAgreements: [],
+      billingItems: [],
       keyDates: [],
       keyReferences: []
     }
@@ -513,7 +520,7 @@ describe('DelegatedAiActionProcessor', () => {
     })
   })
 
-  it('processes contact upserts by updating canonical contacts.json through the queue', async () => {
+  it('processes contact upserts by writing per-file contacts through the queue', async () => {
     const domainPath = await createTempDir()
     const dossierPath = join(domainPath, 'Client Alpha')
     const dossierMutationResult = {
@@ -526,6 +533,8 @@ describe('DelegatedAiActionProcessor', () => {
       nextUpcomingKeyDate: null,
       nextUpcomingKeyDateLabel: null,
       registeredAt: '2026-03-01T09:00:00.000Z',
+      feeAgreements: [],
+      billingItems: [],
       keyDates: [],
       keyReferences: []
     }
@@ -584,14 +593,7 @@ describe('DelegatedAiActionProcessor', () => {
 
     await processor.watchDomain(domainPath)
 
-    const contacts = JSON.parse(
-      await readFile(getDossierContactsPath(dossierPath), 'utf8')
-    ) as Array<{
-      dossierId: string
-      role: string
-      email: string
-      uuid: string
-    }>
+    const contacts = await readContactsForDossierPath(dossierPath)
     expect(contacts).toHaveLength(1)
     expect(contacts[0]).toMatchObject({
       dossierId: 'Client Alpha',
@@ -606,18 +608,17 @@ describe('DelegatedAiActionProcessor', () => {
     const dossierPath = join(domainPath, 'Client Alpha')
     const contactId = 'existing-contact-id'
 
-    // Pre-populate contacts.json with a full contact record
-    await writeJson(getDossierContactsPath(dossierPath), [
-      {
-        uuid: contactId,
-        dossierId: 'Client Alpha',
-        firstName: 'Camille',
-        lastName: 'Martin',
-        role: 'Client',
-        email: 'camille.martin@example.com',
-        phone: '+33 6 12 34 56 78'
-      }
-    ])
+    // Pre-populate per-file contact record
+    const contactsDir = getDossierContactsDirectoryPath(dossierPath)
+    await writeJson(join(contactsDir, `${contactId}.json`), {
+      uuid: contactId,
+      dossierId: 'Client Alpha',
+      firstName: 'Camille',
+      lastName: 'Martin',
+      role: 'Client',
+      email: 'camille.martin@example.com',
+      phone: '+33 6 12 34 56 78'
+    })
 
     const processor = createDelegatedAiActionProcessor({
       domainService: {
@@ -666,9 +667,7 @@ describe('DelegatedAiActionProcessor', () => {
 
     await processor.watchDomain(domainPath)
 
-    const contacts = JSON.parse(
-      await readFile(getDossierContactsPath(dossierPath), 'utf8')
-    ) as Array<Record<string, string>>
+    const contacts = await readContactsForDossierPath(dossierPath)
     expect(contacts).toHaveLength(1)
     expect(contacts[0]).toMatchObject({
       uuid: contactId,
@@ -693,6 +692,8 @@ describe('DelegatedAiActionProcessor', () => {
       nextUpcomingKeyDate: null,
       nextUpcomingKeyDateLabel: null,
       registeredAt: '2026-03-01T09:00:00.000Z',
+      feeAgreements: [],
+      billingItems: [],
       keyDates: [],
       keyReferences: []
     }
@@ -782,6 +783,8 @@ describe('DelegatedAiActionProcessor', () => {
       nextUpcomingKeyDate: null,
       nextUpcomingKeyDateLabel: null,
       registeredAt: '2026-03-01T09:00:00.000Z',
+      feeAgreements: [],
+      billingItems: [],
       keyDates: [],
       keyReferences: []
     }
@@ -863,6 +866,8 @@ describe('DelegatedAiActionProcessor', () => {
       nextUpcomingKeyDate: null,
       nextUpcomingKeyDateLabel: null,
       registeredAt: '2026-03-01T09:00:00.000Z',
+      feeAgreements: [],
+      billingItems: [],
       keyDates: [],
       keyReferences: []
     }

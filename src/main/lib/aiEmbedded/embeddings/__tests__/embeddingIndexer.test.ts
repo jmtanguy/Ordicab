@@ -46,11 +46,11 @@ function fakeTensor(batchSize: number, dim: number): { data: Float32Array; dims:
 describe('indexDocumentEmbeddings', () => {
   it('chunks, embeds, and persists vectors into the cache JSON', async () => {
     const text =
-      'Paragraphe un avec du contenu.<NL>' +
-      'Paragraphe deux avec plus de texte.<NL>' +
+      'Paragraphe un avec du contenu.\n\n' +
+      'Paragraphe deux avec plus de texte.\n\n' +
       'Paragraphe trois pour être sûr.'
     const cachePath = await makeCacheFile({
-      version: 2,
+      version: 3,
       name: 'doc.pdf',
       method: 'embedded',
       extractedAt: '2026-04-23T00:00:00.000Z',
@@ -88,7 +88,7 @@ describe('indexDocumentEmbeddings', () => {
 
   it('skips when the cache already has fresh embeddings for the same model/dim', async () => {
     const cachePath = await makeCacheFile({
-      version: 2,
+      version: 3,
       text: 'some text that would otherwise be chunked',
       embeddings: {
         model: 'Xenova/multilingual-e5-small',
@@ -112,7 +112,7 @@ describe('indexDocumentEmbeddings', () => {
 
   it('force re-indexes even when fresh embeddings exist', async () => {
     const cachePath = await makeCacheFile({
-      version: 2,
+      version: 3,
       text: 'rebuild me',
       embeddings: {
         model: 'Xenova/multilingual-e5-small',
@@ -137,15 +137,15 @@ describe('indexDocumentEmbeddings', () => {
   })
 
   it('skips with a descriptive reason when the cache is missing text', async () => {
-    const cachePath = await makeCacheFile({ version: 2, isEmpty: true })
+    const cachePath = await makeCacheFile({ version: 3, isEmpty: true, text: '' })
     const result = await indexDocumentEmbeddings(cachePath)
     expect(result).toEqual({ status: 'skipped', reason: 'no-text' })
   })
 
   it('returns skipped when the embedding model fails to load', async () => {
     const cachePath = await makeCacheFile({
-      version: 2,
-      text: 'paragraph<NL>paragraph two'
+      version: 3,
+      text: 'paragraph\n\nparagraph two'
     })
     pipelineSpy.mockRejectedValue(new Error('cold start failed'))
 
@@ -159,7 +159,7 @@ describe('indexDocumentEmbeddings', () => {
 
   it('returns skipped with dim-mismatch when vectors have the wrong size', async () => {
     const cachePath = await makeCacheFile({
-      version: 2,
+      version: 3,
       text: 'short enough to be one chunk'
     })
     // Model returns dim=8 but the caller declared dim=4 → mismatch, persistence must be skipped.

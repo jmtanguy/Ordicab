@@ -1,44 +1,32 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { I18nextProvider } from 'react-i18next'
 
 import { createRendererI18n } from '@renderer/i18n'
+import { useEntityStore } from '@renderer/stores'
 
 import { DossierContactsSection } from '../DossierContactsSection'
 
-const writeText = vi.fn(async () => undefined)
-
 afterEach(() => {
   cleanup()
+  useEntityStore.setState(useEntityStore.getInitialState(), true)
   vi.useRealTimers()
-})
-
-beforeEach(() => {
-  writeText.mockClear()
-  Object.defineProperty(window.navigator, 'clipboard', {
-    configurable: true,
-    value: {
-      writeText
-    }
-  })
 })
 
 async function renderSection(
   options: {
-    dossierName?: string
     entries?: React.ComponentProps<typeof DossierContactsSection>['entries']
     onSave?: React.ComponentProps<typeof DossierContactsSection>['onSave']
     onDelete?: React.ComponentProps<typeof DossierContactsSection>['onDelete']
   } = {}
-): Promise<void> {
+): Promise<ReturnType<typeof render>> {
   const i18n = await createRendererI18n('en')
 
-  render(
+  return render(
     <I18nextProvider i18n={i18n}>
       <DossierContactsSection
         dossierId="dos-1"
-        dossierName={options.dossierName ?? 'Client Alpha'}
         entries={options.entries ?? []}
         error={null}
         isLoading={false}
@@ -76,7 +64,6 @@ describe('DossierContactsSection', () => {
       <I18nextProvider i18n={await createRendererI18n('en')}>
         <DossierContactsSection
           dossierId="dos-1"
-          dossierName="Client Alpha"
           entries={[]}
           error={null}
           isLoading={false}
@@ -148,6 +135,59 @@ describe('DossierContactsSection', () => {
     })
   })
 
+  it('renders custom fields as ordered label/value rows and keeps them searchable', async () => {
+    useEntityStore.setState({
+      profile: {
+        firmName: 'Cabinet Martin',
+        managedFields: {
+          contactRoles: [],
+          contacts: [
+            { label: 'Date of birth', type: 'date' },
+            { label: 'Nationality', type: 'text' }
+          ],
+          keyDates: [],
+          keyReferences: [],
+          contactRoleFields: {}
+        }
+      }
+    })
+
+    const { container } = await renderSection({
+      entries: [
+        {
+          uuid: 'c-1',
+          dossierId: 'dos-1',
+          firstName: 'Camille',
+          lastName: 'Martin',
+          customFields: {
+            unknownField: 'Legacy value',
+            nationality: 'French',
+            dateOfBirth: '01/01/1990'
+          }
+        },
+        {
+          uuid: 'c-2',
+          dossierId: 'dos-1',
+          firstName: 'Alex',
+          lastName: 'Durand'
+        }
+      ]
+    })
+
+    expect([...container.querySelectorAll('dl > div')].map((row) => row.textContent)).toEqual([
+      'Date of birth01/01/1990',
+      'NationalityFrench',
+      'unknownFieldLegacy value'
+    ])
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search' }), {
+      target: { value: 'Nationality' }
+    })
+
+    expect(screen.getByText('Camille Martin')).toBeTruthy()
+    expect(screen.queryByText('Alex Durand')).toBeNull()
+  })
+
   it('pre-fills the form when editing a contact', async () => {
     await renderSection({
       entries: [
@@ -172,26 +212,5 @@ describe('DossierContactsSection', () => {
     expect((screen.getByLabelText('Context') as HTMLTextAreaElement).value).toBe(
       'Client liaison for approvals'
     )
-  })
-
-  it('renders a dossier-specific delegated prompt and copies it', async () => {
-    vi.useFakeTimers()
-    await renderSection({ dossierName: 'Client Alpha' })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Toggle Add via AI section' }))
-
-    expect(screen.getByText(/In dossier 'Client Alpha', add the following contacts:/)).toBeTruthy()
-    expect(screen.getByText(/\[paste contact details here\]/)).toBeTruthy()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Copy prompt' }))
-
-    await Promise.resolve()
-    const copiedText = String((writeText.mock.calls as unknown[][])[0]?.[0] ?? '')
-
-    expect(writeText).toHaveBeenCalledTimes(1)
-    expect(copiedText).toContain("In dossier 'Client Alpha', add the following contacts:")
-    expect(copiedText).toContain('[paste contact details here]')
-
-    expect(screen.getByRole('button', { name: 'Copy prompt' })).toBeTruthy()
   })
 })

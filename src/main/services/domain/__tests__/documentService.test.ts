@@ -630,7 +630,7 @@ describe('document service', () => {
       cachePath,
       JSON.stringify(
         {
-          version: 2,
+          version: 3,
           name: 'cached.docx',
           method: 'docx',
           extractedAt: '2026-03-14T13:05:00.000Z',

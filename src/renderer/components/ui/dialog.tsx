@@ -3,21 +3,23 @@ import { cva, type VariantProps } from 'class-variance-authority'
 
 import { cn } from '@renderer/lib/utils'
 
-const dialogOverlayVariants = cva('fixed z-40 bg-slate-950/78 backdrop-blur-sm', {
-  variants: {
-    layout: {
-      centered: 'inset-0 flex items-center justify-center p-4',
-      stretched:
-        'inset-x-3 bottom-3 top-17 flex items-stretch justify-stretch overflow-hidden rounded-[28px]'
+const dialogOverlayVariants = cva(
+  'fixed inset-0 z-40 bg-[rgba(15,122,138,0.18)] backdrop-blur-sm',
+  {
+    variants: {
+      layout: {
+        centered: 'flex items-center justify-center p-4',
+        stretched: 'flex items-stretch justify-stretch p-3'
+      }
+    },
+    defaultVariants: {
+      layout: 'centered'
     }
-  },
-  defaultVariants: {
-    layout: 'centered'
   }
-})
+)
 
 const dialogPanelVariants = cva(
-  'flex flex-col border border-sky-200/18 bg-[rgba(16,26,44,0.985)] shadow-[0_32px_100px_rgba(2,6,23,0.62)]',
+  'flex flex-col border border-[#d1cfc6] bg-[#f4f3ee] shadow-[0_30px_80px_rgba(10,92,104,0.28)] ring-1 ring-aurora/15',
   {
     variants: {
       layout: {

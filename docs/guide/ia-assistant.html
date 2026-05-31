@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Assistant intégré — Ordicab Documentation</title>
+  <meta name="description" content="Configurez l'assistant IA intégré d'Ordicab : API distante (OpenAI, Anthropic, Mistral, Infomaniak) ou modèle local Ollama. Pseudonymisation optionnelle avant envoi." />
+  <link rel="canonical" href="https://www.ordicab.com/guide/ia-assistant.html" />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <meta property="og:type" content="article" />
+  <meta property="og:locale" content="fr_FR" />
+  <meta property="og:site_name" content="Ordicab" />
+  <meta property="og:title" content="Assistant intégré — Ordicab Documentation" />
+  <meta property="og:description" content="Configurez l'assistant IA intégré d'Ordicab : API distante ou modèle local Ollama, avec pseudonymisation optionnelle." />
+  <meta property="og:url" content="https://www.ordicab.com/guide/ia-assistant.html" />
+  <meta property="og:image" content="https://www.ordicab.com/docs/Dossier-Assistant-IA.png" />
+  <link rel="icon" href="../../resources/icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="_layout.css" />
+</head>
+<body>
+
+<button class="mobile-nav-toggle" type="button" aria-label="Ouvrir le menu de navigation" aria-controls="guide-sidebar" aria-expanded="false" data-guide-nav-toggle>
+  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <line x1="4" y1="7" x2="20" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <line x1="4" y1="12" x2="20" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <line x1="4" y1="17" x2="20" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  </svg>
+</button>
+<div class="mobile-nav-overlay" hidden data-guide-nav-overlay></div>
+
+<aside class="sidebar" id="guide-sidebar">
+  <div class="sidebar-brand">
+    <a href="../"><span class="name">Ordicab</span><span class="tagline">Documentation utilisateur</span></a>
+  </div>
+  <div class="sidebar-section">Démarrage</div>
+  <nav>
+    <a href="introduction.html">Introduction</a>
+    <a href="installation.html">Installation &amp; mise en route</a>
+  </nav>
+  <div class="sidebar-section">Fonctionnalités</div>
+  <nav>
+    <a href="dossiers.html">Dossiers</a>
+    <a href="modeles.html">Modèles de documents</a>
+  </nav>
+  <div class="sidebar-section">Intelligence artificielle</div>
+  <nav>
+    <a href="ia-vue-ensemble.html">Vue d'ensemble &amp; comparatif</a>
+    <a href="ia-assistant.html" class="active sub">Assistant intégré</a>
+    <a href="ia-cowork.html" class="sub">IA Cowork (agents externes)</a>
+  </nav>
+</aside>
+
+<main class="main">
+  <div class="badge">Intelligence artificielle</div>
+  <h1>Assistant intégré</h1>
+  <p class="page-lead">
+    L'assistant intégré est un chat IA directement dans le dossier. Il connaît le contexte de l'affaire — contacts, documents, notes, chronologie — et peut intervenir sur des tâches concrètes sans jamais quitter l'application.
+  </p>
+
+  <img src="../Dossier-Assistant-IA.png" alt="Assistant IA dans un dossier Ordicab" class="doc-screenshot" />
+  <p class="doc-screenshot-caption">L'assistant IA dans un dossier — chat contextuel avec accès aux données</p>
+
+  <h2>Deux modes de fonctionnement</h2>
+
+  <h3>Via API distante</h3>
+  <p>L'assistant se connecte au fournisseur IA de votre choix via une clé API. Les données du dossier (ou leur version pseudonymisée) sont transmises au modèle pour chaque échange.</p>
+  <p><strong>Fournisseurs supportés&nbsp;:</strong></p>
+  <ul>
+    <li><strong>Anthropic (Claude)</strong> — modèles Claude Haiku, Sonnet, Opus</li>
+    <li><strong>OpenAI</strong> — GPT-4o, GPT-4 Turbo</li>
+    <li><strong>Mistral AI</strong> — modèles Mistral et Mixtral</li>
+    <li><strong>Infomaniak (kAI)</strong> — IA souveraine hébergée en Suisse, recommandée pour les cabinets soucieux de la localisation des données</li>
+    <li>Tout fournisseur compatible avec l'API OpenAI (base URL personnalisable)</li>
+  </ul>
+
+  <h3>Via Ollama (modèle local)</h3>
+  <p>Ollama fait tourner un modèle IA directement sur votre machine. <strong>Aucune donnée ne quitte votre ordinateur.</strong> L'assistant reste utilisable hors-ligne une fois le modèle téléchargé.</p>
+  <p>Les performances dépendent de votre matériel — un Mac Apple Silicon récent ou un PC avec GPU dédié offrent les meilleurs résultats. Sur des machines moins puissantes, les modèles légers (7B, 8B) restent utilisables.</p>
+
+  <div class="callout">
+    <strong>Choix recommandé pour les cabinets.</strong> Si la confidentialité est prioritaire, utilisez Ollama (100 % local) ou Infomaniak kAI (données hébergées en Suisse, sans transfert hors UE). Si la puissance prime, Claude Sonnet via API Anthropic offre les meilleurs résultats sur les tâches juridiques.
+  </div>
+
+  <h2>Configurer l'assistant</h2>
+
+  <h3>Via API</h3>
+  <ol class="step-list">
+    <li>Ouvrez <strong>Paramètres → Intelligence artificielle → Assistant</strong>.</li>
+    <li>Sélectionnez le fournisseur dans la liste déroulante.</li>
+    <li>Saisissez votre clé API (elle est stockée localement, chiffrée).</li>
+    <li>Choisissez le modèle à utiliser.</li>
+    <li>Activez ou désactivez la <strong>pseudonymisation automatique</strong> avant envoi.</li>
+  </ol>
+
+  <h3>Via Ollama</h3>
+  <ol class="step-list">
+    <li>Installez <a href="https://ollama.com" target="_blank" rel="noopener" style="color:var(--teal);">Ollama</a> sur votre machine.</li>
+    <li>Téléchargez un modèle depuis le terminal : <code>ollama pull llama3.2</code> (ou tout modèle de votre choix).</li>
+    <li>Dans <strong>Paramètres → IA → Assistant</strong>, sélectionnez <strong>Local (Ollama)</strong>.</li>
+    <li>Choisissez le modèle installé dans la liste.</li>
+  </ol>
+
+  <div class="callout-warn">
+    <strong>Modèles recommandés pour Ollama.</strong> Pour un bon équilibre qualité / vitesse sur Mac Apple Silicon&nbsp;: <code>llama3.2:3b</code> (rapide, léger) ou <code>mistral:7b</code> (meilleure qualité). Les modèles plus grands (13B+) nécessitent 32 Go de RAM minimum pour rester fluides.
+  </div>
+
+  <h2>Pseudonymisation avant envoi (API)</h2>
+  <p>Quand la pseudonymisation est activée, Ordicab remplace automatiquement les données sensibles du dossier avant de les envoyer à l'API&nbsp;:</p>
+  <ul>
+    <li>noms de personnes physiques et morales&nbsp;;</li>
+    <li>adresses postales et emails&nbsp;;</li>
+    <li>numéros de téléphone&nbsp;;</li>
+    <li>références et identifiants sensibles.</li>
+  </ul>
+  <p>Le modèle reçoit des alias cohérents (<em>Contact A, Société B…</em>) et travaille normalement. La réponse n'est pas décodée automatiquement dans le chat — l'assistant répond avec les alias, et c'est vous qui interprétez ou recopiez dans le dossier.</p>
+
+  <h2>Ce que l'assistant peut faire</h2>
+  <ul>
+    <li>Répondre à des questions sur les informations du dossier (contacts, dates, références)&nbsp;;</li>
+    <li>résumer un document ou plusieurs pièces&nbsp;;</li>
+    <li>rédiger un courrier, un email ou une note à partir du contexte&nbsp;;</li>
+    <li>extraire des données depuis un document collé dans le chat&nbsp;;</li>
+    <li>générer le contenu d'un modèle de document avec les données de l'affaire&nbsp;;</li>
+    <li>analyser une situation juridique à partir des faits saisis.</li>
+  </ul>
+
+  <a href="ia-cowork.html" class="next-link">Suivant : IA Cowork (agents externes) →</a>
+</main>
+
+<script src="_layout.js"></script>
+<script src="../lightbox.js"></script>
+</body>
+</html>

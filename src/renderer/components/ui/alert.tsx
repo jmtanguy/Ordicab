@@ -6,10 +6,10 @@ import { cn } from '@renderer/lib/utils'
 const alertBannerVariants = cva('rounded-xl border px-4 py-3 text-sm', {
   variants: {
     tone: {
-      neutral: 'border-white/10 bg-slate-950/45 text-slate-300',
-      success: 'border-emerald-300/35 bg-emerald-300/10 text-emerald-100',
-      error: 'border-rose-300/35 bg-rose-300/10 text-rose-100',
-      warning: 'border-amber-300/40 bg-amber-300/10 text-amber-100'
+      neutral: 'border-[#e5e3da] bg-[#f4f3ee] text-[#1a1a1a]',
+      success: 'border-[#cfe0c5] bg-[#f1f7ec] text-[#3c6132]',
+      error: 'border-[#e8c7c7] bg-[#fbf0f0] text-[#9c2f2f]',
+      warning: 'border-[#e8d5a3] bg-[#fbf5e3] text-[#7a5a00]'
     }
   },
   defaultVariants: {

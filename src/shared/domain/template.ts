@@ -1,3 +1,11 @@
+export const TEMPLATE_DOCUMENT_KIND_VALUES = [
+  'document',
+  'invoice',
+  'creditNote',
+  'correctiveInvoice'
+] as const
+export type TemplateDocumentKind = (typeof TEMPLATE_DOCUMENT_KIND_VALUES)[number]
+
 export interface TemplateRecord {
   id: string
   name: string
@@ -6,6 +14,8 @@ export interface TemplateRecord {
   tags?: string[]
   macros: string[]
   hasDocxSource: boolean
+  /** Document family this template is intended for. Defaults to 'document' (correspondence). */
+  documentKind?: TemplateDocumentKind
   updatedAt: string
 }
 
@@ -14,6 +24,7 @@ export interface TemplateDraft {
   content: string
   description?: string
   tags?: string[]
+  documentKind?: TemplateDocumentKind
 }
 
 export interface TemplateUpdate extends TemplateDraft {

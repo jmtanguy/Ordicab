@@ -13,6 +13,7 @@ import type {
   AiCommandContext,
   AiCommandResult,
   DocumentRecord,
+  DossierSummary,
   InternalAiCommand
 } from '@shared/types'
 
@@ -20,9 +21,11 @@ import type {
   DocumentServiceLike,
   InternalAICommandDispatcher
 } from '../../lib/aiEmbedded/aiCommandDispatcher'
+import { resolveDossierRef } from './dataToolExecutor'
 
 export interface ActionToolExecutorDeps {
   dossierId: string | null
+  dossiers: DossierSummary[]
   locale?: AppLocale
   documentService: DocumentServiceLike
   intentDispatcher: InternalAICommandDispatcher
@@ -34,11 +37,26 @@ export class ActionToolExecutor {
 
   constructor(private readonly deps: ActionToolExecutorDeps) {}
 
+  /**
+   * Resolve a dossierId provided by the LLM against the known dossier list. Falls back
+   * to the active-context dossierId when the provided ref doesn't match — small models
+   * routinely mistype 36-char UUIDs when echoing them into tool call args.
+   */
+  private _resolveDossierId(provided: unknown): string {
+    const { dossierId, dossiers } = this.deps
+    const requestedRef = typeof provided === 'string' ? provided : (dossierId ?? '')
+    const resolved = resolveDossierRef(requestedRef, dossiers)
+    if (resolved) return resolved
+    if (dossierId && dossierId !== requestedRef) {
+      return resolveDossierRef(dossierId, dossiers) ?? dossierId
+    }
+    return requestedRef
+  }
+
   async execute(toolName: string, args: Record<string, unknown>): Promise<string> {
     if (toolName === 'document_analyze') {
       const documentId = typeof args['documentId'] === 'string' ? args['documentId'] : ''
-      const targetDossierId =
-        typeof args['dossierId'] === 'string' ? args['dossierId'] : (this.deps.dossierId ?? '')
+      const targetDossierId = this._resolveDossierId(args['dossierId'])
       const charStart = typeof args['charStart'] === 'number' ? args['charStart'] : undefined
       const charEnd = typeof args['charEnd'] === 'number' ? args['charEnd'] : undefined
       const result = await this.runDocumentAnalysis(targetDossierId, documentId, charStart, charEnd)
@@ -95,12 +113,31 @@ export class ActionToolExecutor {
     let extractedText: string
     try {
       const cached = await readCachedDocumentText(absolutePath, cacheDir)
-      if (cached === null) {
-        return JSON.stringify({
-          error: `Le texte de "${doc.filename}" n'a pas encore été extrait. Veuillez aller dans l'onglet Documents et utiliser "Tout extraire".`
-        })
+      if (cached !== null) {
+        extractedText = cached.text
+      } else {
+        // Cache miss: fall back to live extraction so an explicit
+        // `@<filename>` mention still works even if the user never opened
+        // "Tout extraire" — same path the UI's Documents tab takes.
+        if (typeof this.deps.documentService.extractContent !== 'function') {
+          return JSON.stringify({
+            error: `Le texte de "${doc.filename}" n'a pas encore été extrait. Veuillez aller dans l'onglet Documents et utiliser "Tout extraire".`
+          })
+        }
+        try {
+          const live = await this.deps.documentService.extractContent({
+            dossierId: targetDossierId,
+            documentId: doc.relativePath
+          })
+          extractedText = live.text
+        } catch (extractionErr) {
+          return JSON.stringify({
+            error: `Le texte de "${doc.filename}" n'a pas pu être extrait : ${
+              extractionErr instanceof Error ? extractionErr.message : 'erreur inconnue'
+            }. Ouvrez l'onglet Documents et utilisez "Tout extraire" pour réessayer.`
+          })
+        }
       }
-      extractedText = cached.text
     } catch (err) {
       return JSON.stringify({
         error: `Échec de la lecture du texte extrait pour "${doc.filename}" : ${err instanceof Error ? err.message : 'Erreur inconnue'}`
@@ -138,7 +175,9 @@ export class ActionToolExecutor {
 
   private async _dispatchInline(toolName: string, args: Record<string, unknown>): Promise<string> {
     const { intentDispatcher, context } = this.deps
-    const actionIntent = { type: toolName, ...args } as InternalAiCommand
+    const normalizedArgs =
+      'dossierId' in args ? { ...args, dossierId: this._resolveDossierId(args['dossierId']) } : args
+    const actionIntent = { type: toolName, ...normalizedArgs } as InternalAiCommand
     console.log(`\n╔══ AI INTENT (inline) ${'═'.repeat(47)}`)
     console.log(`║ type       : ${actionIntent.type}`)
     console.log(
@@ -155,7 +194,7 @@ export class ActionToolExecutor {
     this.lastInlineDispatchResult = { ...dispatchResult, debugContext: '' }
 
     // The dispatcher mutates intent.type when it can't perform the requested
-    // action (e.g. contact_upsert without an active dossier → clarification_request
+    // action (e.g. contact_create without an active dossier → clarification_request
     // asking "Pour quel dossier ?"). Reporting success:true in that case misleads
     // the LLM into telling the user the contact was added when it was not.
     const requestedType = actionIntent.type

@@ -16,11 +16,14 @@ export const keyReferenceSchema = z.object({
   note: z.string().optional()
 })
 
+// `value` accepts empty so that the dossier-name reference can be reset to the
+// folder basename (see DOSSIER_NAME_REFERENCE_LABEL handling in the service).
+// For other labels the service enforces non-empty before persisting.
 export const dossierKeyReferenceUpsertInputSchema = z.object({
   id: z.string().min(1).optional(),
   dossierId: dossierIdSchema,
   label: z.string().min(1),
-  value: z.string().min(1),
+  value: z.string(),
   note: z.string().optional()
 })
 

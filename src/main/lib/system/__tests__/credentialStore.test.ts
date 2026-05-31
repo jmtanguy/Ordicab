@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { readFile } from 'node:fs/promises'
 import { createCredentialStore } from '../credentialStore'
+import { createAppStateStore } from '../appStateStore'
 
 vi.mock('node:fs/promises', () => ({
   readFile: vi.fn(),
@@ -43,14 +44,17 @@ describe('credentialStore', () => {
     vi.mocked(fsMod.writeFile).mockResolvedValue(undefined as never)
     vi.mocked(fsMod.rename).mockResolvedValue(undefined as never)
     const safeStorage = createMockSafeStorage()
-    const store = createCredentialStore(safeStorage, stateFilePath)
+    const store = createCredentialStore(safeStorage, createAppStateStore(stateFilePath))
     await store.saveApiKey('openai', 'sk-secret')
     expect(safeStorage.encryptString).toHaveBeenCalledWith('sk-secret')
 
     // no key stored -> null
     vi.mocked(fsMod.access).mockResolvedValue(undefined as never)
     vi.mocked(readFile).mockResolvedValue('{"ai": {}}' as never)
-    const store2 = createCredentialStore(createMockSafeStorage(), stateFilePath)
+    const store2 = createCredentialStore(
+      createMockSafeStorage(),
+      createAppStateStore(stateFilePath)
+    )
     expect(await store2.getApiKey('openai')).toBeNull()
 
     // key stored -> decrypts
@@ -60,13 +64,16 @@ describe('credentialStore', () => {
       JSON.stringify({ ai: { encryptedApiKey: base64 } }) as never
     )
     const safeStorage3 = createMockSafeStorage()
-    const store3 = createCredentialStore(safeStorage3, stateFilePath)
+    const store3 = createCredentialStore(safeStorage3, createAppStateStore(stateFilePath))
     expect(await store3.getApiKey('openai')).toBe('sk-decrypted-key')
     expect(safeStorage3.decryptString).toHaveBeenCalled()
 
     // file does not exist -> null
     vi.mocked(fsMod.access).mockRejectedValue(new Error('ENOENT') as never)
-    const store4 = createCredentialStore(createMockSafeStorage(), stateFilePath)
+    const store4 = createCredentialStore(
+      createMockSafeStorage(),
+      createAppStateStore(stateFilePath)
+    )
     expect(await store4.getApiKey('openai')).toBeNull()
   })
 })

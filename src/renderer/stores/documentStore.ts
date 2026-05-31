@@ -6,6 +6,11 @@ import type {
   DocumentChangeEvent,
   DocumentExtractedContent,
   DocumentExtractProgressEvent,
+  DocumentFileDeleteInput,
+  DocumentFileRenameInput,
+  DocumentFolderCreateInput,
+  DocumentFolderDeleteInput,
+  DocumentFolderRenameInput,
   DocumentMetadataUpdate,
   DocumentPreview,
   DocumentPreviewInput,
@@ -45,6 +50,7 @@ export interface SemanticSearchState {
 
 interface DocumentStoreState {
   documentsByDossierId: Record<string, DocumentRecord[]>
+  foldersByDossierId: Record<string, string[]>
   metadataOverridesByDossierId: Record<string, Record<string, DocumentRecord>>
   watchStatusByDossierId: Record<string, DocumentWatchStatus | null>
   previewStatesByDossierId: Record<string, Record<string, DocumentPreviewState>>
@@ -54,7 +60,9 @@ interface DocumentStoreState {
   activeDossierId: string | null
   isLoading: boolean
   isSavingMetadata: boolean
+  isMutatingTree: boolean
   error: string | null
+  treeError: string | null
 }
 
 interface DocumentStoreActions {
@@ -64,16 +72,17 @@ interface DocumentStoreActions {
   openPreview: (input: DocumentPreviewInput) => Promise<void>
   closePreview: (dossierId: string) => void
   extractContent: (input: DocumentPreviewInput) => Promise<boolean>
-  extractPendingContent: (input: { dossierId: string }) => Promise<{
-    attempted: number
-    succeeded: number
-    failed: number
-  }>
   clearContentCache: (input: { dossierId: string }) => Promise<boolean>
   saveMetadata: (input: DocumentMetadataUpdate) => Promise<boolean>
   openFile: (input: DocumentPreviewInput) => Promise<void>
   runSemanticSearch: (input: { dossierId: string; query: string; topK?: number }) => Promise<void>
   clearSemanticSearch: (dossierId: string) => void
+  createFolder: (input: DocumentFolderCreateInput) => Promise<boolean>
+  renameFolder: (input: DocumentFolderRenameInput) => Promise<boolean>
+  deleteFolder: (input: DocumentFolderDeleteInput) => Promise<boolean>
+  renameFile: (input: DocumentFileRenameInput) => Promise<boolean>
+  deleteFile: (input: DocumentFileDeleteInput) => Promise<boolean>
+  clearTreeError: () => void
 }
 
 type DocumentStore = DocumentStoreState & DocumentStoreActions
@@ -166,6 +175,21 @@ function reconcilePreviewState(
   }
 }
 
+async function loadFolders(query: DossierScopedQuery): Promise<void> {
+  const api = getOrdicabApi()
+  if (!api || typeof api.document.listFolders !== 'function') return
+
+  const result = await api.document.listFolders(query)
+
+  useDocumentStore.setState((state) => ({
+    ...state,
+    foldersByDossierId: {
+      ...state.foldersByDossierId,
+      [query.dossierId]: result.success ? result.data : []
+    }
+  }))
+}
+
 async function loadDocuments(
   query: DossierScopedQuery,
   options: { suppressUnavailableError?: boolean } = {}
@@ -179,6 +203,8 @@ async function loadDocuments(
     }))
     return
   }
+
+  void loadFolders(query)
 
   const result = await api.document.list(query)
 
@@ -319,6 +345,7 @@ async function closeDossierWatcher(dossierId: string | null): Promise<void> {
 export const useDocumentStore = create<DocumentStore>()(
   immer((set, get) => ({
     documentsByDossierId: {},
+    foldersByDossierId: {},
     metadataOverridesByDossierId: {},
     watchStatusByDossierId: {},
     previewStatesByDossierId: {},
@@ -328,7 +355,9 @@ export const useDocumentStore = create<DocumentStore>()(
     activeDossierId: null,
     isLoading: false,
     isSavingMetadata: false,
+    isMutatingTree: false,
     error: null,
+    treeError: null,
     load: async (query) => {
       const api = getOrdicabApi()
 
@@ -405,6 +434,8 @@ export const useDocumentStore = create<DocumentStore>()(
         state.activeDossierId = null
         state.isLoading = false
         state.isSavingMetadata = false
+        state.isMutatingTree = false
+        state.treeError = null
         state.metadataOverridesByDossierId = {}
         state.previewStatesByDossierId = {}
         state.contentStatesByDossierId = {}
@@ -545,35 +576,6 @@ export const useDocumentStore = create<DocumentStore>()(
 
       return result.success
     },
-    extractPendingContent: async ({ dossierId }) => {
-      const documents = get().documentsByDossierId[dossierId] ?? []
-      const pendingDocuments = documents.filter(
-        (document) =>
-          document.textExtraction.isExtractable && document.textExtraction.state !== 'extracted'
-      )
-
-      let succeeded = 0
-      let failed = 0
-
-      for (const document of pendingDocuments) {
-        const ok = await get().extractContent({
-          dossierId,
-          documentId: document.id
-        })
-
-        if (ok) {
-          succeeded += 1
-        } else {
-          failed += 1
-        }
-      }
-
-      return {
-        attempted: pendingDocuments.length,
-        succeeded,
-        failed
-      }
-    },
     clearContentCache: async ({ dossierId }) => {
       const api = getOrdicabApi()
       if (!api) return false
@@ -690,6 +692,147 @@ export const useDocumentStore = create<DocumentStore>()(
       set((state) => {
         delete state.semanticSearchStatesByDossierId[dossierId]
       })
+    },
+
+    clearTreeError: () => {
+      set((state) => {
+        state.treeError = null
+      })
+    },
+
+    createFolder: async (input) => {
+      const api = getOrdicabApi()
+      if (!api) {
+        set((state) => {
+          state.treeError = IPC_NOT_AVAILABLE_ERROR
+        })
+        return false
+      }
+      set((state) => {
+        state.isMutatingTree = true
+        state.treeError = null
+      })
+      const result = await api.document.createFolder(input)
+      set((state) => {
+        state.isMutatingTree = false
+        if (!result.success) {
+          state.treeError = result.error
+        }
+      })
+      if (result.success) {
+        await loadFolders({ dossierId: input.dossierId })
+      }
+      return result.success
+    },
+
+    renameFolder: async (input) => {
+      const api = getOrdicabApi()
+      if (!api) {
+        set((state) => {
+          state.treeError = IPC_NOT_AVAILABLE_ERROR
+        })
+        return false
+      }
+      set((state) => {
+        state.isMutatingTree = true
+        state.treeError = null
+      })
+      const result = await api.document.renameFolder(input)
+      set((state) => {
+        state.isMutatingTree = false
+        if (!result.success) {
+          state.treeError = result.error
+        }
+      })
+      if (result.success) {
+        await loadDocuments({ dossierId: input.dossierId })
+      }
+      return result.success
+    },
+
+    deleteFolder: async (input) => {
+      const api = getOrdicabApi()
+      if (!api) {
+        set((state) => {
+          state.treeError = IPC_NOT_AVAILABLE_ERROR
+        })
+        return false
+      }
+      set((state) => {
+        state.isMutatingTree = true
+        state.treeError = null
+      })
+      const result = await api.document.deleteFolder(input)
+      set((state) => {
+        state.isMutatingTree = false
+        if (!result.success) {
+          state.treeError = result.error
+        }
+      })
+      if (result.success) {
+        await loadFolders({ dossierId: input.dossierId })
+      }
+      return result.success
+    },
+
+    renameFile: async (input) => {
+      const api = getOrdicabApi()
+      if (!api) {
+        set((state) => {
+          state.treeError = IPC_NOT_AVAILABLE_ERROR
+        })
+        return false
+      }
+      set((state) => {
+        state.isMutatingTree = true
+        state.treeError = null
+      })
+      const result = await api.document.renameFile(input)
+      set((state) => {
+        state.isMutatingTree = false
+        if (!result.success) {
+          state.treeError = result.error
+        }
+      })
+      if (result.success) {
+        await loadDocuments({ dossierId: input.dossierId })
+      }
+      return result.success
+    },
+
+    deleteFile: async (input) => {
+      const api = getOrdicabApi()
+      if (!api) {
+        set((state) => {
+          state.treeError = IPC_NOT_AVAILABLE_ERROR
+        })
+        return false
+      }
+      set((state) => {
+        state.isMutatingTree = true
+        state.treeError = null
+      })
+      const result = await api.document.deleteFile(input)
+      set((state) => {
+        state.isMutatingTree = false
+        if (!result.success) {
+          state.treeError = result.error
+          return
+        }
+        const documents = state.documentsByDossierId[input.dossierId]
+        if (documents) {
+          state.documentsByDossierId[input.dossierId] = documents.filter(
+            (doc) => doc.id !== input.documentId
+          )
+        }
+        if (state.activePreviewDocumentIdByDossierId[input.dossierId] === input.documentId) {
+          state.activePreviewDocumentIdByDossierId[input.dossierId] = null
+        }
+      })
+      if (result.success) {
+        await loadDocuments({ dossierId: input.dossierId })
+      }
+      return result.success
     }
   }))
 )

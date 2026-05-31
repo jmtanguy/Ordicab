@@ -13,7 +13,6 @@
   "compilerOptions": {
     "composite": true,
     "types": ["node", "electron-vite/node", "vitest/globals"],
-    "baseUrl": ".",
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitReturns": true,
@@ -21,9 +20,9 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "paths": {
-      "@/*": ["src/renderer/*"],
-      "@renderer/*": ["src/renderer/*"],
-      "@shared/*": ["src/shared/*"]
+      "@/*": ["./src/renderer/*"],
+      "@renderer/*": ["./src/renderer/*"],
+      "@shared/*": ["./src/shared/*"]
     }
   }
 }

@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.node.json",
+  "include": [
+    "./**/*",
+    "../preload/**/*",
+    "../renderer/i18n/**/*",
+    "../renderer/stores/**/*",
+    "../shared/**/*",
+    "../../electron.vite.config.*",
+    "../../vitest.config.ts"
+  ]
+}

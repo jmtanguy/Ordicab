@@ -64,7 +64,13 @@ const mockDossierService = {
     .mockResolvedValue({ id: 'dos1', name: 'Test', status: 'active', type: '', keyReferences: [] }),
   deleteKeyReference: vi
     .fn()
-    .mockResolvedValue({ id: 'dos1', name: 'Test', status: 'active', type: '', keyReferences: [] })
+    .mockResolvedValue({ id: 'dos1', name: 'Test', status: 'active', type: '', keyReferences: [] }),
+  upsertBillingItem: vi
+    .fn()
+    .mockResolvedValue({ id: 'dos1', name: 'Test', status: 'active', type: '', billingItems: [] }),
+  deleteBillingItem: vi
+    .fn()
+    .mockResolvedValue({ id: 'dos1', name: 'Test', status: 'active', type: '', billingItems: [] })
 }
 const mockDocumentService = {
   listDocuments: vi.fn().mockResolvedValue([]),
@@ -108,18 +114,6 @@ describe('intentDispatcher', () => {
       const services = makeServices()
       const dispatcher = createInternalAICommandDispatcher(services)
       const result = await dispatcher.dispatch({ type: 'contact_lookup' }, { dossierId: 'dos1' })
-      expect(result.feedback).toContain('4 contact(s):')
-    })
-
-    it('uses the active dossier for contact_lookup_active', async () => {
-      const services = makeServices()
-      const dispatcher = createInternalAICommandDispatcher(services)
-      const result = await dispatcher.dispatch(
-        { type: 'contact_lookup_active' },
-        { dossierId: 'dos1' }
-      )
-
-      expect(services.contactService.list).toHaveBeenCalledWith('dos1')
       expect(result.feedback).toContain('4 contact(s):')
     })
 
@@ -183,13 +177,13 @@ describe('intentDispatcher', () => {
     })
   })
 
-  describe('contact_upsert', () => {
+  describe('contact_create / contact_update', () => {
     it('merges existing contact fields before persisting an update', async () => {
       const services = makeServices()
       const dispatcher = createInternalAICommandDispatcher(services)
 
       await dispatcher.dispatch(
-        { type: 'contact_upsert', id: 'c1', phone: '0600000000' },
+        { type: 'contact_update', contactId: 'c1', phone: '0600000000' },
         { dossierId: 'dos1' }
       )
 
@@ -204,6 +198,98 @@ describe('intentDispatcher', () => {
           phone: '0600000000'
         })
       )
+    })
+
+    it('merges managed custom fields on contact_update', async () => {
+      const services = makeServices()
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      await dispatcher.dispatch(
+        {
+          type: 'contact_update',
+          contactId: 'c1',
+          customFields: {
+            Nationalité: 'Française'
+          }
+        },
+        { dossierId: 'dos1', contactId: 'c1' }
+      )
+
+      expect(services.contactService.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'c1',
+          dossierId: 'dos1',
+          firstName: 'Contact',
+          lastName: 'Exemple',
+          customFields: {
+            nationality: 'Française'
+          }
+        })
+      )
+    })
+
+    it('returns contact introuvable when contact_update targets an unknown contact', async () => {
+      const services = makeServices()
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const result = await dispatcher.dispatch(
+        {
+          type: 'contact_update',
+          contactId: 'unknown-contact',
+          customFields: {
+            Nationalité: 'Française',
+            Profession: 'Sans profession'
+          }
+        },
+        { dossierId: 'dos1' }
+      )
+
+      expect(result.feedback).toBe('Contact introuvable.')
+      expect(services.contactService.upsert).not.toHaveBeenCalled()
+    })
+
+    it('creates a new contact through contact_create', async () => {
+      const services = makeServices()
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      await dispatcher.dispatch(
+        {
+          type: 'contact_create',
+          firstName: 'Karine',
+          lastName: 'Calvez',
+          role: 'Avocat de la partie adverse'
+        },
+        { dossierId: 'dos1' }
+      )
+
+      expect(services.contactService.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dossierId: 'dos1',
+          firstName: 'Karine',
+          lastName: 'Calvez',
+          role: 'Avocat de la partie adverse'
+        })
+      )
+    })
+
+    it('rejects contact_create without explicit identity fields', async () => {
+      const services = makeServices()
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const result = await dispatcher.dispatch(
+        {
+          type: 'contact_create',
+          customFields: {
+            Nationalité: 'Française'
+          }
+        },
+        { dossierId: 'dos1' }
+      )
+
+      expect(result.feedback).toBe(
+        "Impossible de créer un contact sans élément d'identité explicite."
+      )
+      expect(services.contactService.upsert).not.toHaveBeenCalled()
     })
   })
 
@@ -388,6 +474,349 @@ describe('intentDispatcher', () => {
       expect(result.feedback).toContain('Dates et références connues')
       expect(result.feedback).toContain("Date d'audience: 2026-04-21")
       expect(result.feedback).toContain('dossier.keyDate.delibere.long')
+    })
+  })
+
+  describe('document_metadata_save', () => {
+    it('refuses empty document metadata saves', async () => {
+      const services = makeServices()
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const result = await dispatcher.dispatch(
+        { type: 'document_metadata_save', documentId: 'doc1', tags: [] },
+        { dossierId: 'dos1' }
+      )
+
+      expect(result.feedback).toBe('Aucune métadonnée à enregistrer.')
+      expect(services.documentService.saveMetadata).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('dossier updates', () => {
+    it('refuses dossier_update with no actual changes', async () => {
+      const services = makeServices()
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const result = await dispatcher.dispatch({ type: 'dossier_update', id: 'dos1' }, {})
+
+      expect(result.feedback).toBe('Aucune modification de dossier fournie.')
+      expect(services.dossierService.updateDossier).not.toHaveBeenCalled()
+    })
+
+    it('creates and updates key dates through explicit tools', async () => {
+      const services = makeServices()
+      services.dossierService.upsertKeyDate = vi.fn().mockResolvedValue({
+        id: 'dos1',
+        name: 'Test',
+        status: 'active',
+        type: '',
+        keyDates: [
+          { id: 'kd1', label: 'Audience', date: '2026-05-02', note: 'Initiale' },
+          { id: 'kd2', label: 'Audience', date: '2026-05-02', note: 'Reportee' }
+        ],
+        keyReferences: []
+      })
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const created = await dispatcher.dispatch(
+        {
+          type: 'dossier_create_key_date',
+          dossierId: 'dos1',
+          label: 'Audience',
+          date: '2026-05-02',
+          note: 'Initiale'
+        },
+        {}
+      )
+
+      const updated = await dispatcher.dispatch(
+        {
+          type: 'dossier_update_key_date',
+          dossierId: 'dos1',
+          keyDateId: 'kd2',
+          label: 'Audience',
+          date: '2026-05-02',
+          note: 'Reportee'
+        },
+        {}
+      )
+
+      expect(services.dossierService.upsertKeyDate).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ dossierId: 'dos1', id: undefined, label: 'Audience' })
+      )
+      expect(services.dossierService.upsertKeyDate).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ dossierId: 'dos1', id: 'kd2', label: 'Audience' })
+      )
+      expect(created.feedback).toBe('Événement "Audience" ajouté.')
+      expect(updated.feedback).toBe('Événement "Audience" mis à jour.')
+    })
+
+    it('refuses dossier_update_key_date with no actual changes', async () => {
+      const services = makeServices()
+      services.dossierService.upsertKeyDate = vi.fn().mockResolvedValue(undefined)
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const result = await dispatcher.dispatch(
+        {
+          type: 'dossier_update_key_date',
+          dossierId: 'dos1',
+          keyDateId: 'kd1',
+          label: 'Audience',
+          date: '2026-05-02'
+        },
+        {}
+      )
+
+      expect(result.feedback).toBe("Aucune modification d'événement fournie.")
+      expect(services.dossierService.upsertKeyDate).not.toHaveBeenCalled()
+    })
+
+    it('creates and updates key references through explicit tools', async () => {
+      const services = makeServices()
+      services.dossierService.upsertKeyReference = vi.fn().mockResolvedValue({
+        id: 'dos1',
+        name: 'Test',
+        status: 'active',
+        type: '',
+        keyDates: [],
+        keyReferences: [
+          { id: 'kr1', label: 'N° RG', value: '24/0001', note: 'Creation' },
+          { id: 'kr2', label: 'N° RG', value: '24/0001', note: 'Correction' }
+        ]
+      })
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const created = await dispatcher.dispatch(
+        {
+          type: 'dossier_create_key_reference',
+          dossierId: 'dos1',
+          label: 'N° RG',
+          value: '24/0001',
+          note: 'Creation'
+        },
+        {}
+      )
+
+      const updated = await dispatcher.dispatch(
+        {
+          type: 'dossier_update_key_reference',
+          dossierId: 'dos1',
+          keyReferenceId: 'kr2',
+          label: 'N° RG',
+          value: '24/0001',
+          note: 'Correction'
+        },
+        {}
+      )
+
+      expect(services.dossierService.upsertKeyReference).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ dossierId: 'dos1', id: undefined, label: 'N° RG' })
+      )
+      expect(services.dossierService.upsertKeyReference).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ dossierId: 'dos1', id: 'kr2', label: 'N° RG' })
+      )
+      expect(created.feedback).toBe('Référence clé "N° RG" ajoutée.')
+      expect(updated.feedback).toBe('Référence clé "N° RG" mise à jour.')
+    })
+
+    it('refuses dossier_update_key_reference with no actual changes', async () => {
+      const services = makeServices()
+      services.dossierService.upsertKeyReference = vi.fn().mockResolvedValue(undefined)
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const result = await dispatcher.dispatch(
+        {
+          type: 'dossier_update_key_reference',
+          dossierId: 'dos1',
+          keyReferenceId: 'kr1',
+          label: 'N° RG',
+          value: '24/0001'
+        },
+        {}
+      )
+
+      expect(result.feedback).toBe('Aucune modification de référence clé fournie.')
+      expect(services.dossierService.upsertKeyReference).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('billing items (prestations)', () => {
+    const baseBillingItemFields = {
+      dossierId: 'dos1',
+      date: '2026-05-12',
+      label: 'Consultation',
+      quantity: 2,
+      quantityUnit: 'hours' as const,
+      unitPriceHtCents: 15000,
+      vatRateBasisPoints: 2000,
+      status: 'draft' as const
+    }
+
+    it('creates a billing item without computing totals itself', async () => {
+      const services = makeServices()
+      services.dossierService.upsertBillingItem = vi.fn().mockResolvedValue({
+        id: 'dos1',
+        name: 'Test',
+        status: 'active',
+        type: '',
+        billingItems: [
+          {
+            id: 'bi1',
+            label: 'Consultation',
+            date: '2026-05-12',
+            quantity: 2,
+            quantityUnit: 'hours',
+            unitPriceHtCents: 15000,
+            totalHtCents: 30000,
+            totalTtcCents: 36000,
+            status: 'draft'
+          }
+        ]
+      })
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const result = await dispatcher.dispatch(
+        { type: 'dossier_create_billing_item', ...baseBillingItemFields },
+        {}
+      )
+
+      expect(services.dossierService.upsertBillingItem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dossierId: 'dos1',
+          id: undefined,
+          label: 'Consultation',
+          quantity: 2,
+          quantityUnit: 'hours',
+          unitPriceHtCents: 15000,
+          vatRateBasisPoints: 2000,
+          status: 'draft'
+        })
+      )
+      // Totals must never be passed by the assistant — the service computes them.
+      const call = services.dossierService.upsertBillingItem.mock.calls[0]?.[0] ?? {}
+      expect(call).not.toHaveProperty('totalHtCents')
+      expect(call).not.toHaveProperty('totalTtcCents')
+      expect(result.feedback).toBe('Prestation "Consultation" ajoutée.')
+      expect(result.entity).toEqual(
+        expect.objectContaining({ id: 'bi1', totalHtCents: 30000, totalTtcCents: 36000 })
+      )
+    })
+
+    it('passes the billingItemId through on update', async () => {
+      const services = makeServices()
+      services.dossierService.upsertBillingItem = vi.fn().mockResolvedValue({
+        id: 'dos1',
+        name: 'Test',
+        status: 'active',
+        type: '',
+        billingItems: [{ id: 'bi1', label: 'Consultation', date: '2026-05-12', status: 'draft' }]
+      })
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const result = await dispatcher.dispatch(
+        { type: 'dossier_update_billing_item', billingItemId: 'bi1', ...baseBillingItemFields },
+        {}
+      )
+
+      expect(services.dossierService.upsertBillingItem).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'bi1', label: 'Consultation' })
+      )
+      expect(result.feedback).toBe('Prestation "Consultation" mise à jour.')
+    })
+
+    it('deletes a billing item', async () => {
+      const services = makeServices()
+      services.dossierService.deleteBillingItem = vi.fn().mockResolvedValue({
+        id: 'dos1',
+        name: 'Test',
+        status: 'active',
+        type: '',
+        billingItems: []
+      })
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const result = await dispatcher.dispatch(
+        { type: 'dossier_delete_billing_item', dossierId: 'dos1', billingItemId: 'bi1' },
+        {}
+      )
+
+      expect(services.dossierService.deleteBillingItem).toHaveBeenCalledWith({
+        dossierId: 'dos1',
+        billingItemId: 'bi1'
+      })
+      expect(result.feedback).toBe('Prestation supprimée.')
+    })
+
+    it('surfaces the guard error when editing an already-invoiced prestation', async () => {
+      const services = makeServices()
+      const guardMessage =
+        'This billing item is already invoiced and cannot be edited. Create a credit note or corrective invoice instead.'
+      services.dossierService.upsertBillingItem = vi.fn().mockRejectedValue(new Error(guardMessage))
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const result = await dispatcher.dispatch(
+        { type: 'dossier_update_billing_item', billingItemId: 'bi1', ...baseBillingItemFields },
+        {}
+      )
+
+      // The failure degrades to an `unknown` intent so the LLM knows it did NOT succeed.
+      expect(result.intent.type).toBe('unknown')
+      expect(result.feedback).toBe(guardMessage)
+    })
+
+    it('surfaces the guard error when deleting an already-invoiced prestation', async () => {
+      const services = makeServices()
+      const guardMessage =
+        'This billing item is already invoiced and cannot be deleted. Create a credit note or corrective invoice instead.'
+      services.dossierService.deleteBillingItem = vi.fn().mockRejectedValue(new Error(guardMessage))
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const result = await dispatcher.dispatch(
+        { type: 'dossier_delete_billing_item', dossierId: 'dos1', billingItemId: 'bi1' },
+        {}
+      )
+
+      expect(result.intent.type).toBe('unknown')
+      expect(result.feedback).toBe(guardMessage)
+    })
+  })
+
+  describe('template_update', () => {
+    it('refuses template_update with no actual changes', async () => {
+      const services = makeServices()
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const result = await dispatcher.dispatch({ type: 'template_update', id: 'tpl1' }, {})
+
+      expect(result.feedback).toBe('Aucune modification de modèle fournie.')
+      expect(services.templateService.update).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('document_relocate', () => {
+    it('refuses a no-op relocation to the same target path', async () => {
+      const services = makeServices()
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const result = await dispatcher.dispatch(
+        {
+          type: 'document_relocate',
+          documentUuid: 'doc-uuid-1',
+          dossierId: 'dos1',
+          fromDocumentId: 'piece-a.pdf',
+          toDocumentId: 'piece-a.pdf'
+        },
+        {}
+      )
+
+      expect(result.feedback).toBe(
+        'La nouvelle localisation du document est identique a l ancienne.'
+      )
+      expect(services.documentService.relocateMetadata).not.toHaveBeenCalled()
     })
   })
 

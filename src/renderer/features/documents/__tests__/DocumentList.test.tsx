@@ -153,6 +153,6 @@ describe('DocumentList', () => {
 
     expect(markup).toContain('>urgent<')
     expect(markup).toContain('>contrat<')
-    expect(markup).toContain('border-aurora/25')
+    expect(markup).toContain('border-aurora/40')
   })
 })

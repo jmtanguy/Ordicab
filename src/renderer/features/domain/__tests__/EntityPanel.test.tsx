@@ -92,7 +92,9 @@ describe('EntityPanel', () => {
       expect((screen.getByLabelText('Firm name') as HTMLInputElement).value).toBe('Cabinet Martin')
     })
 
-    expect((screen.getByLabelText('VAT number') as HTMLInputElement).value).toBe('FR12345678901')
+    expect((screen.getByLabelText('Intra-community VAT number') as HTMLInputElement).value).toBe(
+      'FR12345678901'
+    )
     expect((screen.getByLabelText('Email') as HTMLInputElement).value).toBe('contact@example.com')
   })
 
@@ -165,7 +167,7 @@ describe('EntityPanel', () => {
       firmName: 'Cabinet Martin',
       managedFields: {
         contacts: [
-          { label: "Prénoms complémentaires de l'état civil", type: 'text' },
+          { label: 'Prénoms complémentaires', type: 'text' },
           { label: 'Nom de jeune fille', type: 'text' },
           { label: 'Date de naissance', type: 'date' },
           { label: 'Nationalité', type: 'text' },

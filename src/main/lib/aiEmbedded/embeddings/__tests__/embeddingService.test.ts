@@ -83,6 +83,28 @@ describe('embeddingService', () => {
     expect(Array.from(result![1]!)).toEqual([0, 1, 0])
   })
 
+  it('serializes concurrent inference calls through a single pipeline run lock', async () => {
+    let inFlight = 0
+    let maxInFlight = 0
+    const fakePipe = vi.fn(async (inputs: string[]) => {
+      inFlight += 1
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      inFlight -= 1
+      return fakeTensor(inputs.map(() => new Float32Array([1, 0])))
+    })
+    pipelineSpy.mockResolvedValue(fakePipe)
+
+    const [first, second] = await Promise.all([
+      embedBatch(['alpha'], {}, { inputPrefix: '' }),
+      embedBatch(['beta'], {}, { inputPrefix: '' })
+    ])
+
+    expect(first).toHaveLength(1)
+    expect(second).toHaveLength(1)
+    expect(maxInFlight).toBe(1)
+  })
+
   it('embedBatch([]) short-circuits without loading the pipeline', async () => {
     const result = await embedBatch([])
     expect(result).toEqual([])

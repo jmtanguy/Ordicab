@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import type { ContactDeleteInput, ContactRecord, ContactUpsertInput } from '@shared/domain/contact'
+import { GENDER_VALUES } from '@shared/domain/gender'
 import { getContactManagedFieldValues, type ContactManagedFieldValues } from '@shared/types'
 import { labelToKey } from '@shared/templateContent'
 
@@ -21,7 +22,7 @@ const optionalContactTextSchema = z.preprocess(
 )
 const optionalContactGenderSchema = z.preprocess(
   emptyStringToUndefined,
-  z.enum(['M', 'F', 'N']).optional()
+  z.enum(GENDER_VALUES).optional()
 )
 const optionalContactEmailSchema = z.preprocess(
   emptyStringToUndefined,
@@ -102,5 +103,21 @@ export const contactDeleteInputSchema = z.object({
   dossierId: dossierIdSchema,
   contactUuid: z.string().min(1)
 })
+
+export const contactIndexEntrySchema = z.object({
+  uuid: z.string().min(1),
+  displayName: z.string().optional(),
+  role: z.string().optional(),
+  updatedAt: z.string().trim().min(1)
+})
+
+export const contactIndexSchema = z.object({
+  contacts: z.array(contactIndexEntrySchema).default([]),
+  updatedAt: z.string().trim().min(1),
+  migrated: z.boolean().optional()
+})
+
+export type ContactIndexEntry = z.infer<typeof contactIndexEntrySchema>
+export type ContactIndex = z.infer<typeof contactIndexSchema>
 
 export type { ContactDeleteInput, ContactRecord, ContactUpsertInput }

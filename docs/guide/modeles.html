@@ -3,24 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Modèles — Ordicab Documentation</title>
-  <meta
-    name="description"
-    content="Créez des modèles de documents réutilisables avec variables et routines dans Ordicab."
-  />
+  <title>Modèles de documents — Ordicab Documentation</title>
+  <meta name="description" content="Créez des modèles de documents dans Ordicab et générez automatiquement des courriers, conventions et actes pré-remplis avec les données du dossier." />
   <link rel="canonical" href="https://www.ordicab.com/guide/modeles.html" />
   <meta name="robots" content="index, follow, max-image-preview:large" />
   <meta property="og:type" content="article" />
   <meta property="og:locale" content="fr_FR" />
   <meta property="og:site_name" content="Ordicab" />
-  <meta property="og:title" content="Modèles — Ordicab Documentation" />
-  <meta
-    property="og:description"
-    content="Créez des modèles de documents réutilisables avec variables et routines dans Ordicab."
-  />
+  <meta property="og:title" content="Modèles de documents — Ordicab Documentation" />
+  <meta property="og:description" content="Créez des modèles de documents dans Ordicab et générez automatiquement des courriers, conventions et actes pré-remplis avec les données du dossier." />
   <meta property="og:url" content="https://www.ordicab.com/guide/modeles.html" />
-  <meta property="og:image" content="https://www.ordicab.com/snap1.png" />
-  <link rel="icon" href="../icon.png" />
+  <meta property="og:image" content="https://www.ordicab.com/docs/Mod%C3%A8les.png" />
+  <link rel="icon" href="../../resources/icon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -29,20 +23,17 @@
 <body>
 
 <button class="mobile-nav-toggle" type="button" aria-label="Ouvrir le menu de navigation" aria-controls="guide-sidebar" aria-expanded="false" data-guide-nav-toggle>
-  <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-    <line x1="4" y1="7" x2="20" y2="7"/>
-    <line x1="4" y1="12" x2="20" y2="12"/>
-    <line x1="4" y1="17" x2="20" y2="17"/>
+  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <line x1="4" y1="7" x2="20" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <line x1="4" y1="12" x2="20" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <line x1="4" y1="17" x2="20" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
   </svg>
 </button>
 <div class="mobile-nav-overlay" hidden data-guide-nav-overlay></div>
 
 <aside class="sidebar" id="guide-sidebar">
   <div class="sidebar-brand">
-    <a href="../">
-      <span class="name">Ordicab</span>
-      <span class="tagline">Documentation utilisateur</span>
-    </a>
+    <a href="../"><span class="name">Ordicab</span><span class="tagline">Documentation utilisateur</span></a>
   </div>
   <div class="sidebar-section">Démarrage</div>
   <nav>
@@ -52,111 +43,131 @@
   <div class="sidebar-section">Fonctionnalités</div>
   <nav>
     <a href="dossiers.html">Dossiers</a>
-    
-    <a href="modeles.html" class="active">Modèles</a>
-    
+    <a href="modeles.html" class="active">Modèles de documents</a>
   </nav>
   <div class="sidebar-section">Intelligence artificielle</div>
   <nav>
     <a href="ia-vue-ensemble.html">Vue d'ensemble &amp; comparatif</a>
-    <a href="ia-cowork.html" class="sub">IA Cowork</a>
-    <a href="ia-assistant-local.html" class="sub">Assistant local (Ollama)</a>
-    <a href="ia-assistant-api.html" class="sub">Assistant via API</a>
-    <a href="ia-export-import.html" class="sub">Export IA &amp; Import IA</a>
+    <a href="ia-assistant.html" class="sub">Assistant intégré</a>
+    <a href="ia-cowork.html" class="sub">IA Cowork (agents externes)</a>
   </nav>
 </aside>
 
 <main class="main">
   <div class="badge">Fonctionnalités</div>
-  <h1>Modèles</h1>
+  <h1>Modèles de documents</h1>
   <p class="page-lead">
-    Ordicab permet de constituer une bibliothèque de modèles de documents réutilisables. Chaque modèle peut contenir des <strong>routines</strong> — des balises dynamiques qui se substituent automatiquement aux données réelles du dossier lors de la génération.
+    Préparez vos courriers types, conventions et actes une seule fois. Ensuite, générez des documents pré-remplis en un clic à partir des données du dossier. Plus besoin de recopier les informations à chaque fois.
   </p>
 
-  <h2>Principe des routines</h2>
-  <p>Une routine est une balise de la forme <span class="macro">{{nom.champ}}</span>. Lorsque vous générez un document à partir d'un modèle, Ordicab résout chaque routine en la remplaçant par la valeur correspondante dans le dossier sélectionné.</p>
+  <h2>La bibliothèque de modèles</h2>
+  <p>La section <strong>Modèles</strong> présente tous les modèles disponibles dans votre cabinet, organisés par catégorie.</p>
 
-  <p>Exemple&nbsp;: si votre dossier contient un contact avec le rôle <em>Client</em> nommé <em>Marie Martin</em>, la routine <span class="macro">{{contact.client.nomAffiche}}</span> sera remplacée par <code>Marie Martin</code> dans le document généré.</p>
+  <img src="../Modèles.png" alt="Liste des modèles de documents" class="doc-screenshot" />
+  <p class="doc-screenshot-caption">Liste des modèles — organisés par catégorie</p>
 
-  <div class="callout">
-    <strong>Aucune donnée manquante bloquante.</strong><br/>
-    Si une valeur n'est pas renseignée dans le dossier, Ordicab insère un marqueur visible à la place (ex. : <code>[Nom manquant]</code>). Le document reste utilisable et peut être complété manuellement.
-  </div>
+  <img src="../Modèles-Bibliothèque.png" alt="Bibliothèque de modèles" class="doc-screenshot" />
+  <p class="doc-screenshot-caption">Bibliothèque — modèles disponibles dans votre cabinet</p>
 
-  <h2>Catégories de routines disponibles</h2>
+  <h2>Créer un modèle</h2>
+  <p>Un modèle est un document Word (<code>.docx</code>) dans lequel vous insérez des <strong>variables</strong> entre doubles accolades. Lors de la génération, Ordicab remplace ces variables par les données réelles du dossier.</p>
+
+  <h3>Variables disponibles</h3>
+  <p>Les principales variables que vous pouvez utiliser dans vos modèles&nbsp;:</p>
+
   <table>
-    <thead><tr><th>Catégorie</th><th>Exemples de routines</th></tr></thead>
+    <thead>
+      <tr>
+        <th>Catégorie</th>
+        <th>Variable</th>
+        <th>Description</th>
+      </tr>
+    </thead>
     <tbody>
       <tr>
+        <td><strong>Cabinet</strong></td>
+        <td><code class="macro">&#123;&#123;cabinet.nom&#125;&#125;</code></td>
+        <td>Nom du cabinet</td>
+      </tr>
+      <tr>
+        <td></td>
+        <td><code class="macro">&#123;&#123;cabinet.adresse&#125;&#125;</code></td>
+        <td>Adresse complète du cabinet</td>
+      </tr>
+      <tr>
+        <td></td>
+        <td><code class="macro">&#123;&#123;cabinet.telephone&#125;&#125;</code></td>
+        <td>Téléphone du cabinet</td>
+      </tr>
+      <tr>
+        <td></td>
+        <td><code class="macro">&#123;&#123;cabinet.email&#125;&#125;</code></td>
+        <td>Email du cabinet</td>
+      </tr>
+      <tr>
         <td><strong>Dossier</strong></td>
-        <td>Nom du dossier, statut, type, date d'ouverture, information générale</td>
+        <td><code class="macro">&#123;&#123;dossier.nom&#125;&#125;</code></td>
+        <td>Nom du dossier</td>
       </tr>
       <tr>
-        <td><strong>Contact (par rôle)</strong></td>
-        <td>Nom affiché, civilité, prénom, nom, adresse, email, téléphone, formules d'appel</td>
+        <td></td>
+        <td><code class="macro">&#123;&#123;dossier.reference&#125;&#125;</code></td>
+        <td>Référence du dossier</td>
       </tr>
       <tr>
-        <td><strong>Entité</strong></td>
-        <td>Nom du cabinet, adresse, téléphone, email, numéro de TVA</td>
+        <td></td>
+        <td><code class="macro">&#123;&#123;dossier.dateOuverture&#125;&#125;</code></td>
+        <td>Date d'ouverture</td>
       </tr>
       <tr>
-        <td><strong>Dates clés</strong></td>
-        <td>Date d'un événement nommé (ex. : <span class="macro">{{keyDate.Audience}}</span>)</td>
+        <td><strong>Client</strong></td>
+        <td><code class="macro">&#123;&#123;client.nom&#125;&#125;</code></td>
+        <td>Nom du client principal</td>
       </tr>
       <tr>
-        <td><strong>Références clés</strong></td>
-        <td>Valeur d'une référence nommée (ex. : <span class="macro">{{keyRef.RG}}</span>)</td>
+        <td></td>
+        <td><code class="macro">&#123;&#123;client.adresse&#125;&#125;</code></td>
+        <td>Adresse du client</td>
       </tr>
       <tr>
-        <td><strong>Système</strong></td>
-        <td>Date du jour, année en cours</td>
+        <td></td>
+        <td><code class="macro">&#123;&#123;client.email&#125;&#125;</code></td>
+        <td>Email du client</td>
+      </tr>
+      <tr>
+        <td><strong>Date</strong></td>
+        <td><code class="macro">&#123;&#123;date.aujourdhui&#125;&#125;</code></td>
+        <td>Date du jour de génération</td>
       </tr>
     </tbody>
   </table>
 
-  <p>Dans l'éditeur de modèle, le panneau <strong>Insérer une routine</strong> liste toutes les routines disponibles. Cliquez sur une routine pour l'insérer à la position du curseur.</p>
-
-  <h2>Créer un modèle</h2>
-  <p>Depuis l'onglet <strong>Modèles</strong>, cliquez sur <strong>Nouveau modèle</strong>. Deux types sont disponibles.</p>
-
-  <h3>Modèle texte enrichi</h3>
-  <p>Rédigez directement le contenu dans l'éditeur intégré d'Ordicab. La mise en forme riche (gras, italique, listes, titres) est conservée. Insérez des routines via le panneau latéral ou en saisissant <code>{{</code> manuellement.</p>
-
-  <h3>Modèle Word (.docx)</h3>
-  <p>Importez un document Word existant comme source de mise en forme. Word conserve le contrôle total de la mise en page — polices, en-têtes, pieds de page, styles. Ajoutez les routines Ordicab directement dans le fichier Word avec la syntaxe <span class="macro">{{routine}}</span>.</p>
-
-  <p>Si vous souhaitez injecter du contenu géré dans Ordicab (par exemple un paragraphe supplémentaire), placez le marqueur <span class="macro">{{app.content}}</span> à l'endroit voulu dans le fichier Word.</p>
-
   <div class="callout">
-    <strong>Modifier une source Word.</strong><br/>
-    Depuis la fiche du modèle, cliquez sur <strong>Ouvrir dans Word</strong> pour modifier la mise en forme et ajouter ou ajuster les routines directement dans le fichier source.
+    <strong>Format de modèle.</strong> Les modèles doivent être des fichiers <code>.docx</code> (Word). Ordicab utilise le moteur docxtemplater pour les fusionner avec les données du dossier. La mise en forme, les styles et les tableaux de votre modèle Word sont préservés dans le document généré.
   </div>
 
-  <h2>Générer un document</h2>
-  <p>Un document peut être généré depuis plusieurs endroits&nbsp;:</p>
-  <ul>
-    <li>Depuis la liste des modèles, en cliquant sur <strong>Générer</strong> sur un modèle.</li>
-    <li>Depuis l'onglet Documents d'un dossier, en cliquant sur <strong>Générer un document</strong>.</li>
-  </ul>
-
-  <p>L'assistant de génération vous demande de&nbsp;:</p>
+  <h2>Générer un document depuis un dossier</h2>
   <ol class="step-list">
-    <li>Sélectionner le dossier cible (si non déjà ouvert).</li>
-    <li>Choisir le modèle à utiliser.</li>
-    <li>Associer les contacts du dossier aux rôles utilisés dans le modèle (contact principal et éventuellement des contacts par rôle).</li>
-    <li>Choisir le mode de génération&nbsp;: <strong>directe</strong> (le fichier est écrit immédiatement) ou <strong>relire avant enregistrement</strong> (un brouillon est préparé et vous pouvez l'ajuster avant de sauvegarder).</li>
+    <li>Ouvrez le dossier concerné et accédez à l'onglet <strong>Modèles</strong> (ou cliquez sur <strong>Générer un document</strong>).</li>
+    <li>Sélectionnez le modèle à utiliser dans la bibliothèque.</li>
+    <li>Ordicab fusionne automatiquement le modèle avec les données du dossier.</li>
+    <li>Le document généré est enregistré dans le dossier sur votre disque et associé au dossier dans Ordicab.</li>
   </ol>
 
-  <p>Le document généré est enregistré dans le répertoire du dossier et apparaît automatiquement dans la liste des documents.</p>
+  <h2>Modèles et IA</h2>
+  <p>L'assistant IA peut exploiter vos modèles pour aller plus loin&nbsp;:</p>
+  <ul>
+    <li>rédiger le corps d'un courrier à partir du contexte du dossier, puis l'insérer dans un modèle&nbsp;;</li>
+    <li>compléter les champs non structurés d'un document (résumé des faits, argumentation…)&nbsp;;</li>
+    <li>suggérer le modèle le plus adapté à la situation.</li>
+  </ul>
 
-  <h2>Gérer la bibliothèque</h2>
-  <p>Chaque modèle peut être modifié, dupliqué ou supprimé depuis la liste. La bibliothèque est commune à tous vos dossiers — un modèle créé une fois est utilisable sur n'importe quel dossier.</p>
+  <p>Les agents IA Cowork peuvent également créer ou modifier des modèles directement, en suivant les instructions que vous leur donnez en langage naturel.</p>
 
-  <p style="margin-top:40px;">
-    <a href="ia-vue-ensemble.html" style="color:var(--aurora);text-decoration:none;font-weight:600;">Suivant : Vue d'ensemble IA →</a>
-  </p>
+  <a href="ia-vue-ensemble.html" class="next-link">Suivant : Intelligence artificielle — vue d'ensemble →</a>
 </main>
 
 <script src="_layout.js"></script>
+<script src="../lightbox.js"></script>
 </body>
 </html>

@@ -5,9 +5,9 @@ import { createPiiToolGateway, type PiiHelpers } from '../piiToolGateway'
 const fakeHelpers = (): PiiHelpers => ({
   pseudonymizeText: async (s) => `PS(${s})`,
   pseudonymizeAuto: async (s) => `AUTO(${s})`,
-  revertPiiText: (s) => s.replace(/\[\[name_1\]\]/g, 'Alice'),
+  revertPiiText: (s) => s.replace(/\bAlicia\b/g, 'Alice'),
   revertPiiJson: <T>(obj: T): T => {
-    const json = JSON.stringify(obj).replace(/\[\[name_1\]\]/g, 'Alice')
+    const json = JSON.stringify(obj).replace(/\bAlicia\b/g, 'Alice')
     return JSON.parse(json) as T
   }
 })
@@ -20,12 +20,12 @@ describe('piiToolGateway', () => {
       const gateway = createPiiToolGateway(null, dataExec, actionExec)
 
       const data = await gateway.executeDataTool('document_list', { dossierId: 'd1' })
-      const action = await gateway.executeActionTool('contact_upsert', { firstName: 'Bob' })
+      const action = await gateway.executeActionTool('contact_create', { firstName: 'Bob' })
 
       expect(data).toBe('raw-data-result')
       expect(action).toBe('raw-action-result')
       expect(dataExec.execute).toHaveBeenCalledWith('document_list', { dossierId: 'd1' })
-      expect(actionExec.execute).toHaveBeenCalledWith('contact_upsert', { firstName: 'Bob' })
+      expect(actionExec.execute).toHaveBeenCalledWith('contact_create', { firstName: 'Bob' })
     })
   })
 
@@ -40,7 +40,7 @@ describe('piiToolGateway', () => {
       const gateway = createPiiToolGateway(fakeHelpers(), dataExec, actionExec)
 
       // contact_lookup is not in the dispatch table → falls through to pseudonymizeAuto
-      const result = await gateway.executeDataTool('contact_lookup', { name: '[[name_1]]' })
+      const result = await gateway.executeDataTool('contact_lookup', { name: 'Alicia' })
 
       expect(dataExec.execute).toHaveBeenCalledWith('contact_lookup', { name: 'Alice' })
       expect(result).toMatch(/^AUTO\(/)
@@ -75,7 +75,7 @@ describe('piiToolGateway', () => {
       expect(result).toBe(labels)
     })
 
-    it('sanitizes contact_upsert args after PII revert', async () => {
+    it('sanitizes contact_update args after PII revert', async () => {
       // The LLM occasionally collapses zip+city. Gateway should split them
       // back so persistence is clean.
       const actionExec = {
@@ -86,13 +86,15 @@ describe('piiToolGateway', () => {
       const dataExec = { execute: vi.fn(async () => '{}') }
       const gateway = createPiiToolGateway(fakeHelpers(), dataExec, actionExec)
 
-      await gateway.executeActionTool('contact_upsert', {
-        firstName: '[[name_1]]',
+      await gateway.executeActionTool('contact_update', {
+        contactId: 'c1',
+        firstName: 'Alicia',
         city: '75001 Paris',
         zipCode: ''
       })
 
-      expect(actionExec.execute).toHaveBeenCalledWith('contact_upsert', {
+      expect(actionExec.execute).toHaveBeenCalledWith('contact_update', {
+        contactId: 'c1',
         firstName: 'Alice',
         city: 'Paris',
         zipCode: '75001'
@@ -112,7 +114,7 @@ describe('piiToolGateway', () => {
       const dataExec = { execute: vi.fn(async () => '{}') }
       const gateway = createPiiToolGateway(fakeHelpers(), dataExec, actionExec)
 
-      const result = await gateway.executeActionTool('contact_upsert', { firstName: 'Bob' })
+      const result = await gateway.executeActionTool('contact_create', { firstName: 'Bob' })
       const parsed = JSON.parse(result) as {
         success: boolean
         contactId: string

@@ -1,0 +1,335 @@
+import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+
+import type { KeyDateTag } from '@shared/types'
+import { KEY_DATE_TAG_VALUES } from '@shared/types'
+import { useDossierStore } from '@renderer/stores'
+
+import {
+  ColumnHeader,
+  ListContainer,
+  PillSelect,
+  SearchField,
+  SectionHeader
+} from '../dossiers/sectionLayout'
+
+function formatDisplayDate(value: string, locale: string): string {
+  try {
+    return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(
+      new Date(value + 'T12:00:00')
+    )
+  } catch {
+    return value
+  }
+}
+
+function computeAutoState(isoDate: string): 'upcoming' | 'done' {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const eventDay = new Date(isoDate + 'T00:00:00')
+  return eventDay >= today ? 'upcoming' : 'done'
+}
+
+const AUTO_STATE_STYLES: Record<'upcoming' | 'done', string> = {
+  upcoming: 'bg-aurora/10 text-aurora border-aurora/20',
+  done: 'bg-slate-100 text-slate-600 border-slate-200'
+}
+
+const TAG_STYLES: Record<KeyDateTag, string> = {
+  cancelled: 'bg-red-50 text-red-700 border-red-200',
+  postponed: 'bg-amber-50 text-amber-700 border-amber-200',
+  urgent: 'bg-orange-50 text-orange-700 border-orange-200',
+  imperative: 'bg-rose-100 text-rose-800 border-rose-300',
+  important: 'bg-yellow-50 text-yellow-800 border-yellow-200',
+  to_confirm: 'bg-slate-50 text-slate-700 border-slate-200',
+  confidential: 'bg-purple-50 text-purple-700 border-purple-200',
+  to_do: 'bg-sky-50 text-sky-700 border-sky-200'
+}
+
+type SortOrder = 'date-desc' | 'date-asc'
+type KeyDateFilter = KeyDateTag | 'upcoming' | 'done'
+
+const FILTER_VALUES: KeyDateFilter[] = ['upcoming', 'done', ...KEY_DATE_TAG_VALUES]
+
+interface HomeChronologyPanelProps {
+  onOpenDossier: (id: string) => void
+}
+
+export function HomeChronologyPanel({
+  onOpenDossier
+}: HomeChronologyPanelProps): React.JSX.Element {
+  const { t, i18n } = useTranslation()
+  const locale = i18n.resolvedLanguage ?? i18n.language
+
+  const chronologyEntries = useDossierStore((state) => state.chronologyEntries)
+  const isChronologyLoading = useDossierStore((state) => state.isChronologyLoading)
+  const dossiers = useDossierStore((state) => state.dossiers)
+  const isDossierLoading = useDossierStore((state) => state.isLoading)
+  const loadChronology = useDossierStore((state) => state.loadChronology)
+
+  const [searchFilter, setSearchFilter] = useState('')
+  const [sortOrder, setSortOrder] = useState<SortOrder>('date-desc')
+  const [activeFilters, setActiveFilters] = useState<KeyDateFilter[]>(['upcoming'])
+
+  useEffect(() => {
+    if (
+      chronologyEntries !== null ||
+      isDossierLoading ||
+      isChronologyLoading ||
+      dossiers.length === 0
+    ) {
+      return
+    }
+    void loadChronology()
+  }, [chronologyEntries, dossiers.length, isChronologyLoading, isDossierLoading, loadChronology])
+
+  const searchTerms = useMemo(
+    () =>
+      searchFilter
+        .trim()
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((term) => term.length > 0),
+    [searchFilter]
+  )
+
+  const filteredEntries = useMemo(() => {
+    if (!chronologyEntries) return []
+
+    const searchMatched =
+      searchTerms.length === 0
+        ? chronologyEntries
+        : chronologyEntries.filter((entry) =>
+            searchTerms.every(
+              (term) =>
+                entry.keyDate.label.toLowerCase().includes(term) ||
+                entry.dossierName.toLowerCase().includes(term) ||
+                (entry.keyDate.note ?? '').toLowerCase().includes(term) ||
+                formatDisplayDate(entry.keyDate.date, locale).toLowerCase().includes(term)
+            )
+          )
+
+    const activeStateFilters = activeFilters.filter(
+      (f): f is 'upcoming' | 'done' => f === 'upcoming' || f === 'done'
+    )
+    const activeTagFilters = activeFilters.filter(
+      (f): f is KeyDateTag => f !== 'upcoming' && f !== 'done'
+    )
+
+    const filterMatched =
+      activeFilters.length === 0
+        ? searchMatched
+        : searchMatched.filter((entry) => {
+            const entryTags = entry.keyDate.tags ?? []
+            const autoState = computeAutoState(entry.keyDate.date)
+            const stateMatches =
+              activeStateFilters.length === 0 || activeStateFilters.includes(autoState)
+            const tagsMatch =
+              activeTagFilters.length === 0 ||
+              activeTagFilters.every((tag) => entryTags.includes(tag))
+            return stateMatches && tagsMatch
+          })
+
+    return [...filterMatched].sort((a, b) =>
+      sortOrder === 'date-desc'
+        ? b.keyDate.date.localeCompare(a.keyDate.date)
+        : a.keyDate.date.localeCompare(b.keyDate.date)
+    )
+  }, [chronologyEntries, searchTerms, activeFilters, sortOrder, locale])
+
+  const isReady = chronologyEntries !== null
+  const totalCount = chronologyEntries?.length ?? 0
+  const isEmpty = isReady && totalCount === 0
+  const shouldShowLoading = chronologyEntries === null
+
+  const countLabel =
+    !isReady || isEmpty
+      ? null
+      : filteredEntries.length === totalCount
+        ? t('dossiers.key_dates_count_total', {
+            count: totalCount,
+            defaultValue: '{{count}} événement(s)'
+          })
+        : t('dossiers.key_dates_count_filtered', {
+            count: filteredEntries.length,
+            total: totalCount,
+            defaultValue: '{{count}} sur {{total}}'
+          })
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+      <SectionHeader
+        badge={t('home.chronology_badge', { defaultValue: 'Chronologie' })}
+        count={countLabel}
+      />
+
+      {shouldShowLoading ? (
+        <div className="flex h-full items-center justify-center">
+          <span className="text-sm text-[#8a8a85]">
+            {t('common.loading', { defaultValue: 'Chargement…' })}
+          </span>
+        </div>
+      ) : isEmpty ? (
+        <p className="rounded-2xl border border-dashed border-[#e5e3da] bg-white p-4 text-sm text-[#5c5c5a]">
+          {t('home.chronology_empty', {
+            defaultValue: 'Aucun événement dans les dossiers actifs.'
+          })}
+        </p>
+      ) : (
+        <>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <SearchField
+              id="chronology-search"
+              value={searchFilter}
+              onChange={setSearchFilter}
+              placeholder={t('dossiers.key_dates_filter_search_placeholder')}
+              ariaLabel={t('dossiers.key_dates_filter_search_label')}
+            />
+            <PillSelect<SortOrder>
+              id="chronology-sort"
+              value={sortOrder}
+              onChange={setSortOrder}
+              ariaLabel={t('dossiers.key_dates_filter_sort_label')}
+            >
+              <option value="date-desc">{t('dossiers.key_dates_filter_sort_date_desc')}</option>
+              <option value="date-asc">{t('dossiers.key_dates_filter_sort_date_asc')}</option>
+            </PillSelect>
+          </div>
+
+          <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+            <span className="text-xs uppercase tracking-[0.12em] text-[#8a8a85]">
+              {t('dossiers.key_dates_filter_label')}
+            </span>
+            {FILTER_VALUES.map((filter) => {
+              const active = activeFilters.includes(filter)
+              const isAutoState = filter === 'upcoming' || filter === 'done'
+              const activeStyle = isAutoState ? AUTO_STATE_STYLES[filter] : TAG_STYLES[filter]
+              const label = isAutoState
+                ? t(`dossiers.key_dates_state_${filter}`)
+                : t(`dossiers.key_dates_tag_${filter}`)
+              return (
+                <button
+                  key={filter}
+                  type="button"
+                  onClick={() =>
+                    setActiveFilters((prev) =>
+                      prev.includes(filter) ? prev.filter((f) => f !== filter) : [...prev, filter]
+                    )
+                  }
+                  className={`rounded-full border px-2.5 py-0.5 text-xs transition ${
+                    active
+                      ? activeStyle
+                      : 'border-[#e5e3da] bg-white text-[#5c5c5a] hover:border-aurora/40 hover:text-[#1a1a1a]'
+                  }`}
+                >
+                  {label}
+                </button>
+              )
+            })}
+            {activeFilters.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setActiveFilters([])}
+                className="ml-1 text-xs text-aurora underline-offset-2 hover:underline"
+              >
+                {t('dossiers.key_dates_filter_clear')}
+              </button>
+            ) : null}
+          </div>
+
+          {filteredEntries.length === 0 ? (
+            <p className="shrink-0 rounded-2xl border border-dashed border-[#e5e3da] bg-white p-4 text-sm text-[#1a1a1a]">
+              {t('dossiers.key_dates_no_results')}
+            </p>
+          ) : (
+            <ListContainer>
+              <ColumnHeader>
+                <span className="w-28 shrink-0">
+                  {t('dossiers.key_dates_column_date', { defaultValue: 'Date' })}
+                </span>
+                <span className="w-44 shrink-0">
+                  {t('home.chronology_column_dossier', { defaultValue: 'Dossier' })}
+                </span>
+                <span className="flex-1">
+                  {t('dossiers.key_dates_column_label', { defaultValue: 'Libellé' })}
+                </span>
+                <span className="flex-1">{t('dossiers.key_dates_column_tags')}</span>
+              </ColumnHeader>
+              <ul className="h-[calc(100%-2.25rem)] divide-y divide-deep-space overflow-y-auto">
+                {filteredEntries.map((entry) => {
+                  const tags = entry.keyDate.tags ?? []
+                  const isCancelledOrPostponed =
+                    tags.includes('cancelled') || tags.includes('postponed')
+                  const autoState = isCancelledOrPostponed
+                    ? null
+                    : computeAutoState(entry.keyDate.date)
+
+                  return (
+                    <li
+                      key={`${entry.dossierId}-${entry.keyDate.id}`}
+                      className={`group flex items-center gap-3 px-4 py-2.5 transition-colors duration-150 hover:bg-[#fbf9f4] ${
+                        entry.keyDate.isClosed ? 'opacity-50' : ''
+                      }`}
+                    >
+                      <div className="w-28 shrink-0">
+                        <p className="text-sm tabular-nums text-[#1a1a1a]">
+                          {formatDisplayDate(entry.keyDate.date, locale)}
+                        </p>
+                        {entry.keyDate.time ? (
+                          <p className="text-xs tabular-nums text-[#8a8a85]">
+                            {entry.keyDate.time}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="w-44 min-w-0 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => onOpenDossier(entry.dossierId)}
+                          className="w-full truncate text-left text-sm font-medium text-aurora underline-offset-2 hover:underline"
+                        >
+                          {entry.dossierName}
+                        </button>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm text-[#1a1a1a]">{entry.keyDate.label}</p>
+                        {entry.keyDate.note ? (
+                          <p className="truncate text-xs text-[#8a8a85]">{entry.keyDate.note}</p>
+                        ) : null}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap gap-1">
+                          {autoState ? (
+                            <span
+                              className={`inline-block rounded-full border px-2 py-0.5 text-xs ${AUTO_STATE_STYLES[autoState]}`}
+                            >
+                              {t(`dossiers.key_dates_state_${autoState}`)}
+                            </span>
+                          ) : null}
+                          {tags.map((tag) => (
+                            <span
+                              key={tag}
+                              className={`inline-block rounded-full border px-2 py-0.5 text-xs ${TAG_STYLES[tag]}`}
+                            >
+                              {t(`dossiers.key_dates_tag_${tag}`)}
+                            </span>
+                          ))}
+                          {entry.billingItemIds.length > 0 ? (
+                            <span className="inline-block rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
+                              {t('dossiers.key_dates_billed_badge', {
+                                defaultValue: 'Facturé'
+                              })}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            </ListContainer>
+          )}
+        </>
+      )}
+    </div>
+  )
+}

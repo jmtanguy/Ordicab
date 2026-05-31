@@ -9,19 +9,30 @@ import {
   normalizeManagedFieldsConfig,
   type ContactDeleteInput,
   type ContactRecord,
-  type ContactUpsertInput
+  type ContactUpsertInput,
+  type ManagedFieldDefinition
 } from '@shared/types'
 
-import { DelegatedPrompt } from '@renderer/components/shell/DelegatedPrompt'
-import { Button, Card } from '@renderer/components/ui'
-import { buildPrompt } from '@renderer/features/delegated/promptTemplates'
+import { Button } from '@renderer/components/ui'
+import { cn } from '@renderer/lib/utils'
 import { useEntityStore } from '@renderer/stores'
 
 import { ContactForm } from './ContactForm'
+import {
+  CheckIcon,
+  CopyIcon,
+  DeleteConfirmTray,
+  IconButton,
+  ListContainer,
+  PencilIcon,
+  PillSelect,
+  SearchField,
+  SectionHeader,
+  TrashIcon
+} from './sectionLayout'
 
 interface DossierContactsSectionProps {
   dossierId: string
-  dossierName: string
   entries: ContactRecord[]
   error: string | null
   isLoading: boolean
@@ -32,6 +43,11 @@ interface DossierContactsSectionProps {
 
 type ContactEditorState = Partial<ContactRecord> | null
 type SortOrder = 'name-asc' | 'name-desc'
+type ManagedFieldSummaryEntry = {
+  key: string
+  label: string
+  value: string
+}
 
 function getContactDisplayName(contact: Partial<ContactRecord>): string {
   return computeContactDisplayName(contact)
@@ -49,15 +65,64 @@ const EMPTY_CONTACT = {
   information: ''
 }
 
-function buildManagedFieldSummary(contact: ContactRecord): Array<{ key: string; value: string }> {
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // fall through
+  }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return ok
+  } catch {
+    return false
+  }
+}
+
+function buildManagedFieldSummary(
+  contact: ContactRecord,
+  definitions: ManagedFieldDefinition[] = []
+): ManagedFieldSummaryEntry[] {
+  const definitionMeta = new Map(
+    definitions.map((definition, index) => [
+      getManagedFieldKey(definition),
+      { label: definition.label, index }
+    ])
+  )
+
   return Object.entries(getContactManagedFieldValues(contact))
     .filter(([, value]) => value.trim().length > 0)
-    .map(([key, value]) => ({ key, value }))
+    .map(([key, value], originalIndex) => {
+      const meta = definitionMeta.get(key)
+      return {
+        key,
+        label: meta?.label ?? key,
+        value,
+        order: meta?.index ?? Number.MAX_SAFE_INTEGER,
+        originalIndex
+      }
+    })
+    .sort((left, right) => {
+      if (left.order !== right.order) {
+        return left.order - right.order
+      }
+      return left.originalIndex - right.originalIndex
+    })
+    .map(({ key, label, value }) => ({ key, label, value }))
 }
 
 export function DossierContactsSection({
   dossierId,
-  dossierName,
   entries,
   error,
   isLoading,
@@ -69,8 +134,20 @@ export function DossierContactsSection({
   const profile = useEntityStore((state) => state.profile)
   const [editor, setEditor] = useState<ContactEditorState>(null)
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null)
+  const [copiedField, setCopiedField] = useState<{ uuid: string; field: string } | null>(null)
   const [searchFilter, setSearchFilter] = useState('')
   const [sortOrder, setSortOrder] = useState<SortOrder>('name-asc')
+
+  const isCopied = (uuid: string, field: string): boolean =>
+    copiedField?.uuid === uuid && copiedField?.field === field
+
+  const handleCopy = (uuid: string, field: string, text: string): void => {
+    void copyToClipboard(text).then((ok) => {
+      if (!ok) return
+      setCopiedField({ uuid, field })
+      setTimeout(() => setCopiedField(null), 1500)
+    })
+  }
 
   const searchTerms = searchFilter
     .trim()
@@ -78,23 +155,17 @@ export function DossierContactsSection({
     .split(/\s+/)
     .filter((term) => term.length > 0)
 
-  const filteredEntries = useMemo(() => {
-    const managedFieldDefinitions = normalizeManagedFieldsConfig(
-      profile?.managedFields,
-      profile?.profession
-    ).contacts
-    const managedFieldLabels = new Map(
-      managedFieldDefinitions.map((definition) => [
-        getManagedFieldKey(definition),
-        definition.label
-      ])
-    )
+  const managedFieldDefinitions = useMemo(
+    () => normalizeManagedFieldsConfig(profile?.managedFields).contacts,
+    [profile?.managedFields]
+  )
 
+  const filteredEntries = useMemo(() => {
     const filtered =
       searchTerms.length === 0
         ? entries
         : entries.filter((entry) => {
-            const managedValues = buildManagedFieldSummary(entry)
+            const managedValues = buildManagedFieldSummary(entry, managedFieldDefinitions)
             const displayName = getContactDisplayName(entry)
             return searchTerms.every(
               (term) =>
@@ -108,7 +179,7 @@ export function DossierContactsSection({
                 managedValues.some(
                   (field) =>
                     field.value.toLowerCase().includes(term) ||
-                    (managedFieldLabels.get(field.key) ?? field.key).toLowerCase().includes(term)
+                    field.label.toLowerCase().includes(term)
                 )
             )
           })
@@ -118,44 +189,49 @@ export function DossierContactsSection({
       const cmp = aName.localeCompare(bName, undefined, { sensitivity: 'base' })
       return sortOrder === 'name-asc' ? cmp : -cmp
     })
-  }, [entries, profile?.managedFields, profile?.profession, searchTerms, sortOrder])
+  }, [entries, managedFieldDefinitions, searchTerms, sortOrder])
 
-  const managedFieldLabels = new Map(
-    normalizeManagedFieldsConfig(profile?.managedFields, profile?.profession).contacts.map(
-      (definition) => [getManagedFieldKey(definition), definition.label]
-    )
-  )
+  const countLabel =
+    entries.length === 0
+      ? null
+      : filteredEntries.length === entries.length
+        ? t('contacts.count_total', {
+            count: entries.length,
+            defaultValue: '{{count}} contact(s)'
+          })
+        : t('contacts.count_filtered', {
+            count: filteredEntries.length,
+            total: entries.length,
+            defaultValue: '{{count}} sur {{total}}'
+          })
 
   return (
     <>
-      <Card className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
-              {t('contacts.sectionBadge')}
-            </p>
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={disabled}
-            onClick={() => setEditor(EMPTY_CONTACT)}
-          >
-            {t('contacts.addButton')}
-          </Button>
-        </div>
+      <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+        <SectionHeader
+          badge={t('contacts.sectionBadge')}
+          count={countLabel}
+          actions={
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={disabled}
+              onClick={() => setEditor(EMPTY_CONTACT)}
+            >
+              {t('contacts.addButton')}
+            </Button>
+          }
+        />
 
         {error ? (
-          <div className="shrink-0 rounded-2xl border border-rose-300/35 bg-rose-300/10 p-4 text-sm text-rose-100">
+          <div className="shrink-0 rounded-2xl border border-[#e8c7c7] bg-[#fbf0f0] p-4 text-sm text-[#9c2f2f]">
             {error}
           </div>
         ) : null}
 
-        <DelegatedPrompt prompt={buildPrompt('contacts', { dossierName })} className="shrink-0" />
-
         {isLoading ? (
-          <p className="shrink-0 rounded-2xl border border-dashed border-white/10 bg-slate-950/25 p-4 text-sm text-slate-300">
+          <p className="shrink-0 rounded-2xl border border-dashed border-[#e5e3da] bg-white p-4 text-sm text-[#1a1a1a]">
             {t('contacts.loadingState')}
           </p>
         ) : entries.length === 0 ? (
@@ -163,164 +239,253 @@ export function DossierContactsSection({
             type="button"
             disabled={disabled}
             onClick={() => setEditor(EMPTY_CONTACT)}
-            className="w-full shrink-0 rounded-2xl border border-dashed border-white/10 bg-slate-950/25 p-4 text-left text-sm text-slate-300 transition hover:border-aurora/50 hover:text-slate-100 disabled:pointer-events-none disabled:opacity-50"
+            className="w-full shrink-0 rounded-2xl border border-dashed border-[#e5e3da] bg-white p-4 text-left text-sm text-[#1a1a1a] transition hover:border-aurora/50 hover:text-[#1a1a1a] disabled:pointer-events-none disabled:opacity-50"
           >
             {t('contacts.emptyState')}
           </button>
         ) : (
           <>
-            <div className="grid shrink-0 gap-3 md:grid-cols-[minmax(0,1fr)_13rem]">
-              <label
-                htmlFor="contacts-search"
-                className="flex flex-col gap-2 text-sm text-slate-100"
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <SearchField
+                id="contacts-search"
+                value={searchFilter}
+                onChange={setSearchFilter}
+                placeholder={t('contacts.filter.searchPlaceholder')}
+                ariaLabel={t('contacts.filter.searchLabel')}
+              />
+              <PillSelect<SortOrder>
+                id="contacts-sort"
+                value={sortOrder}
+                onChange={setSortOrder}
+                ariaLabel={t('contacts.filter.sortLabel')}
               >
-                <span>{t('contacts.filter.searchLabel')}</span>
-                <input
-                  id="contacts-search"
-                  type="search"
-                  value={searchFilter}
-                  onChange={(event) => setSearchFilter(event.target.value)}
-                  placeholder={t('contacts.filter.searchPlaceholder')}
-                  className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-aurora focus:ring-2 focus:ring-aurora/35"
-                />
-              </label>
-              <label htmlFor="contacts-sort" className="flex flex-col gap-2 text-sm text-slate-100">
-                <span>{t('contacts.filter.sortLabel')}</span>
-                <select
-                  id="contacts-sort"
-                  value={sortOrder}
-                  onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-                  className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-aurora focus:ring-2 focus:ring-aurora/35"
-                >
-                  <option value="name-asc">{t('contacts.filter.sortNameAsc')}</option>
-                  <option value="name-desc">{t('contacts.filter.sortNameDesc')}</option>
-                </select>
-              </label>
+                <option value="name-asc">{t('contacts.filter.sortNameAsc')}</option>
+                <option value="name-desc">{t('contacts.filter.sortNameDesc')}</option>
+              </PillSelect>
             </div>
 
             {filteredEntries.length === 0 ? (
-              <p className="shrink-0 rounded-2xl border border-dashed border-white/10 bg-slate-950/25 p-4 text-sm text-slate-300">
+              <p className="shrink-0 rounded-2xl border border-dashed border-[#e5e3da] bg-white p-4 text-sm text-[#1a1a1a]">
                 {t('contacts.noResults')}
               </p>
             ) : (
-              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                <ul className="space-y-3">
-                  {filteredEntries.map((entry) => (
-                    <li
-                      key={entry.uuid}
-                      className="rounded-2xl border border-white/10 bg-slate-950/35 p-4"
-                    >
-                      <div className="grid grid-cols-[1fr_1fr_auto] gap-x-4 gap-y-3">
-                        {/* Colonne gauche : nom + badge */}
-                        <div className="space-y-1.5">
-                          <p className="font-medium text-slate-100">
-                            {getContactDisplayName(entry)}
-                          </p>
-                          {entry.role ? (
-                            <span className="inline-block rounded-full border border-aurora/25 bg-aurora/10 px-2 py-1 text-xs text-aurora-soft">
-                              {entry.role}
-                            </span>
-                          ) : null}
-                        </div>
-
-                        {/* Colonne du milieu : détails */}
-                        <div className="space-y-0.5">
-                          {entry.institution ? (
-                            <p className="text-sm text-slate-300">{entry.institution}</p>
-                          ) : null}
-                          {entry.addressLine || entry.city ? (
-                            <p className="whitespace-pre-wrap text-sm text-slate-400">
-                              {buildAddressFields(entry).addressFormatted}
-                            </p>
-                          ) : null}
-                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-400">
-                            {entry.phone ? <span>{entry.phone}</span> : null}
-                            {entry.email ? <span>{entry.email}</span> : null}
-                          </div>
-                        </div>
-
-                        {/* Colonne droite : actions */}
-                        <div className="flex flex-wrap items-start justify-end gap-2">
-                          {confirmingDeleteId === entry.uuid ? (
-                            <div className="flex items-center gap-2 rounded-xl border border-rose-400/30 bg-rose-400/8 px-3 py-1.5">
-                              <span className="text-xs font-semibold text-rose-300">
-                                {t('contacts.deleteConfirmLabel')}
-                              </span>
+              <ListContainer>
+                <ul className="h-full divide-y divide-deep-space overflow-y-auto">
+                  {filteredEntries.map((entry) => {
+                    const isConfirming = confirmingDeleteId === entry.uuid
+                    const managedFieldSummary = buildManagedFieldSummary(
+                      entry,
+                      managedFieldDefinitions
+                    )
+                    const addressFormatted = buildAddressFields(entry).addressFormatted
+                    return (
+                      <li
+                        key={entry.uuid}
+                        className="group relative px-5 py-4 transition-colors duration-150 hover:bg-[#fbf9f4]"
+                      >
+                        <div className="flex items-start justify-between gap-x-4">
+                          <div className="grid min-w-0 flex-1 gap-x-6 gap-y-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(10rem,0.8fr)_minmax(12rem,1fr)]">
+                            <div className="group/nameaddr flex min-w-0 items-center gap-1.5 overflow-hidden lg:col-start-1 lg:row-start-1">
+                              <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+                                <p className="text-sm font-semibold text-[#1a1a1a]">
+                                  {getContactDisplayName(entry)}
+                                </p>
+                                {entry.institution &&
+                                (entry.firstName || entry.lastName || entry.title) ? (
+                                  <span className="text-xs text-[#5c5c5a]">
+                                    {entry.institution}
+                                  </span>
+                                ) : null}
+                              </div>
                               <button
                                 type="button"
-                                disabled={disabled}
-                                onClick={async () => {
-                                  await onDelete({ dossierId, contactUuid: entry.uuid })
-                                  setConfirmingDeleteId(null)
+                                title={
+                                  isCopied(entry.uuid, 'name-address')
+                                    ? 'Copié !'
+                                    : 'Copier nom + adresse'
+                                }
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleCopy(
+                                    entry.uuid,
+                                    'name-address',
+                                    [getContactDisplayName(entry), addressFormatted]
+                                      .filter(Boolean)
+                                      .join('\n')
+                                  )
                                 }}
-                                className="rounded-lg bg-rose-500/20 px-2 py-0.5 text-xs font-semibold text-rose-300 transition hover:bg-rose-500/30 disabled:opacity-50"
+                                className={cn(
+                                  'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition-all',
+                                  isCopied(entry.uuid, 'name-address')
+                                    ? 'text-aurora opacity-100'
+                                    : 'text-[#b0afa9] opacity-0 group-hover/nameaddr:opacity-100 hover:text-aurora'
+                                )}
                               >
-                                {t('contacts.deleteConfirmAction')}
-                              </button>
-                              <button
-                                type="button"
-                                disabled={disabled}
-                                onClick={() => setConfirmingDeleteId(null)}
-                                className="rounded-lg px-2 py-0.5 text-xs text-slate-400 transition hover:bg-white/5 hover:text-slate-200 disabled:opacity-50"
-                              >
-                                {t('contacts.deleteCancelAction')}
+                                {isCopied(entry.uuid, 'name-address') ? (
+                                  <CheckIcon />
+                                ) : (
+                                  <CopyIcon />
+                                )}
                               </button>
                             </div>
-                          ) : (
-                            <>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
+                            <div className="flex min-w-0 items-baseline lg:col-start-2 lg:row-start-1">
+                              {entry.role ? (
+                                <span className="rounded-full border border-aurora/40 bg-aurora/15 px-2 py-0.5 text-xs text-aurora">
+                                  {entry.role}
+                                </span>
+                              ) : null}
+                            </div>
+
+                            {addressFormatted || entry.phone || entry.email || entry.information ? (
+                              <>
+                                <p className="min-w-0 overflow-hidden whitespace-pre-wrap text-sm text-[#5c5c5a] lg:col-start-1 lg:row-start-2">
+                                  {addressFormatted}
+                                </p>
+                                <div className="flex flex-col gap-0.5 text-sm text-[#5c5c5a] lg:col-start-2 lg:row-start-2">
+                                  {entry.phone ? (
+                                    <span className="group/phone inline-flex items-center gap-1">
+                                      <span className="tabular-nums">{entry.phone}</span>
+                                      <button
+                                        type="button"
+                                        title={
+                                          isCopied(entry.uuid, 'phone')
+                                            ? 'Copié !'
+                                            : 'Copier le téléphone'
+                                        }
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          handleCopy(entry.uuid, 'phone', entry.phone!)
+                                        }}
+                                        className={cn(
+                                          'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded transition-all',
+                                          isCopied(entry.uuid, 'phone')
+                                            ? 'text-aurora opacity-100'
+                                            : 'text-[#b0afa9] opacity-0 group-hover/phone:opacity-100 hover:text-aurora'
+                                        )}
+                                      >
+                                        {isCopied(entry.uuid, 'phone') ? (
+                                          <CheckIcon />
+                                        ) : (
+                                          <CopyIcon />
+                                        )}
+                                      </button>
+                                    </span>
+                                  ) : null}
+                                  {entry.email ? (
+                                    <span className="group/email inline-flex min-w-0 items-center gap-1">
+                                      <span className="truncate">{entry.email}</span>
+                                      <button
+                                        type="button"
+                                        title={
+                                          isCopied(entry.uuid, 'email')
+                                            ? 'Copié !'
+                                            : "Copier l'e-mail"
+                                        }
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          handleCopy(entry.uuid, 'email', entry.email!)
+                                        }}
+                                        className={cn(
+                                          'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded transition-all',
+                                          isCopied(entry.uuid, 'email')
+                                            ? 'text-aurora opacity-100'
+                                            : 'text-[#b0afa9] opacity-0 group-hover/email:opacity-100 hover:text-aurora'
+                                        )}
+                                      >
+                                        {isCopied(entry.uuid, 'email') ? (
+                                          <CheckIcon />
+                                        ) : (
+                                          <CopyIcon />
+                                        )}
+                                      </button>
+                                    </span>
+                                  ) : null}
+                                </div>
+                                {entry.information ? (
+                                  <p className="whitespace-pre-wrap text-xs text-[#8a8a85] lg:col-span-2 lg:col-start-1 lg:row-start-3">
+                                    {entry.information}
+                                  </p>
+                                ) : null}
+                              </>
+                            ) : null}
+                            {managedFieldSummary.length > 0 ? (
+                              <dl className="mt-2 grid min-w-0 gap-1.5 rounded-lg border border-[#e5e3da] bg-[#fbf9f4] p-2.5 lg:col-start-3 lg:row-span-3 lg:row-start-1 lg:mt-0">
+                                {managedFieldSummary.map((field) => (
+                                  <div
+                                    key={`${entry.uuid}-${field.key}`}
+                                    className="grid min-w-0 grid-cols-[minmax(5.5rem,0.42fr)_minmax(0,1fr)] items-start gap-x-2"
+                                  >
+                                    <dt
+                                      title={field.label}
+                                      className="min-w-0 truncate text-[11px] font-medium text-[#8a8a85]"
+                                    >
+                                      {field.label}
+                                    </dt>
+                                    <dd className="min-w-0 whitespace-pre-wrap break-words text-xs leading-5 text-[#1a1a1a]">
+                                      {field.value}
+                                    </dd>
+                                  </div>
+                                ))}
+                              </dl>
+                            ) : null}
+                          </div>
+                          <div className="relative flex shrink-0 items-center gap-1">
+                            <div
+                              className={
+                                isConfirming
+                                  ? 'invisible flex items-center gap-1'
+                                  : 'flex items-center gap-1'
+                              }
+                            >
+                              <IconButton
+                                label={t('contacts.editButton')}
                                 disabled={disabled}
                                 onClick={() => setEditor(entry)}
                               >
-                                {t('contacts.editButton')}
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
+                                <PencilIcon />
+                              </IconButton>
+                              <IconButton
+                                label={t('contacts.deleteButton')}
+                                tone="danger"
                                 disabled={disabled}
                                 onClick={() => setConfirmingDeleteId(entry.uuid)}
                               >
-                                {t('contacts.deleteButton')}
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-
-                      {buildManagedFieldSummary(entry).length > 0 ? (
-                        <div className="mt-3 grid gap-2 border-t border-white/10 pt-3 md:grid-cols-2 xl:grid-cols-3">
-                          {buildManagedFieldSummary(entry).map((field) => (
-                            <div
-                              key={`${entry.uuid}-${field.key}`}
-                              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2"
-                            >
-                              <p className="text-[11px] uppercase tracking-wide text-slate-500">
-                                {managedFieldLabels.get(field.key) ?? field.key}
-                              </p>
-                              <p className="text-sm text-slate-200">{field.value}</p>
+                                <TrashIcon />
+                              </IconButton>
                             </div>
-                          ))}
+                            {isConfirming ? (
+                              <div className="absolute right-0 top-1/2 -translate-y-1/2">
+                                <DeleteConfirmTray
+                                  label={t('contacts.deleteConfirmLabel')}
+                                  confirmLabel={t('contacts.deleteConfirmAction')}
+                                  cancelLabel={t('contacts.deleteCancelAction')}
+                                  disabled={disabled}
+                                  onConfirm={async () => {
+                                    await onDelete({ dossierId, contactUuid: entry.uuid })
+                                    setConfirmingDeleteId(null)
+                                  }}
+                                  onCancel={() => setConfirmingDeleteId(null)}
+                                />
+                              </div>
+                            ) : null}
+                          </div>
                         </div>
-                      ) : null}
-                    </li>
-                  ))}
+                      </li>
+                    )
+                  })}
                 </ul>
-              </div>
+              </ListContainer>
             )}
           </>
         )}
-      </Card>
+      </div>
 
       {editor ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/78 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-[rgba(15,122,138,0.18)] p-4 backdrop-blur-sm">
           <div
             role="dialog"
             aria-modal="true"
-            className="flex max-h-[calc(100vh-3rem)] w-full max-w-6xl flex-col overflow-y-auto rounded-[28px] border border-sky-200/18 bg-[rgba(16,26,44,0.985)] p-6 shadow-[0_32px_100px_rgba(2,6,23,0.62)]"
+            className="flex max-h-[calc(100vh-3rem)] w-full max-w-6xl flex-col overflow-y-auto rounded-[28px] border border-[#d1cfc6] bg-[#f4f3ee] p-6 shadow-[0_30px_80px_rgba(10,92,104,0.28)] ring-1 ring-aurora/15"
           >
             <ContactForm
               key={editor.uuid ?? 'new-contact'}

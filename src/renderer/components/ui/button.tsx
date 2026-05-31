@@ -5,12 +5,12 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@renderer/lib/utils'
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aurora disabled:pointer-events-none disabled:opacity-50',
+  'inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aurora focus-visible:ring-offset-2 focus-visible:ring-offset-[#eeece3] disabled:pointer-events-none disabled:opacity-50',
   {
     variants: {
       variant: {
-        default: 'bg-aurora text-deep-space hover:bg-aurora/90',
-        ghost: 'bg-transparent text-aurora-soft hover:bg-aurora/10'
+        default: 'bg-aurora text-white hover:bg-aurora-soft shadow-sm',
+        ghost: 'bg-transparent text-aurora hover:bg-aurora/10'
       },
       size: {
         default: 'h-10 px-4 py-2',

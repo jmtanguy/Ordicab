@@ -59,6 +59,27 @@ export interface DataToolHistoryEntry {
 
 const DOCUMENT_LIST_TOOL_MAX_CHARS = 12_000
 
+function formatEurosFromCents(cents: number): string {
+  return new Intl.NumberFormat('fr-FR', {
+    style: 'currency',
+    currency: 'EUR'
+  }).format(cents / 100)
+}
+
+export function enrichMoneyFieldsForAi(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => enrichMoneyFieldsForAi(item))
+  if (!isJsonRecord(value)) return value
+
+  const out: Record<string, unknown> = {}
+  for (const [key, child] of Object.entries(value)) {
+    out[key] = enrichMoneyFieldsForAi(child)
+    if (key.endsWith('Cents') && typeof child === 'number') {
+      out[`${key.slice(0, -'Cents'.length)}Euros`] = formatEurosFromCents(child)
+    }
+  }
+  return out
+}
+
 // ── Pure helpers ──────────────────────────────────────────────────────────────
 
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
@@ -676,22 +697,24 @@ export class DataToolExecutor {
       const filtered = filterDossierId
         ? all.filter((inv) => inv.dossierId === filterDossierId)
         : all
-      return JSON.stringify({
-        invoices: filtered.map((inv) => ({
-          invoiceId: inv.id,
-          number: inv.number,
-          documentType: inv.documentType,
-          dossierId: inv.dossierId,
-          dossierLabel: inv.dossierLabel,
-          clientLabel: inv.clientLabel,
-          issuedAt: inv.issuedAt,
-          dueAt: inv.dueAt,
-          totalTtcCents: inv.totalTtcCents,
-          remainingAmountCents: inv.remainingAmountCents,
-          status: inv.status,
-          paymentStatus: inv.paymentStatus
-        }))
-      })
+      return JSON.stringify(
+        enrichMoneyFieldsForAi({
+          invoices: filtered.map((inv) => ({
+            invoiceId: inv.id,
+            number: inv.number,
+            documentType: inv.documentType,
+            dossierId: inv.dossierId,
+            dossierLabel: inv.dossierLabel,
+            clientLabel: inv.clientLabel,
+            issuedAt: inv.issuedAt,
+            dueAt: inv.dueAt,
+            totalTtcCents: inv.totalTtcCents,
+            remainingAmountCents: inv.remainingAmountCents,
+            status: inv.status,
+            paymentStatus: inv.paymentStatus
+          }))
+        })
+      )
     }
 
     if (toolName === 'invoice_get') {
@@ -699,7 +722,7 @@ export class DataToolExecutor {
       if (!invoiceId) return JSON.stringify({ error: 'invoiceId is required.' })
       const invoice = await invoiceService.get(invoiceId).catch(() => null)
       if (!invoice) return JSON.stringify({ error: `Invoice not found: ${invoiceId}` })
-      return JSON.stringify({ invoice })
+      return JSON.stringify(enrichMoneyFieldsForAi({ invoice }))
     }
 
     if (toolName === 'legal_search_legifrance') {
@@ -804,6 +827,26 @@ export class DataToolExecutor {
         : JSON.stringify({ error: `Contact not found: ${contactId}` })
     }
 
+    if (toolName === 'dossier_billing_item_list') {
+      try {
+        const detail = await dossierService.getDossier({ dossierId: targetDossierId })
+        const status = typeof args.status === 'string' ? args.status : ''
+        const billingItems =
+          status.length > 0
+            ? detail.billingItems.filter((item) => item.status === status)
+            : detail.billingItems
+        return JSON.stringify(
+          enrichMoneyFieldsForAi({
+            dossierId: detail.uuid ?? detail.id,
+            dossierName: detail.name,
+            billingItems
+          })
+        )
+      } catch {
+        return JSON.stringify({ error: `Dossier not found: ${targetDossierId}` })
+      }
+    }
+
     if (toolName === 'document_list') {
       const docs = await documentService
         .listDocuments({ dossierId: targetDossierId })
@@ -851,7 +894,7 @@ export class DataToolExecutor {
     if (toolName === 'dossier_get') {
       try {
         const detail = await dossierService.getDossier({ dossierId: targetDossierId })
-        return JSON.stringify({ dossier: detail })
+        return JSON.stringify(enrichMoneyFieldsForAi({ dossier: detail }))
       } catch {
         return JSON.stringify({ error: `Dossier not found: ${targetDossierId}` })
       }

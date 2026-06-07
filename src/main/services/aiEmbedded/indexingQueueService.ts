@@ -171,6 +171,13 @@ interface InitialBatchTracker {
 // is dominated by I/O + the inference worker, which is already serialised).
 const DEFAULT_CONCURRENCY = 1
 const DEFAULT_STATUS_DEBOUNCE_MS = 250
+/**
+ * Wall-clock budget for awaitIdle() before it gives up (tests + graceful
+ * shutdown). Generous on purpose: real dossiers can have hundreds of docs and
+ * CI disks are slow, but a hung worker should still surface rather than hang
+ * the suite forever.
+ */
+const AWAIT_IDLE_TIMEOUT_MS = 30_000
 
 export function createIndexingQueueService(
   options: IndexingQueueServiceOptions
@@ -645,9 +652,16 @@ export function createIndexingQueueService(
     // we can't await their Promises — those only resolve on dispose. Instead
     // we poll the aggregated counters: idle == nothing pending AND nothing
     // running across every tracked dossier. setImmediate yields one tick per
-    // iteration, which is enough for the worker to advance through its await
-    // chain (stat → hash → mkdir → atomicWrite → embed).
-    for (let i = 0; i < 2000; i++) {
+    // iteration, letting the worker advance through its await chain
+    // (stat → hash → mkdir → atomicWrite → embed).
+    //
+    // The cap is a WALL-CLOCK deadline, not an iteration count: a single fs op
+    // (sha256, atomic temp-file + rename) can span many setImmediate ticks on a
+    // slow/loaded CI disk, so an iteration cap that's ample on a fast dev box
+    // can trip mid-job under CI load (symptom: "timed out — running:1"). A time
+    // budget tracks the work that actually has to finish, not the tick count.
+    const deadline = now() + AWAIT_IDLE_TIMEOUT_MS
+    for (;;) {
       let totalPending = 0
       let totalRunning = 0
       for (const state of dossierStates.values()) {
@@ -655,9 +669,11 @@ export function createIndexingQueueService(
         totalRunning += state.running
       }
       if (totalPending === 0 && totalRunning === 0 && totalQueueSize() === 0) return
+      if (now() >= deadline) {
+        throw new Error(`awaitIdle: timed out — totals: ${JSON.stringify(getSnapshot().totals)}`)
+      }
       await new Promise<void>((resolve) => setImmediate(resolve))
     }
-    throw new Error(`awaitIdle: timed out — totals: ${JSON.stringify(getSnapshot().totals)}`)
   }
 
   async function dispose(): Promise<void> {

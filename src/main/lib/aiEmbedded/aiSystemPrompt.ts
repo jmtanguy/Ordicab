@@ -167,7 +167,7 @@ export function buildToolSystemPrompt(context: SystemPromptContext): string {
   )
   if (locale === 'fr') {
     parts.push(
-      'Format des nombres : les montants lus dans les documents (factures, devis, relevés…) sont écrits au format français — la virgule est le séparateur décimal et l\'espace (ou le point) le séparateur de milliers. ' +
+      "Format des nombres : les montants lus dans les documents (factures, devis, relevés…) sont écrits au format français — la virgule est le séparateur décimal et l'espace (ou le point) le séparateur de milliers. " +
         'Ainsi "900,00" vaut neuf cents (900), pas quatre-vingt-dix mille ; "1 234,56" vaut mille deux cent trente-quatre virgule cinquante-six ; "1.234,56" vaut la même chose. ' +
         'Ne supprime jamais la virgule décimale pour concaténer les chiffres (ne transforme pas "900,00" en 90000). Conserve les montants tels qu\'ils sont écrits dans le document et restitue-les au format français.'
     )

@@ -59,7 +59,14 @@ describe('runDocumentSearch', () => {
     const documentService = makeService({
       dossierId: 'dos-1',
       query: 'pension',
-      hits: [makeHit({ documentId: 'a.pdf', score: 1.0, snippet: 'vector-perfect', matchKind: 'semantic' })]
+      hits: [
+        makeHit({
+          documentId: 'a.pdf',
+          score: 1.0,
+          snippet: 'vector-perfect',
+          matchKind: 'semantic'
+        })
+      ]
     })
 
     const raw = await runDocumentSearch({

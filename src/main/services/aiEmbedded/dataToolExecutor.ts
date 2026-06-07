@@ -548,9 +548,7 @@ export async function runDocumentSearch(args: {
     // Score is a cosine similarity only for semantic hits; for keyword (exact)
     // hits it is an internal word-count, not meaningful to the model — so report
     // it only for semantic matches.
-    ...(hit.matchKind === 'keyword'
-      ? {}
-      : { score: Number(hit.score.toFixed(3)) }),
+    ...(hit.matchKind === 'keyword' ? {} : { score: Number(hit.score.toFixed(3)) }),
     charStart: hit.charStart,
     charEnd: hit.charEnd
   }))

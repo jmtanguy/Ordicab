@@ -245,6 +245,28 @@ describe('updater service', () => {
     expect(updater.quitAndInstall).toHaveBeenCalledWith(false, true)
   })
 
+  it('suppresses the benign Squirrel error emitted during the install handoff', async () => {
+    const updater = createUpdaterMock()
+    const service = createUpdaterService({
+      updater,
+      pendingUpdateStore: createPendingUpdateStore({
+        version: '1.2.0',
+        downloadedAt: '2026-03-11T08:00:00.000Z'
+      }),
+      logger: createLogger(),
+      isPackaged: true
+    })
+
+    // Bind the error handler, then begin the install.
+    await service.checkForUpdatesOnStartup()
+    await service.installNow()
+
+    // Squirrel.Mac emits this during teardown even though the install succeeds.
+    updater.emit('error', new Error('This command is disabled and cannot be executed.'))
+
+    expect(service.getStatus()).not.toMatchObject({ kind: 'error' })
+  })
+
   it('defers install to next quit when installOnQuit is invoked', async () => {
     const updater = createUpdaterMock()
     const service = createUpdaterService({

@@ -132,20 +132,21 @@ describe('templateService — Partie A: auto-DOCX on create', () => {
 })
 
 describe('templateService — Partie B: seedDefaultTemplatesIfEmpty', () => {
-  it('seeds 9 essentials on empty domain and reports the count', async () => {
+  it('seeds 14 essentials on empty domain and reports the count', async () => {
     const domainPath = await createTempDir()
     await mkdir(join(domainPath, '.ordicab'), { recursive: true })
 
     const service = createService(domainPath)
     const result = await service.seedDefaultTemplatesIfEmpty()
-    expect(result).toEqual({ seeded: 9 })
+    expect(result).toEqual({ seeded: 14 })
 
     const listed = await service.list()
-    expect(listed.length).toBe(9)
+    expect(listed.length).toBe(14)
     const names = listed.map((t) => t.name).sort()
     expect(names).toContain('Facture — Standard')
     expect(names).toContain('Convention d’honoraires — Forfait')
     expect(names).toContain('Email — Confirmation de rendez-vous')
+    expect(names).toContain('Désignation — Aide juridictionnelle')
   })
 
   it('is idempotent — second call returns { seeded: 0 } and does not duplicate', async () => {
@@ -158,7 +159,7 @@ describe('templateService — Partie B: seedDefaultTemplatesIfEmpty', () => {
     expect(second).toEqual({ seeded: 0 })
 
     const listed = await service.list()
-    expect(listed.length).toBe(9)
+    expect(listed.length).toBe(14)
   })
 
   it('does not run on already-populated domains', async () => {
@@ -175,7 +176,7 @@ describe('templateService — Partie B: seedDefaultTemplatesIfEmpty', () => {
     expect(listed[0]?.name).toBe('Pre-existing')
   })
 
-  it('combines with Partie A: 8 non-emails get hasDocxSource=true, the lone email stays HTML-only', async () => {
+  it('combines with Partie A: 13 non-emails get hasDocxSource=true, the lone email stays HTML-only', async () => {
     const domainPath = await createTempDir()
     await mkdir(join(domainPath, '.ordicab'), { recursive: true })
 
@@ -189,7 +190,7 @@ describe('templateService — Partie B: seedDefaultTemplatesIfEmpty', () => {
     )
     expect(emails.length).toBe(1)
     expect(emails[0]?.hasDocxSource).toBe(false)
-    expect(nonEmails.length).toBe(8)
+    expect(nonEmails.length).toBe(13)
     for (const tpl of nonEmails) {
       expect(tpl.hasDocxSource).toBe(true)
     }

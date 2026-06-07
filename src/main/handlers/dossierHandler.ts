@@ -1,9 +1,12 @@
 import { IPC_CHANNELS, type IpcError } from '@shared/types'
 
 import {
+  dossierCreateInputSchema,
   dossierRegistrationInputSchema,
   dossierScopedQuerySchema,
-  dossierUnregisterInputSchema
+  dossierSetupLegalAidInputSchema,
+  dossierUnregisterInputSchema,
+  dossierUpdateLegalAidInputSchema
 } from '@shared/validation/dossier'
 import {
   dossierBillingItemDeleteInputSchema,
@@ -26,16 +29,21 @@ import {
   DossierRegistryError,
   type DossierRegistryService
 } from '../services/domain/dossierRegistryService'
+import {
+  AjOrchestrationError,
+  type AjOrchestrationService
+} from '../services/domain/ajOrchestrationService'
 import { type IpcMainLike, mapIpcError, registerIpcHandler } from './ipc'
 
 const mapDossierError = (error: unknown, fallback: string): IpcError =>
   mapIpcError(error, fallback, {
     validationMessage: 'Invalid dossier input.',
-    errorClasses: [DossierRegistryError]
+    errorClasses: [DossierRegistryError, AjOrchestrationError]
   })
 
 export function registerDossierHandlers(options: {
   dossierService: DossierRegistryService
+  ajOrchestrationService: AjOrchestrationService
   ipcMain: IpcMainLike
 }): void {
   registerIpcHandler({
@@ -79,6 +87,15 @@ export function registerDossierHandlers(options: {
     fallback: 'Unable to register dossier.',
     mapError: mapDossierError,
     handle: (input) => options.dossierService.registerDossier(input)
+  })
+
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.create,
+    schema: dossierCreateInputSchema,
+    fallback: 'Unable to create dossier.',
+    mapError: mapDossierError,
+    handle: (input) => options.dossierService.createDossier(input)
   })
 
   registerIpcHandler({
@@ -169,6 +186,24 @@ export function registerDossierHandlers(options: {
     fallback: 'Unable to delete dossier billing item.',
     mapError: mapDossierError,
     handle: (input) => options.dossierService.deleteBillingItem(input)
+  })
+
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.updateLegalAid,
+    schema: dossierUpdateLegalAidInputSchema,
+    fallback: "Impossible d'enregistrer l'aide juridictionnelle.",
+    mapError: mapDossierError,
+    handle: (input) => options.dossierService.updateLegalAid(input)
+  })
+
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.setupLegalAid,
+    schema: dossierSetupLegalAidInputSchema,
+    fallback: "Impossible de configurer l'aide juridictionnelle.",
+    mapError: mapDossierError,
+    handle: (input) => options.ajOrchestrationService.setupLegalAid(input)
   })
 
   registerIpcHandler({

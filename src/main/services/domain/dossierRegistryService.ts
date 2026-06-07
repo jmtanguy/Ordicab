@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import { readdir, readFile, rm, stat } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rm, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 
 import type {
   DossierBillingItem,
   DossierBillingItemDeleteInput,
   DossierBillingItemUpsertInput,
+  DossierCreateInput,
   DossierFeeAgreement,
   DossierFeeAgreementArchiveInput,
   DossierFeeAgreementDeleteInput,
@@ -17,6 +18,7 @@ import type {
   DossierKeyDateUpsertInput,
   DossierKeyReferenceDeleteInput,
   DossierKeyReferenceUpsertInput,
+  DossierLegalAid,
   DossierRegistrationInput,
   DossierScopedQuery,
   DossierStatus,
@@ -35,6 +37,7 @@ import { computeBillingItemTotals } from '@shared/billingCalculations'
 import {
   billingItemIndexSchema,
   dossierBillingItemSchema,
+  dossierLegalAidSchema,
   dossierMetadataFileSchema,
   feeAgreementSchema,
   keyDateIndexSchema,
@@ -97,8 +100,13 @@ export interface DossierRegistryService {
   getDossier: (input: DossierScopedQuery) => Promise<DossierDetail>
   openDossier: (input: DossierScopedQuery) => Promise<DossierDetail>
   registerDossier: (input: DossierRegistrationInput) => Promise<DossierSummary>
+  createDossier: (input: DossierCreateInput) => Promise<DossierSummary>
   unregisterDossier: (input: DossierUnregisterInput) => Promise<null>
   updateDossier: (input: DossierUpdateInput) => Promise<DossierDetail>
+  updateLegalAid: (input: {
+    dossierId: string
+    legalAid: DossierLegalAid
+  }) => Promise<DossierDetail>
   upsertKeyDate: (input: DossierKeyDateUpsertInput) => Promise<DossierDetail>
   deleteKeyDate: (input: DossierKeyDateDeleteInput) => Promise<DossierDetail>
   upsertFeeAgreement: (input: DossierFeeAgreementUpsertInput) => Promise<DossierDetail>
@@ -285,6 +293,20 @@ function deriveNextUpcomingKeyDate(
 
   const next = upcoming[0]
   return next ? { date: next.date, label: next.label } : null
+}
+
+/**
+ * Turns a free-text dossier name into a filesystem-safe folder name by replacing
+ * path separators with a dash and stripping characters that are illegal on common
+ * filesystems. The original text is kept separately as the dossier display name.
+ */
+function sanitizeDossierFolderName(name: string): string {
+  return name
+    .trim()
+    .replace(/[\\/]/g, '-')
+    .replace(/[:*?"<>|]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function validateDirectChildId(id: string): string {
@@ -748,6 +770,61 @@ export function createDossierRegistryService(
     return toDetail(saved, billingItems, keyDates)
   }
 
+  async function finalizeRegistration(
+    domainPath: string,
+    dossierId: string,
+    dossierPath: string,
+    displayName?: string
+  ): Promise<DossierSummary> {
+    const registry = await loadRegistry(domainPath)
+    if (registry.dossiers.some((entry) => entry.id === dossierId)) {
+      throw new DossierRegistryError(
+        IpcErrorCode.INVALID_INPUT,
+        'This dossier is already registered.'
+      )
+    }
+
+    const registeredAt = now().toISOString()
+    const dossierBaseName = displayName?.trim() || basename(dossierPath)
+    const metadata = createDefaultMetadata({
+      id: dossierId,
+      name: dossierBaseName,
+      registeredAt
+    })
+    metadata.keyReferences = [
+      ...metadata.keyReferences,
+      keyReferenceSchema.parse({
+        id: randomUUID(),
+        dossierId,
+        label: DOSSIER_NAME_REFERENCE_LABEL,
+        value: dossierBaseName
+      })
+    ]
+    const nextRegistry: DossierRegistryFile = {
+      dossiers: [
+        ...registry.dossiers,
+        {
+          id: dossierId,
+          uuid: metadata.uuid,
+          name: metadata.name,
+          registeredAt
+        }
+      ]
+    }
+
+    await saveMetadata(dossierPath, metadata)
+
+    try {
+      await saveRegistry(domainPath, nextRegistry)
+    } catch (error) {
+      await removeDossierMetadata(dossierPath).catch(() => undefined)
+      throw error
+    }
+
+    options.onDossierRegistered?.(dossierId, dossierPath)
+    return toSummary(metadata)
+  }
+
   return {
     listEligibleFolders: async (): Promise<DossierEligibleFolder[]> => {
       const domainPath = await resolveActiveDomainPath(options.stateFilePath)
@@ -820,53 +897,30 @@ export function createDossierRegistryService(
         )
       }
 
-      const registry = await loadRegistry(domainPath)
-      if (registry.dossiers.some((entry) => entry.id === dossierId)) {
+      return finalizeRegistration(domainPath, dossierId, dossierPath)
+    },
+
+    createDossier: async (input): Promise<DossierSummary> => {
+      const domainPath = await resolveActiveDomainPath(options.stateFilePath)
+      if (!domainPath) {
+        throw new DossierRegistryError(IpcErrorCode.NOT_FOUND, 'Active domain is not configured.')
+      }
+
+      const displayName = input.name.trim()
+      const dossierId = validateDirectChildId(sanitizeDossierFolderName(input.name))
+      const dossierPath = join(domainPath, dossierId)
+      const existing = await stat(dossierPath).catch(() => null)
+
+      if (existing) {
         throw new DossierRegistryError(
           IpcErrorCode.INVALID_INPUT,
-          'This dossier is already registered.'
+          'A folder with this name already exists.'
         )
       }
 
-      const registeredAt = now().toISOString()
-      const dossierBaseName = basename(dossierPath)
-      const metadata = createDefaultMetadata({
-        id: dossierId,
-        name: dossierBaseName,
-        registeredAt
-      })
-      metadata.keyReferences = [
-        ...metadata.keyReferences,
-        keyReferenceSchema.parse({
-          id: randomUUID(),
-          dossierId,
-          label: DOSSIER_NAME_REFERENCE_LABEL,
-          value: dossierBaseName
-        })
-      ]
-      const nextRegistry: DossierRegistryFile = {
-        dossiers: [
-          ...registry.dossiers,
-          {
-            id: dossierId,
-            uuid: metadata.uuid,
-            name: metadata.name,
-            registeredAt
-          }
-        ]
-      }
+      await mkdir(dossierPath, { recursive: false })
 
-      await saveMetadata(dossierPath, metadata)
-
-      try {
-        await saveRegistry(domainPath, nextRegistry)
-      } catch (error) {
-        await removeDossierMetadata(dossierPath).catch(() => undefined)
-        throw error
-      }
-
-      options.onDossierRegistered?.(dossierId, dossierPath)
-      return toSummary(metadata)
+      return finalizeRegistration(domainPath, dossierId, dossierPath, displayName)
     },
 
     updateDossier: async (input): Promise<DossierDetail> => {
@@ -876,8 +930,25 @@ export function createDossierRegistryService(
         type: input.type.trim(),
         information: normalizeOptionalText(input.information),
         juridiction: normalizeOptionalText(input.juridiction),
-        tribunal: normalizeOptionalText(input.tribunal)
+        tribunal: normalizeOptionalText(input.tribunal),
+        legalAid: input.legalAid ?? metadata.legalAid
       }))
+      const [billingItems, keyDates] = await Promise.all([
+        loadBillingItems(dossierPath),
+        loadKeyDates(dossierPath)
+      ])
+      return toDetail(saved, billingItems, keyDates)
+    },
+
+    updateLegalAid: async (input): Promise<DossierDetail> => {
+      const legalAid = dossierLegalAidSchema.parse(input.legalAid)
+      const { metadata: saved, dossierPath } = await mutateDossierMeta(
+        input.dossierId,
+        (metadata) => ({
+          ...metadata,
+          legalAid
+        })
+      )
       const [billingItems, keyDates] = await Promise.all([
         loadBillingItems(dossierPath),
         loadKeyDates(dossierPath)
@@ -1080,7 +1151,19 @@ export function createDossierRegistryService(
             terminationTerms: normalizeOptionalText(input.terminationTerms),
             sentAt: input.sentAt,
             signedAt: input.signedAt,
-            notes: normalizeOptionalText(input.notes)
+            notes: normalizeOptionalText(input.notes),
+            legalAidMode: input.legalAidMode,
+            legalAidType: input.legalAidMode ? input.legalAidType : undefined,
+            legalAidShareBasisPoints: input.legalAidMode
+              ? input.legalAidShareBasisPoints
+              : undefined,
+            stateRetributionHtCents: input.legalAidMode ? input.stateRetributionHtCents : undefined,
+            complementHtCents:
+              input.legalAidMode && input.legalAidType === 'partial'
+                ? input.complementHtCents
+                : undefined,
+            complementCapHtCents: input.legalAidMode ? input.complementCapHtCents : undefined,
+            legalAidVatExempt: input.legalAidMode ? input.legalAidVatExempt : undefined
           })
 
           let feeAgreements = upsertById(metadata.feeAgreements, nextEntry)

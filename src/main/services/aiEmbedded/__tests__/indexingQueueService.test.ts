@@ -15,6 +15,7 @@ import {
   computeFileSha256,
   writeIndexedHashToCache
 } from '../../../lib/aiEmbedded/embeddings/contentHashStore'
+import { encodeVectorBase64 } from '../../../lib/aiEmbedded/embeddings/embeddingService'
 import { getDossierContentCachePath } from '../../../lib/ordicab/ordicabPaths'
 import { getDocumentContentCachePath } from '../../../lib/aiEmbedded/documentContentService'
 import { atomicWrite } from '../../../lib/system/atomicWrite'
@@ -50,6 +51,7 @@ async function setup(
     enabled?: () => boolean
     concurrency?: number
     extract?: () => Promise<void>
+    isEmbeddingModelReady?: () => Promise<boolean>
   } = {}
 ): Promise<Harness> {
   const dossierRoot = await mkdtemp(join(tmpdir(), 'idx-queue-'))
@@ -93,7 +95,8 @@ async function setup(
     resolveDossierPath: async (id) => (id === dossierId ? dossierRoot : null),
     listIndexableDocuments: async (id) => (id === dossierId ? inventory : null),
     emit: emitMock,
-    isEnabled: opts.enabled ?? (() => true)
+    isEnabled: opts.enabled ?? (() => true),
+    isEmbeddingModelReady: opts.isEmbeddingModelReady
   })
 
   async function flush(): Promise<void> {
@@ -129,18 +132,57 @@ describe('IndexingQueueService — basic processing', () => {
     await rm(h.dossierRoot, { recursive: true, force: true })
   })
 
+  it('extracts but skips embedding when the embedding model is not ready', async () => {
+    const h = await setup({ isEmbeddingModelReady: async () => false })
+    const abs = await makeTxt(h.dossierRoot, 'a.txt', 'hello world')
+    h.inventory.push({ relativePath: 'a.txt', absolutePath: abs })
+
+    await h.service.enqueueDossierBatch(h.dossierId, { reason: 'initial-registration' })
+    await h.flush()
+
+    // Text is extracted (so keyword search works) but no embedding is attempted,
+    // and the document is left un-indexed for a later pass once the model lands.
+    expect(h.extractMock).toHaveBeenCalledTimes(1)
+    expect(indexerMock).not.toHaveBeenCalled()
+    expect(h.service.getSnapshot().dossiers[h.dossierId]?.indexed).toBe(0)
+
+    await h.service.dispose()
+    await rm(h.dossierRoot, { recursive: true, force: true })
+  })
+
   it('skips extraction and embedding when the cached hash matches the file', async () => {
     const h = await setup()
     const abs = await makeTxt(h.dossierRoot, 'b.txt', 'unchanged contents')
     h.inventory.push({ relativePath: 'b.txt', absolutePath: abs })
 
-    // Pre-seed the cache with the matching hash so the queue's freshness gate trips.
+    // Pre-seed the cache with the matching hash AND fresh embeddings (matching
+    // model + dim) so the queue's freshness gate trips on both axes. The gate
+    // requires text-fresh AND embeddings-fresh to skip work.
     const cacheDir = getDossierContentCachePath(h.dossierRoot)
     await mkdir(cacheDir, { recursive: true })
     const cachePath = getDocumentContentCachePath(cacheDir, abs)
     await atomicWrite(
       cachePath,
-      JSON.stringify({ version: 3, text: 'unchanged contents' }, null, 2)
+      JSON.stringify(
+        {
+          version: 3,
+          text: 'unchanged contents',
+          embeddings: {
+            model: 'Xenova/bge-m3',
+            dim: 1024,
+            chunks: [
+              {
+                charStart: 0,
+                charEnd: 18,
+                vector: encodeVectorBase64(new Float32Array(1024))
+              }
+            ],
+            createdAt: '2026-01-01T00:00:00.000Z'
+          }
+        },
+        null,
+        2
+      )
     )
     const hash = await computeFileSha256(abs)
     await writeIndexedHashToCache(cachePath, hash, 'unchanged contents'.length)

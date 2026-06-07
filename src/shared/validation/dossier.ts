@@ -18,6 +18,7 @@ import type {
   DossierUnregisterInput,
   DossierUpdateInput
 } from '@shared/domain/dossier'
+import { LEGAL_AID_STATUS_VALUES, LEGAL_AID_TYPE_VALUES } from '@shared/domain/dossier'
 
 import { dossierIdSchema } from './dossierId'
 import { dossierBillingItemSchema, feeAgreementSchema } from './billing'
@@ -43,8 +44,54 @@ const optionalInformationTextSchema = z.preprocess(
 export const dossierStatusValues = ['active', 'pending', 'completed', 'archived'] as const
 export const dossierStatusSchema = z.enum(dossierStatusValues)
 export const dossierTypeSchema = z.string()
+
+const optionalAjIsoDateSchema = z.preprocess(
+  emptyStringToUndefined,
+  z.string().trim().date().optional()
+)
+const optionalNonNegativeIntegerSchema = z.preprocess(
+  (value) => (value === '' ? undefined : value),
+  z.number().int().nonnegative().optional()
+)
+
+export const legalAidStatusSchema = z.enum(LEGAL_AID_STATUS_VALUES)
+const legalAidTypeSchema = z.enum(LEGAL_AID_TYPE_VALUES)
+
+export const dossierLegalAidSchema = z
+  .object({
+    status: legalAidStatusSchema,
+    type: legalAidTypeSchema.optional(),
+    shareBasisPoints: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.number().int().min(0).max(10_000).optional()
+    ),
+    bajDecisionNumber: optionalInformationTextSchema,
+    bajDecisionDate: optionalAjIsoDateSchema,
+    bajOffice: optionalInformationTextSchema,
+    aidNumber: optionalInformationTextSchema,
+    stateRetributionHtCents: optionalNonNegativeIntegerSchema,
+    complementHtCents: optionalNonNegativeIntegerSchema,
+    autoSetupDone: z.boolean().optional(),
+    notes: optionalInformationTextSchema
+  })
+  .refine((data) => data.status !== 'granted' || data.type !== undefined, {
+    message: "Le type d'AJ (totale/partielle) est requis lorsque l'AJ est accordée.",
+    path: ['type']
+  })
+  .refine(
+    (data) =>
+      data.type !== 'partial' ||
+      (typeof data.shareBasisPoints === 'number' && data.shareBasisPoints > 0),
+    {
+      message: "Le taux d'AJ partielle est requis pour une AJ partielle.",
+      path: ['shareBasisPoints']
+    }
+  )
 export const dossierRegistrationInputSchema = z.object({
   id: dossierIdSchema
+})
+export const dossierCreateInputSchema = z.object({
+  name: dossierIdSchema
 })
 export const dossierUnregisterInputSchema = z.object({
   id: dossierIdSchema
@@ -72,6 +119,7 @@ export const dossierDetailSchema = dossierSchema.extend({
   information: optionalInformationTextSchema,
   juridiction: optionalInformationTextSchema,
   tribunal: optionalInformationTextSchema,
+  legalAid: dossierLegalAidSchema.optional(),
   feeAgreements: z.array(feeAgreementSchema).default([]),
   billingItems: z.array(dossierBillingItemSchema).default([]),
   keyDates: z.array(keyDateSchema),
@@ -188,7 +236,18 @@ export const dossierUpdateInputSchema = z.object({
   type: dossierTypeSchema,
   information: optionalInformationTextSchema,
   juridiction: optionalInformationTextSchema,
-  tribunal: optionalInformationTextSchema
+  tribunal: optionalInformationTextSchema,
+  legalAid: dossierLegalAidSchema.optional()
+})
+
+export const dossierUpdateLegalAidInputSchema = z.object({
+  dossierId: dossierIdSchema,
+  legalAid: dossierLegalAidSchema
+})
+
+export const dossierSetupLegalAidInputSchema = z.object({
+  dossierId: dossierIdSchema,
+  force: z.boolean().optional()
 })
 
 export type {

@@ -8,8 +8,7 @@ import {
   type AiSettingsSaveInput,
   type AiSettingsResponse,
   type IpcError,
-  type IpcResult,
-  type OllamaConnectionResult
+  type IpcResult
 } from '@shared/types'
 
 import type { AppStateStore } from '../lib/system/appStateStore'
@@ -31,9 +30,9 @@ import type { AiService } from '../services/aiEmbedded/aiService'
 import { type IpcMainLike, type WebContentsLike, mapIpcError, resolveEventWebContents } from './ipc'
 
 const DEFAULT_AI_SETTINGS = {
-  mode: 'local' as const,
-  ollamaEndpoint: 'http://localhost:11434'
+  mode: 'none' as const
 }
+export const AI_REMOTE_API_KEY_SECRET = 'ai.remote.default'
 
 function toRemoteAuthHeaders(apiKey: string): Record<string, string> {
   return {
@@ -168,31 +167,27 @@ export function registerAiHandlers(options: {
       const ai = state.ai
 
       if (!ai || typeof ai.mode === 'undefined') {
-        const storedKey = await credentialStore.getApiKey('default')
+        const storedKey = await credentialStore.getSecret(AI_REMOTE_API_KEY_SECRET)
         const response: AiSettingsResponse = {
           ...DEFAULT_AI_SETTINGS,
+          piiWordlist: [],
+          claudeCoworkEnabled: false,
           hasApiKey: false,
           apiKeySuffix: getSuffix(storedKey)
         }
         return { success: true, data: response }
       }
 
-      const validModes = ['none', 'local', 'remote', 'claude-code', 'copilot', 'codex'] as const
+      const validModes = ['none', 'remote', 'claude-code'] as const
       type ValidMode = (typeof validModes)[number]
       const mode: ValidMode =
         typeof ai.mode === 'string' && (validModes as readonly string[]).includes(ai.mode)
           ? (ai.mode as ValidMode)
-          : 'local'
-      const storedKey = await credentialStore.getApiKey('default')
+          : 'none'
+      const storedKey = await credentialStore.getSecret(AI_REMOTE_API_KEY_SECRET)
 
       const response: AiSettingsResponse = {
         mode,
-        ollamaEndpoint:
-          typeof ai.ollamaEndpoint === 'string'
-            ? ai.ollamaEndpoint
-            : mode === 'local'
-              ? DEFAULT_AI_SETTINGS.ollamaEndpoint
-              : undefined,
         remoteProviderKind:
           typeof ai.remoteProviderKind === 'string'
             ? REMOTE_PROVIDER_KIND_VALUES.includes(ai.remoteProviderKind as RemoteProviderKind)
@@ -209,6 +204,13 @@ export function registerAiHandlers(options: {
               ),
         remoteProvider: typeof ai.remoteProvider === 'string' ? ai.remoteProvider : undefined,
         piiEnabled: typeof ai.piiEnabled === 'boolean' ? ai.piiEnabled : true,
+        piiWordlist: Array.isArray(ai.piiWordlist)
+          ? ai.piiWordlist.filter((entry): entry is string => typeof entry === 'string')
+          : [],
+        claudeCoworkEnabled:
+          typeof ai.claudeCoworkEnabled === 'boolean'
+            ? ai.claudeCoworkEnabled
+            : mode === 'claude-code',
         hasApiKey: storedKey !== null,
         apiKeySuffix: getSuffix(storedKey)
       }
@@ -236,7 +238,7 @@ export function registerAiHandlers(options: {
         }))
 
         if (apiKey) {
-          await credentialStore.saveApiKey('default', apiKey)
+          await credentialStore.saveSecret(AI_REMOTE_API_KEY_SECRET, apiKey)
         }
 
         onModeChanged?.(parsed)
@@ -252,45 +254,11 @@ export function registerAiHandlers(options: {
     IPC_CHANNELS.ai.deleteApiKey,
     async (_event, provider: unknown): Promise<IpcResult<null>> => {
       try {
-        const providerName = typeof provider === 'string' ? provider : 'default'
-        await credentialStore.deleteApiKey(providerName)
+        void provider
+        await credentialStore.deleteSecret(AI_REMOTE_API_KEY_SECRET)
         return { success: true, data: null }
       } catch (error) {
         return mapAiError(error, 'Unable to delete API key.')
-      }
-    }
-  )
-
-  ipcMain.handle(
-    IPC_CHANNELS.ai.connectionStatus,
-    async (): Promise<IpcResult<OllamaConnectionResult>> => {
-      try {
-        const state = await appState.read()
-        const endpoint =
-          typeof state.ai?.ollamaEndpoint === 'string'
-            ? state.ai.ollamaEndpoint
-            : 'http://localhost:11434'
-
-        const url = `${endpoint.replace(/\/$/, '')}/api/tags`
-        const res = await fetch(url, { signal: AbortSignal.timeout(5000) })
-
-        if (!res.ok) {
-          return {
-            success: false,
-            error: `Cannot reach ${endpoint} — HTTP ${res.status}`,
-            code: IpcErrorCode.OLLAMA_UNREACHABLE
-          }
-        }
-
-        const data = (await res.json()) as { models?: Array<{ name: string }> }
-        const result: OllamaConnectionResult = {
-          reachable: true,
-          models: (data.models ?? []).map((model) => model.name)
-        }
-
-        return { success: true, data: result }
-      } catch (error) {
-        return mapAiError(error, 'Unable to check Ollama connection.')
       }
     }
   )
@@ -314,7 +282,7 @@ export function registerAiHandlers(options: {
           typeof payload['apiKey'] === 'string' && payload['apiKey'].trim()
             ? payload['apiKey'].trim()
             : null
-        const apiKey = draftApiKey ?? (await credentialStore.getApiKey('default'))
+        const apiKey = draftApiKey ?? (await credentialStore.getSecret(AI_REMOTE_API_KEY_SECRET))
 
         if (!remoteProvider.trim()) {
           return {
@@ -357,7 +325,7 @@ export function registerAiHandlers(options: {
     IPC_CHANNELS.ai.cloudProviderStatus,
     async (_event, mode: unknown): Promise<IpcResult<AiDelegatedProviderStatus>> => {
       try {
-        const validModes: AiMode[] = ['none', 'local', 'remote', 'claude-code', 'copilot', 'codex']
+        const validModes: AiMode[] = ['none', 'remote', 'claude-code']
         const resolvedMode: AiMode = (validModes as readonly string[]).includes(mode as string)
           ? (mode as AiMode)
           : 'none'

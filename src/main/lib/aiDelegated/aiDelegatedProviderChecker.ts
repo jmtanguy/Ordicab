@@ -12,14 +12,6 @@ const AI_DELEGATED_CLI_MAP: Partial<Record<AiMode, { cmd: string; hint: string }
   'claude-code': {
     cmd: 'claude',
     hint: 'Claude CLI not found — install via: npm i -g @anthropic-ai/claude-code'
-  },
-  copilot: {
-    cmd: 'gh',
-    hint: 'GitHub CLI not found — install from: https://cli.github.com'
-  },
-  codex: {
-    cmd: 'codex',
-    hint: 'Codex CLI not found — install via: npm i -g @openai/codex'
   }
 }
 

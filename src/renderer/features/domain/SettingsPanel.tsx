@@ -6,11 +6,15 @@ import type { AppLocale, DomainStatusSnapshot } from '@shared/types'
 import { Button, Card } from '@renderer/components/ui'
 import type { AsyncLocaleAction, AsyncVoidAction } from '@renderer/features/actions'
 import { useAiStore } from '@renderer/stores/aiStore'
+import { useOnboardingStore, useReminderStore, useUiStore } from '@renderer/stores'
 import { AiDialog } from '../settings/AiSettings'
 import { LanguageDialog } from '../settings/LanguageSettings'
+import { ReminderDialog } from '../settings/ReminderSettings'
+import { LegalSettingsDialog } from '../settings/LegalSettings'
 import { InvoiceSettingsDialog } from '@renderer/features/invoices/InvoiceSettingsSection'
 import { useInvoiceSettingsSummary } from '@renderer/features/invoices/useInvoiceSettingsSummary'
 import { useInvoiceStore } from '@renderer/stores/invoiceStore'
+import { useLegalStore } from '@renderer/stores/legalStore'
 
 interface SettingsPanelProps {
   status: DomainStatusSnapshot
@@ -72,6 +76,42 @@ function IconSparkle(): React.JSX.Element {
       strokeLinejoin="round"
     >
       <path d="M7.5 1 9 5 13 6.5 9 8 7.5 12 6 8 2 6.5 6 5 7.5 1z" />
+    </svg>
+  )
+}
+
+function IconBell(): React.JSX.Element {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 15 15"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M7.5 1.5a4 4 0 0 0-4 4c0 4-1.5 5-1.5 5h11s-1.5-1-1.5-5a4 4 0 0 0-4-4z" />
+      <path d="M6.2 13a1.5 1.5 0 0 0 2.6 0" />
+    </svg>
+  )
+}
+
+function IconCompass(): React.JSX.Element {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 15 15"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="7.5" cy="7.5" r="6" />
+      <path d="M10 5l-1.3 3.7L5 10l1.3-3.7L10 5z" />
     </svg>
   )
 }
@@ -153,16 +193,26 @@ export function SettingsPanel({
   const [langOpen, setLangOpen] = useState(false)
   const [aiOpen, setAiOpen] = useState(false)
   const [invoiceOpen, setInvoiceOpen] = useState(false)
+  const [reminderOpen, setReminderOpen] = useState(false)
+  const [legalOpen, setLegalOpen] = useState(false)
+
+  const reminderPreferences = useReminderStore((s) => s.preferences)
 
   const loadSettings = useAiStore((s) => s.loadSettings)
   const aiSettings = useAiStore((s) => s.settings)
   const loadInvoiceSettings = useInvoiceStore((s) => s.loadSettings)
   const invoiceSummary = useInvoiceSettingsSummary()
+  const loadLegalSettings = useLegalStore((s) => s.loadSettings)
+  const legalSettings = useLegalStore((s) => s.settings)
+
+  const reopenWizard = useOnboardingStore((s) => s.reopenWizard)
+  const goToOnboarding = useUiStore((s) => s.goToOnboarding)
 
   useEffect(() => {
     void loadSettings()
     void loadInvoiceSettings()
-  }, [loadSettings, loadInvoiceSettings])
+    void loadLegalSettings()
+  }, [loadSettings, loadInvoiceSettings, loadLegalSettings])
 
   const localeLabel =
     currentLocale === 'fr'
@@ -171,15 +221,28 @@ export function SettingsPanel({
 
   const aiModeLabelMap: Record<string, string> = {
     none: t('ai_settings.mode_none'),
-    local: t('ai_settings.mode_local'),
     'claude-code': t('ai_settings.mode_claude_code'),
-    copilot: t('ai_settings.mode_copilot'),
-    codex: t('ai_settings.mode_codex'),
     remote: t('ai_settings.mode_remote')
   }
   const aiValue = aiSettings?.mode
     ? (aiModeLabelMap[aiSettings.mode] ?? aiSettings.mode)
     : t('ai_settings.emptyHint')
+
+  const reminderValue = reminderPreferences.enabled
+    ? t('reminders.summary_enabled', {
+        count: reminderPreferences.leadDays.length,
+        defaultValue: '{{count}} rappel(s) actif(s)'
+      })
+    : t('reminders.summary_disabled', { defaultValue: 'Désactivés' })
+  const legalCredentials = legalSettings?.credentials
+  const legalValue =
+    legalCredentials?.hasClientId && legalCredentials.hasClientSecret
+      ? t('legal_search.settings_row_configured', {
+          defaultValue: 'Identifiants PISTE enregistrés'
+        })
+      : t('legal_search.settings_row_unconfigured', {
+          defaultValue: 'Identifiants PISTE à configurer'
+        })
 
   const isDomainConfigured = Boolean(status.registeredDomainPath)
 
@@ -217,6 +280,32 @@ export function SettingsPanel({
             title={t('settings.invoice_label', { defaultValue: 'Facturation' })}
             value={invoiceSummary}
             onClick={() => setInvoiceOpen(true)}
+          />
+          <PrefRowDivider />
+          <PrefRow
+            icon={<IconCompass />}
+            title={t('legal_search.settings_row_title', { defaultValue: 'Recherche juridique' })}
+            value={legalValue}
+            onClick={() => setLegalOpen(true)}
+          />
+          <PrefRowDivider />
+          <PrefRow
+            icon={<IconBell />}
+            title={t('reminders.section_title')}
+            value={reminderValue}
+            onClick={() => setReminderOpen(true)}
+          />
+          <PrefRowDivider />
+          <PrefRow
+            icon={<IconCompass />}
+            title={t('settings.rerun_onboarding_label', { defaultValue: 'Assistant de démarrage' })}
+            value={t('settings.rerun_onboarding_value', {
+              defaultValue: 'Reprendre la configuration guidée'
+            })}
+            onClick={() => {
+              reopenWizard()
+              goToOnboarding()
+            }}
           />
         </Card>
       </div>
@@ -298,6 +387,8 @@ export function SettingsPanel({
       />
       <AiDialog open={aiOpen} onClose={() => setAiOpen(false)} />
       <InvoiceSettingsDialog open={invoiceOpen} onClose={() => setInvoiceOpen(false)} />
+      <ReminderDialog open={reminderOpen} onClose={() => setReminderOpen(false)} />
+      <LegalSettingsDialog open={legalOpen} onClose={() => setLegalOpen(false)} />
     </section>
   )
 }

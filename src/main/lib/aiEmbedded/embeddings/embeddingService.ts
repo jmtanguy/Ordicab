@@ -8,28 +8,32 @@
  * Float32Array vectors. Pipeline caching + failure handling live in
  * ../modelRegistry.
  *
- * Default model: Xenova/multilingual-e5-small. It produces 384-dim vectors
- * and has strong FR/EN retrieval quality at ~120 MB int8.
+ * Default model: Xenova/bge-m3. It produces 1024-dim vectors with strong
+ * multilingual (incl. FR) retrieval and an 8K context window. Downloaded at
+ * runtime into {userData}/models (not bundled) — see modelDownloadService.
  *
- * Model-specific prefixes: the E5 family expects inputs prefixed with
- * "query: " for search queries and "passage: " for documents. Callers pass
- * the prefix via options; the service does NOT assume one, because other
- * models (e.g. MiniLM) don't want a prefix at all. Defaults match E5.
+ * Model-specific prefixes: bge-m3 uses NO input prefix (it pools the raw
+ * text). The optional `inputPrefix` is retained for E5-style models that
+ * expect "query: " / "passage: "; the default is empty.
  */
 
 import {
   getPipeline,
-  runWithInferenceLock,
+  runInferenceTracked,
   warmup as warmupPipeline,
   type ModelConfig,
   type PipelineFn
 } from '../modelRegistry'
 
-export const DEFAULT_EMBEDDING_MODEL = 'Xenova/multilingual-e5-small'
-export const DEFAULT_EMBEDDING_DIM = 384
+// bge-m3 is the sole embedding model. Unlike the E5 family it does NOT use
+// query:/passage: input prefixes (it pools the raw text), and produces 1024-dim
+// vectors. The model is downloaded at runtime into userData (see
+// modelDownloadService) rather than bundled.
+export const DEFAULT_EMBEDDING_MODEL = 'Xenova/bge-m3'
+export const DEFAULT_EMBEDDING_DIM = 1024
 
 export interface EmbeddingServiceConfig {
-  /** HuggingFace model id or local directory. Defaults to multilingual-e5-small. */
+  /** HuggingFace model id or local directory. Defaults to bge-m3. */
   model?: string
   /** Absolute filesystem path to the bundled model directory. */
   modelPath?: string
@@ -39,15 +43,14 @@ export interface EmbeddingServiceConfig {
 
 export interface EmbedOptions {
   /**
-   * Prefix prepended to every input before encoding. E5 convention:
-   * "passage: " for documents being indexed, "query: " for search queries.
-   * Default is "passage: " so that indexing calls do the right thing by
-   * default; search-path callers should pass `"query: "` explicitly.
+   * Prefix prepended to every input before encoding. Retained for models that
+   * use the E5 convention ("query: " / "passage: "). bge-m3 uses no prefix, so
+   * the default is empty and callers normally leave it unset.
    */
   inputPrefix?: string
 }
 
-const DEFAULT_INPUT_PREFIX = 'passage: '
+const DEFAULT_INPUT_PREFIX = ''
 
 // Minimal typing of the tensor-like object transformers.js returns for
 // feature-extraction. Runtime-shape validated before use.
@@ -66,8 +69,14 @@ function toModelConfig(config: EmbeddingServiceConfig): ModelConfig {
 }
 
 async function runPipeline(pipe: PipelineFn, inputs: string[]): Promise<Float32Array[] | null> {
-  const result = (await runWithInferenceLock(async () =>
-    pipe(inputs, { pooling: 'mean', normalize: true })
+  // truncation: true is REQUIRED, not optional. transformers.js does NOT
+  // truncate by default; an input over the model's 512-token window produces an
+  // oversized output tensor that crashes onnxruntime-node natively
+  // (OrtValueToNapiValue → SIGSEGV) on macOS arm64. The chunker keeps inputs
+  // near the limit, but query/refine paths can exceed it, so we enforce the cap
+  // here as the last line of defence.
+  const result = (await runInferenceTracked(async () =>
+    pipe(inputs, { pooling: 'mean', normalize: true, truncation: true })
   )) as PipelineTensor
   if (!result || !result.data || !result.dims || result.dims.length !== 2) {
     return null

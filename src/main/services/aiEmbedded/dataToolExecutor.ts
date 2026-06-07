@@ -12,6 +12,20 @@
 import { join } from 'node:path'
 
 import type { ContactRecord, DocumentRecord, DossierSummary } from '@shared/types'
+import {
+  JUDILIBRE_JURISDICTION_VALUES,
+  JUDILIBRE_SORT_VALUES,
+  LEGIFRANCE_FIELD_VALUES,
+  LEGIFRANCE_FOND_VALUES,
+  LEGIFRANCE_SEARCH_TYPE_VALUES,
+  LEGIFRANCE_SORT_VALUES,
+  type JudilibreJurisdiction,
+  type JudilibreSort,
+  type LegifranceField,
+  type LegifranceFond,
+  type LegifranceSearchType,
+  type LegifranceSort
+} from '@shared/types'
 import type { EntityProfile } from '@shared/validation/entity'
 import {
   getContactManagedFieldValue,
@@ -28,6 +42,7 @@ import type {
   InvoiceServiceLike
 } from '../../lib/aiEmbedded/aiCommandDispatcher'
 import { SEMANTIC_SEARCH_EXACT_MATCH_SCORE } from '../../lib/aiEmbedded/embeddings/semanticSearchService'
+import type { LegalService } from '../legal/legalService'
 
 // ── Service interfaces ────────────────────────────────────────────────────────
 // All service interfaces (DocumentServiceLike, DossierServiceLike, etc.) are imported from aiCommandDispatcher
@@ -453,6 +468,20 @@ function buildContactSearchHaystacks(contact: ContactRecord): string[] {
 const DOCUMENT_SEARCH_EXACT_MATCH_THRESHOLD = SEMANTIC_SEARCH_EXACT_MATCH_SCORE
 const DOCUMENT_SEARCH_MAX_HITS = 8
 
+function enumValue<T extends string>(values: readonly T[], value: unknown): T | undefined {
+  return typeof value === 'string' && (values as readonly string[]).includes(value)
+    ? (value as T)
+    : undefined
+}
+
+function isoDateValue(value: unknown): string | undefined {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined
+}
+
+function trimmedStringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
 function classifyDocumentSearchMatchType(score: number): 'exact' | 'semantic' {
   return score >= DOCUMENT_SEARCH_EXACT_MATCH_THRESHOLD ? 'exact' : 'semantic'
 }
@@ -564,6 +593,7 @@ export interface DataToolExecutorDeps {
   documentService: DocumentServiceLike
   dossierService: DossierServiceLike
   invoiceService: InvoiceServiceLike
+  legalService?: LegalService
   entityProfile: EntityProfile | null
 }
 
@@ -605,6 +635,7 @@ export class DataToolExecutor {
       documentService,
       dossierService,
       invoiceService,
+      legalService,
       entityProfile
     } = this.deps
 
@@ -662,6 +693,88 @@ export class DataToolExecutor {
       const invoice = await invoiceService.get(invoiceId).catch(() => null)
       if (!invoice) return JSON.stringify({ error: `Invoice not found: ${invoiceId}` })
       return JSON.stringify({ invoice })
+    }
+
+    if (toolName === 'legal_search_legifrance') {
+      if (!legalService) return JSON.stringify({ error: 'Legal search service is unavailable.' })
+      return JSON.stringify(
+        await legalService.searchLegifrance({
+          recherche: typeof args.recherche === 'string' ? args.recherche : '',
+          // Leave fond/typeChamp/typeRecherche unset when the model omits them so
+          // the service can auto-detect article citations (→ NUM_ARTICLE/CODE_DATE)
+          // and otherwise default to a relevance UN_DES_MOTS search. Forcing 'ALL'
+          // here would disable that detection.
+          fond: enumValue<LegifranceFond>(LEGIFRANCE_FOND_VALUES, args.fond),
+          typeChamp: enumValue<LegifranceField>(LEGIFRANCE_FIELD_VALUES, args.typeChamp),
+          typeRecherche: enumValue<LegifranceSearchType>(
+            LEGIFRANCE_SEARCH_TYPE_VALUES,
+            args.typeRecherche
+          ),
+          code: typeof args.code === 'string' ? args.code : undefined,
+          dateDebut: isoDateValue(args.dateDebut),
+          dateFin: isoDateValue(args.dateFin),
+          tri: enumValue<LegifranceSort>(LEGIFRANCE_SORT_VALUES, args.tri),
+          pageTaille: typeof args.pageTaille === 'number' ? args.pageTaille : 10
+        })
+      )
+    }
+
+    if (toolName === 'legal_consult_legifrance') {
+      if (!legalService) return JSON.stringify({ error: 'Legal search service is unavailable.' })
+      return JSON.stringify(
+        await legalService.consultLegifrance({
+          id: typeof args.id === 'string' ? args.id : ''
+        })
+      )
+    }
+
+    if (toolName === 'legal_search_judilibre') {
+      if (!legalService) return JSON.stringify({ error: 'Legal search service is unavailable.' })
+      return JSON.stringify(
+        await legalService.searchJudilibre({
+          recherche: typeof args.recherche === 'string' ? args.recherche : undefined,
+          juridiction: enumValue<JudilibreJurisdiction>(
+            JUDILIBRE_JURISDICTION_VALUES,
+            args.juridiction
+          ),
+          chambre: trimmedStringValue(args.chambre),
+          theme: trimmedStringValue(args.theme),
+          dateDebut: isoDateValue(args.dateDebut),
+          dateFin: isoDateValue(args.dateFin),
+          tri: enumValue<JudilibreSort>(JUDILIBRE_SORT_VALUES, args.tri),
+          nombreResultats: typeof args.nombreResultats === 'number' ? args.nombreResultats : 10
+        })
+      )
+    }
+
+    if (toolName === 'legal_taxonomy_judilibre') {
+      if (!legalService) return JSON.stringify({ error: 'Legal search service is unavailable.' })
+      return JSON.stringify(
+        await legalService.taxonomyJudilibre({
+          taxonomyId: trimmedStringValue(args.taxonomyId),
+          contextValue: trimmedStringValue(args.contextValue),
+          key: trimmedStringValue(args.key),
+          value: trimmedStringValue(args.value)
+        })
+      )
+    }
+
+    if (toolName === 'legal_consult_judilibre') {
+      if (!legalService) return JSON.stringify({ error: 'Legal search service is unavailable.' })
+      return JSON.stringify(
+        await legalService.consultJudilibre({
+          decisionId: typeof args.decisionId === 'string' ? args.decisionId : ''
+        })
+      )
+    }
+
+    if (toolName === 'legal_verify_references') {
+      if (!legalService) return JSON.stringify({ error: 'Legal search service is unavailable.' })
+      return JSON.stringify(
+        await legalService.verifyReferences({
+          text: typeof args.text === 'string' ? args.text : ''
+        })
+      )
     }
 
     const targetDossierId = this._resolveTargetDossierId(args)

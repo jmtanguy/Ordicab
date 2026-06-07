@@ -67,14 +67,6 @@ export function getDomainClaudeMdPath(domainPath: string): string {
   return join(domainPath, 'CLAUDE.md')
 }
 
-export function getDomainAgentsMdPath(domainPath: string): string {
-  return join(domainPath, 'AGENTS.md')
-}
-
-export function getDomainCopilotInstructionsPath(domainPath: string): string {
-  return join(domainPath, '.github', 'copilot-instructions.md')
-}
-
 export function getDomainDelegatedPath(domainPath: string): string {
   return join(domainPath, ORDICAB_DELEGATED_DIRECTORY_NAME)
 }

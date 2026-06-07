@@ -79,23 +79,30 @@ export function DossierInvoicesSection({
 
   const totals = useMemo(() => {
     const active = dossierInvoices.filter((entry) => entry.status !== 'cancelled')
+    // La rétribution AJ (part de l'État, réglée par la CARPA) est suivie à part,
+    // hors chiffre d'affaires commercial.
+    const commercial = active.filter((entry) => entry.documentType !== 'stateRetribution')
+    const legalAid = active.filter((entry) => entry.documentType === 'stateRetribution')
     return {
-      issuedHt: active.reduce(
+      issuedHt: commercial.reduce(
         (acc, entry) =>
           acc + (entry.documentType === 'creditNote' ? -entry.totalHtCents : entry.totalHtCents),
         0
       ),
-      issuedTtc: active.reduce(
+      issuedTtc: commercial.reduce(
         (acc, entry) =>
           acc + (entry.documentType === 'creditNote' ? -entry.totalTtcCents : entry.totalTtcCents),
         0
       ),
-      paidTtc: active
+      paidTtc: commercial
         .filter((entry) => entry.documentType !== 'creditNote')
         .reduce((acc, entry) => acc + entry.paidAmountCents, 0),
-      pendingTtc: active
+      pendingTtc: commercial
         .filter((entry) => entry.documentType !== 'creditNote')
-        .reduce((acc, entry) => acc + entry.remainingAmountCents, 0)
+        .reduce((acc, entry) => acc + entry.remainingAmountCents, 0),
+      legalAidIssuedTtc: legalAid.reduce((acc, entry) => acc + entry.totalTtcCents, 0),
+      legalAidPaidTtc: legalAid.reduce((acc, entry) => acc + entry.paidAmountCents, 0),
+      legalAidPendingTtc: legalAid.reduce((acc, entry) => acc + entry.remainingAmountCents, 0)
     }
   }, [dossierInvoices])
 
@@ -132,6 +139,31 @@ export function DossierInvoicesSection({
           accent="amber"
         />
       </div>
+
+      {totals.legalAidIssuedTtc > 0 ? (
+        <div className="grid shrink-0 grid-cols-2 gap-3 md:grid-cols-3">
+          <KpiCard
+            label={t('dossiers.invoices_kpi_aj_issued', {
+              defaultValue: 'Rétribution AJ (émise)'
+            })}
+            value={formatCents(totals.legalAidIssuedTtc)}
+          />
+          <KpiCard
+            label={t('dossiers.invoices_kpi_aj_paid', {
+              defaultValue: 'Rétribution AJ encaissée'
+            })}
+            value={formatCents(totals.legalAidPaidTtc)}
+            accent="emerald"
+          />
+          <KpiCard
+            label={t('dossiers.invoices_kpi_aj_pending', {
+              defaultValue: 'Rétribution AJ à recouvrer'
+            })}
+            value={formatCents(totals.legalAidPendingTtc)}
+            accent="amber"
+          />
+        </div>
+      ) : null}
 
       {isLoading && !invoices ? (
         <p className="shrink-0 text-sm text-[#8a8a85]">
@@ -274,6 +306,7 @@ function InvoiceRow({
   onCorrect,
   onCancel
 }: InvoiceRowProps): React.JSX.Element {
+  const { t } = useTranslation()
   return (
     <li
       role="button"
@@ -290,6 +323,11 @@ function InvoiceRow({
     >
       <span className="w-32 shrink-0 text-sm font-medium tabular-nums text-[#1a1a1a]">
         {invoice.number}
+        {invoice.documentType === 'stateRetribution' ? (
+          <span className="mt-0.5 block text-[10px] font-normal uppercase tracking-wide text-violet-600">
+            {t('invoices.legal_aid_badge', { defaultValue: 'Rétribution AJ' })}
+          </span>
+        ) : null}
       </span>
       <span className="w-28 shrink-0 text-sm tabular-nums text-[#5c5c5a]">
         {formatDateIso(invoice.issuedAt)}

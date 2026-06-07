@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next'
 
 import type { KeyDateTag } from '@shared/types'
 import { KEY_DATE_TAG_VALUES } from '@shared/types'
-import { useDossierStore } from '@renderer/stores'
+import { useDossierStore, useReminderStore } from '@renderer/stores'
+import { countUpcomingWithin } from '@renderer/features/reminders/reminderScan'
 
 import {
   ColumnHeader,
@@ -66,6 +67,7 @@ export function HomeChronologyPanel({
   const dossiers = useDossierStore((state) => state.dossiers)
   const isDossierLoading = useDossierStore((state) => state.isLoading)
   const loadChronology = useDossierStore((state) => state.loadChronology)
+  const reminderPreferences = useReminderStore((state) => state.preferences)
 
   const [searchFilter, setSearchFilter] = useState('')
   const [sortOrder, setSortOrder] = useState<SortOrder>('date-desc')
@@ -137,6 +139,16 @@ export function HomeChronologyPanel({
     )
   }, [chronologyEntries, searchTerms, activeFilters, sortOrder, locale])
 
+  const upcomingSummary = useMemo(() => {
+    if (!chronologyEntries) return null
+    const scanEntries = chronologyEntries.map((entry) => ({
+      dossierId: entry.dossierId,
+      dossierName: entry.dossierName,
+      keyDate: entry.keyDate
+    }))
+    return countUpcomingWithin(scanEntries, reminderPreferences, new Date(), 7)
+  }, [chronologyEntries, reminderPreferences])
+
   const isReady = chronologyEntries !== null
   const totalCount = chronologyEntries?.length ?? 0
   const isEmpty = isReady && totalCount === 0
@@ -162,6 +174,36 @@ export function HomeChronologyPanel({
         badge={t('home.chronology_badge', { defaultValue: 'Chronologie' })}
         count={countLabel}
       />
+
+      {upcomingSummary && upcomingSummary.total > 0 ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-2xl border border-aurora/20 bg-aurora/5 px-4 py-2.5">
+          <span className="text-sm font-medium text-aurora">
+            {t('reminders.widget_upcoming', {
+              count: upcomingSummary.total,
+              defaultValue: '{{count}} échéance(s) cette semaine'
+            })}
+          </span>
+          {upcomingSummary.today > 0 ? (
+            <span className="inline-block rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-xs text-orange-700">
+              {t('reminders.widget_today', {
+                count: upcomingSummary.today,
+                defaultValue: "{{count}} aujourd'hui"
+              })}
+            </span>
+          ) : null}
+          {upcomingSummary.tomorrow > 0 ? (
+            <span className="inline-block rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700">
+              {t('reminders.widget_tomorrow', {
+                count: upcomingSummary.tomorrow,
+                defaultValue: '{{count}} demain'
+              })}
+            </span>
+          ) : null}
+          {!reminderPreferences.enabled ? (
+            <span className="text-xs text-[#8a8a85]">{t('reminders.widget_muted_hint')}</span>
+          ) : null}
+        </div>
+      ) : null}
 
       {shouldShowLoading ? (
         <div className="flex h-full items-center justify-center">

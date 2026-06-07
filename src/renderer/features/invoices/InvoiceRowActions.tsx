@@ -41,7 +41,12 @@ export function InvoiceRowActions({
     invoice.status !== 'cancelled' &&
     invoice.status !== 'corrected' &&
     invoice.remainingAmountCents > 0
-  const canCorrect = invoice.documentType !== 'creditNote' && invoice.status !== 'cancelled'
+  // Une rétribution AJ (part de l'État) ne peut donner lieu ni à un avoir ni à une
+  // facture rectificative : ce ne sont pas des factures commerciales.
+  const canCorrect =
+    invoice.documentType !== 'creditNote' &&
+    invoice.documentType !== 'stateRetribution' &&
+    invoice.status !== 'cancelled'
   const canCancel =
     invoice.status !== 'cancelled' &&
     invoice.status !== 'corrected' &&

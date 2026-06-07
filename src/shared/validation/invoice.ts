@@ -245,14 +245,18 @@ const invoiceSettingsRawSchema = z.object({
     }),
   correctiveInvoiceNextSequence: z.number().int().positive(),
   correctiveInvoiceCurrentSequenceYear: z.number().int(),
+  stateRetributionNumberPattern: z
+    .string()
+    .trim()
+    .min(1)
+    .refine((p) => p.includes('{SEQ}'), {
+      message: 'Le motif doit contenir {SEQ}.'
+    }),
+  stateRetributionNextSequence: z.number().int().positive(),
+  stateRetributionCurrentSequenceYear: z.number().int(),
   defaultTemplateId: optionalTrimmedStringSchema,
   defaultCreditNoteTemplateId: optionalTrimmedStringSchema,
   defaultCorrectiveInvoiceTemplateId: optionalTrimmedStringSchema,
-  issuerName: optionalTrimmedStringSchema,
-  issuerAddress: optionalTrimmedStringSchema,
-  issuerSiret: optionalTrimmedStringSchema,
-  issuerVatNumber: optionalTrimmedStringSchema,
-  issuerIban: optionalTrimmedStringSchema,
   legalFooter: optionalTrimmedStringSchema,
   defaultPaymentTerms: optionalTrimmedStringSchema
 })
@@ -279,7 +283,17 @@ export const invoiceSettingsSchema = z.preprocess((value) => {
     correctiveInvoiceCurrentSequenceYear:
       candidate.correctiveInvoiceCurrentSequenceYear ??
       candidate.currentSequenceYear ??
-      DEFAULT_INVOICE_SETTINGS.correctiveInvoiceCurrentSequenceYear
+      DEFAULT_INVOICE_SETTINGS.correctiveInvoiceCurrentSequenceYear,
+    stateRetributionNumberPattern:
+      candidate.stateRetributionNumberPattern ??
+      DEFAULT_INVOICE_SETTINGS.stateRetributionNumberPattern,
+    stateRetributionNextSequence:
+      candidate.stateRetributionNextSequence ??
+      DEFAULT_INVOICE_SETTINGS.stateRetributionNextSequence,
+    stateRetributionCurrentSequenceYear:
+      candidate.stateRetributionCurrentSequenceYear ??
+      candidate.currentSequenceYear ??
+      DEFAULT_INVOICE_SETTINGS.stateRetributionCurrentSequenceYear
   }
 }, invoiceSettingsRawSchema)
 
@@ -377,11 +391,6 @@ export const invoiceSettingsUpdateInputSchema = z.object({
   defaultTemplateId: nullableTrimmedStringSchema,
   defaultCreditNoteTemplateId: nullableTrimmedStringSchema,
   defaultCorrectiveInvoiceTemplateId: nullableTrimmedStringSchema,
-  issuerName: nullableTrimmedStringSchema,
-  issuerAddress: nullableTrimmedStringSchema,
-  issuerSiret: nullableTrimmedStringSchema,
-  issuerVatNumber: nullableTrimmedStringSchema,
-  issuerIban: nullableTrimmedStringSchema,
   legalFooter: nullableTrimmedStringSchema,
   defaultPaymentTerms: nullableTrimmedStringSchema
 })

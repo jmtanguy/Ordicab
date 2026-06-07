@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { IPC_CHANNELS, IpcErrorCode } from '@shared/types'
 
-import { registerAiHandlers } from '../aiHandler'
+import { AI_REMOTE_API_KEY_SECRET, registerAiHandlers } from '../aiHandler'
 import { createAppStateStore } from '../../lib/system/appStateStore'
 
 const mockFetch = vi.fn()
@@ -42,14 +42,16 @@ function createIpcMainHarness(): {
 }
 
 function createCredentialStoreMock(storedKey: string | null = null): {
-  saveApiKey: (provider: string, key: string) => Promise<void>
-  getApiKey: (provider: string) => Promise<string | null>
-  deleteApiKey: (provider: string) => Promise<void>
+  saveSecret: (key: string, value: string) => Promise<void>
+  getSecret: (key: string) => Promise<string | null>
+  deleteSecret: (key: string) => Promise<void>
+  hasSecret: (key: string) => Promise<boolean>
 } {
   return {
-    saveApiKey: vi.fn(async () => undefined),
-    getApiKey: vi.fn(async () => storedKey),
-    deleteApiKey: vi.fn(async () => undefined)
+    saveSecret: vi.fn(async () => undefined),
+    getSecret: vi.fn(async () => storedKey),
+    deleteSecret: vi.fn(async () => undefined),
+    hasSecret: vi.fn(async () => storedKey !== null)
   }
 }
 
@@ -80,8 +82,9 @@ describe('aiHandler', () => {
     expect(result).toEqual({
       success: true,
       data: {
-        mode: 'local',
-        ollamaEndpoint: 'http://localhost:11434',
+        mode: 'none',
+        piiWordlist: [],
+        claudeCoworkEnabled: false,
         hasApiKey: false,
         apiKeySuffix: undefined
       }
@@ -90,7 +93,13 @@ describe('aiHandler', () => {
     // key present: hasApiKey true, raw key never returned
     const { readFile } = await import('node:fs/promises')
     vi.mocked(readFile).mockResolvedValueOnce(
-      JSON.stringify({ ai: { mode: 'remote', ollamaEndpoint: 'http://localhost:11434' } }) as never
+      JSON.stringify({
+        ai: {
+          mode: 'remote',
+          piiWordlist: ['Client sensible'],
+          claudeCoworkEnabled: true
+        }
+      }) as never
     )
     const harness2 = createIpcMainHarness()
     const credentialStore2 = createCredentialStoreMock('sk-secret-key')
@@ -106,6 +115,8 @@ describe('aiHandler', () => {
     }
     expect(resultWithKey.success).toBe(true)
     expect(resultWithKey.data.hasApiKey).toBe(true)
+    expect(resultWithKey.data.piiWordlist).toEqual(['Client sensible'])
+    expect(resultWithKey.data.claudeCoworkEnabled).toBe(true)
     expect(resultWithKey.data).not.toHaveProperty('encryptedApiKey')
     expect(Object.values(resultWithKey.data)).not.toContain('sk-secret-key')
 
@@ -138,12 +149,11 @@ describe('aiHandler', () => {
 
     const result = await harness.invoke(IPC_CHANNELS.ai.settingsSave, {
       mode: 'remote',
-      ollamaEndpoint: 'http://localhost:11434',
       remoteProvider: 'https://api.openai.com/v1',
       apiKey: 'sk-my-key'
     })
     expect(result).toEqual({ success: true, data: null })
-    expect(credentialStore.saveApiKey).toHaveBeenCalledWith('default', 'sk-my-key')
+    expect(credentialStore.saveSecret).toHaveBeenCalledWith(AI_REMOTE_API_KEY_SECRET, 'sk-my-key')
 
     // key not written to state file
     let writtenContent = ''
@@ -163,11 +173,18 @@ describe('aiHandler', () => {
     await harness2.invoke(IPC_CHANNELS.ai.settingsSave, {
       mode: 'remote',
       remoteProvider: 'https://api.anthropic.com/v1',
+      piiWordlist: ['Projet confidentiel'],
+      claudeCoworkEnabled: true,
       apiKey: 'sk-super-secret'
     })
     expect(writtenContent).not.toContain('sk-super-secret')
     expect(writtenContent).not.toContain('apiKey')
-    expect(credentialStore2.saveApiKey).toHaveBeenCalledWith('default', 'sk-super-secret')
+    expect(writtenContent).toContain('Projet confidentiel')
+    expect(writtenContent).toContain('claudeCoworkEnabled')
+    expect(credentialStore2.saveSecret).toHaveBeenCalledWith(
+      AI_REMOTE_API_KEY_SECRET,
+      'sk-super-secret'
+    )
 
     // invalid input
     const harness3 = createIpcMainHarness()
@@ -179,7 +196,7 @@ describe('aiHandler', () => {
     })
     const invalidResult = await harness3.invoke(IPC_CHANNELS.ai.settingsSave, {
       mode: 'invalid-mode',
-      ollamaEndpoint: 'not-a-url'
+      remoteProvider: 'not-a-url'
     })
     expect(invalidResult).toMatchObject({ success: false, code: IpcErrorCode.VALIDATION_FAILED })
   })
@@ -201,58 +218,28 @@ describe('aiHandler', () => {
     })
 
     await harness.invoke(IPC_CHANNELS.ai.settingsSave, {
-      mode: 'local',
-      ollamaEndpoint: 'http://localhost:11434'
+      mode: 'remote',
+      remoteProvider: 'https://api.openai.com/v1',
+      claudeCoworkEnabled: true,
+      piiWordlist: ['Client sensible']
     })
 
     expect(onModeChanged).toHaveBeenCalledWith({
-      mode: 'local',
-      ollamaEndpoint: 'http://localhost:11434'
+      mode: 'remote',
+      remoteProvider: 'https://api.openai.com/v1',
+      claudeCoworkEnabled: true,
+      piiWordlist: ['Client sensible']
     })
   })
 
-  it('ai:connection-status returns reachable result or OLLAMA_UNREACHABLE', async () => {
-    // reachable
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => ({ models: [{ name: 'llama3' }] })
-    } as Response)
-    const harness = createIpcMainHarness()
-    const credentialStore = createCredentialStoreMock(null)
-    registerAiHandlers({ ipcMain: harness.ipcMain, credentialStore, appState })
-    const result = await harness.invoke(IPC_CHANNELS.ai.connectionStatus)
-    expect(result).toEqual({ success: true, data: { reachable: true, models: ['llama3'] } })
-
-    // unreachable
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 503,
-      json: async () => ({})
-    } as Response)
-    const harness2 = createIpcMainHarness()
-    const credentialStore2 = createCredentialStoreMock(null)
-    registerAiHandlers({
-      ipcMain: harness2.ipcMain,
-      credentialStore: credentialStore2,
-      appState
-    })
-    const result2 = (await harness2.invoke(IPC_CHANNELS.ai.connectionStatus)) as {
-      success: boolean
-      code: string
-    }
-    expect(result2.success).toBe(false)
-    expect(result2.code).toBe(IpcErrorCode.OLLAMA_UNREACHABLE)
-  })
-
-  it('ai:delete-api-key calls credentialStore.deleteApiKey and returns success', async () => {
+  it('ai:delete-api-key calls credentialStore.deleteSecret and returns success', async () => {
     const harness = createIpcMainHarness()
     const credentialStore = createCredentialStoreMock('sk-existing-key')
     registerAiHandlers({ ipcMain: harness.ipcMain, credentialStore, appState })
 
     const result = await harness.invoke(IPC_CHANNELS.ai.deleteApiKey, 'openai')
     expect(result).toEqual({ success: true, data: null })
-    expect(credentialStore.deleteApiKey).toHaveBeenCalledWith('openai')
+    expect(credentialStore.deleteSecret).toHaveBeenCalledWith(AI_REMOTE_API_KEY_SECRET)
   })
 
   it('ai:cloud-provider-status returns availability, handles missing CLI, and falls back to none for invalid mode', async () => {
@@ -343,7 +330,11 @@ describe('aiHandler', () => {
 
     const result = await harness.invoke(IPC_CHANNELS.ai.executeCommand, {
       command: 'Bonjour',
-      context: {}
+      context: {
+        dossierId: 'dos-1',
+        pendingTagPaths: ['dossier.keyDate.audience.long'],
+        documentMentions: [{ uuid: 'doc-uuid-1', filename: 'assignation.pdf' }]
+      }
     })
 
     expect(result).toEqual({
@@ -355,6 +346,18 @@ describe('aiHandler', () => {
     })
     expect(send).toHaveBeenCalledWith(IPC_CHANNELS.ai.reflection, 'step intermédiaire')
     expect(send).toHaveBeenCalledWith(IPC_CHANNELS.ai.textToken, 'token')
+    expect(aiService.executeCommand).toHaveBeenCalledWith(
+      {
+        command: 'Bonjour',
+        context: {
+          dossierId: 'dos-1',
+          pendingTagPaths: ['dossier.keyDate.audience.long'],
+          documentMentions: [{ uuid: 'doc-uuid-1', filename: 'assignation.pdf' }]
+        }
+      },
+      expect.any(Function),
+      expect.any(Function)
+    )
   })
 
   it('ai:execute-command prefers the invoking renderer sender for push events', async () => {

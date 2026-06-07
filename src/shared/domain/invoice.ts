@@ -1,4 +1,9 @@
-export const INVOICE_DOCUMENT_TYPE_VALUES = ['invoice', 'creditNote', 'correctiveInvoice'] as const
+export const INVOICE_DOCUMENT_TYPE_VALUES = [
+  'invoice',
+  'creditNote',
+  'correctiveInvoice',
+  'stateRetribution'
+] as const
 export type InvoiceDocumentType = (typeof INVOICE_DOCUMENT_TYPE_VALUES)[number]
 
 export const INVOICE_STATUS_VALUES = [
@@ -162,14 +167,22 @@ export interface InvoiceSettings {
   correctiveInvoiceNumberPattern: string
   correctiveInvoiceNextSequence: number
   correctiveInvoiceCurrentSequenceYear: number
+  /**
+   * Numérotation dédiée des pièces de rétribution AJ (aide juridictionnelle versée
+   * par l'État via la CARPA). Distincte des factures clients (`FAC-…`) : ce n'est pas
+   * un produit commercial mais une dotation de l'État, exonérée de TVA.
+   */
+  stateRetributionNumberPattern: string
+  stateRetributionNextSequence: number
+  stateRetributionCurrentSequenceYear: number
   defaultTemplateId?: string
   defaultCreditNoteTemplateId?: string
   defaultCorrectiveInvoiceTemplateId?: string
-  issuerName?: string
-  issuerAddress?: string
-  issuerSiret?: string
-  issuerVatNumber?: string
-  issuerIban?: string
+  /**
+   * Legal footer printed on every invoice. Invoice-specific — has no entity equivalent.
+   * Issuer identity (name, SIREN, VAT, IBAN, address) lives on the Cabinet entity profile
+   * and is resolved via {@link entityToInvoiceIssuer}.
+   */
   legalFooter?: string
   defaultPaymentTerms?: string
 }
@@ -185,7 +198,10 @@ export const DEFAULT_INVOICE_SETTINGS: InvoiceSettings = {
   creditNoteCurrentSequenceYear: new Date().getFullYear(),
   correctiveInvoiceNumberPattern: 'FCR-{YYYY}-{SEQ}',
   correctiveInvoiceNextSequence: 1,
-  correctiveInvoiceCurrentSequenceYear: new Date().getFullYear()
+  correctiveInvoiceCurrentSequenceYear: new Date().getFullYear(),
+  stateRetributionNumberPattern: 'RET-{YYYY}-{SEQ}',
+  stateRetributionNextSequence: 1,
+  stateRetributionCurrentSequenceYear: new Date().getFullYear()
 }
 
 export interface InvoiceCreateInput {
@@ -276,11 +292,6 @@ export interface InvoiceSettingsUpdateInput {
   defaultTemplateId?: string | null
   defaultCreditNoteTemplateId?: string | null
   defaultCorrectiveInvoiceTemplateId?: string | null
-  issuerName?: string | null
-  issuerAddress?: string | null
-  issuerSiret?: string | null
-  issuerVatNumber?: string | null
-  issuerIban?: string | null
   legalFooter?: string | null
   defaultPaymentTerms?: string | null
 }

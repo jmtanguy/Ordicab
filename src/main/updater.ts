@@ -156,6 +156,7 @@ export function createUpdaterService(options: CreateUpdaterServiceOptions): Upda
   const notifier = options.notifier
   let handlersBound = false
   let errorSeenDuringCheck = false
+  let installInProgress = false
   let currentStatus: UpdaterStatus = { kind: 'idle' }
   let availableVersion: string | null = null
 
@@ -231,8 +232,19 @@ export function createUpdaterService(options: CreateUpdaterServiceOptions): Upda
 
     options.updater.on('error', (error) => {
       errorSeenDuringCheck = true
-      logUpdaterError(logger, error)
       const normalized = toError(error)
+
+      // Once quitAndInstall has been called the app is tearing down to hand
+      // off to Squirrel.Mac. Squirrel emits a benign "This command is disabled
+      // and cannot be executed" error during that handoff even though the
+      // install succeeds. Promoting it to the banner makes the message flash
+      // for a split second before the process exits, so swallow it.
+      if (installInProgress) {
+        logger.info('[Updater] Ignoring error received during install handoff.', normalized)
+        return
+      }
+
+      logUpdaterError(logger, error)
       if (!isOfflineUpdaterError(normalized)) {
         setStatus({ kind: 'error', message: normalized.message })
       } else {
@@ -267,9 +279,11 @@ export function createUpdaterService(options: CreateUpdaterServiceOptions): Upda
 
       try {
         await options.pendingUpdateStore.clear()
+        installInProgress = true
         options.updater.quitAndInstall(true, true)
         return true
       } catch (error) {
+        installInProgress = false
         logger.error('[Updater] Failed to trigger deferred update installation.', error)
 
         try {
@@ -331,8 +345,10 @@ export function createUpdaterService(options: CreateUpdaterServiceOptions): Upda
       }
 
       try {
+        installInProgress = true
         options.updater.quitAndInstall(false, true)
       } catch (error) {
+        installInProgress = false
         logger.error('[Updater] Failed to trigger immediate install.', error)
         const normalized = toError(error)
         setStatus({ kind: 'error', message: normalized.message })

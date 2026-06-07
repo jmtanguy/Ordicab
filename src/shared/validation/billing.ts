@@ -31,6 +31,7 @@ import {
   FEE_AGREEMENT_STATUS_VALUES,
   SOURCE_FEE_AGREEMENT_BILLING_KIND_VALUES
 } from '@shared/domain/billing'
+import { LEGAL_AID_TYPE_VALUES } from '@shared/domain/dossier'
 
 import { invoiceSettingsSchema } from './invoice'
 import { dossierIdSchema } from './dossierId'
@@ -93,6 +94,8 @@ export const cabinetServicePresetSchema = z.object({
   terminationTerms: optionalTrimmedStringSchema,
   updatedAt: z.string().trim().min(1)
 })
+
+export const legalAidTypeSchema = z.enum(LEGAL_AID_TYPE_VALUES)
 
 export const cabinetBillingCatalogSchema = z.object({
   services: z.array(cabinetServicePresetSchema).default([]),
@@ -167,13 +170,55 @@ const feeAgreementBaseSchema = z.object({
   terminationTerms: optionalTrimmedStringSchema,
   sentAt: optionalIsoDateSchema,
   signedAt: optionalIsoDateSchema,
-  notes: optionalTrimmedStringSchema
+  notes: optionalTrimmedStringSchema,
+  legalAidMode: z.boolean().optional(),
+  legalAidType: legalAidTypeSchema.optional(),
+  legalAidShareBasisPoints: z.number().int().min(0).max(10_000).optional(),
+  stateRetributionHtCents: optionalNonNegativeIntegerSchema,
+  complementHtCents: optionalNonNegativeIntegerSchema,
+  complementCapHtCents: optionalNonNegativeIntegerSchema,
+  legalAidVatExempt: z.boolean().optional()
 })
 
-export const feeAgreementSchema = feeAgreementBaseSchema.refine(isDiscountShapeConsistent, {
-  message: discountConsistencyMessage,
-  path: ['discountKind']
-})
+function isLegalAidShapeConsistent(data: {
+  legalAidMode?: boolean
+  legalAidType?: string
+  legalAidShareBasisPoints?: number
+  complementHtCents?: number
+  stateRetributionHtCents?: number
+}): boolean {
+  if (!data.legalAidMode) {
+    // Mode AJ désactivé : aucun champ AJ ne doit être renseigné.
+    return (
+      data.legalAidType === undefined &&
+      data.legalAidShareBasisPoints === undefined &&
+      data.complementHtCents === undefined &&
+      data.stateRetributionHtCents === undefined
+    )
+  }
+  if (data.legalAidType === 'partial') {
+    // AJ partielle : le taux est requis (le complément est autorisé).
+    return typeof data.legalAidShareBasisPoints === 'number' && data.legalAidShareBasisPoints > 0
+  }
+  if (data.legalAidType === 'total') {
+    // AJ totale : pas d'honoraires complémentaires.
+    return data.complementHtCents === undefined || data.complementHtCents === 0
+  }
+  return false
+}
+
+const legalAidConsistencyMessage =
+  "Champs AJ incohérents : le mode AJ doit préciser un type, l'AJ partielle exige un taux (legalAidShareBasisPoints) et l'AJ totale interdit tout complément d'honoraires."
+
+export const feeAgreementSchema = feeAgreementBaseSchema
+  .refine(isDiscountShapeConsistent, {
+    message: discountConsistencyMessage,
+    path: ['discountKind']
+  })
+  .refine(isLegalAidShapeConsistent, {
+    message: legalAidConsistencyMessage,
+    path: ['legalAidType']
+  })
 
 export const dossierFeeAgreementUpsertInputSchema = feeAgreementBaseSchema
   .omit({ id: true, createdAt: true, updatedAt: true, isActive: true })
@@ -185,6 +230,10 @@ export const dossierFeeAgreementUpsertInputSchema = feeAgreementBaseSchema
   .refine(isDiscountShapeConsistent, {
     message: discountConsistencyMessage,
     path: ['discountKind']
+  })
+  .refine(isLegalAidShapeConsistent, {
+    message: legalAidConsistencyMessage,
+    path: ['legalAidType']
   })
 
 export const dossierFeeAgreementDeleteInputSchema = z.object({

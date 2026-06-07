@@ -106,5 +106,62 @@ describe('documentService semanticSearch', () => {
       })
     )
     expect(result.hits[0]?.snippet).toContain('Assignation')
+    // The document literally contains "Assignation" → it is an exact (keyword) hit.
+    expect(result.hits[0]?.matchKind).toBe('keyword')
+  })
+
+  it('tags hits as keyword when the query word is literally present', async () => {
+    const { domainPath, stateFilePath } = await createConfiguredDomain()
+    const dossierId = 'Client Hybrid'
+    const dossierPath = join(domainPath, dossierId)
+    await mkdir(dossierPath, { recursive: true })
+    await writeFile(
+      join(dossierPath, 'scolarite.md'),
+      "Certificat de scolarité de l'enfant inscrit à l'école.",
+      'utf8'
+    )
+
+    const dossierService = createDossierRegistryService({
+      stateFilePath,
+      now: () => new Date('2026-04-24T08:30:00.000Z')
+    })
+    await dossierService.registerDossier({ id: dossierId })
+
+    // Embedding model unavailable → semantic side yields nothing; keyword side
+    // must still surface the document because it literally contains "école".
+    pipelineSpy.mockResolvedValue(null)
+
+    const service = createDocumentService({ stateFilePath })
+    const result = await service.semanticSearch({ dossierId, query: 'école' })
+
+    expect(result.hits).toHaveLength(1)
+    expect(result.hits[0]?.documentId).toBe('scolarite.md')
+    expect(result.hits[0]?.matchKind).toBe('keyword')
+  })
+
+  it('returns no keyword hits when the query word is absent (no false exact)', async () => {
+    const { domainPath, stateFilePath } = await createConfiguredDomain()
+    const dossierId = 'Client NoMatch'
+    const dossierPath = join(domainPath, dossierId)
+    await mkdir(dossierPath, { recursive: true })
+    await writeFile(
+      join(dossierPath, 'mariage.md'),
+      'Extrait acte de mariage. Mairie de Lyon 6e arrondissement.',
+      'utf8'
+    )
+
+    const dossierService = createDossierRegistryService({
+      stateFilePath,
+      now: () => new Date('2026-04-24T08:30:00.000Z')
+    })
+    await dossierService.registerDossier({ id: dossierId })
+
+    pipelineSpy.mockResolvedValue(null)
+
+    const service = createDocumentService({ stateFilePath })
+    const result = await service.semanticSearch({ dossierId, query: 'école' })
+
+    // No document contains "école" → no keyword (exact) hits at all.
+    expect(result.hits.filter((h) => h.matchKind === 'keyword')).toHaveLength(0)
   })
 })

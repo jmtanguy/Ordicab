@@ -406,7 +406,6 @@ export function createInstructionsGenerator(
       const originDeviceId = await options.delegatedOriginDeviceStore.getOriginDeviceId()
 
       const content = buildDomainRootAiDelegatedInstructions({
-        mode,
         domainPath: resolvedDomainPath,
         dossiers,
         entityCountry: entityProfile?.country ?? undefined,

@@ -342,4 +342,59 @@ describe('dossier store', () => {
     expect(useDossierStore.getState().activeDossier?.keyReferences).toEqual([])
     expect(useDossierStore.getState().dossiers[0]?.nextUpcomingKeyDate).toBeNull()
   })
+
+  it('adds a freshly created dossier to the dashboard immediately', async () => {
+    const created = createDossier({ id: 'Client Gamma', name: 'Client Gamma' })
+    const create = vi.fn(async () => ({ success: true as const, data: created }))
+    const api = {
+      dossier: {
+        listEligible: vi.fn(async () => ({ success: true as const, data: [] })),
+        list: vi.fn(async () => ({ success: true as const, data: [] })),
+        open: vi.fn(async () => ({ success: true as const, data: createDossierDetail() })),
+        register: vi.fn(async () => ({ success: true as const, data: createDossier() })),
+        create,
+        unregister: vi.fn(async () => ({ success: true as const, data: null }))
+      }
+    } as unknown as OrdicabAPI
+
+    ;(globalThis as MutableGlobal).ordicabAPI = api
+
+    const ok = await useDossierStore.getState().create('Client Gamma')
+
+    expect(ok).toBe(true)
+    expect(create).toHaveBeenCalledWith({ name: 'Client Gamma' })
+    expect(useDossierStore.getState().dossiers).toEqual([created])
+    expect(useDossierStore.getState().notice).toEqual({
+      kind: 'registered',
+      dossierName: 'Client Gamma'
+    })
+  })
+
+  it('surfaces create failures without touching the dashboard list', async () => {
+    const create = vi.fn(async () => ({
+      success: false as const,
+      error: 'A folder with this name already exists.',
+      code: IpcErrorCode.INVALID_INPUT
+    }))
+    const api = {
+      dossier: {
+        listEligible: vi.fn(async () => ({ success: true as const, data: [] })),
+        list: vi.fn(async () => ({ success: true as const, data: [createDossier()] })),
+        open: vi.fn(async () => ({ success: true as const, data: createDossierDetail() })),
+        register: vi.fn(async () => ({ success: true as const, data: createDossier() })),
+        create,
+        unregister: vi.fn(async () => ({ success: true as const, data: null }))
+      }
+    } as unknown as OrdicabAPI
+
+    ;(globalThis as MutableGlobal).ordicabAPI = api
+
+    await useDossierStore.getState().load()
+    const ok = await useDossierStore.getState().create('Client Alpha')
+
+    expect(ok).toBe(false)
+    expect(useDossierStore.getState().dossiers).toEqual([createDossier()])
+    expect(useDossierStore.getState().error).toBe('A folder with this name already exists.')
+    expect(useDossierStore.getState().errorCode).toBe(IpcErrorCode.INVALID_INPUT)
+  })
 })

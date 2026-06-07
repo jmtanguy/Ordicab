@@ -4,10 +4,11 @@ import { useTranslation } from 'react-i18next'
 import { type AppLocale, IpcErrorCode, type OrdicabDataChangedEvent } from '@shared/types'
 
 import { normalizeAppLocale } from '@renderer/i18n'
+import { useDeadlineReminders } from '@renderer/features/reminders/useDeadlineReminders'
 import { DomainDashboard } from '@renderer/features/domain/DomainDashboard'
-import { EntityDialog } from '@renderer/features/domain/EntityPanel'
 import { FolderPickerDialog } from '@renderer/features/dossiers/FolderPickerDialog'
 import { EulaDialog } from '@renderer/features/legal/EulaDialog'
+import { ModelDownloadDialog } from '@renderer/features/settings/ModelDownloadDialog'
 import { OnboardingPage } from '@renderer/features/onboarding/OnboardingPage'
 import { AlertBanner } from '@renderer/components/ui'
 import {
@@ -20,6 +21,9 @@ import {
   useDomainStore,
   useDossierStore,
   useEntityStore,
+  useOnboardingStore,
+  resolveOnboardingComplete,
+  useReminderStore,
   useTemplateStore,
   useUiStore
 } from '@renderer/stores'
@@ -82,7 +86,7 @@ export default function AppShell(): React.JSX.Element {
   const [searchQuery, setSearchQuery] = useState('')
   const [isPickerOpen, setIsPickerOpen] = useState(false)
   const [ordicabSyncWarning, setOrdicabSyncWarning] = useState<string | null>(null)
-  const [showEntityOnboardingDialog, setShowEntityOnboardingDialog] = useState(false)
+  const [domainReadyNotice, setDomainReadyNotice] = useState<string | null>(null)
   const [isEulaRequired, setIsEulaRequired] = useState(false)
   const [eulaContent, setEulaContent] = useState('')
   const [eulaVersion, setEulaVersion] = useState('')
@@ -105,6 +109,9 @@ export default function AppShell(): React.JSX.Element {
   const getEulaStatus = useUiStore((state) => state.getEulaStatus)
   const acceptEula = useUiStore((state) => state.acceptEula)
   const subscribeToOrdicabDataChanged = useUiStore((state) => state.subscribeToOrdicabDataChanged)
+  const subscribeToNotificationClicked = useReminderStore(
+    (state) => state.subscribeToNotificationClicked
+  )
   const domainSnapshot = useDomainStore((state) => state.snapshot)
   const domainLoading = useDomainStore((state) => state.isLoading)
   const domainHasLoadedOnce = useDomainStore((state) => state.hasLoadedOnce)
@@ -114,9 +121,11 @@ export default function AppShell(): React.JSX.Element {
   const rawDossiers = useDossierStore((state) => state.dossiers)
   const eligibleFolders = useDossierStore((state) => state.eligibleFolders)
   const dossierLoading = useDossierStore((state) => state.isLoading)
+  const eligibleLoading = useDossierStore((state) => state.isEligibleLoading)
   const dossierDetailLoading = useDossierStore((state) => state.isDetailLoading)
   const dossierSaving = useDossierStore((state) => state.isSavingDetail)
   const dossierError = useDossierStore((state) => state.error)
+  const dossierErrorCode = useDossierStore((state) => state.errorCode)
   const dossierNotice = useDossierStore((state) => state.notice)
   const activeDossier = useDossierStore((state) => state.activeDossier)
   const dossierDetailError = useDossierStore((state) => state.detailError)
@@ -129,6 +138,7 @@ export default function AppShell(): React.JSX.Element {
   const loadDossierDetail = useDossierStore((state) => state.loadDetail)
   const loadEligibleFolders = useDossierStore((state) => state.loadEligibleFolders)
   const registerDossier = useDossierStore((state) => state.register)
+  const createDossier = useDossierStore((state) => state.create)
   const upsertDossierKeyDate = useDossierStore((state) => state.upsertKeyDate)
   const deleteDossierKeyDate = useDossierStore((state) => state.deleteKeyDate)
   const upsertDossierFeeAgreement = useDossierStore((state) => state.upsertFeeAgreement)
@@ -143,6 +153,7 @@ export default function AppShell(): React.JSX.Element {
   const setDossierStatusFilter = useDossierStore((state) => state.setStatusFilter)
   const unregisterDossier = useDossierStore((state) => state.unregister)
   const clearDossierNotice = useDossierStore((state) => state.clearNotice)
+  const clearDossierError = useDossierStore((state) => state.clearError)
   const resetDossiers = useDossierStore((state) => state.reset)
   const entityProfile = useEntityStore((state) => state.profile)
   const loadCabinetBillingCatalog = useCabinetBillingStore((state) => state.load)
@@ -173,6 +184,8 @@ export default function AppShell(): React.JSX.Element {
   const saveDocumentMetadata = useDocumentStore((state) => state.saveMetadata)
   const openDocumentFile = useDocumentStore((state) => state.openFile)
   const extractDocumentContent = useDocumentStore((state) => state.extractContent)
+
+  useDeadlineReminders()
 
   useEffect(() => {
     void bootstrap()
@@ -266,6 +279,20 @@ export default function AppShell(): React.JSX.Element {
       clearTimeout(timer)
     }
   }, [ordicabSyncWarning])
+
+  useEffect(() => {
+    if (!domainReadyNotice) {
+      return
+    }
+
+    const timer = setTimeout(() => {
+      setDomainReadyNotice(null)
+    }, ORDICAB_WARNING_TIMEOUT_MS)
+
+    return () => {
+      clearTimeout(timer)
+    }
+  }, [domainReadyNotice])
 
   useEffect(() => {
     if (!ordicabSyncWarning) {
@@ -376,16 +403,53 @@ export default function AppShell(): React.JSX.Element {
   ])
 
   const handleDomainSelection = useCallback(async () => {
-    await selectDomain()
+    // Whether the user had explicitly finished onboarding before this selection.
+    // Distinguishes a returning user (re-pointing their domain) from a brand-new
+    // setup that lands on an already-populated folder (fail-open below).
+    const wasOnboardingExplicitlyComplete =
+      useOnboardingStore.getState().progress.completedAt != null
+
+    const selection = await selectDomain()
     clearPendingDomainChange()
-    applyDomainStatus(useDomainStore.getState().snapshot)
+    const snapshot = useDomainStore.getState().snapshot
+    applyDomainStatus(snapshot)
+
+    if (!selection.selectedPath || !snapshot.isAvailable) {
+      return
+    }
 
     await loadEntityProfile()
-    const profile = useEntityStore.getState().profile
-    if (!profile?.firmName) {
-      setShowEntityOnboardingDialog(true)
+    await Promise.all([loadDossiers(), loadEligibleFolders()])
+
+    // A returning user merely re-pointing their domain (onboarding already complete,
+    // or the newly selected domain already holds dossiers) goes straight to the
+    // dashboard — applyDomainStatus has already routed them there via the same
+    // fail-open rule. Only a brand-new, empty setup continues into the wizard.
+    const onboardingComplete = resolveOnboardingComplete(
+      useOnboardingStore.getState().progress,
+      useDomainStore.getState().snapshot.dossierCount
+    )
+    if (onboardingComplete) {
+      // Mid-onboarding the user picked a folder that already holds Ordicab cases:
+      // setup is effectively done, so reassure them why the wizard closed early.
+      if (!wasOnboardingExplicitlyComplete) {
+        setDomainReadyNotice(t('onboarding.domain_already_configured'))
+      }
+      return
     }
-  }, [applyDomainStatus, clearPendingDomainChange, loadEntityProfile, selectDomain])
+
+    // Fresh setup: the guided wizard owns the remaining steps. Advance from the
+    // Drive step (now satisfied) to the Cabinet step.
+    useOnboardingStore.getState().next()
+  }, [
+    t,
+    applyDomainStatus,
+    clearPendingDomainChange,
+    loadDossiers,
+    loadEligibleFolders,
+    loadEntityProfile,
+    selectDomain
+  ])
 
   const handleLocaleChange = useCallback(
     async (locale: AppLocale) => {
@@ -439,6 +503,19 @@ export default function AppShell(): React.JSX.Element {
     void closeActiveDocumentSession()
   }, [closeActiveDocumentSession, closeDossierDetail])
 
+  // Clicking a native deadline-reminder notification jumps to the dossier (or
+  // the home chronology when the notification was a multi-dossier summary).
+  useEffect(() => {
+    const unsubscribe = subscribeToNotificationClicked((event) => {
+      if (event.dossierId) {
+        void handleOpenDossier(event.dossierId)
+        return
+      }
+      setActiveDestination('dossiers')
+    })
+    return unsubscribe
+  }, [handleOpenDossier, subscribeToNotificationClicked])
+
   const handleSelectDestination = useCallback((destination: SidebarDestination) => {
     setActiveDestination(destination)
   }, [])
@@ -467,6 +544,13 @@ export default function AppShell(): React.JSX.Element {
       return registerDossier(id)
     },
     [registerDossier]
+  )
+
+  const handleCreateDossier = useCallback(
+    async (name: string) => {
+      return createDossier(name)
+    },
+    [createDossier]
   )
 
   useEffect(() => {
@@ -530,17 +614,18 @@ export default function AppShell(): React.JSX.Element {
         onAccept={handleAcceptEula}
       />
 
-      <EntityDialog
-        open={showEntityOnboardingDialog}
-        onClose={() => setShowEntityOnboardingDialog(false)}
-      />
+      <ModelDownloadDialog />
 
       <FolderPickerDialog
         open={isPickerOpen}
-        isLoading={dossierLoading}
+        isLoading={eligibleLoading}
         eligibleFolders={eligibleFolders}
         onLoadEligibleFolders={loadEligibleFolders}
         onRegister={handleRegisterDossier}
+        onCreate={handleCreateDossier}
+        createError={dossierError}
+        createErrorCode={dossierErrorCode}
+        onClearError={clearDossierError}
         onDismiss={handleClosePicker}
       />
 
@@ -573,6 +658,11 @@ export default function AppShell(): React.JSX.Element {
             {ordicabSyncWarning ? (
               <AlertBanner role="status" tone="warning" className="m-4 mb-0">
                 {ordicabSyncWarning}
+              </AlertBanner>
+            ) : null}
+            {domainReadyNotice ? (
+              <AlertBanner role="status" tone="success" className="m-4 mb-0">
+                {domainReadyNotice}
               </AlertBanner>
             ) : null}
             <div className="min-h-0 flex-1 overflow-hidden p-6 xl:p-8">

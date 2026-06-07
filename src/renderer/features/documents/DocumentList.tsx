@@ -1419,7 +1419,7 @@ export function DocumentList({
 
           <div
             className={cn(
-              'absolute inset-y-0 right-0 z-30 flex w-full max-w-full transform border-l border-[#e5e3da] bg-[#fbfaf6] shadow-[-12px_0_28px_rgba(15,122,138,0.08)] transition-transform duration-300 ease-out sm:w-105 lg:w-120 xl:w-140',
+              'absolute inset-y-0 right-0 z-30 flex w-full max-w-full transform border-l border-[#e5e3da] bg-[#fbfaf6] shadow-[-12px_0_28px_rgba(15,122,138,0.08)] transition-transform duration-300 ease-out sm:w-[min(92vw,28rem)] lg:w-[min(60vw,40rem)] xl:w-[min(55vw,52rem)] 2xl:w-[min(50vw,64rem)]',
               isDrawerVisible ? 'translate-x-0' : 'pointer-events-none translate-x-full'
             )}
             aria-hidden={!isDrawerVisible}

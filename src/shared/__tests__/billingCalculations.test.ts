@@ -5,7 +5,8 @@ import {
   buildBillingItemFromFeeAgreement,
   buildBillingItemFromKeyDate,
   computeFeeAgreementBillingAmounts,
-  computeBillingItemTotals
+  computeBillingItemTotals,
+  computeLegalAidPartialAmounts
 } from '@shared/billingCalculations'
 import type { CabinetServicePreset, DossierFeeAgreement, KeyDate } from '@shared/types'
 
@@ -268,5 +269,75 @@ describe('buildBillingItemFromFeeAgreement', () => {
       retainerHtCents: 50_000,
       finalBalanceHtCents: 58_000
     })
+  })
+})
+
+describe('computeLegalAidPartialAmounts', () => {
+  it('caps the negotiated complement at total minus the State retribution', () => {
+    const result = computeLegalAidPartialAmounts({
+      totalHonorairesHtCents: 200_000,
+      shareBasisPoints: 5500,
+      stateRetributionHtCents: 108_000,
+      requestedComplementHtCents: 150_000
+    })
+    expect(result.complementCapHtCents).toBe(92_000)
+    expect(result.negotiatedComplementHtCents).toBe(92_000)
+    expect(result.complementCapped).toBe(true)
+    expect(result.legalNote).toContain('55 %')
+  })
+
+  it('keeps the requested complement when below the cap', () => {
+    const result = computeLegalAidPartialAmounts({
+      totalHonorairesHtCents: 200_000,
+      shareBasisPoints: 5000,
+      stateRetributionHtCents: 108_000,
+      requestedComplementHtCents: 50_000
+    })
+    expect(result.negotiatedComplementHtCents).toBe(50_000)
+    expect(result.complementCapped).toBe(false)
+  })
+})
+
+describe('buildBillingItemFromFeeAgreement — aide juridictionnelle', () => {
+  const ajAgreement: DossierFeeAgreement = {
+    id: 'fa-aj',
+    createdAt: '2026-03-12T08:30:00.000Z',
+    updatedAt: '2026-03-12T08:30:00.000Z',
+    isActive: true,
+    status: 'signed',
+    matterLabel: 'Prud’hommes AJ',
+    scopeDescription: 'Assistance prud’homale',
+    billingType: 'flat',
+    vatRateBasisPoints: 2000,
+    legalAidMode: true,
+    legalAidType: 'partial',
+    legalAidShareBasisPoints: 5500,
+    stateRetributionHtCents: 108_000,
+    complementHtCents: 50_000,
+    legalAidVatExempt: true
+  }
+
+  it('builds a VAT-exempt State retribution item', () => {
+    const input = buildBillingItemFromFeeAgreement(ajAgreement, {
+      dossierId: 'dos-1',
+      today: '2026-04-01',
+      conversionKind: 'stateRetribution'
+    })
+    expect(input.unitPriceHtCents).toBe(108_000)
+    expect(input.vatRateBasisPoints).toBe(0)
+    expect(input.sourceFeeAgreementBillingKind).toBe('stateRetribution')
+    expect(input.label).toContain('Rétribution AJ')
+  })
+
+  it('builds a complement item at the cabinet VAT rate', () => {
+    const input = buildBillingItemFromFeeAgreement(ajAgreement, {
+      dossierId: 'dos-1',
+      today: '2026-04-01',
+      conversionKind: 'legalAidComplement'
+    })
+    expect(input.unitPriceHtCents).toBe(50_000)
+    expect(input.vatRateBasisPoints).toBe(2000)
+    expect(input.sourceFeeAgreementBillingKind).toBe('legalAidComplement')
+    expect(input.label).toContain('Complément')
   })
 })

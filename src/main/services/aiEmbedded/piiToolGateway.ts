@@ -121,7 +121,17 @@ const toolResultPseudonymizers: Record<string, ResultPseudonymizer> = {
   document_list: (result, h) => pseudonymizeDocumentToolResultAsync(result, h.pseudonymizeText),
   document_get: (result, h) => pseudonymizeDocumentToolResultAsync(result, h.pseudonymizeText),
   document_search: (result, h) => pseudonymizeDocumentToolResultAsync(result, h.pseudonymizeText),
-  document_analyze: (result, h) => pseudonymizeAnalyzeToolResultAsync(result, h.pseudonymizeText)
+  document_analyze: (result, h) => pseudonymizeAnalyzeToolResultAsync(result, h.pseudonymizeText),
+  // Legal tools return PUBLIC reference data from Légifrance / Judilibre (official
+  // text content, decision ids, taxonomy codes). It contains no client PII, and
+  // its ids/codes (LEGIARTI…, "civ1", …) MUST round-trip verbatim so the model can
+  // pass them to a follow-up consult/search call. Pass through unchanged.
+  legal_search_legifrance: async (result) => result,
+  legal_consult_legifrance: async (result) => result,
+  legal_search_judilibre: async (result) => result,
+  legal_consult_judilibre: async (result) => result,
+  legal_taxonomy_judilibre: async (result) => result,
+  legal_verify_references: async (result) => result
 }
 
 async function pseudonymizeToolResult(

@@ -90,21 +90,37 @@ export function InvoicesDashboard({ onOpenDossier }: InvoicesDashboardProps): Re
   const kpis = useMemo(() => {
     const yearInvoices = list.filter((entry) => entry.sequenceYear === currentYear)
     const active = yearInvoices.filter((e) => e.status !== 'cancelled')
-    const totalIssuedHt = active.reduce(
+    // La rétribution AJ (part de l'État, réglée par la CARPA) n'est pas un produit
+    // commercial : elle est suivie à part et exclue du chiffre d'affaires.
+    const commercial = active.filter((e) => e.documentType !== 'stateRetribution')
+    const totalIssuedHt = commercial.reduce(
       (acc, e) => acc + (e.documentType === 'creditNote' ? -e.totalHtCents : e.totalHtCents),
       0
     )
-    const totalIssuedTtc = active.reduce(
+    const totalIssuedTtc = commercial.reduce(
       (acc, e) => acc + (e.documentType === 'creditNote' ? -e.totalTtcCents : e.totalTtcCents),
       0
     )
     const totalPaidTtc = yearInvoices
-      .filter((e) => e.documentType !== 'creditNote')
+      .filter((e) => e.documentType !== 'creditNote' && e.documentType !== 'stateRetribution')
       .reduce((acc, e) => acc + e.paidAmountCents, 0)
     const totalPendingTtc = yearInvoices
-      .filter((e) => e.documentType !== 'creditNote')
+      .filter((e) => e.documentType !== 'creditNote' && e.documentType !== 'stateRetribution')
       .reduce((acc, e) => acc + e.remainingAmountCents, 0)
-    return { totalIssuedHt, totalIssuedTtc, totalPaidTtc, totalPendingTtc }
+    // Rétribution AJ : montant émis, encaissé (CARPA) et restant à recouvrer.
+    const legalAid = active.filter((e) => e.documentType === 'stateRetribution')
+    const legalAidIssuedTtc = legalAid.reduce((acc, e) => acc + e.totalTtcCents, 0)
+    const legalAidPaidTtc = legalAid.reduce((acc, e) => acc + e.paidAmountCents, 0)
+    const legalAidPendingTtc = legalAid.reduce((acc, e) => acc + e.remainingAmountCents, 0)
+    return {
+      totalIssuedHt,
+      totalIssuedTtc,
+      totalPaidTtc,
+      totalPendingTtc,
+      legalAidIssuedTtc,
+      legalAidPaidTtc,
+      legalAidPendingTtc
+    }
   }, [list, currentYear])
 
   const filtered = useMemo(() => {
@@ -141,6 +157,25 @@ export function InvoicesDashboard({ onOpenDossier }: InvoicesDashboardProps): Re
         <KpiCard label="Encaissé TTC" value={formatCents(kpis.totalPaidTtc)} accent="emerald" />
         <KpiCard label="En attente TTC" value={formatCents(kpis.totalPendingTtc)} accent="amber" />
       </div>
+
+      {kpis.legalAidIssuedTtc > 0 ? (
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+          <KpiCard
+            label={`Rétribution AJ ${currentYear} (émise)`}
+            value={formatCents(kpis.legalAidIssuedTtc)}
+          />
+          <KpiCard
+            label="Rétribution AJ encaissée (CARPA)"
+            value={formatCents(kpis.legalAidPaidTtc)}
+            accent="emerald"
+          />
+          <KpiCard
+            label="Rétribution AJ à recouvrer"
+            value={formatCents(kpis.legalAidPendingTtc)}
+            accent="amber"
+          />
+        </div>
+      ) : null}
 
       {error ? (
         <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -450,6 +485,7 @@ function InvoiceRow({
   onCorrect,
   onCancel
 }: InvoiceRowProps): React.JSX.Element {
+  const { t } = useTranslation()
   return (
     <li
       role="button"
@@ -466,6 +502,11 @@ function InvoiceRow({
     >
       <span className="w-32 shrink-0 text-sm font-medium tabular-nums text-[#1a1a1a]">
         {invoice.number}
+        {invoice.documentType === 'stateRetribution' ? (
+          <span className="mt-0.5 block text-[10px] font-normal uppercase tracking-wide text-violet-600">
+            {t('invoices.legal_aid_badge', { defaultValue: 'Rétribution AJ' })}
+          </span>
+        ) : null}
       </span>
       <span className="w-28 shrink-0 text-sm tabular-nums text-[#5c5c5a]">
         {formatDateIso(invoice.issuedAt)}

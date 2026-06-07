@@ -29,7 +29,7 @@
 import {
   __resetModelRegistryForTests,
   getPipeline as getRegistryPipeline,
-  runWithInferenceLock,
+  runInferenceTracked,
   warmup as warmupPipeline,
   type PipelineFn
 } from '../modelRegistry'
@@ -667,40 +667,131 @@ export async function applyNerHints(
 
   try {
     const minScore = resolveMinScore(text, config)
-    // ignore_labels: [] — the pipeline defaults to filtering "O" tokens, which
-    // silently drops the tail "##" piece of a recognized entity when the model
-    // predicts a different label for it (e.g. "mer" PER + "##lin" O). We need
-    // every token to run our own subword-continuation merge in aggregateBioEntities.
-    const pipeOpts = { ignore_labels: [] as string[] }
-    const raw = (await runWithInferenceLock(async () => pipe(text, pipeOpts))) as NerRawEntity[]
-    const firstPass = mapEntitiesToSpans(text, pipe, raw, minScore)
 
-    const titleCaseCandidate = buildTitleCaseCandidate(text)
-    const secondPass = titleCaseCandidate
-      ? mapEntitiesToSpans(
-          text,
-          pipe,
-          (await runWithInferenceLock(async () =>
-            pipe(titleCaseCandidate, pipeOpts)
-          )) as NerRawEntity[],
-          minScore,
-          titleCaseCandidate
-        )
-      : []
+    // The NER model has a fixed 512-token window. Feeding it a longer document
+    // makes transformers.js/onnxruntime produce an oversized output tensor that
+    // crashes natively (OrtValueToNapiValue → SIGSEGV) on macOS arm64 — and,
+    // even without the crash, truncating would silently leave names in the tail
+    // of the document un-pseudonymized, leaking them to the remote LLM. So we
+    // split long text into safe windows, run NER on each, and offset the
+    // resulting regions back into whole-document coordinates. Short text (the
+    // common chat-command case) takes the single-window path unchanged.
+    const windows = splitIntoNerWindows(text)
+    const allRegions: DetectedSpan[] = []
+    for (const window of windows) {
+      const windowRegions = await detectRegionsInWindow(window.text, pipe, minScore)
+      for (const region of windowRegions) {
+        allRegions.push({
+          ...region,
+          start: region.start + window.offset,
+          end: region.end + window.offset
+        })
+      }
+    }
 
-    const nameRegions = [...firstPass, ...secondPass].filter((span) => span.type === 'name')
-    const shortQueryFallback = nameRegions.length === 0 ? buildTriggeredFallbackSpans(text) : []
-
-    // First-pass regions win on overlap: the second pass runs on a text mutated
-    // by title-case heuristics and can produce over-extended regions that
-    // overlap the originals.
-    const regions = dedupeByOverlap([...firstPass, ...secondPass, ...shortQueryFallback])
+    // First-pass/earlier-window regions win on overlap (dedupeByOverlap keeps
+    // the first of any overlapping pair), matching the single-window priority
+    // where the title-case second pass yields to the literal first pass.
+    const regions = dedupeByOverlap(allRegions)
     const hintedText = applyCapitalizationHints(text, regions)
     return { hintedText, nerRegions: regions }
   } catch (err) {
     inferenceWarnLog.warnOnce(err)
     return { hintedText: text, nerRegions: [] }
   }
+}
+
+// Conservative character budget per NER window. The model's hard limit is 512
+// tokens; multilingual/French text can run ~2.5+ tokens per word, so we keep
+// each window well under that to leave headroom for subword splits and the two
+// special tokens BERT adds. Windows split on paragraph/sentence boundaries so a
+// name is never cut across two windows (which would defeat detection).
+const NER_WINDOW_MAX_CHARS = 1200
+
+interface NerWindow {
+  /** Window text. */
+  text: string
+  /** Character offset of this window's start in the original document. */
+  offset: number
+}
+
+/**
+ * Split `text` into windows of at most NER_WINDOW_MAX_CHARS, preferring to break
+ * at paragraph then sentence then whitespace boundaries so entities stay intact.
+ * Returns a single offset-0 window when the text already fits.
+ */
+function splitIntoNerWindows(text: string): NerWindow[] {
+  if (text.length <= NER_WINDOW_MAX_CHARS) return [{ text, offset: 0 }]
+
+  const windows: NerWindow[] = []
+  let cursor = 0
+  while (cursor < text.length) {
+    let end = Math.min(cursor + NER_WINDOW_MAX_CHARS, text.length)
+    if (end < text.length) {
+      // Prefer the latest paragraph/sentence/whitespace break within the window
+      // so we cut between entities, not through one. Only accept a break that is
+      // not too close to the window start (avoid pathological tiny windows).
+      const slice = text.slice(cursor, end)
+      const minBreak = Math.floor(NER_WINDOW_MAX_CHARS * 0.5)
+      const breakAt = lastBoundary(slice, minBreak)
+      if (breakAt > 0) end = cursor + breakAt
+    }
+    windows.push({ text: text.slice(cursor, end), offset: cursor })
+    cursor = end
+  }
+  return windows
+}
+
+/** Index just past the latest paragraph/sentence/space boundary at or after `min`, or -1. */
+function lastBoundary(slice: string, min: number): number {
+  for (const sep of ['\n\n', '\n', '. ', ' ']) {
+    const at = slice.lastIndexOf(sep)
+    if (at >= min) return at + sep.length
+  }
+  return -1
+}
+
+/**
+ * Run the two-pass NER detection (literal + title-case candidate) on a single
+ * window and return regions in window-local coordinates. Extracted from
+ * applyNerHints so the windowing loop can call it per window.
+ */
+async function detectRegionsInWindow(
+  windowText: string,
+  pipe: NerPipelineFn,
+  minScore: number
+): Promise<DetectedSpan[]> {
+  // ignore_labels: [] — the pipeline defaults to filtering "O" tokens, which
+  // silently drops the tail "##" piece of a recognized entity when the model
+  // predicts a different label for it (e.g. "mer" PER + "##lin" O). We need
+  // every token to run our own subword-continuation merge in aggregateBioEntities.
+  //
+  // truncation: true — hard native safety cap. Windowing keeps each input well
+  // under the 512-token limit, but a very dense window could still exceed it;
+  // without truncation transformers.js does not cap, and the oversized output
+  // tensor crashes onnxruntime (OrtValueToNapiValue → SIGSEGV). Worst case this
+  // truncates one over-long window, far better than a process crash.
+  const pipeOpts = { ignore_labels: [] as string[], truncation: true }
+  const raw = (await runInferenceTracked(async () => pipe(windowText, pipeOpts))) as NerRawEntity[]
+  const firstPass = mapEntitiesToSpans(windowText, pipe, raw, minScore)
+
+  const titleCaseCandidate = buildTitleCaseCandidate(windowText)
+  const secondPass = titleCaseCandidate
+    ? mapEntitiesToSpans(
+        windowText,
+        pipe,
+        (await runInferenceTracked(async () =>
+          pipe(titleCaseCandidate, pipeOpts)
+        )) as NerRawEntity[],
+        minScore,
+        titleCaseCandidate
+      )
+    : []
+
+  const nameRegions = [...firstPass, ...secondPass].filter((span) => span.type === 'name')
+  const shortQueryFallback = nameRegions.length === 0 ? buildTriggeredFallbackSpans(windowText) : []
+
+  return [...firstPass, ...secondPass, ...shortQueryFallback]
 }
 
 /**

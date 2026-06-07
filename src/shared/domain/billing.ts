@@ -42,6 +42,7 @@ export function isCabinetServicePresetEligibleForBilling(
 }
 
 import type { InvoiceSettings } from './invoice'
+import type { LegalAidType } from './dossier'
 
 export interface CabinetBillingCatalog {
   services: CabinetServicePreset[]
@@ -108,6 +109,20 @@ export interface DossierFeeAgreement {
   sentAt?: string
   signedAt?: string
   notes?: string
+  /** Active la gestion d'aide juridictionnelle sur cette convention. */
+  legalAidMode?: boolean
+  /** Type d'AJ (totale/partielle) — orthogonal au `billingType`. */
+  legalAidType?: LegalAidType
+  /** Taux d'AJ partielle en points de base (ex. 5500 = 55 %). */
+  legalAidShareBasisPoints?: number
+  /** Rétribution versée par l'État, en centimes HT (calculée par défaut, modifiable). */
+  stateRetributionHtCents?: number
+  /** Complément d'honoraires négocié facturé au client (AJ partielle), en centimes HT. */
+  complementHtCents?: number
+  /** Plafond calculé du complément (informatif / contrôle), en centimes HT. */
+  complementCapHtCents?: number
+  /** Si true, la rétribution État est traitée comme exonérée de TVA (défaut métier). */
+  legalAidVatExempt?: boolean
 }
 
 export interface DossierFeeAgreementUpsertInput {
@@ -139,6 +154,13 @@ export interface DossierFeeAgreementUpsertInput {
   sentAt?: string
   signedAt?: string
   notes?: string
+  legalAidMode?: boolean
+  legalAidType?: LegalAidType
+  legalAidShareBasisPoints?: number
+  stateRetributionHtCents?: number
+  complementHtCents?: number
+  complementCapHtCents?: number
+  legalAidVatExempt?: boolean
 }
 
 export interface DossierFeeAgreementDeleteInput {
@@ -165,7 +187,12 @@ export type BillingItemQuantityUnit = (typeof BILLING_ITEM_QUANTITY_UNIT_VALUES)
 export const BILLING_ITEM_DISCOUNT_KIND_VALUES = ['percent', 'amount'] as const
 export type BillingItemDiscountKind = (typeof BILLING_ITEM_DISCOUNT_KIND_VALUES)[number]
 
-export const SOURCE_FEE_AGREEMENT_BILLING_KIND_VALUES = ['retainer', 'finalBalance'] as const
+export const SOURCE_FEE_AGREEMENT_BILLING_KIND_VALUES = [
+  'retainer',
+  'finalBalance',
+  'stateRetribution',
+  'legalAidComplement'
+] as const
 export type SourceFeeAgreementBillingKind =
   (typeof SOURCE_FEE_AGREEMENT_BILLING_KIND_VALUES)[number]
 

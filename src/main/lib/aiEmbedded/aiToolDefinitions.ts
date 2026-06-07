@@ -371,6 +371,149 @@ export function buildDataTools(
         invoiceId: z.string().describe('Invoice ID from invoice_list.')
       }),
       execute: async (args) => execute('invoice_get', args as Record<string, unknown>)
+    }),
+    legal_search_legifrance: tool({
+      description:
+        'Search official French legal texts through Légifrance via PISTE. READ-ONLY. ' +
+        'Use this for statutes, code articles, decrees, JORF, administrative/judicial legal databases, or when checking whether a cited article exists. ' +
+        'PREFER passing the natural query in `recherche` and leaving the other fields unset: the search auto-detects article citations like "article 1240 du code civil" (it then targets the exact article in the right code) and otherwise ranks results by relevance. ' +
+        'Only set fond/typeChamp/typeRecherche/code to deliberately override that behaviour. ' +
+        'After finding a likely result, call legal_consult_legifrance with the exact id before giving a legal-content answer.',
+      inputSchema: z.object({
+        recherche: z
+          .string()
+          .describe(
+            'Natural-language query or citation, e.g. "article 1240 du code civil" or "responsabilité du fait des choses". Pass it as the user phrased it — do not pre-split it into fields.'
+          ),
+        fond: z
+          .enum(['ALL', 'CODE_ETAT', 'CODE_DATE', 'LODA_ETAT', 'LODA_DATE', 'JORF', 'JURI'])
+          .optional()
+          .describe(
+            'Optional Légifrance collection. Leave unset by default (auto-detected); set only to force a specific collection, e.g. JURI for case law.'
+          ),
+        typeChamp: z
+          .enum(['ALL', 'TITLE', 'NUM_ARTICLE', 'ARTICLE', 'TEXTE', 'NUM'])
+          .optional()
+          .describe(
+            'Optional search field. Leave unset unless you must target one specific field.'
+          ),
+        typeRecherche: z
+          .enum(['EXACTE', 'TOUS_LES_MOTS_DANS_UN_CHAMP', 'UN_DES_MOTS'])
+          .optional()
+          .describe(
+            'Optional matching mode. Leave unset by default (the query is auto-detected: EXACTE for citations, UN_DES_MOTS for natural language).'
+          ),
+        code: z
+          .string()
+          .optional()
+          .describe(
+            'Optional code name, e.g. "Code civil". Usually unnecessary — auto-detected from the query when present.'
+          ),
+        dateDebut: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional()
+          .describe('Optional start date (YYYY-MM-DD) to restrict by publication/signature date.'),
+        dateFin: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional()
+          .describe('Optional end date (YYYY-MM-DD). Defaults to dateDebut when omitted.'),
+        tri: z
+          .enum(['PERTINENCE', 'DATE_PUBLI_DESC', 'DATE_PUBLI_ASC', 'SIGNATURE_DATE_DESC'])
+          .optional()
+          .describe(
+            'Optional sort order. Default PERTINENCE; use DATE_PUBLI_DESC for most recent.'
+          ),
+        pageTaille: z.number().int().min(1).max(20).optional()
+      }),
+      execute: async (args) => execute('legal_search_legifrance', args as Record<string, unknown>)
+    }),
+    legal_consult_legifrance: tool({
+      description:
+        'Consult the full official Légifrance content for a result id returned by legal_search_legifrance. READ-ONLY. ' +
+        'Use this before quoting or validating the content of an article.',
+      inputSchema: z.object({
+        id: z.string().describe('Légifrance id, e.g. LEGIARTI... from search results.')
+      }),
+      execute: async (args) => execute('legal_consult_legifrance', args as Record<string, unknown>)
+    }),
+    legal_search_judilibre: tool({
+      description:
+        'Search French judicial decisions through Judilibre via PISTE. READ-ONLY. ' +
+        'Use this for Cour de cassation / court decision research, pourvoi numbers, ECLI, legal concepts in case law. ' +
+        'To filter by chamber (e.g. "civ1") or legal theme, first call legal_taxonomy_judilibre to get the exact valid codes — do NOT guess them. ' +
+        'After finding a likely decision, call legal_consult_judilibre before summarising the holding.',
+      inputSchema: z.object({
+        recherche: z.string().optional().describe('Plain text query or pourvoi number.'),
+        juridiction: z
+          .enum(['cc', 'ca', 'tj', 'tcom'])
+          .optional()
+          .describe('Jurisdiction: cc=Cour de cassation, ca=cour d’appel, tj/tcom=tribunaux.'),
+        chambre: z
+          .string()
+          .optional()
+          .describe(
+            'Optional chamber code (e.g. "civ1", "comm", "soc", "cr"). Resolve via legal_taxonomy_judilibre (id=chamber) before use.'
+          ),
+        theme: z
+          .string()
+          .optional()
+          .describe(
+            'Optional legal theme/matière. Must match a value from legal_taxonomy_judilibre (id=theme).'
+          ),
+        dateDebut: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional()
+          .describe('Optional decision date lower bound (YYYY-MM-DD).'),
+        dateFin: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional()
+          .describe('Optional decision date upper bound (YYYY-MM-DD).'),
+        tri: z
+          .enum(['scorepub', 'score', 'date'])
+          .optional()
+          .describe('Optional sort: scorepub (default relevance), score, or date (most recent).'),
+        nombreResultats: z.number().int().min(1).max(20).optional()
+      }),
+      execute: async (args) => execute('legal_search_judilibre', args as Record<string, unknown>)
+    }),
+    legal_taxonomy_judilibre: tool({
+      description:
+        'Look up the valid Judilibre vocabulary (chambers, legal themes, jurisdictions, decision types, fields) before filtering a case-law search. READ-ONLY. ' +
+        'Call this to resolve human terms to the exact codes Judilibre expects — e.g. id="chamber" with contextValue="cc" lists the Cour de cassation chambers ("civ1" → "Première chambre civile"), id="theme" lists matières, id="jurisdiction" lists courts. ' +
+        'Use the returned codes as the chambre/theme/juridiction arguments of legal_search_judilibre.',
+      inputSchema: z.object({
+        taxonomyId: z
+          .enum(['chamber', 'theme', 'jurisdiction', 'type', 'solution', 'field', 'location'])
+          .describe('Which taxonomy to list.'),
+        contextValue: z
+          .string()
+          .optional()
+          .describe('Optional context, typically a jurisdiction code such as "cc" for chambers.'),
+        key: z.string().optional().describe('Optional key to resolve a single value.'),
+        value: z.string().optional().describe('Optional value to reverse-resolve to its key.')
+      }),
+      execute: async (args) => execute('legal_taxonomy_judilibre', args as Record<string, unknown>)
+    }),
+    legal_consult_judilibre: tool({
+      description:
+        'Consult the full Judilibre decision for an id returned by legal_search_judilibre. READ-ONLY.',
+      inputSchema: z.object({
+        decisionId: z.string().describe('Judilibre decision id.')
+      }),
+      execute: async (args) => execute('legal_consult_judilibre', args as Record<string, unknown>)
+    }),
+    legal_verify_references: tool({
+      description:
+        'Extract and verify French legal references from text using Légifrance and Judilibre. READ-ONLY. ' +
+        'Use this when the user asks whether references from a client, opposing counsel, or a document are correct.',
+      inputSchema: z.object({
+        text: z.string().describe('Text containing legal references to verify.')
+      }),
+      execute: async (args) => execute('legal_verify_references', args as Record<string, unknown>)
     })
   } as ToolMap
 }

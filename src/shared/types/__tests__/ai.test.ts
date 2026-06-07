@@ -3,10 +3,9 @@ import { describe, expect, it } from 'vitest'
 import { aiSettingsSchema, aiSettingsSaveSchema } from '../../validation/ai'
 
 describe('aiSettingsSchema', () => {
-  it('accepts a valid local config', () => {
+  it('accepts a disabled (none) config', () => {
     const result = aiSettingsSchema.safeParse({
-      mode: 'local',
-      ollamaEndpoint: 'http://localhost:11434'
+      mode: 'none'
     })
     expect(result.success).toBe(true)
   })
@@ -14,7 +13,6 @@ describe('aiSettingsSchema', () => {
   it('accepts a valid remote config with provider', () => {
     const result = aiSettingsSchema.safeParse({
       mode: 'remote',
-      ollamaEndpoint: 'http://localhost:11434',
       remoteProvider: 'https://api.openai.com/v1'
     })
     expect(result.success).toBe(true)
@@ -30,16 +28,14 @@ describe('aiSettingsSchema', () => {
 
   it('rejects an invalid mode', () => {
     const result = aiSettingsSchema.safeParse({
-      mode: 'invalid',
-      ollamaEndpoint: 'http://localhost:11434'
+      mode: 'invalid'
     })
     expect(result.success).toBe(false)
   })
 
-  it('rejects a non-URL endpoint', () => {
+  it('rejects the removed local mode', () => {
     const result = aiSettingsSchema.safeParse({
-      mode: 'local',
-      ollamaEndpoint: 'not-a-url'
+      mode: 'local'
     })
     expect(result.success).toBe(false)
   })
@@ -49,7 +45,6 @@ describe('aiSettingsSaveSchema', () => {
   it('accepts input with an apiKey', () => {
     const result = aiSettingsSaveSchema.safeParse({
       mode: 'remote',
-      ollamaEndpoint: 'http://localhost:11434',
       remoteProvider: 'https://api.openai.com/v1',
       apiKey: 'sk-secret'
     })
@@ -58,8 +53,7 @@ describe('aiSettingsSaveSchema', () => {
 
   it('accepts input without an apiKey', () => {
     const result = aiSettingsSaveSchema.safeParse({
-      mode: 'local',
-      ollamaEndpoint: 'http://localhost:11434'
+      mode: 'none'
     })
     expect(result.success).toBe(true)
   })

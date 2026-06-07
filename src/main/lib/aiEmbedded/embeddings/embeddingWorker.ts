@@ -64,23 +64,24 @@ async function loadPipeline(config: WorkerData): Promise<PipelineFn | null> {
       ) => Promise<PipelineFn>
       env: { localModelPath?: string; allowRemoteModels?: boolean }
     }
+    // NEVER allow remote downloads from the worker: models are provisioned
+    // explicitly into userData by modelDownloadService. A remote fetch here
+    // would (a) bypass the RGPD-safe local-only guarantee and (b) write a
+    // partial file into transformers.js's own .cache that then fails to parse
+    // ("Protobuf parsing failed") and shadows the real model. If modelPath is
+    // missing we'd rather fail loudly than silently download.
+    mod.env.allowRemoteModels = false
     if (config.modelPath) {
       mod.env.localModelPath = config.modelPath
-      mod.env.allowRemoteModels = false
+    } else {
+      parentPort?.postMessage({
+        type: 'log',
+        level: 'warn',
+        message: '[embeddingWorker] no modelPath provided — refusing remote download; pipeline will be unavailable until a model path is configured.'
+      })
     }
     const dtype = config.quantized === false ? 'fp32' : 'q8'
-    return await mod.pipeline('feature-extraction', config.model, {
-      dtype,
-      session_options: {
-        executionProviders: [{ name: 'cpu', useArena: false }],
-        enableCpuMemArena: false,
-        enableMemPattern: false,
-        executionMode: 'sequential',
-        intraOpNumThreads: 1,
-        interOpNumThreads: 1,
-        graphOptimizationLevel: 'all'
-      }
-    })
+    return await mod.pipeline('feature-extraction', config.model, { dtype })
   } catch (err) {
     parentPort?.postMessage({
       type: 'log',
@@ -95,7 +96,14 @@ async function ensurePipeline(config: WorkerData): Promise<PipelineFn | null> {
   if (!pipelinePromise) {
     pipelinePromise = loadPipeline(config)
   }
-  return pipelinePromise
+  const pipe = await pipelinePromise
+  // Don't cache a failed load: the model may simply not be downloaded yet, in
+  // which case a later call (after the model lands / a worker rebind) should be
+  // able to retry rather than being stuck on the first failure.
+  if (!pipe) {
+    pipelinePromise = null
+  }
+  return pipe
 }
 
 function applyPrefix(texts: string[], prefix: string): string[] {
@@ -116,7 +124,14 @@ async function runEmbed(request: EmbedRequest, config: WorkerData): Promise<void
   }
   try {
     const inputs = applyPrefix(request.texts, request.prefix)
-    const result = (await pipe(inputs, { pooling: 'mean', normalize: true })) as PipelineTensor
+    // truncation: true guards against inputs over the model's 512-token window.
+    // Without it, transformers.js does not truncate and onnxruntime crashes
+    // natively on the oversized output tensor. See embeddingService.runPipeline.
+    const result = (await pipe(inputs, {
+      pooling: 'mean',
+      normalize: true,
+      truncation: true
+    })) as PipelineTensor
     if (!result || !result.data || !result.dims || result.dims.length !== 2) {
       parentPort?.postMessage({
         type: 'embed-result',

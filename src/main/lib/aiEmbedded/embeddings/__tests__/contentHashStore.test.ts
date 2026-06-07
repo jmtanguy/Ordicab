@@ -97,8 +97,8 @@ describe('writeIndexedHashToCache', () => {
       text: 'preserved',
       isEmpty: false,
       embeddings: {
-        model: 'Xenova/multilingual-e5-small',
-        dim: 384,
+        model: 'Xenova/bge-m3',
+        dim: 1024,
         chunks: [],
         createdAt: '2026-01-01T00:00:00Z'
       }
@@ -114,7 +114,7 @@ describe('writeIndexedHashToCache', () => {
     expect(after.text).toBe('preserved')
     expect(after.method).toBe('embedded')
     expect(after.embeddings).toBeTruthy()
-    expect(after.embeddings.model).toBe('Xenova/multilingual-e5-small')
+    expect(after.embeddings.model).toBe('Xenova/bge-m3')
   })
 
   it('returns false when the cache file is missing', async () => {

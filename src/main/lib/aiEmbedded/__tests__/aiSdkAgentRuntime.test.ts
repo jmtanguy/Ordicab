@@ -61,11 +61,11 @@ describe('createAiSdkAgentRuntime', () => {
       )
     })
     const runtime = createAiSdkAgentRuntime({
-      localLanguageModel: model
+      remoteLanguageModel: model
     })
 
     await expect(
-      runtime.sendCommand({ command: 'test', context: {}, systemPrompt: 'sys' }, 'local')
+      runtime.sendCommand({ command: 'test', context: {}, systemPrompt: 'sys' })
     ).resolves.toEqual({
       type: 'clarification_request',
       question: 'Confirmer ?',
@@ -84,19 +84,16 @@ describe('createAiSdkAgentRuntime', () => {
         .mockResolvedValueOnce(textResponse('Alice est dans le dossier.'))
     })
     const runtime = createAiSdkAgentRuntime({
-      localLanguageModel: model
+      remoteLanguageModel: model
     })
 
     await expect(
-      runtime.sendCommand(
-        {
-          command: 'liste des contacts',
-          context: {},
-          systemPrompt: 'sys',
-          executeDataTool
-        },
-        'local'
-      )
+      runtime.sendCommand({
+        command: 'liste des contacts',
+        context: {},
+        systemPrompt: 'sys',
+        executeDataTool
+      })
     ).resolves.toEqual({ type: 'direct_response', message: 'Alice est dans le dossier.' })
 
     expect(executeDataTool).toHaveBeenCalledWith('contact_lookup', expect.any(Object))
@@ -118,18 +115,15 @@ describe('createAiSdkAgentRuntime', () => {
         .mockResolvedValueOnce(textResponse('Recherche terminée, je passe à contact_update.'))
     })
 
-    const runtime = createAiSdkAgentRuntime({ localLanguageModel: model })
+    const runtime = createAiSdkAgentRuntime({ remoteLanguageModel: model })
 
     await expect(
-      runtime.sendCommand(
-        {
-          command: 'extrais le contact',
-          context: {},
-          systemPrompt: 'sys',
-          executeDataTool
-        },
-        'local'
-      )
+      runtime.sendCommand({
+        command: 'extrais le contact',
+        context: {},
+        systemPrompt: 'sys',
+        executeDataTool
+      })
     ).resolves.toEqual({
       type: 'direct_response',
       message: 'Recherche terminée, je passe à contact_update.'
@@ -147,7 +141,7 @@ describe('createAiSdkAgentRuntime', () => {
     const runtime = createAiSdkAgentRuntime({})
 
     await expect(
-      runtime.sendCommand({ command: 'test', context: {}, systemPrompt: 'sys' }, 'local')
+      runtime.sendCommand({ command: 'test', context: {}, systemPrompt: 'sys' })
     ).rejects.toMatchObject({ code: IpcErrorCode.AI_RUNTIME_UNAVAILABLE })
   })
 
@@ -155,10 +149,10 @@ describe('createAiSdkAgentRuntime', () => {
     const model = new MockLanguageModelV3({
       doGenerate: vi.fn().mockRejectedValue(new Error('network error'))
     })
-    const runtime = createAiSdkAgentRuntime({ localLanguageModel: model })
+    const runtime = createAiSdkAgentRuntime({ remoteLanguageModel: model })
 
     await expect(
-      runtime.sendCommand({ command: 'test', context: {}, systemPrompt: 'sys' }, 'local')
+      runtime.sendCommand({ command: 'test', context: {}, systemPrompt: 'sys' })
     ).rejects.toMatchObject({ code: IpcErrorCode.AI_RUNTIME_UNAVAILABLE })
   })
 
@@ -172,16 +166,16 @@ describe('createAiSdkAgentRuntime', () => {
         code: 400
       })
     })
-    const runtime = createAiSdkAgentRuntime({ localLanguageModel: model })
+    const runtime = createAiSdkAgentRuntime({ remoteLanguageModel: model })
 
     await expect(
-      runtime.sendCommand({ command: 'test', context: {}, systemPrompt: 'sys' }, 'local')
+      runtime.sendCommand({ command: 'test', context: {}, systemPrompt: 'sys' })
     ).rejects.toMatchObject({
       code: IpcErrorCode.REMOTE_API_ERROR
     })
 
     await runtime
-      .sendCommand({ command: 'test', context: {}, systemPrompt: 'sys' }, 'local')
+      .sendCommand({ command: 'test', context: {}, systemPrompt: 'sys' })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error)
         expect(message).toContain('AI debug trace:')
@@ -201,11 +195,11 @@ describe('createAiSdkAgentRuntime', () => {
       )
     })
     const runtime = createAiSdkAgentRuntime({
-      localLanguageModel: model
+      remoteLanguageModel: model
     })
 
     await expect(
-      runtime.sendCommand({ command: 'test', context: {}, systemPrompt: 'sys' }, 'local')
+      runtime.sendCommand({ command: 'test', context: {}, systemPrompt: 'sys' })
     ).resolves.toEqual({
       type: 'contact_create',
       firstName: 'Emmanuel',
@@ -224,11 +218,11 @@ describe('createAiSdkAgentRuntime', () => {
         )
     })
     const runtime = createAiSdkAgentRuntime({
-      localLanguageModel: model
+      remoteLanguageModel: model
     })
 
     await expect(
-      runtime.sendCommand({ command: 'test', context: {}, systemPrompt: 'sys' }, 'local')
+      runtime.sendCommand({ command: 'test', context: {}, systemPrompt: 'sys' })
     ).resolves.toEqual({
       type: 'contact_create',
       firstName: 'Karine',
@@ -243,7 +237,7 @@ describe('createAiSdkAgentRuntime', () => {
         .fn()
         .mockResolvedValue(textResponse(JSON.stringify({ type: 'direct_response', message: 'ok' })))
     })
-    const runtime = createAiSdkAgentRuntime({ localLanguageModel: model })
+    const runtime = createAiSdkAgentRuntime({ remoteLanguageModel: model })
 
     runtime.appendHistory(
       [
@@ -270,7 +264,7 @@ describe('createAiSdkAgentRuntime', () => {
     )
 
     await expect(
-      runtime.sendCommand({ command: 'next', context: {}, systemPrompt: 'sys' }, 'local')
+      runtime.sendCommand({ command: 'next', context: {}, systemPrompt: 'sys' })
     ).resolves.toEqual({ type: 'direct_response', message: 'ok' })
   })
 
@@ -278,7 +272,7 @@ describe('createAiSdkAgentRuntime', () => {
     const model = new MockLanguageModelV3({
       doGenerate: vi.fn().mockResolvedValue(textResponse('ok'))
     })
-    const runtime = createAiSdkAgentRuntime({ localLanguageModel: model })
+    const runtime = createAiSdkAgentRuntime({ remoteLanguageModel: model })
 
     const huge = 'x'.repeat(25000)
     runtime.appendHistory([
@@ -295,14 +289,14 @@ describe('createAiSdkAgentRuntime', () => {
     ])
 
     await expect(
-      runtime.sendCommand({ command: 'next', context: {}, systemPrompt: 'sys' }, 'local')
+      runtime.sendCommand({ command: 'next', context: {}, systemPrompt: 'sys' })
     ).resolves.toEqual({ type: 'direct_response', message: 'ok' })
   })
 
   it('resetConversation drops persisted history so it cannot leak into the next command', async () => {
     const doGenerate = vi.fn().mockResolvedValue(textResponse('ok'))
     const model = new MockLanguageModelV3({ doGenerate })
-    const runtime = createAiSdkAgentRuntime({ localLanguageModel: model })
+    const runtime = createAiSdkAgentRuntime({ remoteLanguageModel: model })
 
     // A prior conversation persisted in the runtime, as appendHistory records it
     // after every command. Starting a new conversation must wipe this.
@@ -314,10 +308,7 @@ describe('createAiSdkAgentRuntime', () => {
     await runtime.resetConversation()
 
     await expect(
-      runtime.sendCommand(
-        { command: 'quels sont les contacts', context: {}, systemPrompt: 'sys' },
-        'local'
-      )
+      runtime.sendCommand({ command: 'quels sont les contacts', context: {}, systemPrompt: 'sys' })
     ).resolves.toEqual({ type: 'direct_response', message: 'ok' })
 
     const prompt = (doGenerate.mock.calls[0]?.[0] as { prompt?: unknown })?.prompt
@@ -330,7 +321,7 @@ describe('createAiSdkAgentRuntime', () => {
   it('does not send empty assistant text messages to the provider', async () => {
     const doGenerate = vi.fn().mockResolvedValue(textResponse('ok'))
     const model = new MockLanguageModelV3({ doGenerate })
-    const runtime = createAiSdkAgentRuntime({ localLanguageModel: model })
+    const runtime = createAiSdkAgentRuntime({ remoteLanguageModel: model })
 
     runtime.appendHistory([
       { role: 'assistant', content: '' },
@@ -338,7 +329,7 @@ describe('createAiSdkAgentRuntime', () => {
     ])
 
     await expect(
-      runtime.sendCommand({ command: 'next', context: {}, systemPrompt: 'sys' }, 'local')
+      runtime.sendCommand({ command: 'next', context: {}, systemPrompt: 'sys' })
     ).resolves.toEqual({ type: 'direct_response', message: 'ok' })
 
     const firstCallArg = doGenerate.mock.calls[0]?.[0] as { prompt?: unknown } | undefined

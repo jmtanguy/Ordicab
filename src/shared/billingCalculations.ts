@@ -52,6 +52,56 @@ export function computeBillingItemTotals(input: {
   return { subtotalHtCents, discountHtCents, totalHtCents, totalTtcCents }
 }
 
+export interface LegalAidPartialAmounts {
+  /** Part prise en charge par l'État, en centimes HT. */
+  stateRetributionHtCents: number
+  /** Complément d'honoraires effectivement facturable au client (plafonné), en centimes HT. */
+  negotiatedComplementHtCents: number
+  /** Plafond du complément, en centimes HT. */
+  complementCapHtCents: number
+  /** Indique si le complément demandé a été écrêté au plafond. */
+  complementCapped: boolean
+  /** Mention légale à reporter sur la convention/facture (sous réserve de validation juridique). */
+  legalNote: string
+}
+
+/**
+ * Calcule les parts d'une AJ partielle : part État (fixée), complément négocié
+ * facturé au client, plafonné par défaut à `total honoraires − rétribution État`.
+ *
+ * ⚠️ Le plafond et la mention légale sont des hypothèses à valider juridiquement.
+ */
+export function computeLegalAidPartialAmounts(input: {
+  totalHonorairesHtCents: number
+  shareBasisPoints: number
+  stateRetributionHtCents: number
+  requestedComplementHtCents: number
+}): LegalAidPartialAmounts {
+  const stateRetributionHtCents = Math.max(0, Math.round(input.stateRetributionHtCents))
+  const complementCapHtCents = Math.max(
+    0,
+    Math.round(input.totalHonorairesHtCents) - stateRetributionHtCents
+  )
+  const requested = Math.max(0, Math.round(input.requestedComplementHtCents))
+  const negotiatedComplementHtCents = Math.min(requested, complementCapHtCents)
+  const complementCapped = requested > complementCapHtCents
+  const sharePercent = (input.shareBasisPoints / 100).toLocaleString('fr-FR', {
+    minimumFractionDigits: input.shareBasisPoints % 100 === 0 ? 0 : 2,
+    maximumFractionDigits: 2
+  })
+  const legalNote =
+    `Bénéficiaire de l'aide juridictionnelle partielle (prise en charge de ${sharePercent} % ` +
+    `par l'État). Un complément d'honoraires de ${formatEurosCents(negotiatedComplementHtCents)} HT, ` +
+    `librement négocié, reste à la charge du client conformément à l'article 35 de la loi n° 91-647 du 10 juillet 1991.`
+  return {
+    stateRetributionHtCents,
+    negotiatedComplementHtCents,
+    complementCapHtCents,
+    complementCapped,
+    legalNote
+  }
+}
+
 function joinDescription(parts: Array<string | undefined>): string | undefined {
   const cleaned = parts
     .map((part) => part?.trim())
@@ -230,6 +280,57 @@ export function buildBillingItemFromFeeAgreement(
   }
 ): DossierBillingItemUpsertInput {
   const conversionKind = options.conversionKind ?? 'finalBalance'
+
+  // Parts d'aide juridictionnelle : rétribution État et complément client,
+  // facturées séparément (deux items distincts).
+  if (conversionKind === 'stateRetribution') {
+    const stateRetributionHtCents = Math.max(0, agreement.stateRetributionHtCents ?? 0)
+    const vatRateBasisPoints = agreement.legalAidVatExempt ? 0 : agreement.vatRateBasisPoints
+    return {
+      dossierId: options.dossierId,
+      date: options.today,
+      label: `Rétribution AJ - État - ${agreement.matterLabel}`,
+      description: joinDescription([
+        agreement.scopeDescription,
+        agreement.notes,
+        `Rétribution au titre de l'aide juridictionnelle : ${formatEurosCents(
+          stateRetributionHtCents
+        )} HT.`,
+        agreement.legalAidVatExempt ? 'Rétribution exonérée de TVA.' : undefined
+      ]),
+      sourceServicePresetId: agreement.sourceServicePresetId,
+      quantity: 1,
+      quantityUnit: 'units',
+      unitPriceHtCents: stateRetributionHtCents,
+      vatRateBasisPoints,
+      status: 'draft',
+      sourceFeeAgreementId: agreement.id,
+      sourceFeeAgreementBillingKind: conversionKind
+    }
+  }
+
+  if (conversionKind === 'legalAidComplement') {
+    const complementHtCents = Math.max(0, agreement.complementHtCents ?? 0)
+    return {
+      dossierId: options.dossierId,
+      date: options.today,
+      label: `Complément d'honoraires - AJ partielle - ${agreement.matterLabel}`,
+      description: joinDescription([
+        agreement.scopeDescription,
+        agreement.notes,
+        `Complément d'honoraires librement négocié : ${formatEurosCents(complementHtCents)} HT.`
+      ]),
+      sourceServicePresetId: agreement.sourceServicePresetId,
+      quantity: 1,
+      quantityUnit: 'units',
+      unitPriceHtCents: complementHtCents,
+      vatRateBasisPoints: agreement.vatRateBasisPoints,
+      status: 'draft',
+      sourceFeeAgreementId: agreement.id,
+      sourceFeeAgreementBillingKind: conversionKind
+    }
+  }
+
   const amounts = computeFeeAgreementBillingAmounts(agreement)
   const unitPriceHtCents =
     conversionKind === 'retainer' ? amounts.retainerHtCents : amounts.finalBalanceHtCents

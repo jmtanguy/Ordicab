@@ -10,6 +10,7 @@ import {
   type IpcResult
 } from '@shared/types'
 import { previewInvoiceNumber } from '@shared/domain/invoiceNumbering'
+import { entityToInvoiceIssuer } from '@shared/domain/invoiceIssuer'
 
 import {
   generateDocumentInputSchema,
@@ -27,6 +28,7 @@ import { type GenerateService, GenerateServiceError } from '../services/domain/g
 import type { DossierRegistryService } from '../services/domain/dossierRegistryService'
 import type { InvoiceService } from '../services/domain/invoiceService'
 import type { ContactService } from '../services/domain/contactService'
+import type { EntityService } from '../services/domain/entityService'
 import { buildInvoiceTemplateInputFromBillingItems } from '../services/domain/invoiceTemplateInput'
 import { type IpcMainLike, mapIpcError } from './ipc'
 
@@ -45,6 +47,8 @@ export function registerGenerateHandlers(options: {
   dossierRegistryService?: DossierRegistryService
   invoiceService?: InvoiceService
   contactService?: ContactService
+  /** Source of truth for the invoice issuer identity, used to populate the preview. */
+  entityService?: EntityService
   ipcMain: IpcMainLike
   showSaveDialog?: typeof dialog.showSaveDialog
 }): void {
@@ -121,7 +125,7 @@ export function registerGenerateHandlers(options: {
     IPC_CHANNELS.generate.previewInvoiceDocx,
     async (_event, input: unknown): Promise<IpcResult<DocxPreviewResult>> => {
       try {
-        const { dossierRegistryService, invoiceService, contactService } = options
+        const { dossierRegistryService, invoiceService, contactService, entityService } = options
         if (!dossierRegistryService || !invoiceService || !contactService) {
           return {
             success: false,
@@ -149,6 +153,8 @@ export function registerGenerateHandlers(options: {
 
         const settings = await invoiceService.getSettings()
         const contacts = await contactService.list(parsed.dossierId).catch(() => [])
+        const entityProfile = entityService ? await entityService.get().catch(() => null) : null
+        const issuer = entityToInvoiceIssuer(entityProfile, settings)
         const issuedAtIso = (parsed.issuedAt ?? new Date().toISOString().slice(0, 10)).slice(0, 10)
         const issuedAtDate = new Date(`${issuedAtIso}T12:00:00`)
         const previewNumber = (() => {
@@ -163,7 +169,7 @@ export function registerGenerateHandlers(options: {
           items,
           dossier,
           contacts,
-          settings,
+          issuer,
           number: previewNumber,
           issuedAt: issuedAtIso,
           notes: parsed.notes

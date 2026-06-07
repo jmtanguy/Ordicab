@@ -18,6 +18,8 @@ import {
   dossierUpdateInputSchema,
   entityProfileSchema,
   entityProfileDraftSchema,
+  aiCommandInputSchema,
+  aiSettingsSaveSchema,
   keyDateSchema,
   keyReferenceSchema,
   templateDraftSchema
@@ -105,6 +107,38 @@ describe('schema contracts', () => {
         type: ''
       })
     ).toThrowError()
+  })
+
+  it('preserves extended AI settings and command context fields', () => {
+    expect(
+      aiSettingsSaveSchema.parse({
+        mode: 'remote',
+        remoteProvider: 'https://api.example.com/v1',
+        piiEnabled: true,
+        piiWordlist: ['Société discrète', 'Projet Alpha'],
+        claudeCoworkEnabled: true
+      })
+    ).toMatchObject({
+      mode: 'remote',
+      piiWordlist: ['Société discrète', 'Projet Alpha'],
+      claudeCoworkEnabled: true
+    })
+
+    expect(
+      aiCommandInputSchema.parse({
+        command: 'Analyse @assignation.pdf',
+        context: {
+          dossierId: 'dos-1',
+          pendingTagPaths: ['dossier.keyDate.audience.long'],
+          documentMentions: [{ uuid: 'doc-uuid-1', filename: 'assignation.pdf' }]
+        }
+      })
+    ).toMatchObject({
+      context: {
+        pendingTagPaths: ['dossier.keyDate.audience.long'],
+        documentMentions: [{ uuid: 'doc-uuid-1', filename: 'assignation.pdf' }]
+      }
+    })
   })
 
   it('accepts optional contact id for upsert and validates dossier binding', () => {

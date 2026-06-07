@@ -95,6 +95,50 @@ describe('applyNerHints', () => {
     expect(nerRegions).toEqual([])
   })
 
+  it('windows long text and offsets regions back into document coordinates', async () => {
+    // Build a document longer than NER_WINDOW_MAX_CHARS (1200) so applyNerHints
+    // splits it into multiple windows. A name sits at the very start and another
+    // near the very end — both must be detected, and the tail name's region must
+    // be offset into whole-document coordinates (regression: feeding the whole
+    // document to the 512-token model crashed natively AND left tail names leaking).
+    const head = 'Pierre Martin '
+    const filler = 'lorem ipsum dolor sit amet. '.repeat(80) // ~2240 chars
+    const tail = 'Sophie Bernard'
+    const text = head + filler + tail
+
+    const fakePipe = vi.fn(async (input: string) => {
+      const at = (name: string): Array<Record<string, unknown>> => {
+        const start = input.indexOf(name)
+        if (start < 0) return []
+        return [{ entity_group: 'PER', score: 0.99, start, end: start + name.length, word: name }]
+      }
+      // Only emit on the literal (first-pass) input; ignore the title-case
+      // second-pass candidate so we don't double-count.
+      return [...at('Pierre Martin'), ...at('Sophie Bernard')]
+    })
+    pipelineSpy.mockResolvedValue(fakePipe)
+
+    const { nerRegions } = await applyNerHints(text, { enabled: true, minScore: 0.5 })
+
+    // More than one window was processed (the document exceeds one window).
+    expect(fakePipe.mock.calls.length).toBeGreaterThan(1)
+    // Each window stayed under the model's safe character budget.
+    for (const [windowText] of fakePipe.mock.calls) {
+      expect((windowText as string).length).toBeLessThanOrEqual(1200)
+    }
+
+    const values = nerRegions.map((r) => r.value)
+    expect(values).toContain('Pierre Martin')
+    expect(values).toContain('Sophie Bernard')
+    // Every region's offsets index the original document correctly.
+    for (const region of nerRegions) {
+      expect(text.slice(region.start, region.end)).toBe(region.value)
+    }
+    // The tail name really is offset deep into the document, not at a window start.
+    const tailRegion = nerRegions.find((r) => r.value === 'Sophie Bernard')
+    expect(tailRegion?.start).toBe(text.indexOf('Sophie Bernard'))
+  })
+
   it('uses a lower default score threshold on short texts', async () => {
     const text = 'avocat martin'
     const fakePipe = vi.fn(async () => [{ entity: 'B-PER', score: 0.78, index: 2, word: 'martin' }])
@@ -119,9 +163,10 @@ describe('applyNerHints', () => {
 
     const { hintedText, nerRegions } = await applyNerHints(text, { enabled: true })
 
-    expect(fakePipe).toHaveBeenNthCalledWith(1, text, { ignore_labels: [] })
+    expect(fakePipe).toHaveBeenNthCalledWith(1, text, { ignore_labels: [], truncation: true })
     expect(fakePipe).toHaveBeenNthCalledWith(2, 'trouver les informations pour l avocat Martin', {
-      ignore_labels: []
+      ignore_labels: [],
+      truncation: true
     })
     expect(hintedText).toBe('trouver les informations pour l avocat Martin')
     expect(nerRegions).toHaveLength(1)

@@ -181,7 +181,6 @@ function makeRuntime(intent: InternalAiCommand = { type: 'contact_lookup', query
     generateOneShot: vi.fn().mockResolvedValue('generated text'),
     streamText: vi.fn().mockResolvedValue('generated text'),
     cancelCommand: vi.fn(),
-    setLocalLanguageModel: vi.fn(),
     setRemoteLanguageModel: vi.fn(),
     dispose: vi.fn()
   }
@@ -203,10 +202,12 @@ function makeDispatcher(): InternalAICommandDispatcher {
   }
 }
 
-async function writeStateFile(mode: 'local' | 'remote' = 'local'): Promise<string> {
+async function writeStateFile(piiEnabled = false): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'ordicab-ai-service-tests-'))
   const filePath = join(dir, 'state.json')
-  await writeFile(filePath, JSON.stringify({ ai: { mode } }), 'utf8')
+  // Embedded AI now runs only in remote mode. piiEnabled defaults to false so
+  // prompt snapshots stay in clear text; the dedicated PII tests opt in.
+  await writeFile(filePath, JSON.stringify({ ai: { mode: 'remote', piiEnabled } }), 'utf8')
   return filePath
 }
 
@@ -466,7 +467,7 @@ describe('aiService prompt tuning harness', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-03-27T12:00:00.000Z'))
 
-    const stateFilePath = await writeStateFile('remote')
+    const stateFilePath = await writeStateFile(true)
     const domainPath = await writeDomainRegistry([
       {
         id: 'Client Alpha',
@@ -499,7 +500,6 @@ describe('aiService prompt tuning harness', () => {
       generateOneShot: vi.fn().mockResolvedValue('generated text'),
       streamText: vi.fn().mockResolvedValue('generated text'),
       cancelCommand: vi.fn(),
-      setLocalLanguageModel: vi.fn(),
       setRemoteLanguageModel: vi.fn(),
       dispose: vi.fn()
     }
@@ -588,7 +588,7 @@ describe('aiService prompt tuning harness', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-03-27T12:00:00.000Z'))
 
-    const stateFilePath = await writeStateFile('remote')
+    const stateFilePath = await writeStateFile(true)
     const domainPath = await writeDomainRegistry([
       {
         id: 'Client Alpha',
@@ -621,7 +621,6 @@ describe('aiService prompt tuning harness', () => {
       generateOneShot: vi.fn().mockResolvedValue('generated text'),
       streamText: vi.fn().mockResolvedValue('generated text'),
       cancelCommand: vi.fn(),
-      setLocalLanguageModel: vi.fn(),
       setRemoteLanguageModel: vi.fn(),
       dispose: vi.fn()
     }
@@ -705,7 +704,7 @@ describe('aiService prompt tuning harness', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-03-27T12:00:00.000Z'))
 
-    const stateFilePath = await writeStateFile('remote')
+    const stateFilePath = await writeStateFile(true)
     const domainPath = await writeDomainRegistry([
       {
         id: 'Client Alpha',
@@ -732,7 +731,6 @@ describe('aiService prompt tuning harness', () => {
       generateOneShot: vi.fn().mockResolvedValue('generated text'),
       streamText: vi.fn().mockResolvedValue('generated text'),
       cancelCommand: vi.fn(),
-      setLocalLanguageModel: vi.fn(),
       setRemoteLanguageModel: vi.fn(),
       dispose: vi.fn()
     }
@@ -818,7 +816,7 @@ describe('aiService prompt tuning harness', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-03-27T12:00:00.000Z'))
 
-    const stateFilePath = await writeStateFile('remote')
+    const stateFilePath = await writeStateFile(true)
     const domainPath = await writeDomainRegistry([
       {
         id: 'Client Alpha',
@@ -892,7 +890,8 @@ describe('aiService prompt tuning harness', () => {
       },
       stateFilePath,
       tessDataPath: '/tmp',
-      nerModelPath: '/tmp/local-models'
+      nerModelPath: '/tmp/local-models',
+      isNerModelReady: async () => true
     })
 
     await service.executeCommand({
@@ -918,7 +917,7 @@ describe('aiService prompt tuning harness', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-03-27T12:00:00.000Z'))
 
-    const stateFilePath = await writeStateFile('remote')
+    const stateFilePath = await writeStateFile(true)
     const domainPath = await writeDomainRegistry([
       {
         id: 'Client Alpha',
@@ -956,7 +955,6 @@ describe('aiService prompt tuning harness', () => {
       generateOneShot: vi.fn().mockResolvedValue('generated text'),
       streamText: vi.fn().mockResolvedValue('generated text'),
       cancelCommand: vi.fn(),
-      setLocalLanguageModel: vi.fn(),
       setRemoteLanguageModel: vi.fn(),
       dispose: vi.fn()
     }
@@ -1023,7 +1021,8 @@ describe('aiService prompt tuning harness', () => {
       },
       stateFilePath,
       tessDataPath: '/tmp',
-      nerModelPath: '/tmp/local-models'
+      nerModelPath: '/tmp/local-models',
+      isNerModelReady: async () => true
     })
 
     await service.executeCommand({
@@ -1041,7 +1040,7 @@ describe('aiService prompt tuning harness', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-03-27T12:00:00.000Z'))
 
-    const stateFilePath = await writeStateFile('remote')
+    const stateFilePath = await writeStateFile(true)
     const domainPath = await writeDomainRegistry([
       {
         id: 'Client Alpha',
@@ -1120,7 +1119,8 @@ describe('aiService prompt tuning harness', () => {
       },
       stateFilePath,
       tessDataPath: '/tmp',
-      nerModelPath: '/tmp/local-models'
+      nerModelPath: '/tmp/local-models',
+      isNerModelReady: async () => true
     })
 
     const result = await service.executeCommand({

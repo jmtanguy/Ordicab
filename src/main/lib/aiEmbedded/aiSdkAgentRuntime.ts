@@ -6,9 +6,8 @@
  *   2. aiSdkAgentRuntime runs the model through Vercel AI SDK.
  *   3. The SDK executes tools, returns terminal actions, and streams text when needed.
  *
- * This file is intentionally transport-agnostic:
- *   - local mode receives a prebuilt LanguageModel (Ollama/OpenAI-compatible wrapper)
- *   - remote mode receives a prebuilt LanguageModel (OpenAI-compatible wrapper)
+ * This file is intentionally transport-agnostic: it receives a prebuilt
+ * remote LanguageModel (OpenAI-compatible wrapper).
  *
  * The interface stays close to the old runtime so aiService and AiPage do not need a full rewrite.
  */
@@ -61,25 +60,23 @@ function resolveRuntimeLocale(locale?: string): 'fr' | 'en' {
 }
 
 export interface AiAgentRuntimeOptions {
-  localLanguageModel?: LanguageModel
   remoteLanguageModel?: LanguageModel
 }
 
 export interface AiAgentRuntime {
-  sendCommand(payload: AiAgentRuntimePayload, mode: 'local' | 'remote'): Promise<InternalAiCommand>
+  sendCommand(payload: AiAgentRuntimePayload): Promise<InternalAiCommand>
   getDebugTrace(): string | null
   getLastToolLoopEntries(): AiChatHistoryEntry[]
   cancelCommand(): void
   appendHistory(entries: AiChatHistoryEntry[], dispatchedAction?: string): void
   resetConversation(): Promise<void>
-  setLocalLanguageModel(model: LanguageModel | null): void
   setRemoteLanguageModel(model: LanguageModel | null): void
   /**
    * One-shot text generation that bypasses the persisted conversation history.
    * Use for isolated sub-LLM calls (e.g. per-document batch tasks) where each
    * call must start with a fresh context to avoid token bloat.
    */
-  generateOneShot(prompt: string, systemPrompt: string, mode?: 'local' | 'remote'): Promise<string>
+  generateOneShot(prompt: string, systemPrompt: string): Promise<string>
   /**
    * Streaming text generation that bypasses the persisted conversation history
    * (like generateOneShot). Used for isolated drafting calls — e.g. text_generate
@@ -91,8 +88,7 @@ export interface AiAgentRuntime {
     prompt: string,
     systemPrompt: string,
     history?: AiChatHistoryEntry[],
-    onToken?: (token: string) => void,
-    mode?: 'local' | 'remote'
+    onToken?: (token: string) => void
   ): Promise<string>
   dispose(): void
 }
@@ -512,15 +508,13 @@ function historyToSdkMessages(history: AiChatHistoryEntry[]): ModelMessage[] {
 }
 
 export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgentRuntime {
-  let localLanguageModel: LanguageModel | undefined = options.localLanguageModel
   let remoteLanguageModel: LanguageModel | undefined = options.remoteLanguageModel
   let conversationHistory: AiChatHistoryEntry[] = []
   let debugTrace: string | null = null
   let lastToolLoopEntries: AiChatHistoryEntry[] = []
   let currentAbortController: AbortController | null = null
 
-  function resolveLanguageModel(mode: 'local' | 'remote'): LanguageModel | null {
-    if (mode === 'local') return localLanguageModel ?? null
+  function resolveLanguageModel(): LanguageModel | null {
     return remoteLanguageModel ?? null
   }
 
@@ -555,19 +549,11 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
     return compactMessagesForContextWindow(messages)
   }
 
-  function resetDebugTrace(
-    command: string,
-    mode: 'local' | 'remote',
-    requestedModel?: string
-  ): void {
+  function resetDebugTrace(command: string, requestedModel?: string): void {
     debugTrace = null
     appendDebugTrace('╔══ AI SDK RUNTIME START ══════════════════════════════════')
     appendDebugTrace(`║ command    : ${command}`)
-    if (mode === 'remote') {
-      appendDebugTrace(`║ mode       : ${mode} (model: ${requestedModel?.trim() || 'default'})`)
-    } else {
-      appendDebugTrace(`║ mode       : ${mode}`)
-    }
+    appendDebugTrace(`║ model      : ${requestedModel?.trim() || 'default'}`)
     appendDebugTrace('╚══════════════════════════════════════════════════════════')
   }
 
@@ -594,15 +580,14 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
 
   async function runSdkToolLoop(
     payload: AiAgentRuntimePayload,
-    mode: 'local' | 'remote',
     signal: AbortSignal,
     historyStrategy: 'normal' | 'fresh' = 'normal'
   ): Promise<InternalAiCommand | null> {
-    const model = resolveLanguageModel(mode)
+    const model = resolveLanguageModel()
     if (!model) return null
 
     lastToolLoopEntries = []
-    resetDebugTrace(payload.command, mode, payload.model)
+    resetDebugTrace(payload.command, payload.model)
 
     const dataToolCallCounts = new Map<string, number>()
     const dataToolResultsByKey = new Map<string, string>()
@@ -822,16 +807,13 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
       return lastToolLoopEntries
     },
 
-    async sendCommand(
-      payload: AiAgentRuntimePayload,
-      mode: 'local' | 'remote'
-    ): Promise<InternalAiCommand> {
+    async sendCommand(payload: AiAgentRuntimePayload): Promise<InternalAiCommand> {
       const abortController = new AbortController()
       currentAbortController = abortController
 
-      if (!resolveLanguageModel(mode)) {
+      if (!resolveLanguageModel()) {
         throw new AiRuntimeError(
-          `No ${mode} AI model configured.`,
+          'No remote AI model configured.',
           IpcErrorCode.AI_RUNTIME_UNAVAILABLE
         )
       }
@@ -841,7 +823,7 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
           async (): Promise<InternalAiCommand | null> => {
             for (let attempt = 1; attempt <= 2; attempt += 1) {
               try {
-                return await runSdkToolLoop(payload, mode, abortController.signal)
+                return await runSdkToolLoop(payload, abortController.signal)
               } catch (error) {
                 if (!(error instanceof TruncatedToolCallsError) || attempt === 2) throw error
                 appendDebugTrace('[retry] detected truncated [TOOL_CALLS]; retrying once.')
@@ -878,7 +860,6 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
             appendDebugTrace('[retry] context window exceeded; retrying once with fresh history.')
             const freshIntent = await runSdkToolLoop(
               { ...payload, history: [] },
-              mode,
               abortController.signal,
               'fresh'
             )
@@ -914,7 +895,7 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
           ) {
             const retryDelayMs = errType === 'rate_limit' ? 3000 : 1000
             await new Promise((resolve) => setTimeout(resolve, retryDelayMs))
-            return runSdkToolLoop(payload, mode, abortController.signal)
+            return runSdkToolLoop(payload, abortController.signal)
           }
 
           throw new AiRuntimeError(
@@ -938,10 +919,6 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
 
     cancelCommand(): void {
       currentAbortController?.abort()
-    },
-
-    setLocalLanguageModel(model: LanguageModel | null): void {
-      localLanguageModel = model ?? undefined
     },
 
     setRemoteLanguageModel(model: LanguageModel | null): void {
@@ -976,15 +953,11 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
       conversationHistory = []
     },
 
-    async generateOneShot(
-      prompt: string,
-      systemPrompt: string,
-      mode: 'local' | 'remote' = 'local'
-    ): Promise<string> {
-      const sdkModel = resolveLanguageModel(mode)
+    async generateOneShot(prompt: string, systemPrompt: string): Promise<string> {
+      const sdkModel = resolveLanguageModel()
       if (!sdkModel) {
         throw new AiRuntimeError(
-          `No ${mode} AI model configured.`,
+          'No remote AI model configured.',
           IpcErrorCode.AI_RUNTIME_UNAVAILABLE
         )
       }
@@ -1001,13 +974,12 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
       prompt: string,
       systemPrompt: string,
       history?: AiChatHistoryEntry[],
-      onToken?: (token: string) => void,
-      mode: 'local' | 'remote' = 'local'
+      onToken?: (token: string) => void
     ): Promise<string> {
-      const sdkModel = resolveLanguageModel(mode)
+      const sdkModel = resolveLanguageModel()
       if (!sdkModel) {
         throw new AiRuntimeError(
-          `No ${mode} AI model configured.`,
+          'No remote AI model configured.',
           IpcErrorCode.AI_RUNTIME_UNAVAILABLE
         )
       }

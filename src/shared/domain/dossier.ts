@@ -5,6 +5,44 @@ export const DOSSIER_STATUS_VALUES = ['active', 'pending', 'completed', 'archive
 
 export type DossierStatus = (typeof DOSSIER_STATUS_VALUES)[number]
 
+/** Statut de l'aide juridictionnelle (AJ) sur le dossier. */
+export const LEGAL_AID_STATUS_VALUES = ['none', 'requested', 'granted', 'rejected'] as const
+export type LegalAidStatus = (typeof LEGAL_AID_STATUS_VALUES)[number]
+
+/** Type d'AJ une fois accordée : totale (prise en charge intégrale par l'État) ou partielle. */
+export const LEGAL_AID_TYPE_VALUES = ['total', 'partial'] as const
+export type LegalAidType = (typeof LEGAL_AID_TYPE_VALUES)[number]
+
+/**
+ * Métadonnées d'aide juridictionnelle attachées à un dossier.
+ *
+ * Saisie 100 % libre par l'avocat : il renseigne lui-même le statut, le type,
+ * le taux (AJ partielle), les références BAJ et les montants (rétribution État
+ * et complément). Aucun barème ni auto-calcul.
+ */
+export interface DossierLegalAid {
+  status: LegalAidStatus
+  /** Requis lorsque `status === 'granted'`. */
+  type?: LegalAidType
+  /** Taux d'AJ partielle en points de base (ex. 5500 = 55 %). Requis lorsque `type === 'partial'`. */
+  shareBasisPoints?: number
+  /** Numéro de la décision du BAJ (bureau d'aide juridictionnelle). */
+  bajDecisionNumber?: string
+  /** Date de la décision du BAJ (ISO YYYY-MM-DD). */
+  bajDecisionDate?: string
+  /** BAJ / juridiction de rattachement. */
+  bajOffice?: string
+  /** Numéro d'AJ / référence CARPA. */
+  aidNumber?: string
+  /** Rétribution versée par l'État, saisie par l'avocat, en centimes HT. */
+  stateRetributionHtCents?: number
+  /** Complément d'honoraires (AJ partielle), saisi par l'avocat, en centimes HT. */
+  complementHtCents?: number
+  /** Garde-fou : passe à true une fois l'orchestration automatique exécutée pour éviter les doublons. */
+  autoSetupDone?: boolean
+  notes?: string
+}
+
 export const KEY_DATE_TAG_VALUES = [
   'cancelled',
   'postponed',
@@ -85,6 +123,10 @@ export interface DossierKeyReferenceDeleteInput {
 
 export interface DossierRegistrationInput {
   id: string
+}
+
+export interface DossierCreateInput {
+  name: string
 }
 
 export interface DossierUnregisterInput {
@@ -209,6 +251,28 @@ export interface DossierUpdateInput {
   information?: string
   juridiction?: string
   tribunal?: string
+  legalAid?: DossierLegalAid
+}
+
+export interface DossierUpdateLegalAidInput {
+  dossierId: string
+  legalAid: DossierLegalAid
+}
+
+export interface DossierSetupLegalAidInput {
+  dossierId: string
+  /** Force la régénération même si l'AJ a déjà été configurée. */
+  force?: boolean
+}
+
+export interface DossierSetupLegalAidResult {
+  feeAgreementId: string
+  billingItemIds: string[]
+  invoiceIds: string[]
+  invoiceNumbers: string[]
+  documentUuids: string[]
+  keyDateIds: string[]
+  warnings: string[]
 }
 
 export interface DossierSummary {
@@ -230,6 +294,7 @@ export interface DossierDetail extends DossierSummary {
   information?: string
   juridiction?: string
   tribunal?: string
+  legalAid?: DossierLegalAid
   feeAgreements: DossierFeeAgreement[]
   billingItems: DossierBillingItem[]
   keyDates: KeyDate[]

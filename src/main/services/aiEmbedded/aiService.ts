@@ -4,8 +4,8 @@
  * Responsibilities:
  *   1. Read the active AI mode from the state file on every command (so mode
  *      changes in Settings take effect without restarting).
- *   2. Guard against unsupported modes: 'none' and external modes
- *      (claude-code, copilot, codex) are not handled by this pipeline.
+ *   2. Guard against unsupported modes: 'none' and the delegated mode
+ *      (claude-code) are not handled by this pipeline.
  *   3. Enrich the system prompt context: load the current dossiers, contacts,
  *      templates, and documents so the LLM can resolve names to stable IDs
  *      in a single turn.
@@ -37,6 +37,7 @@ import { entityProfileSchema } from '@shared/validation/entity'
 
 import { PiiPseudonymizer } from '../../lib/aiEmbedded/pii/piiPseudonymizer'
 import { buildPiiPseudonymizer } from '../../lib/aiEmbedded/pii/piiContextBuilder'
+import { isModelPresent, NER_MODEL } from '../../lib/aiEmbedded/modelDownloadService'
 import {
   revertJsonValueWithMappingEntries,
   revertWithMappingEntriesWithOptions,
@@ -59,6 +60,7 @@ import type {
 } from '../../lib/aiEmbedded/aiCommandDispatcher'
 import { ActionToolExecutor } from './actionToolExecutor'
 import { createPiiToolGateway, type PiiHelpers } from './piiToolGateway'
+import type { LegalService } from '../legal/legalService'
 import {
   handleDocumentAnalyze,
   handleDocumentBatch,
@@ -97,18 +99,18 @@ interface ReadAiSettingsResult {
  * @returns persistent states
  */
 async function readAiSettings(stateFilePath: string): Promise<ReadAiSettingsResult> {
-  const defaultResult: ReadAiSettingsResult = { mode: 'local', piiEnabled: true, piiWordlist: [] }
+  const defaultResult: ReadAiSettingsResult = { mode: 'none', piiEnabled: true, piiWordlist: [] }
   if (!(await pathExists(stateFilePath))) return defaultResult
 
   try {
     const raw = await readFile(stateFilePath, 'utf8')
     const parsed = JSON.parse(raw) as AppStateFile
     const ai = parsed?.ai
-    const validModes: AiMode[] = ['none', 'local', 'remote', 'claude-code', 'copilot', 'codex']
+    const validModes: AiMode[] = ['none', 'remote', 'claude-code']
     const mode: AiMode =
       typeof ai?.mode === 'string' && (validModes as string[]).includes(ai.mode)
         ? (ai.mode as AiMode)
-        : 'local'
+        : 'none'
     const piiEnabled: boolean =
       typeof (ai as Record<string, unknown> | undefined)?.['piiEnabled'] === 'boolean'
         ? ((ai as Record<string, unknown>)['piiEnabled'] as boolean)
@@ -156,6 +158,7 @@ export interface AiServiceOptions {
   dossierService: DossierServiceLike
   documentService: DocumentServiceLike
   invoiceService: InvoiceServiceLike
+  legalService?: LegalService
   domainService: DomainServiceLike
   localeService: LocaleServiceLike
   stateFilePath: string
@@ -167,6 +170,13 @@ export interface AiServiceOptions {
    * back to regex-only detection — same observable behavior as before.
    */
   nerModelPath?: string | null
+  /**
+   * RGPD gate: returns true when the NER model is present and pseudonymisation
+   * can run reliably. Remote calls are refused when this is false and PII
+   * protection is on. Defaults to a filesystem check of `nerModelPath`;
+   * injectable for tests that exercise the pseudonymizer with a mocked model.
+   */
+  isNerModelReady?: () => Promise<boolean>
 }
 
 function formatCurrentDate(locale: string): string {
@@ -312,11 +322,17 @@ export function createAiService(options: AiServiceOptions): AiService {
     dossierService,
     documentService,
     invoiceService,
+    legalService,
     domainService,
     localeService,
     stateFilePath,
     nerModelPath
   } = options
+
+  // RGPD gate check: present-on-disk by default, overridable for tests.
+  const isNerModelReady =
+    options.isNerModelReady ??
+    (async () => (nerModelPath ? isModelPresent(nerModelPath, NER_MODEL).catch(() => false) : false))
 
   // Keeps prior-turn mappings only for local decoding. It is never passed back
   // into PiiPseudonymizer, so it cannot seed or alter values sent to the LLM.
@@ -357,11 +373,25 @@ export function createAiService(options: AiServiceOptions): AiService {
         )
       }
 
-      // Two embedded modes: 'local' uses Ollama (local LLM), 'remote' uses a remote API
-      // (Mistral, OpenAI-compatible, etc.). Delegated modes (claude-code, copilot, codex)
-      // are rejected above and never reach this point.
-      const runtimeMode = mode === 'remote' ? 'remote' : 'local'
-      if (runtimeMode === 'remote' && configureRemoteLanguageModel) {
+      // Only 'remote' reaches here: 'none' and the delegated mode (claude-code)
+      // are rejected above.
+
+      // RGPD gate: remote calls send pseudonymized text to a third party. The
+      // NER model is the position-oracle that makes pseudonymisation reliable;
+      // without it, detection silently degrades to regex-only. So when PII
+      // protection is enabled, refuse the remote call until the NER model has
+      // finished downloading, rather than leak under-redacted text.
+      if (piiEnabled && nerModelPath) {
+        const nerReady = await isNerModelReady()
+        if (!nerReady) {
+          throw new AiRuntimeError(
+            'PII protection is still downloading. Remote AI is paused until it finishes, to avoid sending under-redacted text.',
+            IpcErrorCode.AI_RUNTIME_UNAVAILABLE
+          )
+        }
+      }
+
+      if (configureRemoteLanguageModel) {
         await configureRemoteLanguageModel(input.model)
       }
       const appLocale = localeService.getLocale()
@@ -420,25 +450,24 @@ export function createAiService(options: AiServiceOptions): AiService {
       // piiPseudo is created here, in this service, for each command.
       // There is no outer/caller-side pseudonymizer: aiService IS the entry point
       // for AI commands and owns the full pseudonymize → revert lifecycle.
-      const piiPseudo: PiiPseudonymizer | null =
-        runtimeMode === 'remote' && piiEnabled
-          ? buildPiiPseudonymizer({
-              contacts,
-              dossierDetail,
-              entityProfile,
-              dossiers,
-              templates,
-              piiWordlist,
-              currentDate,
-              locale: appLocale as 'fr' | 'en',
-              nerModelPath,
-              // Pre-seed with prior-turn mappings so the new turn keeps stable
-              // fakes for already-known originals AND pickUniqueFake dodges
-              // fakes taken by other originals — eliminating the cross-turn
-              // collisions that produced ambiguous bare-fake decoding.
-              priorEntries: piiDecodeLedger
-            })
-          : null
+      const piiPseudo: PiiPseudonymizer | null = piiEnabled
+        ? buildPiiPseudonymizer({
+            contacts,
+            dossierDetail,
+            entityProfile,
+            dossiers,
+            templates,
+            piiWordlist,
+            currentDate,
+            locale: appLocale as 'fr' | 'en',
+            nerModelPath,
+            // Pre-seed with prior-turn mappings so the new turn keeps stable
+            // fakes for already-known originals AND pickUniqueFake dodges
+            // fakes taken by other originals — eliminating the cross-turn
+            // collisions that produced ambiguous bare-fake decoding.
+            priorEntries: piiDecodeLedger
+          })
+        : null
       // Two helpers sharing the same piiPseudo instance (and thus the same mapping):
       //   • pseudonymizeText — plain-text path, used for prose (system prompts, user
       //     command, history, text_generate prompts) and for selected fields of
@@ -510,7 +539,7 @@ export function createAiService(options: AiServiceOptions): AiService {
       // SystemPromptContext fed into the tool-mode prompt builder.
       const promptContext = {
         dossierId: activePromptDossierId,
-        piiEnabled: runtimeMode === 'remote' && piiEnabled,
+        piiEnabled,
         currentDate,
         locale: appLocale as 'fr' | 'en',
         dossiers: promptDossiers,
@@ -551,6 +580,7 @@ export function createAiService(options: AiServiceOptions): AiService {
         documentService,
         dossierService,
         invoiceService,
+        legalService,
         entityProfile
       })
 
@@ -593,21 +623,18 @@ export function createAiService(options: AiServiceOptions): AiService {
             onReflection(revertPiiText(text))
           }
         : undefined
-      const intent = await aiAgentRuntime.sendCommand(
-        {
-          command: sanitizedCommand,
-          context: input.context,
-          toolSystemPrompt: safeToolSystemPrompt,
-          model: input.model,
-          history: sanitizedHistory,
-          locale: appLocale as 'fr' | 'en',
-          domainPath: domainStatus.registeredDomainPath ?? undefined,
-          executeDataTool: toolGateway.executeDataTool,
-          executeActionTool: toolGateway.executeActionTool,
-          onReflection: wrappedOnReflection
-        },
-        runtimeMode
-      )
+      const intent = await aiAgentRuntime.sendCommand({
+        command: sanitizedCommand,
+        context: input.context,
+        toolSystemPrompt: safeToolSystemPrompt,
+        model: input.model,
+        history: sanitizedHistory,
+        locale: appLocale as 'fr' | 'en',
+        domainPath: domainStatus.registeredDomainPath ?? undefined,
+        executeDataTool: toolGateway.executeDataTool,
+        executeActionTool: toolGateway.executeActionTool,
+        onReflection: wrappedOnReflection
+      })
       logToolLoopEntries(aiAgentRuntime.getLastToolLoopEntries(), revertPiiText)
       const intentDebugTrace = aiAgentRuntime.getDebugTrace() ?? undefined
 
@@ -649,7 +676,6 @@ export function createAiService(options: AiServiceOptions): AiService {
         documents,
         textGenerationContacts,
         appLocale,
-        runtimeMode,
         sanitizedCommand,
         intentDebugTrace,
         inputContext: input.context,

@@ -17,16 +17,24 @@ export function DomainOnboardingCard({
   const steps = [
     {
       number: '1',
-      title: t('domain.setup_step_choose_title')
+      title: t('domain.setup_step_choose_title'),
+      body: t('domain.setup_step_choose_body')
     },
     {
       number: '2',
-      title: t('domain.setup_step_bootstrap_title')
+      title: t('domain.setup_step_bootstrap_title'),
+      body: t('domain.setup_step_bootstrap_body')
     },
     {
       number: '3',
-      title: t('domain.setup_step_resume_title')
+      title: t('domain.setup_step_resume_title'),
+      body: t('domain.setup_step_resume_body')
     }
+  ]
+  const driveProviders = [
+    t('domain.setup_provider_kdrive'),
+    t('domain.setup_provider_onedrive'),
+    t('domain.setup_provider_google_drive')
   ]
 
   return (
@@ -38,6 +46,16 @@ export function DomainOnboardingCard({
         <p className="mt-2 max-w-2xl text-pretty text-base leading-relaxed text-[#5c5c5a]">
           {t('domain.setup_summary_onboarding')}
         </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {driveProviders.map((provider) => (
+            <span
+              key={provider}
+              className="rounded-full border border-[#d1cfc6] bg-white px-3 py-1 text-xs font-medium text-[#5c5c5a]"
+            >
+              {provider}
+            </span>
+          ))}
+        </div>
       </div>
 
       {error ? (
@@ -57,7 +75,10 @@ export function DomainOnboardingCard({
             <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-aurora/12 text-xs font-semibold text-aurora">
               {step.number}
             </span>
-            <span className="text-base leading-relaxed text-[#1a1a1a]">{step.title}</span>
+            <span>
+              <span className="block text-base leading-relaxed text-[#1a1a1a]">{step.title}</span>
+              <span className="mt-0.5 block text-sm leading-5 text-[#5c5c5a]">{step.body}</span>
+            </span>
           </div>
         ))}
       </div>

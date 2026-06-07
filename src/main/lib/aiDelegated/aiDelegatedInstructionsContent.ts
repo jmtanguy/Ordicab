@@ -1,6 +1,5 @@
 import { basename } from 'node:path'
 
-import type { AiMode } from '@shared/types'
 import { TEMPLATE_ROUTINE_GROUPS, templateRoutineCatalog } from '@shared/templateRoutines'
 
 import {
@@ -893,11 +892,10 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
 }
 
 /**
- * Builds the domain-root instructions file (`CLAUDE.md`, `AGENTS.md`, etc.) for a delegated mode.
+ * Builds the domain-root `CLAUDE.md` instructions file for the delegated (claude-code) mode.
  * The file provides startup rules plus canonical paths, then inlines the delegated workflow manual.
  */
 export function buildDomainRootAiDelegatedInstructions(input: {
-  mode: AiMode
   domainPath: string
   dossiers: LoadedDossierContextForInstructions[]
   entityCountry?: string
@@ -907,11 +905,7 @@ export function buildDomainRootAiDelegatedInstructions(input: {
   const registryPath = getDomainRegistryPath(input.domainPath)
   const templateRoutinesPath = getDomainTemplateRoutinesPath(input.domainPath)
   const operatingRulesLine =
-    input.mode === 'copilot'
-      ? 'This copilot instructions file is intentionally limited to workflow instructions and canonical source paths.'
-      : input.mode === 'codex'
-        ? 'This AGENTS.md file is intentionally limited to workflow instructions and canonical source paths.'
-        : 'This CLAUDE.md is intentionally limited to workflow instructions and canonical source paths.'
+    'This CLAUDE.md is intentionally limited to workflow instructions and canonical source paths.'
   const lines: string[] = [
     '# Ordicab Domain Context',
     '',

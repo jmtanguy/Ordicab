@@ -11,26 +11,35 @@ const httpUrlSchema = z
 
 export const aiSettingsSchema = z.object({
   mode: z.enum(AI_MODE_VALUES),
-  ollamaEndpoint: httpUrlSchema.optional(),
   remoteProviderKind: z.enum(REMOTE_PROVIDER_KIND_VALUES).optional(),
   remoteProjectRef: z.string().optional(),
-  remoteProvider: httpUrlSchema.optional()
+  remoteProvider: httpUrlSchema.optional(),
+  piiWordlist: z.array(z.string()).optional(),
+  claudeCoworkEnabled: z.boolean().optional()
 })
 
 export const aiSettingsSaveSchema = z.object({
   mode: z.enum(AI_MODE_VALUES),
-  ollamaEndpoint: httpUrlSchema.optional(),
   remoteProviderKind: z.enum(REMOTE_PROVIDER_KIND_VALUES).optional(),
   remoteProjectRef: z.string().optional(),
   remoteProvider: httpUrlSchema.optional(),
   apiKey: z.string().optional(),
-  piiEnabled: z.boolean().optional()
+  piiEnabled: z.boolean().optional(),
+  piiWordlist: z.array(z.string()).optional(),
+  claudeCoworkEnabled: z.boolean().optional()
+})
+
+const documentMentionSchema = z.object({
+  uuid: z.string().min(1),
+  filename: z.string().min(1)
 })
 
 export const aiCommandContextSchema = z.object({
   dossierId: z.string().optional(),
   contactId: z.string().optional(),
-  templateId: z.string().optional()
+  templateId: z.string().optional(),
+  pendingTagPaths: z.array(z.string().min(1)).optional(),
+  documentMentions: z.array(documentMentionSchema).optional()
 })
 
 const aiChatHistoryEntrySchema = z.object({

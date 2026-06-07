@@ -31,6 +31,7 @@ import { useToast } from '@renderer/contexts/ToastContext'
 import { AiPage } from '@renderer/features/ai/AiPage'
 import { DocumentList } from '@renderer/features/documents/DocumentList'
 import { SemanticSearchPanel } from '@renderer/features/documents/SemanticSearchPanel'
+import { LegalSearchPanel } from '@renderer/features/legal-search/LegalSearchPanel'
 import { GenerateDocumentPanel } from '@renderer/features/templates/GenerateDocumentPanel'
 import type { DocumentContentState, DocumentPreviewState } from '@renderer/stores'
 
@@ -40,6 +41,7 @@ import { DossierKeyDatesSection } from './DossierKeyDatesSection'
 import { DossierContactsSection } from './DossierContactsSection'
 import { DossierFeeAgreementSection } from './DossierFeeAgreementSection'
 import { DossierKeyReferencesSection } from './DossierKeyReferencesSection'
+import { DossierLegalAidSection } from './DossierLegalAidSection'
 import { useUiStore } from '@renderer/stores/uiStore'
 
 export interface DossierDetailNotice {
@@ -57,18 +59,23 @@ export interface DossierDetailNotice {
     | 'billing-item-deleted'
     | 'key-reference-saved'
     | 'key-reference-deleted'
+    | 'legal-aid-saved'
+    | 'legal-aid-configured'
   dossierName: string
 }
 
 export type DossierSection =
   | 'contacts'
   | 'convention'
+  | 'aide-juridictionnelle'
   | 'prestations'
   | 'factures'
   | 'echeances'
   | 'references'
   | 'documents'
   | 'search'
+  | 'legal'
+  | 'legal-verify'
   | 'generate'
   | 'ai-assistant'
 
@@ -118,6 +125,14 @@ const NOTICE_TRANSLATIONS: Record<
   'key-reference-deleted': {
     key: 'dossiers.detail_notice_key_reference_deleted',
     defaultValue: '{{name}} : référence supprimée.'
+  },
+  'legal-aid-saved': {
+    key: 'dossiers.detail_notice_legal_aid_saved',
+    defaultValue: '{{name}} : aide juridictionnelle enregistrée.'
+  },
+  'legal-aid-configured': {
+    key: 'dossiers.detail_notice_legal_aid_configured',
+    defaultValue: '{{name}} : aide juridictionnelle configurée automatiquement.'
   }
 }
 
@@ -443,6 +458,12 @@ function DossierDetailLayout({
         </DossierSectionPane>
       )}
 
+      {activeSection === 'aide-juridictionnelle' && (
+        <DossierSectionPane>
+          <DossierLegalAidSection key={dossier.id} dossier={dossier} disabled={isSaving} />
+        </DossierSectionPane>
+      )}
+
       {activeSection === 'prestations' && (
         <DossierSectionPane>
           <DossierBillingItemsSectionWithPrefill
@@ -514,6 +535,22 @@ function DossierDetailLayout({
       {activeSection === 'search' && (
         <DossierSectionPane>
           <SemanticSearchPanel dossierId={dossier.id} onOpenDocument={onOpenDocumentPreview} />
+        </DossierSectionPane>
+      )}
+
+      {activeSection === 'legal' && (
+        <DossierSectionPane>
+          <LegalSearchPanel key={`legal-${dossier.id}`} dossierId={dossier.id} mode="search" />
+        </DossierSectionPane>
+      )}
+
+      {activeSection === 'legal-verify' && (
+        <DossierSectionPane>
+          <LegalSearchPanel
+            key={`legal-verify-${dossier.id}`}
+            dossierId={dossier.id}
+            mode="verify"
+          />
         </DossierSectionPane>
       )}
 

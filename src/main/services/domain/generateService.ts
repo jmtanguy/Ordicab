@@ -146,6 +146,7 @@ interface TemplateContext {
     createdAtLong: string
     createdAtShort: string
     feeAgreement?: Record<string, unknown>
+    aideJuridictionnelle?: Record<string, unknown>
     keyDate: Record<string, DateValue>
   }
   contact: Record<string, unknown>
@@ -771,7 +772,9 @@ function buildInvoiceTemplateView(input: InvoiceTemplateInput): InvoiceTemplateV
       ? 'Avoir'
       : documentType === 'correctiveInvoice'
         ? 'Facture rectificative'
-        : 'Facture'
+        : documentType === 'stateRetribution'
+          ? 'Rétribution AJ (État)'
+          : 'Facture'
   const originalInvoices = (input.originalInvoiceRefs ?? []).map((ref) => ({
     number: ref.number,
     issuedAt: makeDateValue(ref.issuedAt)
@@ -970,8 +973,26 @@ function createTemplateContext(
         sentAt: feeAgreement.sentAt ? makeDateValue(feeAgreement.sentAt) : undefined,
         signedAt: feeAgreement.signedAt ? makeDateValue(feeAgreement.signedAt) : undefined,
         notes: feeAgreement.notes,
+        legalAidMode: feeAgreement.legalAidMode ? 'oui' : '',
+        legalAidType: feeAgreement.legalAidType ?? '',
+        legalAidShare: formatPercentBasisPoints(feeAgreement.legalAidShareBasisPoints) ?? '',
+        retributionEtat: formatCurrencyCents(feeAgreement.stateRetributionHtCents) ?? '',
+        complementHonoraires: formatCurrencyCents(feeAgreement.complementHtCents) ?? '',
         client: buildTemplateContactRecord(feeAgreementClient),
         signatory: buildTemplateContactRecord(feeAgreementSignatory)
+      }
+    : undefined
+
+  const legalAid = dossier.legalAid
+  const legalAidContext = legalAid
+    ? {
+        statut: legalAid.status,
+        type: legalAid.type ?? '',
+        taux: formatPercentBasisPoints(legalAid.shareBasisPoints) ?? '',
+        numeroDecision: legalAid.bajDecisionNumber ?? '',
+        dateDecision: legalAid.bajDecisionDate ? makeDateValue(legalAid.bajDecisionDate) : '',
+        baj: legalAid.bajOffice ?? '',
+        numeroAj: legalAid.aidNumber ?? ''
       }
     : undefined
 
@@ -986,6 +1007,7 @@ function createTemplateContext(
       createdAtLong: dossierCreatedAt.long,
       createdAtShort: dossierCreatedAt.short,
       feeAgreement: feeAgreementContext,
+      aideJuridictionnelle: legalAidContext,
       keyDate: keyDateValues
     },
     // Spread primary contact first for backward-compat (contact.displayName still works).

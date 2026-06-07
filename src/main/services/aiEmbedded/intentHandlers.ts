@@ -57,7 +57,6 @@ export interface IntentHandlerContext {
 
   // Per-command state
   appLocale: AppLocale
-  runtimeMode: 'local' | 'remote'
   sanitizedCommand: string
   intentDebugTrace: string | undefined
   inputContext: AiCommandInput['context']
@@ -132,8 +131,7 @@ export async function handleTextGenerate(
     safePrompt,
     safeTextSystemPrompt,
     undefined,
-    ctx.onToken,
-    ctx.runtimeMode
+    ctx.onToken
   )
   const feedback = ctx.revertPiiText(generatedText.trim())
   console.log(`\n╔══ AI TEXT RESPONSE (${Date.now() - textT0}ms) ${'═'.repeat(35)}`)
@@ -206,7 +204,7 @@ export async function handleDocumentBatch(
   const runOneShot = async (systemPrompt: string, userPrompt: string): Promise<string> => {
     const safeSystem = await ctx.pseudonymizeText(systemPrompt)
     const safeUser = await ctx.pseudonymizeText(userPrompt)
-    const raw = await ctx.aiAgentRuntime.generateOneShot(safeUser, safeSystem, ctx.runtimeMode)
+    const raw = await ctx.aiAgentRuntime.generateOneShot(safeUser, safeSystem)
     return ctx.revertPiiText(raw)
   }
 

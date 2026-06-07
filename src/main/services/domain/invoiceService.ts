@@ -58,8 +58,11 @@ import {
 } from '../../lib/ordicab/ordicabPaths'
 import { atomicWrite } from '../../lib/system/atomicWrite'
 import { pathExists } from '../../lib/system/domainState'
+import { entityToInvoiceIssuer } from '@shared/domain/invoiceIssuer'
+
 import type { ContactService } from './contactService'
 import type { DossierRegistryService } from './dossierRegistryService'
+import type { EntityService } from './entityService'
 import type { GenerateService } from './generateService'
 
 interface DomainServiceLike {
@@ -109,11 +112,19 @@ export class InvoiceServiceError extends Error {
   }
 }
 
+/**
+ * Destinataire affiché sur les pièces de rétribution AJ : la CARPA règle la part
+ * de l'État, le bénéficiaire de l'aide juridictionnelle n'est pas le débiteur.
+ */
+const CARPA_CLIENT_LABEL = 'CARPA — Aide juridictionnelle'
+
 export interface InvoiceServiceOptions {
   domainService: DomainServiceLike
   dossierRegistryService: DossierRegistryService
   generateService: GenerateService
   contactService: ContactService
+  /** Source of truth for the invoice issuer identity (firm name, SIREN, VAT, IBAN, address). */
+  entityService: EntityService
   /**
    * Renders an HTML string to a PDF written at `outputPath`. Optional; when
    * absent, `resolvePdfAbsolutePath` throws. Wired by the container using
@@ -246,6 +257,14 @@ function getSettingsForDocumentType(
       currentSequenceYear: settings.correctiveInvoiceCurrentSequenceYear
     }
   }
+  if (documentType === 'stateRetribution') {
+    return {
+      ...settings,
+      numberPattern: settings.stateRetributionNumberPattern,
+      nextSequence: settings.stateRetributionNextSequence,
+      currentSequenceYear: settings.stateRetributionCurrentSequenceYear
+    }
+  }
   return settings
 }
 
@@ -266,6 +285,13 @@ function applyResolvedSettingsForDocumentType(
       ...settings,
       correctiveInvoiceNextSequence: nextSettings.nextSequence,
       correctiveInvoiceCurrentSequenceYear: nextSettings.currentSequenceYear
+    }
+  }
+  if (documentType === 'stateRetribution') {
+    return {
+      ...settings,
+      stateRetributionNextSequence: nextSettings.nextSequence,
+      stateRetributionCurrentSequenceYear: nextSettings.currentSequenceYear
     }
   }
   return {
@@ -346,7 +372,8 @@ async function freezeIssuedArtifacts(args: {
 }
 
 export function createInvoiceService(options: InvoiceServiceOptions): InvoiceService {
-  const { domainService, dossierRegistryService, generateService, contactService } = options
+  const { domainService, dossierRegistryService, generateService, contactService, entityService } =
+    options
   const printHtmlToPdf = options.printHtmlToPdf
   const now = options.now ?? (() => new Date())
 
@@ -504,16 +531,10 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
               patch.defaultCorrectiveInvoiceTemplateId ?? undefined
           }
         : {}),
-      ...(patch.issuerName !== undefined ? { issuerName: patch.issuerName ?? undefined } : {}),
-      ...(patch.issuerAddress !== undefined
-        ? { issuerAddress: patch.issuerAddress ?? undefined }
-        : {}),
-      ...(patch.issuerSiret !== undefined ? { issuerSiret: patch.issuerSiret ?? undefined } : {}),
-      ...(patch.issuerVatNumber !== undefined
-        ? { issuerVatNumber: patch.issuerVatNumber ?? undefined }
-        : {}),
-      ...(patch.issuerIban !== undefined ? { issuerIban: patch.issuerIban ?? undefined } : {}),
-      ...(patch.legalFooter !== undefined ? { legalFooter: patch.legalFooter ?? undefined } : {})
+      ...(patch.legalFooter !== undefined ? { legalFooter: patch.legalFooter ?? undefined } : {}),
+      ...(patch.defaultPaymentTerms !== undefined
+        ? { defaultPaymentTerms: patch.defaultPaymentTerms ?? undefined }
+        : {})
     }
   }
 
@@ -581,6 +602,25 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
           )
         }
 
+        // La rétribution AJ (part de l'État réglée par la CARPA) n'est pas une facture
+        // commerciale : on l'émet comme une pièce comptable distincte, numérotée à part
+        // (RET-…) et exclue du chiffre d'affaires. On la déduit du type de prestation source.
+        const isStateRetribution = items.every(
+          (item) => item.sourceFeeAgreementBillingKind === 'stateRetribution'
+        )
+        const mixesStateRetribution =
+          !isStateRetribution &&
+          items.some((item) => item.sourceFeeAgreementBillingKind === 'stateRetribution')
+        if (mixesStateRetribution) {
+          throw new InvoiceServiceError(
+            IpcErrorCode.VALIDATION_FAILED,
+            'Une rétribution AJ (État) ne peut pas être regroupée avec d’autres prestations sur la même pièce.'
+          )
+        }
+        const documentType: InvoiceDocumentType = isStateRetribution
+          ? 'stateRetribution'
+          : 'invoice'
+
         const catalog = await loadCatalog(domainPath)
         const settings = getSettingsFromCatalog(catalog)
         const issuedAtDate = input.issuedAt ? new Date(input.issuedAt) : now()
@@ -592,7 +632,7 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
         let resolved
         try {
           resolved = consumeNextInvoiceNumber(
-            getSettingsForDocumentType(settings, 'invoice'),
+            getSettingsForDocumentType(settings, documentType),
             issuedAtDate
           )
         } catch (error) {
@@ -609,23 +649,26 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
         const clientContact = clientContactUuid
           ? contacts.find((c) => c.uuid === clientContactUuid)
           : contacts[0]
-        const clientLabel = clientContact ? computeContactDisplayName(clientContact) : undefined
-        const issuerSnapshot: InvoicePartySnapshot = {
-          name: settings.issuerName,
-          address: settings.issuerAddress,
-          siret: settings.issuerSiret,
-          vatNumber: settings.issuerVatNumber,
-          iban: settings.issuerIban,
-          legalFooter: settings.legalFooter
-        }
-        const clientSnapshot: InvoicePartySnapshot | undefined = clientContact
-          ? {
-              name: clientLabel,
-              address: [clientContact.addressLine, clientContact.addressLine2]
-                .filter((part): part is string => Boolean(part && part.trim()))
-                .join('\n')
-            }
-          : undefined
+        const entityProfile = await entityService.get().catch(() => null)
+        const issuerSnapshot: InvoicePartySnapshot = entityToInvoiceIssuer(entityProfile, settings)
+
+        // Pour une rétribution AJ, le « débiteur » est la CARPA (qui règle la part de
+        // l'État), pas le bénéficiaire de l'aide juridictionnelle.
+        const clientLabel = isStateRetribution
+          ? CARPA_CLIENT_LABEL
+          : clientContact
+            ? computeContactDisplayName(clientContact)
+            : undefined
+        const clientSnapshot: InvoicePartySnapshot | undefined = isStateRetribution
+          ? { name: CARPA_CLIENT_LABEL }
+          : clientContact
+            ? {
+                name: clientLabel,
+                address: [clientContact.addressLine, clientContact.addressLine2]
+                  .filter((part): part is string => Boolean(part && part.trim()))
+                  .join('\n')
+              }
+            : undefined
 
         const lines: InvoiceLine[] = items.map((item) => ({
           billingItemId: item.id,
@@ -652,7 +695,7 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
 
         const record: InvoiceRecord = {
           id: invoiceId,
-          documentType: 'invoice',
+          documentType,
           number: resolved.number,
           sequenceYear: resolved.sequenceYear,
           sequenceValue: resolved.sequenceValue,
@@ -697,11 +740,11 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
               items,
               dossier,
               contacts,
-              settings: resolved.nextSettings,
+              issuer: issuerSnapshot,
               number: resolved.number,
               issuedAt: issuedAtIso,
               notes: input.notes,
-              documentType: 'invoice',
+              documentType,
               originalInvoiceRefs: [],
               paymentTerms: settings.defaultPaymentTerms,
               dueAt: undefined,
@@ -742,12 +785,17 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
         // Persist settings (consume sequence), invoice record, default template,
         // and mark billing items as invoiced. Order matters: if any of these fail
         // after the doc has been generated we still want a coherent state.
-        const nextSettings: InvoiceSettings = input.rememberTemplateAsDefault
-          ? {
-              ...applyResolvedSettingsForDocumentType(settings, 'invoice', resolved.nextSettings),
-              defaultTemplateId: input.templateId
-            }
-          : applyResolvedSettingsForDocumentType(settings, 'invoice', resolved.nextSettings)
+        const nextSettings: InvoiceSettings =
+          input.rememberTemplateAsDefault && documentType === 'invoice'
+            ? {
+                ...applyResolvedSettingsForDocumentType(
+                  settings,
+                  documentType,
+                  resolved.nextSettings
+                ),
+                defaultTemplateId: input.templateId
+              }
+            : applyResolvedSettingsForDocumentType(settings, documentType, resolved.nextSettings)
         const nextCatalog: CabinetBillingCatalog = {
           ...catalog,
           invoiceSettings: nextSettings,
@@ -893,6 +941,11 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
         const totalTtcCents = lines.reduce((acc, line) => acc + line.totalTtcCents, 0)
         const totalVatCents = totalTtcCents - totalHtCents
         const nowIso = now().toISOString()
+        // A credit note carries the issuer of the invoice it cancels: reuse the original's
+        // frozen snapshot, falling back to the live entity profile when absent.
+        const issuerSnapshot: InvoicePartySnapshot =
+          original.issuerSnapshot ??
+          entityToInvoiceIssuer(await entityService.get().catch(() => null), settings)
         const record: InvoiceRecord = {
           id: randomUUID(),
           documentType: 'creditNote',
@@ -906,14 +959,7 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
           clientContactUuid: original.clientContactUuid,
           clientLabel: original.clientLabel,
           clientSnapshot: original.clientSnapshot,
-          issuerSnapshot: original.issuerSnapshot ?? {
-            name: settings.issuerName,
-            address: settings.issuerAddress,
-            siret: settings.issuerSiret,
-            vatNumber: settings.issuerVatNumber,
-            iban: settings.issuerIban,
-            legalFooter: settings.legalFooter
-          },
+          issuerSnapshot,
           templateId: input.templateId,
           totalHtCents,
           totalVatCents,
@@ -1033,14 +1079,10 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
                 .join('\n')
             : undefined
         }
-        const issuerSnapshot: InvoicePartySnapshot = {
-          name: settings.issuerName,
-          address: settings.issuerAddress,
-          siret: settings.issuerSiret,
-          vatNumber: settings.issuerVatNumber,
-          iban: settings.issuerIban,
-          legalFooter: settings.legalFooter
-        }
+        const issuerSnapshot: InvoicePartySnapshot = entityToInvoiceIssuer(
+          await entityService.get().catch(() => null),
+          settings
+        )
         const lines: InvoiceLine[] = items.map((item) => ({
           billingItemId: item.id,
           date: item.date,

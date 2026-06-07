@@ -27,12 +27,11 @@ const configuration: Configuration = {
     { from: 'build/license_fr.txt', to: 'legal/license_fr.txt' },
     { from: 'build/license_en.txt', to: 'legal/license_en.txt' },
     { from: 'resources/tessdata/fra.traineddata', to: 'tessdata/fra.traineddata' },
-    { from: 'resources/tessdata/eng.traineddata', to: 'tessdata/eng.traineddata' },
-    // Embedded-AI model bundles — populated by `npm run prepare:models` before
-    // packaging. Every model lives under a single `resources/models/` root so
-    // transformers.js's module-global `env.localModelPath` can resolve all of
-    // them through one claim (the runtime layout is `{localModelPath}/{modelId}/`).
-    { from: 'resources/models', to: 'models' }
+    { from: 'resources/tessdata/eng.traineddata', to: 'tessdata/eng.traineddata' }
+    // ONNX models (NER, bge-m3) are NOT bundled — they are downloaded at first
+    // launch into {userData}/models by modelProvisioningService. This keeps the
+    // installer ~300 MB lighter and lets the embedding model change without a
+    // re-release.
   ],
   mac: {
     icon: 'build/icon.icns',

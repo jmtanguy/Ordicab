@@ -29,11 +29,6 @@ interface FormState {
   defaultTemplateId: string
   defaultCreditNoteTemplateId: string
   defaultCorrectiveInvoiceTemplateId: string
-  issuerName: string
-  issuerAddress: string
-  issuerSiret: string
-  issuerVatNumber: string
-  issuerIban: string
   legalFooter: string
   defaultPaymentTerms: string
 }
@@ -55,11 +50,6 @@ function settingsToForm(settings: InvoiceSettings): FormState {
     defaultTemplateId: settings.defaultTemplateId ?? '',
     defaultCreditNoteTemplateId: settings.defaultCreditNoteTemplateId ?? '',
     defaultCorrectiveInvoiceTemplateId: settings.defaultCorrectiveInvoiceTemplateId ?? '',
-    issuerName: settings.issuerName ?? '',
-    issuerAddress: settings.issuerAddress ?? '',
-    issuerSiret: settings.issuerSiret ?? '',
-    issuerVatNumber: settings.issuerVatNumber ?? '',
-    issuerIban: settings.issuerIban ?? '',
     legalFooter: settings.legalFooter ?? '',
     defaultPaymentTerms: settings.defaultPaymentTerms ?? ''
   }
@@ -78,11 +68,6 @@ function formToPatch(form: FormState): InvoiceSettingsUpdateInput {
     defaultTemplateId: form.defaultTemplateId || null,
     defaultCreditNoteTemplateId: form.defaultCreditNoteTemplateId || null,
     defaultCorrectiveInvoiceTemplateId: form.defaultCorrectiveInvoiceTemplateId || null,
-    issuerName: form.issuerName || null,
-    issuerAddress: form.issuerAddress || null,
-    issuerSiret: form.issuerSiret || null,
-    issuerVatNumber: form.issuerVatNumber || null,
-    issuerIban: form.issuerIban || null,
     legalFooter: form.legalFooter || null,
     defaultPaymentTerms: form.defaultPaymentTerms || null
   }
@@ -139,6 +124,15 @@ export function InvoiceSettingsDialog({
       correctiveInvoiceNextSequence: Math.max(1, Number(form.correctiveInvoiceNextSequence) || 1),
       correctiveInvoiceCurrentSequenceYear:
         settings?.correctiveInvoiceCurrentSequenceYear ?? new Date().getFullYear(),
+      // Rétribution AJ : numérotation gérée automatiquement (non éditable ici).
+      stateRetributionNumberPattern:
+        settings?.stateRetributionNumberPattern ??
+        DEFAULT_INVOICE_SETTINGS.stateRetributionNumberPattern,
+      stateRetributionNextSequence:
+        settings?.stateRetributionNextSequence ??
+        DEFAULT_INVOICE_SETTINGS.stateRetributionNextSequence,
+      stateRetributionCurrentSequenceYear:
+        settings?.stateRetributionCurrentSequenceYear ?? new Date().getFullYear(),
       defaultTemplateId: form.defaultTemplateId || undefined,
       defaultCreditNoteTemplateId: form.defaultCreditNoteTemplateId || undefined,
       defaultCorrectiveInvoiceTemplateId: form.defaultCorrectiveInvoiceTemplateId || undefined
@@ -147,7 +141,10 @@ export function InvoiceSettingsDialog({
       form,
       settings?.currentSequenceYear,
       settings?.creditNoteCurrentSequenceYear,
-      settings?.correctiveInvoiceCurrentSequenceYear
+      settings?.correctiveInvoiceCurrentSequenceYear,
+      settings?.stateRetributionNumberPattern,
+      settings?.stateRetributionNextSequence,
+      settings?.stateRetributionCurrentSequenceYear
     ]
   )
 
@@ -422,46 +419,16 @@ export function InvoiceSettingsDialog({
         <section className="space-y-3 border-t border-[#e5e3da] pt-4">
           <div>
             <h3 className="text-sm font-semibold text-[#1a1a1a]">
-              {t('invoices.settings_issuer_title', { defaultValue: 'Émetteur' })}
+              {t('invoices.settings_legal_title', { defaultValue: 'Mentions légales & paiement' })}
             </h3>
             <p className="mt-0.5 text-xs text-[#8a8a85]">
-              {t('invoices.settings_issuer_hint', {
-                defaultValue: 'Informations injectées dans les tags {{invoice.issuer.*}} du modèle.'
+              {t('invoices.settings_issuer_moved_hint', {
+                defaultValue:
+                  "L'identité de l'émetteur (raison sociale, SIREN, N° TVA, IBAN, adresse) provient de la fiche du cabinet (Paramètres › Cabinet)."
               })}
             </p>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
-            <Field label="Raison sociale">
-              <Input
-                value={form.issuerName}
-                onChange={(e) => setForm((p) => ({ ...p, issuerName: e.target.value }))}
-              />
-            </Field>
-            <Field label="SIRET">
-              <Input
-                value={form.issuerSiret}
-                onChange={(e) => setForm((p) => ({ ...p, issuerSiret: e.target.value }))}
-              />
-            </Field>
-            <Field label="N° TVA intracom">
-              <Input
-                value={form.issuerVatNumber}
-                onChange={(e) => setForm((p) => ({ ...p, issuerVatNumber: e.target.value }))}
-              />
-            </Field>
-            <Field label="IBAN">
-              <Input
-                value={form.issuerIban}
-                onChange={(e) => setForm((p) => ({ ...p, issuerIban: e.target.value }))}
-              />
-            </Field>
-            <Field className="md:col-span-2" label="Adresse">
-              <textarea
-                value={form.issuerAddress}
-                onChange={(e) => setForm((p) => ({ ...p, issuerAddress: e.target.value }))}
-                className="min-h-15 rounded-md border border-[#e5e3da] bg-white px-2 py-1 text-sm"
-              />
-            </Field>
             <Field className="md:col-span-2" label="Mention légale (pied de facture)">
               <textarea
                 value={form.legalFooter}

@@ -7,10 +7,8 @@ export enum IpcErrorCode {
   NOT_FOUND = 'NOT_FOUND',
   /** Caller passed a value that violates a security or protocol constraint (e.g. disallowed URL protocol). */
   INVALID_INPUT = 'INVALID_INPUT',
-  /** AI runtime (Ollama or remote API) is not configured or not available. */
+  /** AI runtime (remote API) is not configured or not available. */
   AI_RUNTIME_UNAVAILABLE = 'AI_RUNTIME_UNAVAILABLE',
-  /** Ollama endpoint is not reachable. */
-  OLLAMA_UNREACHABLE = 'OLLAMA_UNREACHABLE',
   /** AI response could not be parsed as valid JSON intent. */
   INTENT_PARSE_FAILED = 'INTENT_PARSE_FAILED',
   /** Remote AI provider returned an error. */

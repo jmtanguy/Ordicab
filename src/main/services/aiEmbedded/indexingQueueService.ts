@@ -43,8 +43,10 @@ import {
 } from '../../lib/aiEmbedded/embeddings/contentHashStore'
 import {
   DEFAULT_EMBEDDING_DIM,
+  DEFAULT_EMBEDDING_MODEL,
   type EmbeddingServiceConfig
 } from '../../lib/aiEmbedded/embeddings/embeddingService'
+import { isEmbeddingCacheFresh } from '../../lib/aiEmbedded/embeddings/embeddingCache'
 import { indexDocumentEmbeddings } from '../../lib/aiEmbedded/embeddings/embeddingIndexer'
 import { getDossierContentCachePath, ORDICAB_DIRECTORY_NAME } from '../../lib/ordicab/ordicabPaths'
 
@@ -78,6 +80,14 @@ export interface IndexingQueueServiceDeps {
    * the Electron main thread.
    */
   embedder?: (texts: string[], config?: EmbeddingServiceConfig) => Promise<Float32Array[] | null>
+  /**
+   * Gate: returns true when the embedding model is downloaded and loadable.
+   * When false, processFile still extracts text (so keyword search works) but
+   * SKIPS the embedding step entirely — no worker calls, no failure spam — and
+   * leaves the document un-indexed so it is re-embedded once the model arrives.
+   * Defaults to always-true when omitted.
+   */
+  isEmbeddingModelReady?: () => Promise<boolean>
 }
 
 export interface IndexingQueueServiceOptions extends IndexingQueueServiceDeps {
@@ -174,6 +184,7 @@ export function createIndexingQueueService(
     emit,
     isEnabled
   } = options
+  const isEmbeddingModelReady = options.isEmbeddingModelReady ?? (async () => true)
 
   const now = options.now ?? Date.now
   const setTimer = options.setTimer ?? ((cb, ms) => setTimeout(cb, ms))
@@ -431,22 +442,46 @@ export function createIndexingQueueService(
       : getDocumentContentCachePath(cacheDir, job.absolutePath)
 
     const currentHash = await computeFileSha256(job.absolutePath)
-    const fresh = await isContentHashFresh(cachePath, currentHash)
-    if (fresh) {
+    const textFresh = await isContentHashFresh(cachePath, currentHash)
+
+    // A document is fully indexed only when BOTH its text is extracted from the
+    // current bytes AND embeddings exist for the active model/dim. We check the
+    // embedding cache separately so that a document extracted while the model
+    // was unavailable (e.g. bge-m3 not downloaded yet) gets re-embedded on a
+    // later pass once the model is present — extraction freshness alone must
+    // not short-circuit embedding.
+    const model = embeddingConfig?.model ?? DEFAULT_EMBEDDING_MODEL
+    const embeddingsFresh = await isEmbeddingCacheFresh(cachePath, model, DEFAULT_EMBEDDING_DIM)
+    if (textFresh && embeddingsFresh) {
       markIndexed(state, job.relativePath)
       return
     }
 
-    // Extract (writes text + hash inside the cache via documentService.extractContent).
-    await extractContent({ dossierId: job.dossierId, documentId: job.relativePath })
+    if (!textFresh) {
+      // Extract (writes text + hash inside the cache via documentService.extractContent).
+      await extractContent({ dossierId: job.dossierId, documentId: job.relativePath })
 
-    // Belt-and-braces: ensure the hash is recorded even if extractContent
-    // raced. Idempotent merge.
-    await writeIndexedHashToCache(cachePath, currentHash, fileStats.size).catch(() => undefined)
+      // Belt-and-braces: ensure the hash is recorded even if extractContent
+      // raced. Idempotent merge. This marks the TEXT as extracted; it does not
+      // imply embeddings exist.
+      await writeIndexedHashToCache(cachePath, currentHash, fileStats.size).catch(() => undefined)
+    }
+
+    // Gate the embed step on model availability. When the embedding model is
+    // not downloaded yet, skip embedding entirely: the text is already
+    // extracted (keyword search works), and the document stays un-indexed so a
+    // later pass — triggered by reloadEmbeddingsAndReindex after the model
+    // finishes downloading — embeds it. This avoids hammering the worker with
+    // doomed inference calls (and the resulting log spam) on every queued doc.
+    if (!(await isEmbeddingModelReady())) {
+      return
+    }
 
     // Embed synchronously — owned by this worker so CPU scheduling stays in
     // one place. indexDocumentEmbeddings does its own freshness check, so a
-    // file whose text didn't actually change won't re-run inference.
+    // file whose text didn't change won't re-run inference. When the model is
+    // unavailable it returns 'embedding-failed' and we deliberately do NOT mark
+    // the document indexed — the next pass retries the embedding step.
     const outcome = await indexDocumentEmbeddings(cachePath, {
       embeddingConfig,
       embedder,

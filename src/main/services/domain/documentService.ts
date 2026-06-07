@@ -65,6 +65,7 @@ import {
   searchDossier,
   type IndexedDocument
 } from '../../lib/aiEmbedded/embeddings/semanticSearchService'
+import { keywordSearchDossier } from '../../lib/aiEmbedded/embeddings/keywordSearchService'
 import {
   DEFAULT_EMBEDDING_DIM,
   type EmbeddingServiceConfig
@@ -1749,19 +1750,47 @@ export function createDocumentService(options: DocumentServiceOptions): Document
         options.embeddingConfig,
         options.embedder
       )
-      const hits = await searchDossier({
-        documents,
-        query: input.query,
-        topK: input.topK,
-        embeddingConfig: options.embeddingConfig,
-        dim: DEFAULT_EMBEDDING_DIM,
-        embedder: options.embedder
+
+      // Hybrid search. Keyword search is the reliable relevance signal in a
+      // tightly-clustered legal corpus (documents that literally contain the
+      // query word); semantic search supplements it with meaning-based matches.
+      // Keyword runs first and always works (no model required); semantic is
+      // best-effort and yields nothing when no embeddings exist yet.
+      const [keywordHits, semanticHits] = await Promise.all([
+        keywordSearchDossier({ documents, query: input.query, topK: input.topK }),
+        searchDossier({
+          documents,
+          query: input.query,
+          topK: input.topK,
+          embeddingConfig: options.embeddingConfig,
+          dim: DEFAULT_EMBEDDING_DIM,
+          embedder: options.embedder
+        })
+      ])
+
+      // Merge: keyword (exact) results first, then semantic results that don't
+      // duplicate a keyword hit on the same document span.
+      const seen = new Set(
+        keywordHits.map((h) => `${h.documentId}:${h.charStart}:${h.charEnd}`)
+      )
+      const seenDocs = new Set(keywordHits.map((h) => h.documentId))
+      const semanticKept = semanticHits.filter((h) => {
+        const spanKey = `${h.documentId}:${h.charStart}:${h.charEnd}`
+        // Drop a semantic hit if the same span is already a keyword hit, or
+        // the document is already represented by a keyword hit (keyword wins
+        // — the document is known-relevant by literal presence).
+        return !seen.has(spanKey) && !seenDocs.has(h.documentId)
       })
+
+      const merged = [
+        ...keywordHits.map((hit) => ({ hit, matchKind: 'keyword' as const })),
+        ...semanticKept.map((hit) => ({ hit, matchKind: 'semantic' as const }))
+      ]
 
       return {
         dossierId: input.dossierId,
         query: input.query,
-        hits: hits.map((hit) => ({
+        hits: merged.map(({ hit, matchKind }) => ({
           documentId: hit.documentId,
           filename: hit.displayName ?? basename(hit.documentId),
           charStart: hit.charStart,
@@ -1769,7 +1798,8 @@ export function createDocumentService(options: DocumentServiceOptions): Document
           score: hit.score,
           snippet: hit.snippet,
           snippetMatchStart: hit.snippetMatchStart,
-          snippetMatchEnd: hit.snippetMatchEnd
+          snippetMatchEnd: hit.snippetMatchEnd,
+          matchKind
         }))
       }
     }

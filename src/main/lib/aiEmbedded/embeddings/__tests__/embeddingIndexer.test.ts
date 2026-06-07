@@ -91,7 +91,7 @@ describe('indexDocumentEmbeddings', () => {
       version: 3,
       text: 'some text that would otherwise be chunked',
       embeddings: {
-        model: 'Xenova/multilingual-e5-small',
+        model: 'Xenova/bge-m3',
         dim: 4,
         chunks: [
           {
@@ -115,7 +115,7 @@ describe('indexDocumentEmbeddings', () => {
       version: 3,
       text: 'rebuild me',
       embeddings: {
-        model: 'Xenova/multilingual-e5-small',
+        model: 'Xenova/bge-m3',
         dim: 4,
         chunks: [
           {

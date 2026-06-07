@@ -11,7 +11,7 @@ import type {
  *
  * AI action pipeline (Epic 2):
  *   AiPage → aiStore.executeCommand() → IPC (AiCommandInput)
- *     → aiHandler → aiService → aiSdkAgentRuntime (local/remote SDK model)
+ *     → aiHandler → aiService → aiSdkAgentRuntime (remote SDK model)
  *     → intentDispatcher → service layer → IpcResult<AiCommandResult>
  *
  * Push channel: after dispatch, aiHandler sends the resolved InternalAiCommand back to the
@@ -20,18 +20,11 @@ import type {
  * Model selection: AiCommandInput.model carries the model chosen by
  * the user in AiPage (session only, never persisted).
  */
-export const AI_MODE_VALUES = [
-  'none',
-  'local',
-  'remote',
-  'claude-code',
-  'copilot',
-  'codex'
-] as const
+export const AI_MODE_VALUES = ['none', 'remote', 'claude-code'] as const
 
 export type AiMode = (typeof AI_MODE_VALUES)[number]
 
-export const AI_DELEGATED_MODES: readonly AiMode[] = ['claude-code', 'copilot', 'codex']
+export const AI_DELEGATED_MODES: readonly AiMode[] = ['claude-code']
 
 export type RemoteApiErrorType = 'auth_error' | 'rate_limit' | 'network_error' | 'server_error'
 
@@ -43,7 +36,6 @@ export interface RemoteApiError {
 
 export interface AiSettings {
   mode: AiMode
-  ollamaEndpoint?: string
   remoteProviderKind?: RemoteProviderKind
   remoteProjectRef?: string
   remoteProvider?: string
@@ -57,7 +49,6 @@ export interface AiSettings {
 
 export interface AiSettingsPersisted {
   mode: AiMode
-  ollamaEndpoint?: string
   remoteProviderKind?: RemoteProviderKind
   remoteProjectRef?: string
   remoteProvider?: string
@@ -72,12 +63,6 @@ export interface AiSettingsResponse extends AiSettings {
   apiKeySuffix?: string
 }
 
-export interface OllamaConnectionResult {
-  reachable: boolean
-  models?: string[]
-  error?: string
-}
-
 export interface RemoteConnectionResult {
   reachable: boolean
   models?: string[]
@@ -88,7 +73,6 @@ export interface RemoteConnectionResult {
 
 export interface AiSettingsSaveInput {
   mode: AiMode
-  ollamaEndpoint?: string
   remoteProviderKind?: RemoteProviderKind
   remoteProjectRef?: string
   remoteProvider?: string
@@ -104,9 +88,7 @@ export interface AiDelegatedProviderStatus {
 }
 
 export const AI_DELEGATED_INSTRUCTIONS_FILES: Partial<Record<AiMode, string>> = {
-  'claude-code': 'CLAUDE.md',
-  codex: 'AGENTS.md',
-  copilot: '.github/copilot-instructions.md'
+  'claude-code': 'CLAUDE.md'
 }
 
 // ── AI Command / Action types ──────────────────────────────────────────────

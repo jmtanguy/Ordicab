@@ -168,6 +168,7 @@ const FIELD_ALIASES: Record<string, Record<string, string>> = {
     tva: 'vatNumber',
     numeroTva: 'vatNumber',
     siren: 'siren',
+    siret: 'siret',
     formeJuridique: 'legalForm',
     capitalSocial: 'shareCapital',
     numeroRcs: 'rcsNumber',

@@ -41,19 +41,6 @@ export interface ModelConfig {
 // caller's concern.
 export type PipelineFn = (input: unknown, opts?: unknown) => Promise<unknown>
 
-interface PipelineLoadOptions {
-  dtype: 'fp32' | 'q8'
-  session_options: {
-    executionProviders: Array<'cpu' | { name: 'cpu'; useArena: boolean }>
-    enableCpuMemArena: boolean
-    enableMemPattern: boolean
-    executionMode: 'sequential'
-    intraOpNumThreads: number
-    interOpNumThreads: number
-    graphOptimizationLevel: 'all'
-  }
-}
-
 type TransformersModule = {
   pipeline: (task: string, model: string, options?: Record<string, unknown>) => Promise<PipelineFn>
   env: {
@@ -67,31 +54,18 @@ type TransformersModule = {
 let modulePromise: Promise<TransformersModule | null> | null = null
 let moduleFailureLogged = false
 const pipelineCache = new Map<string, Promise<PipelineFn | null>>()
-let inferenceTail: Promise<void> = Promise.resolve()
+
+// Count of inference calls currently executing. Used only to let dispose() wait
+// for native ONNX work to finish before teardown (see awaitInferenceDrain).
+let inflightInferences = 0
+let inflightSettled: Promise<void> = Promise.resolve()
+let releaseInflight: (() => void) | null = null
 
 // Path of the first bundled-model consumer to claim ownership of the
 // transformers.js `localModelPath`. Subsequent consumers with a different
 // modelPath are ignored (the env is global); they still succeed because
 // their model id is resolved relative to the claimed path.
 let claimedLocalModelPath: string | null = null
-
-// Keep ONNX Runtime on the most conservative CPU path we can justify. On
-// macOS arm64 we have seen native crashes during otherwise small embedding
-// runs; disabling the CPU arena/pattern allocators and forcing sequential,
-// single-threaded execution trades throughput for a much smaller memory/
-// concurrency surface area in the Electron main process.
-const DEFAULT_PIPELINE_LOAD_OPTIONS: PipelineLoadOptions = {
-  dtype: 'q8',
-  session_options: {
-    executionProviders: [{ name: 'cpu', useArena: false }],
-    enableCpuMemArena: false,
-    enableMemPattern: false,
-    executionMode: 'sequential',
-    intraOpNumThreads: 1,
-    interOpNumThreads: 1,
-    graphOptimizationLevel: 'all'
-  }
-}
 
 function cacheKey(config: ModelConfig): string {
   return `${config.task}::${config.model}::${config.quantized !== false ? 'q' : 'f'}`
@@ -158,14 +132,7 @@ export async function getPipeline(config: ModelConfig): Promise<PipelineFn | nul
       // `scripts/prepare-models.mjs` downloads for bundled models and keeps
       // memory/CPU cost in check for the fp32 fallback.
       const dtype = config.quantized === false ? 'fp32' : 'q8'
-      const loadOptions: PipelineLoadOptions = {
-        ...DEFAULT_PIPELINE_LOAD_OPTIONS,
-        dtype
-      }
-      const pipe = await mod.pipeline(config.task, config.model, {
-        ...loadOptions
-      })
-      return pipe
+      return await mod.pipeline(config.task, config.model, { dtype })
     } catch (err) {
       console.warn(
         `[model-registry] failed to load ${config.task}:${config.model} — falling back to no-op.`,
@@ -192,35 +159,38 @@ export async function warmup(config: ModelConfig): Promise<void> {
 }
 
 /**
- * Serialize native model inference across the process.
+ * Run a native ONNX inference, tracked so dispose() can wait for it.
  *
- * The embedded ONNX runtime is prone to hard crashes when multiple Electron
- * features drive inference concurrently (for example background embedding
- * indexing overlapping a semantic-search query). We therefore allow only one
- * in-flight pipeline invocation at a time, regardless of model/task.
+ * Inference runs concurrently (no serialization) — that is safe with the model
+ * input bounded to the 512-token window by callers. The only thing tracked here
+ * is in-flight count, so awaitInferenceDrain() can let native ONNX work finish
+ * before the process tears down (a hard teardown mid-inference aborts natively).
  */
-export async function runWithInferenceLock<T>(operation: () => Promise<T>): Promise<T> {
-  const previous = inferenceTail
-  let release!: () => void
-  inferenceTail = new Promise<void>((resolve) => {
-    release = resolve
-  })
-
-  await previous.catch(() => undefined)
+export async function runInferenceTracked<T>(operation: () => Promise<T>): Promise<T> {
+  if (inflightInferences === 0) {
+    inflightSettled = new Promise<void>((resolve) => {
+      releaseInflight = resolve
+    })
+  }
+  inflightInferences += 1
   try {
     return await operation()
   } finally {
-    release()
+    inflightInferences -= 1
+    if (inflightInferences === 0) {
+      releaseInflight?.()
+      releaseInflight = null
+    }
   }
 }
 
 /**
- * Wait for all queued in-process ONNX inference to settle.
- * Call this during app dispose before allowing Node.js to tear down so that
- * ONNX callbacks do not fire into a dead V8 environment (SIGSEGV).
+ * Wait for all in-flight ONNX inference to settle. Call this during app dispose
+ * before letting Node.js tear down, so native ONNX callbacks do not fire into a
+ * dying V8 environment (proven to abort natively otherwise).
  */
 export async function awaitInferenceDrain(): Promise<void> {
-  await inferenceTail.catch(() => undefined)
+  await inflightSettled.catch(() => undefined)
 }
 
 /**
@@ -233,5 +203,7 @@ export function __resetModelRegistryForTests(): void {
   moduleFailureLogged = false
   pipelineCache.clear()
   claimedLocalModelPath = null
-  inferenceTail = Promise.resolve()
+  inflightInferences = 0
+  inflightSettled = Promise.resolve()
+  releaseInflight = null
 }

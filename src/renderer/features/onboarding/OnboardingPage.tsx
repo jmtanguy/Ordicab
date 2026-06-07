@@ -5,7 +5,7 @@ import { Card } from '@renderer/components/ui'
 import { StatusPill } from '@renderer/components/shell/StatusPill'
 import ordicabLogo from '../../../../resources/ordicab-logo.png'
 
-import { DomainOnboardingCard } from './DomainOnboardingCard'
+import { OnboardingWizard } from './OnboardingWizard'
 
 interface OnboardingPageProps {
   versionLabel: string
@@ -31,7 +31,7 @@ export function OnboardingPage({
 
   return (
     <motion.section
-      className="overflow-hidden rounded-[2rem] border border-[#e5e3da] bg-white shadow-[0_24px_60px_rgba(0,0,0,0.08)]"
+      className="overflow-hidden rounded-4xl border border-[#e5e3da] bg-white shadow-[0_24px_60px_rgba(0,0,0,0.08)]"
       initial={reduceMotion ? undefined : { opacity: 0, y: 18 }}
       animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
       transition={reduceMotion ? undefined : { duration: 0.45, ease: 'easeOut' }}
@@ -60,32 +60,30 @@ export function OnboardingPage({
         </div>
       </div>
 
-      <div className="relative grid items-start gap-6 px-6 py-6 md:px-8 md:py-7 lg:grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.92fr)] lg:gap-8">
-        <div className="flex flex-col gap-10 self-center">
-          <Card className="border-[#e8d5a3] bg-[#fbf5e3] p-5">
-            <div className="warning-banner-body">
-              <h4 className="text-lg font-semibold tracking-tight text-[#7a5a00]">
-                {t('onboarding.beta_warning_title')}
-              </h4>
-              <p className="mt-3 text-sm leading-relaxed text-[#7a5a00]">
-                {t('onboarding.beta_warning_body1_prefix')}{' '}
-                <strong className="font-semibold text-[#5c4500]">
-                  {t('onboarding.beta_warning_body1_strong')}
-                </strong>{' '}
-                {t('onboarding.beta_warning_body1_suffix')}
-              </p>
-              <p className="mt-3 text-sm leading-relaxed text-[#7a5a00]">
-                {t('onboarding.beta_warning_body2_prefix')}{' '}
-                <strong className="font-semibold text-[#5c4500]">
-                  {t('onboarding.beta_warning_body2_strong')}
-                </strong>{' '}
-                {t('onboarding.beta_warning_body2_suffix')}
-              </p>
-            </div>
-          </Card>
-        </div>
+      <div className="relative mx-auto flex w-full max-w-3xl flex-col gap-6 px-6 py-6 md:px-8 md:py-7">
+        <Card className="border-[#e8d5a3] bg-[#fbf5e3] p-5">
+          <div className="warning-banner-body">
+            <h4 className="text-lg font-semibold tracking-tight text-[#7a5a00]">
+              {t('onboarding.beta_warning_title')}
+            </h4>
+            <p className="mt-3 text-sm leading-relaxed text-[#7a5a00]">
+              {t('onboarding.beta_warning_body1_prefix')}{' '}
+              <strong className="font-semibold text-[#5c4500]">
+                {t('onboarding.beta_warning_body1_strong')}
+              </strong>{' '}
+              {t('onboarding.beta_warning_body1_suffix')}
+            </p>
+            <p className="mt-3 text-sm leading-relaxed text-[#7a5a00]">
+              {t('onboarding.beta_warning_body2_prefix')}{' '}
+              <strong className="font-semibold text-[#5c4500]">
+                {t('onboarding.beta_warning_body2_strong')}
+              </strong>{' '}
+              {t('onboarding.beta_warning_body2_suffix')}
+            </p>
+          </div>
+        </Card>
 
-        <DomainOnboardingCard isLoading={isLoading} error={error} onSelectDomain={onSelectDomain} />
+        <OnboardingWizard isLoading={isLoading} error={error} onSelectDomain={onSelectDomain} />
       </div>
     </motion.section>
   )

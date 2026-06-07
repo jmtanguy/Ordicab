@@ -461,7 +461,7 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
               <button
                 type="button"
                 onClick={() => openCreateEditor('docx')}
-                className="rounded-2xl border border-[#e5e3da] bg-[#eeece3] p-5 text-left transition hover:border-[#d1cfc6] hover:bg-[#e4e1d5]"
+                className="rounded-2xl border border-[#e5e3da] bg-deep-space p-5 text-left transition hover:border-[#d1cfc6] hover:bg-[#e4e1d5]"
               >
                 <p className="text-sm font-semibold text-[#1a1a1a]">
                   {t('templates.createChoice.docxTitle')}

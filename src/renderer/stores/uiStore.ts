@@ -23,13 +23,25 @@ export type PendingBillingConversion =
     }
 
 import { getOrdicabApi, IPC_NOT_AVAILABLE_ERROR } from './ipc'
+import { useDomainStore } from './domainStore'
+import { resolveOnboardingComplete, useOnboardingStore } from './onboardingStore'
 
 type VersionStatus = 'idle' | 'loading' | 'ready' | 'error'
 type ActiveView = 'onboarding' | 'dashboard'
 type ActiveDashboardPanel = 'grid' | 'detail'
 
-export function resolveActiveView(status: DomainStatusSnapshot): ActiveView {
+export function resolveActiveView(
+  status: DomainStatusSnapshot,
+  onboardingComplete: boolean
+): ActiveView {
   if (!status.registeredDomainPath || !status.isAvailable) {
+    return 'onboarding'
+  }
+
+  // Domain is registered and available, but keep the guided wizard up until the
+  // user finishes or skips it (see resolveOnboardingComplete for the fail-open
+  // rule that keeps existing, populated domains out of the wizard).
+  if (!onboardingComplete) {
     return 'onboarding'
   }
 
@@ -51,6 +63,14 @@ interface UiStoreState {
 interface UiStoreActions {
   bootstrap: () => Promise<void>
   applyDomainStatus: (status: DomainStatusSnapshot) => void
+  /** Marks the guided onboarding finished and routes immediately to the dashboard. */
+  completeOnboardingAndEnterDashboard: () => void
+  /**
+   * Leaves the wizard without completing any step. Returns to the dashboard and,
+   * when the domain is already configured (fail-open rule), restores the
+   * `completedAt` flag so the gate does not bounce the user back into onboarding.
+   */
+  exitOnboardingToDashboard: () => void
   goToOnboarding: () => void
   clearPendingDomainChange: () => void
   openDossierDetail: (dossierId: string) => void
@@ -120,12 +140,40 @@ export const useUiStore = create<UiStore>()(
       })
     },
     applyDomainStatus: (status) => {
+      const onboardingComplete = resolveOnboardingComplete(
+        useOnboardingStore.getState().progress,
+        status.dossierCount
+      )
       set((state) => {
-        state.activeView = resolveActiveView(status)
+        state.activeView = resolveActiveView(status, onboardingComplete)
         if (state.activeView !== 'dashboard') {
           state.activeDashboardPanel = 'grid'
           state.activeDossierId = null
         }
+      })
+    },
+    completeOnboardingAndEnterDashboard: () => {
+      useOnboardingStore.getState().finishOnboarding()
+      set((state) => {
+        state.activeView = 'dashboard'
+        state.activeDashboardPanel = 'grid'
+      })
+    },
+    exitOnboardingToDashboard: () => {
+      const alreadyConfigured = resolveOnboardingComplete(
+        useOnboardingStore.getState().progress,
+        useDomainStore.getState().snapshot.dossierCount
+      )
+      // Only persist completion when the domain is already usable; a brand-new
+      // empty setup stays "incomplete" so the gate can guide the user later.
+      if (alreadyConfigured) {
+        useOnboardingStore.getState().finishOnboarding()
+      }
+      set((state) => {
+        state.activeView = 'dashboard'
+        state.activeDashboardPanel = 'grid'
+        state.activeDossierId = null
+        state.isPendingDomainChange = false
       })
     },
     goToOnboarding: () => {

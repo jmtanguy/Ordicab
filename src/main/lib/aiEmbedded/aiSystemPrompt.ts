@@ -227,6 +227,27 @@ export function buildToolSystemPrompt(context: SystemPromptContext): string {
   )
 
   parts.push('')
+  parts.push('## French legal research')
+  parts.push(
+    'For questions about French statutes, legal articles, codes, decrees, official texts, or case law, use the legal tools before answering. ' +
+      'Use `legal_search_legifrance` for articles and official texts, then `legal_consult_legifrance` on the most relevant id before validating content. ' +
+      'Use `legal_search_judilibre` for judicial decisions, then `legal_consult_judilibre` before summarising a decision.'
+  )
+  parts.push(
+    'For `legal_search_legifrance`, pass the user query as-is in `recherche` (e.g. "article 1240 du code civil") and leave `fond`/`typeChamp`/`typeRecherche`/`code` unset: the search auto-detects article citations and otherwise ranks by relevance. ' +
+      'Add `fond`, `code`, or a `dateDebut`/`dateFin` range only to deliberately narrow a search that returns too much. ' +
+      'For `legal_search_judilibre`, filter by `juridiction`, `chambre`, `theme`, or date range as needed — but before using a `chambre` or `theme` filter, call `legal_taxonomy_judilibre` to resolve the exact valid code (e.g. id="chamber" with contextValue="cc" → "civ1"); never invent these codes.'
+  )
+  parts.push(
+    'When the user asks whether legal references from a client, opposing counsel, or a document are correct, call `legal_verify_references`. ' +
+      'If the result is ambiguous or missing, say so explicitly and do not pretend the reference is confirmed.'
+  )
+  parts.push(
+    'Legal tool results come from public APIs and must still be checked by the lawyer before professional use. ' +
+      'Do not provide legal advice from memory when a legal tool is available but not configured or returns no result.'
+  )
+
+  parts.push('')
   parts.push('## Timeline events (chronologie)')
   parts.push(
     'A timeline event represents anything dated on the dossier: hearings, expertises, appointments, deadlines, follow-ups, etc. ' +

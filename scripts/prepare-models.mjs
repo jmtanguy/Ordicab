@@ -9,11 +9,11 @@
  *
  * Layout mirrors transformers.js's `{localModelPath}/{modelId}/` convention:
  *   resources/models/Xenova/bert-base-multilingual-cased-ner-hrl/...
- *   resources/models/Xenova/multilingual-e5-small/...
+ *   resources/models/Xenova/bge-m3/...
  *
  * Bundled models (ship with the installer so offline first-run works):
  *   - NER:        Xenova/bert-base-multilingual-cased-ner-hrl          (~45 MB int8)
- *   - Embeddings: Xenova/multilingual-e5-small                         (~120 MB int8)
+ *   - Embeddings: Xenova/bge-m3                                        (~570 MB int8)
  *
  * Override individual models with env vars:
  *   NER_MODEL_ID=<huggingface-id>        npm run prepare:models
@@ -63,7 +63,7 @@ const MODELS = [
   {
     name: 'Embeddings',
     task: 'feature-extraction',
-    modelId: process.env.EMBEDDING_MODEL_ID ?? 'Xenova/multilingual-e5-small',
+    modelId: process.env.EMBEDDING_MODEL_ID ?? 'Xenova/bge-m3',
     revision: process.env.EMBEDDING_MODEL_REVISION ?? 'main',
     skip: process.env.SKIP_EMBEDDINGS === '1'
   }

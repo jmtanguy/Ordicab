@@ -35,6 +35,7 @@ import { createEulaStore } from './lib/system/eulaStore'
 import { createPendingUpdateStore, createUpdaterService } from './updater'
 import { createMainWindow, createMainWindowLifecycle, type MainWindowLifecycle } from './window'
 import { buildContainer, registerAllHandlers, type AppContainer } from './container'
+import { registerModelHandlers } from './handlers/modelHandler'
 
 const isDev = !app.isPackaged
 
@@ -132,20 +133,14 @@ function resolveTessDataPath(): string {
 }
 
 // Returns the directory transformers.js should treat as `localModelPath`.
-// Every bundled model (NER, embeddings) lives under a single
-// `resources/models/` root so the module-global `env.localModelPath` can
-// resolve all of them through one claim — see modelRegistry.ts for why.
-// Returns null when the bundle is absent (e.g. dev install without
-// `npm run prepare:models`) so callers can fall back to remote downloads.
-function resolveModelsPath(): string | null {
-  const candidates = app.isPackaged
-    ? [join(process.resourcesPath, 'models')]
-    : [join(app.getAppPath(), 'resources', 'models'), join(process.cwd(), 'resources', 'models')]
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate
-  }
-  return null
+// All ONNX models (NER, bge-m3 embeddings) are downloaded at runtime into a
+// single `{userData}/models/` root so the module-global `env.localModelPath`
+// can resolve all of them through one claim — see modelRegistry.ts. They are
+// no longer bundled in the installer (modelProvisioningService fetches them on
+// first launch). The directory may not exist yet on first run; transformers.js
+// and the downloader both create/resolve subpaths under it as needed.
+function resolveModelsPath(): string {
+  return join(app.getPath('userData'), 'models')
 }
 
 function resolveAppIconPath(): string {
@@ -355,6 +350,20 @@ app
           openExternal: (url) => shell.openExternal(url),
           openPath: (path) => shell.openPath(path),
           stateFilePath,
+          getWebContents: () => mainWindowLifecycle?.getWindow()?.webContents ?? null,
+          focusMainWindow: () => {
+            mainWindowLifecycle?.showWindow()
+          }
+        })
+
+        // Runtime model provisioning: download the NER + bge-m3 ONNX models
+        // into {userData}/models on first launch (they are no longer bundled).
+        // NER is fetched first as it gates remote-AI pseudonymisation.
+        const container = appContainer
+        registerModelHandlers({
+          ipcMain,
+          modelsRoot: resolveModelsPath(),
+          onEmbeddingModelReady: () => container.reloadEmbeddingsAndReindex(),
           getWebContents: () => mainWindowLifecycle?.getWindow()?.webContents ?? null
         })
       },

@@ -9,12 +9,13 @@
  * Command slice  (Epic 2):  executeCommand, resolveClarification, resetConversation.
  *
  * Model selection (session only, never persisted):
- *   availableModels — populated by checkConnection() from ollama.list().
+ *   availableModels — populated by checkConnection() from the remote provider's
+ *                     known tool-capable models.
  *   selectedModel   — the model the user chose in AiPage; auto-set to the
  *                     first available model when checkConnection succeeds.
  *   setSelectedModel() — called by the AiPage model selector dropdown.
- *   executeCommand() passes selectedModel to the IPC call so agentRuntime
- *   can forward it to ollamaClient.generateIntent().
+ *   executeCommand() passes selectedModel to the IPC call so the agent runtime
+ *   can forward it to the remote provider.
  *
  * Chat history (session only):
  *   messages — AiChatMessage[] appended by executeCommand(); displayed in the
@@ -57,60 +58,12 @@ import {
   safeLocalStorageSet
 } from './ipc'
 
-const CLOUD_MANAGED_MODES: AiMode[] = ['claude-code', 'copilot', 'codex']
-const MODEL_CACHE_STORAGE_KEY = 'ordicab.ai.modelCache.v1'
+const CLOUD_MANAGED_MODES: AiMode[] = ['claude-code']
 const SELECTED_MODEL_STORAGE_PREFIX = 'ordicab.ai.selectedModel.'
-const MODEL_CACHE_TTL_MS: Record<'local' | 'remote', number> = {
-  local: 60_000,
-  remote: 5 * 60_000
-}
 
-interface ModelCacheEntry {
-  fetchedAt: number
-  models: string[]
-}
-
-function loadModelCache(): Record<string, ModelCacheEntry> {
-  const raw = safeLocalStorageGet(MODEL_CACHE_STORAGE_KEY)
-  if (!raw) return {}
-  try {
-    const parsed = JSON.parse(raw) as Record<string, ModelCacheEntry>
-    return typeof parsed === 'object' && parsed !== null ? parsed : {}
-  } catch {
-    return {}
-  }
-}
-
-function saveModelCache(cache: Record<string, ModelCacheEntry>): void {
-  safeLocalStorageSet(MODEL_CACHE_STORAGE_KEY, JSON.stringify(cache))
-}
-
-function resolveModelContextKey(
-  mode: 'local' | 'remote',
-  input?: { ollamaEndpoint?: string; remoteProvider?: string }
-): string {
-  if (mode === 'local') {
-    const endpoint = (input?.ollamaEndpoint ?? 'http://localhost:11434').trim().replace(/\/$/, '')
-    return `local:${endpoint}`
-  }
+function resolveModelContextKey(input?: { remoteProvider?: string }): string {
   const provider = (input?.remoteProvider ?? '').trim().replace(/\/$/, '')
   return `remote:${provider}`
-}
-
-function loadCachedModels(contextKey: string, mode: 'local' | 'remote'): string[] | null {
-  const cache = loadModelCache()
-  const entry = cache[contextKey]
-  if (!entry || !Array.isArray(entry.models) || entry.models.length === 0) return null
-  if (Date.now() - entry.fetchedAt > MODEL_CACHE_TTL_MS[mode]) return null
-  return entry.models
-}
-
-function storeCachedModels(contextKey: string, models: string[]): void {
-  const unique = Array.from(new Set(models.map((model) => model.trim()).filter(Boolean)))
-  if (unique.length === 0) return
-  const cache = loadModelCache()
-  cache[contextKey] = { fetchedAt: Date.now(), models: unique }
-  saveModelCache(cache)
 }
 
 function selectedModelStorageKey(contextKey: string): string {
@@ -268,7 +221,6 @@ interface AiStoreActions {
   openExternal: (url: string) => Promise<void>
   checkConnection: (input?: {
     mode?: AiMode
-    ollamaEndpoint?: string
     remoteProvider?: string
     apiKey?: string
     refresh?: boolean
@@ -334,8 +286,8 @@ export const useAiStore = create<AiStore>()(
             state.settings = result.data
           })
 
-          if (result.data.mode === 'local' || result.data.mode === 'remote') {
-            void get().checkConnection({ mode: result.data.mode })
+          if (result.data.mode === 'remote') {
+            void get().checkConnection({ mode: 'remote' })
           }
         } else {
           set((state) => {
@@ -362,13 +314,13 @@ export const useAiStore = create<AiStore>()(
       const current = get().settings
 
       const input: AiSettingsSaveInput = {
-        mode: patch.mode ?? current?.mode ?? 'local',
-        ollamaEndpoint: patch.ollamaEndpoint ?? current?.ollamaEndpoint,
+        mode: patch.mode ?? current?.mode ?? 'none',
         remoteProviderKind: patch.remoteProviderKind ?? current?.remoteProviderKind,
         remoteProjectRef: patch.remoteProjectRef ?? current?.remoteProjectRef,
         remoteProvider: patch.remoteProvider ?? current?.remoteProvider,
         apiKey: patch.apiKey,
         piiEnabled: patch.piiEnabled ?? current?.piiEnabled,
+        piiWordlist: patch.piiWordlist ?? current?.piiWordlist,
         claudeCoworkEnabled: patch.claudeCoworkEnabled ?? current?.claudeCoworkEnabled
       }
 
@@ -436,7 +388,7 @@ export const useAiStore = create<AiStore>()(
         state.privacyWarningPending = false
         state.pendingMode = null
         if (state.settings) {
-          state.settings.mode = 'local'
+          state.settings.mode = 'none'
         }
       })
     },
@@ -487,8 +439,6 @@ export const useAiStore = create<AiStore>()(
       })
 
       try {
-        const mode = input?.mode ?? get().settings?.mode ?? 'local'
-        const resolvedMode: 'local' | 'remote' = mode === 'remote' ? 'remote' : 'local'
         const settings = get().settings
         const resolvedRemoteProvider =
           input?.remoteProvider ??
@@ -499,107 +449,48 @@ export const useAiStore = create<AiStore>()(
           }) ??
           settings?.remoteProvider ??
           ''
-        const contextKey = resolveModelContextKey(resolvedMode, {
-          ollamaEndpoint: input?.ollamaEndpoint ?? settings?.ollamaEndpoint,
+        const contextKey = resolveModelContextKey({
           remoteProvider: resolvedRemoteProvider
         })
 
-        if (resolvedMode === 'remote') {
-          const hasRemoteStatus = typeof api.ai.remoteConnectionStatus === 'function'
-          if (!hasRemoteStatus) {
-            set((state) => {
-              state.connectionStatus = 'idle'
-            })
-            return
-          }
-          const providerKind =
-            settings?.remoteProviderKind ?? inferRemoteProviderKind(resolvedRemoteProvider)
-          const models = REMOTE_PROVIDER_TOOL_MODEL_NAMES[providerKind] ?? []
-
-          set((state) => {
-            state.availableModels = models
-            state.selectedModel = resolveSelectedModelForContext(
-              contextKey,
-              state.selectedModel,
-              models
-            )
-          })
-
-          const result = await api.ai.remoteConnectionStatus({
-            remoteProvider: resolvedRemoteProvider,
-            apiKey: input?.apiKey
-          })
-
-          set((state) => {
-            if (result.success) {
-              state.connectionStatus = 'connected'
-              state.connectionError = null
-            } else {
-              state.connectionStatus = 'unreachable'
-              state.connectionError = result.error
-            }
-          })
-
-          const selected = get().selectedModel
-          if (selected && models.includes(selected)) {
-            persistSelectedModel(contextKey, selected)
-          }
-          return
-        }
-
-        if (!input?.refresh) {
-          const cachedModels = loadCachedModels(contextKey, resolvedMode)
-          if (cachedModels && cachedModels.length > 0) {
-            set((state) => {
-              state.connectionStatus = 'connected'
-              state.connectionError = null
-              state.availableModels = cachedModels
-              state.selectedModel = resolveSelectedModelForContext(
-                contextKey,
-                state.selectedModel,
-                cachedModels
-              )
-            })
-            return
-          }
-        }
-
-        const hasLocalStatus = typeof api.ai.connectionStatus === 'function'
-        if (resolvedMode === 'local' && !hasLocalStatus) {
+        const hasRemoteStatus = typeof api.ai.remoteConnectionStatus === 'function'
+        if (!hasRemoteStatus) {
           set((state) => {
             state.connectionStatus = 'idle'
           })
           return
         }
+        const providerKind =
+          settings?.remoteProviderKind ?? inferRemoteProviderKind(resolvedRemoteProvider)
+        const models = REMOTE_PROVIDER_TOOL_MODEL_NAMES[providerKind] ?? []
 
-        const result = await api.ai.connectionStatus()
+        set((state) => {
+          state.availableModels = models
+          state.selectedModel = resolveSelectedModelForContext(
+            contextKey,
+            state.selectedModel,
+            models
+          )
+        })
+
+        const result = await api.ai.remoteConnectionStatus({
+          remoteProvider: resolvedRemoteProvider,
+          apiKey: input?.apiKey
+        })
 
         set((state) => {
           if (result.success) {
             state.connectionStatus = 'connected'
             state.connectionError = null
-            const models = result.data.models ?? []
-            state.availableModels = models
-            state.selectedModel = resolveSelectedModelForContext(
-              contextKey,
-              state.selectedModel,
-              models
-            )
           } else {
             state.connectionStatus = 'unreachable'
             state.connectionError = result.error
           }
         })
 
-        if (result.success) {
-          const models = result.data.models ?? []
-          if (models.length > 0) {
-            storeCachedModels(contextKey, models)
-            const selected = get().selectedModel
-            if (selected && models.includes(selected)) {
-              persistSelectedModel(contextKey, selected)
-            }
-          }
+        const selected = get().selectedModel
+        if (selected && models.includes(selected)) {
+          persistSelectedModel(contextKey, selected)
         }
       } finally {
         set((state) => {
@@ -821,9 +712,7 @@ export const useAiStore = create<AiStore>()(
     setSelectedModel: (model: string) => {
       if (get().selectedModel === model) return
       const settings = get().settings
-      const mode: 'local' | 'remote' = settings?.mode === 'remote' ? 'remote' : 'local'
-      const contextKey = resolveModelContextKey(mode, {
-        ollamaEndpoint: settings?.ollamaEndpoint,
+      const contextKey = resolveModelContextKey({
         remoteProvider:
           settings?.remoteProvider ??
           buildRemoteProviderUrl({

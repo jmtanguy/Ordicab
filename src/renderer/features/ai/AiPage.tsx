@@ -26,7 +26,7 @@ import { getRemoteToolModelDetails, inferRemoteProviderKind } from '@shared/ai/r
 import { AiDialog } from '../settings/AiSettings'
 import { DelegatedReference } from '../delegated/DelegatedReference'
 
-const CLOUD_MANAGED_MODES = ['claude-code', 'copilot', 'codex'] as const
+const CLOUD_MANAGED_MODES = ['claude-code'] as const
 
 interface AiPageProps {
   entityName: string | null
@@ -891,7 +891,7 @@ export function AiPage({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Must stay above the early returns below to keep the hook order stable
-  // when the AI mode toggles between `none`/`local`/`remote`/cloud-managed.
+  // when the AI mode toggles between `none`/`remote`/cloud-managed.
   const filteredMentionDocs = useMemo<DocumentRecord[]>(() => {
     if (!mention) return []
     const q = mention.query.trim().toLowerCase()
@@ -913,8 +913,8 @@ export function AiPage({
   useEffect(() => subscribeToReflections(), [subscribeToReflections])
 
   useEffect(() => {
-    if ((mode === 'local' || mode === 'remote') && availableModels.length === 0) {
-      void checkConnection({ mode })
+    if (mode === 'remote' && availableModels.length === 0) {
+      void checkConnection({ mode: 'remote' })
     }
   }, [mode, availableModels.length, checkConnection])
 
@@ -950,6 +950,24 @@ export function AiPage({
         <p className="ai-configure-text">{t('ai.page.empty_configure')}</p>
         <button onClick={() => setAiDialogOpen(true)} className="ai-configure-btn">
           {t('ai.page.configure_button')}
+        </button>
+        <AiDialog open={aiDialogOpen} onClose={() => setAiDialogOpen(false)} />
+      </div>
+    )
+  }
+
+  // Remote mode is the only operational mode, and it needs an API key. When the
+  // key is missing, block the input upstream and route the user to the AI dialog
+  // to activate/configure remote mode.
+  if (mode === 'remote' && !settings?.hasApiKey) {
+    return (
+      <div className="ai-configure-screen">
+        <div className="ai-welcome-icon">
+          <IconSparkle />
+        </div>
+        <p className="ai-configure-text">{t('ai.page.remote_not_configured')}</p>
+        <button onClick={() => setAiDialogOpen(true)} className="ai-configure-btn">
+          {t('ai.page.activate_remote_button')}
         </button>
         <AiDialog open={aiDialogOpen} onClose={() => setAiDialogOpen(false)} />
       </div>
@@ -1305,9 +1323,9 @@ export function AiPage({
             )}
           </div>
 
-          {(mode === 'remote' || (mode === 'local' && availableModels.length > 0)) && (
+          {mode === 'remote' && (
             <div className="flex w-full min-w-0 items-center gap-3">
-              {(mode === 'local' || mode === 'remote') && availableModels.length > 0 && (
+              {availableModels.length > 0 && (
                 <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
                   <span className="ai-model-label shrink-0">
                     {t('ai.page.model_selector_label')}

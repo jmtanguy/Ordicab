@@ -14,10 +14,34 @@ import type {
   InvoiceCreateInput
 } from '@shared/types'
 
+import type { EntityProfile } from '@shared/domain/entity'
+
 import { createInvoiceService } from '../invoiceService'
 import type { DossierRegistryService } from '../dossierRegistryService'
 import type { GenerateService } from '../generateService'
 import type { ContactService } from '../contactService'
+import type { EntityService } from '../entityService'
+
+function createEntityServiceMock(profile: EntityProfile | null): EntityService {
+  return {
+    get: async () => profile,
+    update: async () => profile ?? ({ firmName: '' } as EntityProfile),
+    importDefaultTemplate: async () => profile ?? ({ firmName: '' } as EntityProfile),
+    getDefaultTemplatePath: async () => '',
+    removeDefaultTemplate: async () => profile ?? ({ firmName: '' } as EntityProfile)
+  }
+}
+
+const TEST_ENTITY_PROFILE: EntityProfile = {
+  firmName: 'Cabinet Test',
+  siren: '123456789',
+  siret: '12345678900012',
+  vatNumber: 'FR12345678901',
+  iban: 'FR7630006000011234567890189',
+  addressLine: '1 rue de la Paix',
+  zipCode: '75002',
+  city: 'Paris'
+}
 
 const tempDirs: string[] = []
 async function createTempDir(): Promise<string> {
@@ -103,8 +127,10 @@ function buildMocks(
     getDossier: async () => state.dossier,
     openDossier: async () => state.dossier,
     registerDossier: async () => ({ id: state.dossier.id }) as unknown as DossierSummary,
+    createDossier: async () => ({ id: state.dossier.id }) as unknown as DossierSummary,
     unregisterDossier: async () => null,
     updateDossier: async () => state.dossier,
+    updateLegalAid: async () => state.dossier,
     upsertKeyDate: async () => state.dossier,
     deleteKeyDate: async () => state.dossier,
     upsertFeeAgreement: async () => state.dossier,
@@ -186,6 +212,7 @@ function buildMocks(
     dossierRegistryService,
     generateService,
     contactService,
+    entityService: createEntityServiceMock(TEST_ENTITY_PROFILE),
     now: () => new Date('2026-05-23T10:00:00.000Z')
   })
 
@@ -239,6 +266,14 @@ describe('invoiceService', () => {
         join(domainPath, '.ordicab', 'invoices', 'FAC-2026-0001.docx')
       )
       expect(invoice.generatedDocumentPath).toBe('.ordicab/invoices/FAC-2026-0001.docx')
+
+      // Issuer identity is sourced from the Cabinet entity profile, not invoice settings.
+      expect(invoice.issuerSnapshot?.name).toBe('Cabinet Test')
+      expect(invoice.issuerSnapshot?.siret).toBe('12345678900012')
+      expect(invoice.issuerSnapshot?.vatNumber).toBe('FR12345678901')
+      expect(invoice.issuerSnapshot?.iban).toBe('FR7630006000011234567890189')
+      expect(invoice.issuerSnapshot?.address).toBe('1 rue de la Paix\n75002 Paris')
+      expect(state.generateCalls[0]?.invoiceContext?.issuer?.name).toBe('Cabinet Test')
 
       // Items marked as billed via registry
       expect(state.registryMarkCalls).toHaveLength(1)
@@ -304,6 +339,70 @@ describe('invoiceService', () => {
       const raw = await readFile(recordPath, 'utf8')
       const parsed = JSON.parse(raw) as { number: string }
       expect(parsed.number).toBe('FAC-2026-0001')
+    })
+
+    it('emits a stateRetribution piece (RET-…) with its own sequence and CARPA client', async () => {
+      const { invoiceService } = buildMocks(domainPath, [
+        makeBillingItem({
+          id: billingItemId,
+          sourceFeeAgreementBillingKind: 'stateRetribution',
+          vatRateBasisPoints: 0,
+          totalTtcCents: 10_000
+        })
+      ])
+      const invoice = await invoiceService.create(createInput())
+
+      expect(invoice.documentType).toBe('stateRetribution')
+      expect(invoice.number).toBe('RET-2026-0001')
+      // Le débiteur affiché est la CARPA, pas le bénéficiaire de l'AJ.
+      expect(invoice.clientLabel).toBe('CARPA — Aide juridictionnelle')
+      // Séquence RET consommée, séquence FAC intacte.
+      const settings = await invoiceService.getSettings()
+      expect(settings.stateRetributionNextSequence).toBe(2)
+      expect(settings.nextSequence).toBe(1)
+    })
+
+    it('keeps numbering FAC and RET sequences independent', async () => {
+      const retributionId = '22222222-2222-4222-8222-222222222222'
+      const { invoiceService } = buildMocks(domainPath, [
+        makeBillingItem({ id: billingItemId }),
+        makeBillingItem({
+          id: retributionId,
+          sourceFeeAgreementBillingKind: 'stateRetribution',
+          vatRateBasisPoints: 0,
+          totalTtcCents: 10_000
+        })
+      ])
+      const facture = await invoiceService.create(createInput())
+      const retribution = await invoiceService.create({
+        dossierId: 'dossier-1',
+        billingItemIds: [retributionId],
+        templateId: 'tpl-1',
+        issuedAt: '2026-05-23'
+      })
+      expect(facture.number).toBe('FAC-2026-0001')
+      expect(retribution.number).toBe('RET-2026-0001')
+    })
+
+    it('refuses to mix a stateRetribution item with a commercial item on one piece', async () => {
+      const retributionId = '22222222-2222-4222-8222-222222222222'
+      const { invoiceService } = buildMocks(domainPath, [
+        makeBillingItem({ id: billingItemId }),
+        makeBillingItem({
+          id: retributionId,
+          sourceFeeAgreementBillingKind: 'stateRetribution',
+          vatRateBasisPoints: 0,
+          totalTtcCents: 10_000
+        })
+      ])
+      await expect(
+        invoiceService.create({
+          dossierId: 'dossier-1',
+          billingItemIds: [billingItemId, retributionId],
+          templateId: 'tpl-1',
+          issuedAt: '2026-05-23'
+        })
+      ).rejects.toMatchObject({ message: expect.stringContaining('rétribution AJ') })
     })
   })
 
@@ -437,8 +536,10 @@ describe('invoiceService', () => {
         getDossier: async () => state.dossier,
         openDossier: async () => state.dossier,
         registerDossier: async () => ({ id: state.dossier.id }) as unknown as DossierSummary,
+        createDossier: async () => ({ id: state.dossier.id }) as unknown as DossierSummary,
         unregisterDossier: async () => null,
         updateDossier: async () => state.dossier,
+        updateLegalAid: async () => state.dossier,
         upsertKeyDate: async () => state.dossier,
         deleteKeyDate: async () => state.dossier,
         upsertFeeAgreement: async () => state.dossier,
@@ -509,6 +610,7 @@ describe('invoiceService', () => {
         dossierRegistryService,
         generateService,
         contactService,
+        entityService: createEntityServiceMock(TEST_ENTITY_PROFILE),
         now: () => new Date('2026-05-23T10:00:00.000Z')
       })
       return { state, invoiceService }

@@ -9,17 +9,26 @@ import type { DossierSortMode, DossierStatusFilter } from '@renderer/stores/doss
 
 import ordicabLogo from '../../../../resources/icon.png'
 
-export type SidebarDestination = 'dossiers' | 'cabinet' | 'modeles' | 'factures' | 'parametres'
+export type SidebarDestination =
+  | 'dossiers'
+  | 'cabinet'
+  | 'modeles'
+  | 'factures'
+  | 'legal'
+  | 'parametres'
 
 export type DossierSection =
   | 'contacts'
   | 'convention'
+  | 'aide-juridictionnelle'
   | 'prestations'
   | 'factures'
   | 'echeances'
   | 'references'
   | 'documents'
   | 'search'
+  | 'legal'
+  | 'legal-verify'
   | 'generate'
   | 'ai-assistant'
 
@@ -355,6 +364,10 @@ function SidebarLevel2({
           label: t('dossiers.fee_agreement_nav_label', { defaultValue: 'Convention' })
         },
         {
+          id: 'aide-juridictionnelle',
+          label: t('dossiers.legal_aid_nav_label', { defaultValue: 'Aide juridictionnelle' })
+        },
+        {
           id: 'prestations',
           label: t('dossiers.billing_items_nav_label', { defaultValue: 'Prestations' })
         },
@@ -383,6 +396,13 @@ function SidebarLevel2({
       label: t('dossiers.nav_group_ai'),
       items: [
         { id: 'search', label: t('documents.semantic_search_nav_label') },
+        { id: 'legal', label: t('legal_search.nav_label', { defaultValue: 'Recherche Droit' }) },
+        {
+          id: 'legal-verify',
+          label: t('legal_search.verify_nav_label', {
+            defaultValue: 'Vérification Droit'
+          })
+        },
         { id: 'ai-assistant', label: t('dossiers.ai_assistant_nav_label') }
       ]
     }
@@ -622,6 +642,29 @@ function SidebarBottom({
           <path d="M3 2h6l3 3v8H3z" />
           <path d="M9 2v3h3" />
           <path d="M5.5 8h4M5.5 10.5h4" />
+        </svg>
+      )
+    },
+    {
+      id: 'legal',
+      label: t('nav.tab_legal_search', { defaultValue: 'Recherche Droit' }),
+      icon: (
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 15 15"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M7.5 1.5v12" />
+          <path d="M3 4h9" />
+          <path d="M4.5 4 2 9h5L4.5 4z" />
+          <path d="M10.5 4 8 9h5l-2.5-5z" />
+          <path d="M5 13h5" />
         </svg>
       )
     },

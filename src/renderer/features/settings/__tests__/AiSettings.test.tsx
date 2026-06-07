@@ -59,12 +59,7 @@ describe('AiSettings', () => {
           error: 'no config',
           code: IpcErrorCode.NOT_FOUND
         })),
-        saveSettings: vi.fn(),
-        connectionStatus: vi.fn(async () => ({
-          success: false as const,
-          error: 'unreachable',
-          code: IpcErrorCode.OLLAMA_UNREACHABLE
-        }))
+        saveSettings: vi.fn()
       }
     }
 
@@ -83,16 +78,11 @@ describe('AiSettings', () => {
         getSettings: vi.fn(async () => ({
           success: true as const,
           data: {
-            mode: 'local' as const,
-            ollamaEndpoint: 'http://localhost:11434',
+            mode: 'none' as const,
             hasApiKey: false
           }
         })),
-        saveSettings: vi.fn(),
-        connectionStatus: vi.fn(async () => ({
-          success: true as const,
-          data: { reachable: true, models: ['llama3'] }
-        }))
+        saveSettings: vi.fn()
       }
     }
 
@@ -103,23 +93,18 @@ describe('AiSettings', () => {
     })
   })
 
-  it('Remote API mode shows privacy warning; cancelling keeps Local mode', async () => {
+  it('Remote API mode shows privacy warning; cancelling keeps the prior mode', async () => {
     ;(globalThis as MutableGlobal).ordicabAPI = {
       ai: {
         ...aiStubs,
         getSettings: vi.fn(async () => ({
           success: true as const,
           data: {
-            mode: 'local' as const,
-            ollamaEndpoint: 'http://localhost:11434',
+            mode: 'none' as const,
             hasApiKey: false
           }
         })),
-        saveSettings: vi.fn(),
-        connectionStatus: vi.fn(async () => ({
-          success: true as const,
-          data: { reachable: true, models: ['llama3'] }
-        }))
+        saveSettings: vi.fn()
       }
     }
 
@@ -139,7 +124,7 @@ describe('AiSettings', () => {
       expect(screen.getByText('Remote API Warning')).toBeTruthy()
     })
 
-    // Cancel keeps local mode
+    // Cancel keeps the prior mode
     const cancelButtons = screen.getAllByText('Cancel')
     fireEvent.click(cancelButtons[cancelButtons.length - 1]!)
 
@@ -153,18 +138,14 @@ describe('AiSettings', () => {
     const saveSettings = vi.fn(async () => ({ success: true as const, data: null }))
     const getSettings = vi.fn(async () => ({
       success: true as const,
-      data: { mode: 'local' as const, ollamaEndpoint: 'http://localhost:11434', hasApiKey: false }
+      data: { mode: 'none' as const, hasApiKey: false }
     }))
 
     ;(globalThis as MutableGlobal).ordicabAPI = {
       ai: {
         ...aiStubs,
         getSettings,
-        saveSettings,
-        connectionStatus: vi.fn(async () => ({
-          success: true as const,
-          data: { reachable: true, models: [] }
-        }))
+        saveSettings
       }
     }
 
@@ -183,9 +164,9 @@ describe('AiSettings', () => {
   })
 
   it('check connection button calls checkConnection and updates connection status', async () => {
-    const connectionStatus = vi.fn(async () => ({
+    const remoteConnectionStatus = vi.fn(async () => ({
       success: true as const,
-      data: { reachable: true, models: ['llama3'] }
+      data: { reachable: true }
     }))
     const getSettings = vi.fn(async () => ({
       success: true as const,
@@ -198,7 +179,7 @@ describe('AiSettings', () => {
     }))
 
     ;(globalThis as MutableGlobal).ordicabAPI = {
-      ai: { ...aiStubs, getSettings, saveSettings: vi.fn(), connectionStatus }
+      ai: { ...aiStubs, getSettings, saveSettings: vi.fn(), remoteConnectionStatus }
     }
 
     await renderPanel()
@@ -232,10 +213,6 @@ describe('AiSettings', () => {
         ...aiStubs,
         getSettings,
         saveSettings: vi.fn(),
-        connectionStatus: vi.fn(async () => ({
-          success: true as const,
-          data: { reachable: true, models: [] }
-        })),
         deleteApiKey
       }
     }
@@ -269,7 +246,6 @@ describe('AiSettings', () => {
         ...aiStubs,
         getSettings: vi.fn(async () => ({ success: true as const, data: cloudAvailableSettings })),
         saveSettings: vi.fn(),
-        connectionStatus: vi.fn(),
         cloudProviderStatus: vi.fn(async () => ({
           success: true as const,
           data: { available: true }
@@ -297,7 +273,6 @@ describe('AiSettings', () => {
         ...aiStubs,
         getSettings: vi.fn(async () => ({ success: true as const, data: cloudSettings2 })),
         saveSettings: vi.fn(),
-        connectionStatus: vi.fn(),
         cloudProviderStatus: vi.fn(async () => ({
           success: true as const,
           data: { available: false, reason: 'Claude CLI not found' }
@@ -324,7 +299,6 @@ describe('AiSettings', () => {
         ...aiStubs,
         getSettings: vi.fn(async () => ({ success: true as const, data: cloudSettings3 })),
         saveSettings: vi.fn(),
-        connectionStatus: vi.fn(),
         cloudProviderStatus
       }
     }
@@ -349,10 +323,6 @@ describe('AiSettings', () => {
           }
         })),
         saveSettings: vi.fn(),
-        connectionStatus: vi.fn(async () => ({
-          success: true as const,
-          data: { reachable: true, models: [] }
-        })),
         deleteApiKey: vi.fn()
       }
     }

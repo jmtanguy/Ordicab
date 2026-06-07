@@ -15,6 +15,7 @@ export interface EntityProfile {
   address?: string
   vatNumber?: string
   siren?: string
+  siret?: string
   legalForm?: string
   shareCapital?: string
   rcsNumber?: string

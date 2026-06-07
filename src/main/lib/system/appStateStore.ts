@@ -21,6 +21,7 @@ import { pathExists } from './domainState'
  */
 export interface AppStateFile {
   ai?: Record<string, unknown>
+  credentials?: Record<string, unknown>
   legal?: Record<string, unknown>
   delegatedAi?: Record<string, unknown>
   locale?: string

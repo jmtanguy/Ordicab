@@ -5,9 +5,23 @@ import type {
   AiMode,
   RemoteConnectionResult,
   AiSettingsResponse,
-  AiSettingsSaveInput,
-  OllamaConnectionResult
+  AiSettingsSaveInput
 } from '../types/ai'
+import type {
+  JudilibreConsultInput,
+  JudilibreSearchInput,
+  JudilibreTaxonomyInput,
+  LegalConnectionStatus,
+  LegalConnectionStatusInput,
+  LegalConsultResponse,
+  LegalReferenceCheckInput,
+  LegalReferenceCheckResult,
+  LegalSearchResponse,
+  LegalSettingsResponse,
+  LegalSettingsSaveInput,
+  LegifranceConsultInput,
+  LegifranceSearchInput
+} from '../domain/legal'
 import type {
   AppLocaleInfo,
   AppVersionInfo,
@@ -16,6 +30,9 @@ import type {
   EulaAcceptInput,
   EulaStatus,
   EulaStatusInput,
+  ModelDownloadStatus,
+  NotificationClickedEvent,
+  NotifyInput,
   OpenExternalInput,
   OpenFolderInput,
   SetLocaleInput
@@ -77,13 +94,17 @@ import type {
   DossierFeeAgreementSetActiveInput,
   DossierFeeAgreementUpsertInput,
   DossierKeyDateDeleteInput,
+  DossierCreateInput,
   DossierKeyDateUpsertInput,
   DossierKeyReferenceDeleteInput,
   DossierKeyReferenceUpsertInput,
   DossierRegistrationInput,
   DossierScopedQuery,
+  DossierSetupLegalAidInput,
+  DossierSetupLegalAidResult,
   DossierSummary,
   DossierUnregisterInput,
+  DossierUpdateLegalAidInput,
   EntityProfile,
   EntityProfileDraft,
   GenerateDocumentInput,
@@ -124,6 +145,10 @@ export interface OrdicabAPI {
     openFolder: (input: OpenFolderInput) => Promise<IpcResult<null>>
     eulaStatus: (input: EulaStatusInput) => Promise<IpcResult<EulaStatus>>
     eulaAccept: (input: EulaAcceptInput) => Promise<IpcResult<EulaStatus>>
+    notify: (input: NotifyInput) => Promise<IpcResult<null>>
+    onNotificationClicked: (
+      listener: (event: NotificationClickedEvent) => void
+    ) => OrdicabEventUnsubscribe
   }
   domain: {
     select: () => Promise<IpcResult<DomainSelectionResult>>
@@ -135,6 +160,7 @@ export interface OrdicabAPI {
     get: (input: DossierScopedQuery) => Promise<IpcResult<DossierDetail>>
     open: (input: DossierScopedQuery) => Promise<IpcResult<DossierDetail>>
     register: (input: DossierRegistrationInput) => Promise<IpcResult<DossierSummary>>
+    create: (input: DossierCreateInput) => Promise<IpcResult<DossierSummary>>
     unregister: (input: DossierUnregisterInput) => Promise<IpcResult<null>>
     upsertKeyDate: (input: DossierKeyDateUpsertInput) => Promise<IpcResult<DossierDetail>>
     deleteKeyDate: (input: DossierKeyDateDeleteInput) => Promise<IpcResult<DossierDetail>>
@@ -148,6 +174,10 @@ export interface OrdicabAPI {
     ) => Promise<IpcResult<DossierDetail>>
     upsertBillingItem: (input: DossierBillingItemUpsertInput) => Promise<IpcResult<DossierDetail>>
     deleteBillingItem: (input: DossierBillingItemDeleteInput) => Promise<IpcResult<DossierDetail>>
+    updateLegalAid: (input: DossierUpdateLegalAidInput) => Promise<IpcResult<DossierDetail>>
+    setupLegalAid: (
+      input: DossierSetupLegalAidInput
+    ) => Promise<IpcResult<DossierSetupLegalAidResult>>
     upsertKeyReference: (input: DossierKeyReferenceUpsertInput) => Promise<IpcResult<DossierDetail>>
     deleteKeyReference: (input: DossierKeyReferenceDeleteInput) => Promise<IpcResult<DossierDetail>>
     pickExportRoot: () => Promise<IpcResult<string | null>>
@@ -266,10 +296,25 @@ export interface OrdicabAPI {
     regenerate: (input: ClaudeMdRegenerateInput) => Promise<IpcResult<null>>
     status: () => Promise<IpcResult<ClaudeMdStatus>>
   }
+  legalSearch: {
+    getSettings: () => Promise<IpcResult<LegalSettingsResponse>>
+    saveSettings: (input: LegalSettingsSaveInput) => Promise<IpcResult<null>>
+    deleteCredentials: () => Promise<IpcResult<null>>
+    connectionStatus: (
+      input?: LegalConnectionStatusInput
+    ) => Promise<IpcResult<LegalConnectionStatus>>
+    searchLegifrance: (input: LegifranceSearchInput) => Promise<IpcResult<LegalSearchResponse>>
+    consultLegifrance: (input: LegifranceConsultInput) => Promise<IpcResult<LegalConsultResponse>>
+    searchJudilibre: (input: JudilibreSearchInput) => Promise<IpcResult<LegalSearchResponse>>
+    consultJudilibre: (input: JudilibreConsultInput) => Promise<IpcResult<LegalConsultResponse>>
+    taxonomyJudilibre: (input: JudilibreTaxonomyInput) => Promise<IpcResult<unknown>>
+    verifyReferences: (
+      input: LegalReferenceCheckInput
+    ) => Promise<IpcResult<LegalReferenceCheckResult>>
+  }
   ai: {
     getSettings: () => Promise<IpcResult<AiSettingsResponse>>
     saveSettings: (input: AiSettingsSaveInput) => Promise<IpcResult<null>>
-    connectionStatus: () => Promise<IpcResult<OllamaConnectionResult>>
     remoteConnectionStatus: (input: {
       remoteProvider?: string
       apiKey?: string
@@ -288,6 +333,16 @@ export interface OrdicabAPI {
     onStatus: (listener: (snapshot: IndexingStatusSnapshot) => void) => OrdicabEventUnsubscribe
     onDossierInitialComplete: (
       listener: (event: IndexingDossierInitialCompleteEvent) => void
+    ) => OrdicabEventUnsubscribe
+  }
+  models: {
+    /** Current download status of the runtime ONNX models. */
+    getStatus: () => Promise<IpcResult<ModelDownloadStatus>>
+    /** Trigger download of any missing models (NER first, then bge-m3). */
+    download: () => Promise<IpcResult<null>>
+    /** Push: status changed (progress / readiness), for the settings UI. */
+    onStatusChanged: (
+      listener: (status: ModelDownloadStatus) => void
     ) => OrdicabEventUnsubscribe
   }
   updater: {

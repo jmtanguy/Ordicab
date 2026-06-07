@@ -58,10 +58,19 @@ export interface EmbeddingWorkerClient {
     config?: EmbeddingServiceConfig,
     options?: { inputPrefix?: string }
   ): Promise<Float32Array[] | null>
+  /**
+   * Tear down the current worker so the next embedBatch spawns a fresh one.
+   * Needed when the embedding model becomes available after startup (e.g.
+   * bge-m3 finishes downloading): a worker spawned earlier may have cached the
+   * "model missing" failure, and transformers.js binds its localModelPath
+   * per-process. rebind() forces a clean reload from the (now-populated) path.
+   */
+  rebind(): Promise<void>
   dispose(): Promise<void>
 }
 
-const DEFAULT_INPUT_PREFIX = 'passage: '
+// bge-m3 uses no input prefix. Kept configurable per call for E5-style models.
+const DEFAULT_INPUT_PREFIX = ''
 
 export interface CreateEmbeddingWorkerClientOptions {
   /**
@@ -182,34 +191,45 @@ export function createEmbeddingWorkerClient(
     })
   }
 
-  async function dispose(): Promise<void> {
-    disposed = true
+  async function teardownWorker(reason: string): Promise<void> {
     const w = worker
     worker = null
-    rejectAll(new Error('client disposed'))
-    if (w) {
-      try {
-        w.postMessage({ type: 'shutdown' })
-      } catch {
-        // worker may already be dead
-      }
-      // Wait for the worker to exit gracefully (parentPort.close() drains the
-      // ONNX native threads) before force-terminating, to avoid V8 HandleScope
-      // errors. Fall back to terminate() after 3 s if it hangs.
-      await new Promise<void>((resolve) => {
-        const timeout = setTimeout(() => {
-          w.terminate().catch(() => undefined)
-          resolve()
-        }, 3000)
-        w.once('exit', () => {
-          clearTimeout(timeout)
-          resolve()
-        })
-      })
+    boundModel = null
+    rejectAll(new Error(reason))
+    if (!w) return
+    try {
+      w.postMessage({ type: 'shutdown' })
+    } catch {
+      // worker may already be dead
     }
+    // Wait for the worker to exit gracefully (parentPort.close() drains the
+    // ONNX native threads) before force-terminating, to avoid V8 HandleScope
+    // errors. Fall back to terminate() after 3 s if it hangs.
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
+        w.terminate().catch(() => undefined)
+        resolve()
+      }, 3000)
+      w.once('exit', () => {
+        clearTimeout(timeout)
+        resolve()
+      })
+    })
   }
 
-  return { embedBatch, dispose }
+  async function rebind(): Promise<void> {
+    if (disposed) return
+    // Tear down only; the next embedBatch lazily respawns with the current
+    // defaultConfig (which now resolves the freshly-downloaded model).
+    await teardownWorker('worker rebind')
+  }
+
+  async function dispose(): Promise<void> {
+    disposed = true
+    await teardownWorker('client disposed')
+  }
+
+  return { embedBatch, rebind, dispose }
 }
 
 /** Convenience: resolves the worker path emitted by electron-vite alongside the main bundle. */

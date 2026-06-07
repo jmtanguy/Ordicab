@@ -30,10 +30,8 @@ describe('aiDelegatedProviderChecker', () => {
 
     // non-external modes always available
     const checker3 = createAiDelegatedProviderChecker()
-    const local = await checker3.checkAvailability('local')
     const none = await checker3.checkAvailability('none')
     const remote = await checker3.checkAvailability('remote')
-    expect(local).toEqual({ available: true })
     expect(none).toEqual({ available: true })
     expect(remote).toEqual({ available: true })
   })

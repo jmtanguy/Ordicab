@@ -37,7 +37,7 @@ function buildIndexedDoc(
   displayName: string,
   text: string,
   chunks: Array<{ charStart: number; charEnd: number; vector: Float32Array }>,
-  model = 'Xenova/multilingual-e5-small',
+  model = 'Xenova/bge-m3',
   dim = 4
 ): {
   documentId: string
@@ -107,10 +107,12 @@ describe('searchDossier', () => {
       dim: 4
     })
 
-    expect(hits).toHaveLength(2)
+    // Mean-centering drops the two chunks that don't match the query direction
+    // (their centered cosine is negative), leaving only the genuine match. This
+    // is the intended anti-noise behavior, not a regression.
+    expect(hits).toHaveLength(1)
     expect(hits[0]!.documentId).toBe('docA.pdf')
     expect(hits[0]!.charStart).toBe(35)
-    expect(hits[0]!.score).toBeGreaterThan(hits[1]!.score)
     expect(hits[0]!.snippet).toBe('Relevant passage wins.')
   })
 
@@ -137,8 +139,10 @@ describe('searchDossier', () => {
       dim: 4
     })
 
+    // b.pdf matches the query direction and ranks first; a.pdf points the other
+    // way, so after centering its score is negative and it's dropped as noise.
     expect(hits[0]!.documentId).toBe('b.pdf')
-    expect(hits[0]!.score).toBeGreaterThan(hits[1]!.score)
+    expect(hits.every((h) => h.documentId !== 'a.pdf')).toBe(true)
   })
 
   it('returns [] when the query string is empty', async () => {
@@ -188,7 +192,7 @@ describe('searchDossier', () => {
             vector: new Float32Array([1, 0, 0, 0, 0, 0, 0, 0])
           }
         ],
-        'Xenova/multilingual-e5-small',
+        'Xenova/bge-m3',
         8
       )
     )
@@ -213,7 +217,7 @@ describe('searchDossier', () => {
     expect(hits[0]!.documentId).toBe('ok.pdf')
   })
 
-  it('applies the E5 "query: " prefix to the query embedding', async () => {
+  it('embeds the query with no input prefix (bge-m3 convention)', async () => {
     const doc = await materializeDoc(
       buildIndexedDoc('doc.pdf', 'D', 'text', [
         { charStart: 0, charEnd: 4, vector: new Float32Array([1, 0, 0, 0]) }
@@ -227,62 +231,12 @@ describe('searchDossier', () => {
 
     await searchDossier({ documents: [doc], query: 'rent dispute', dim: 4 })
 
-    expect(fakePipe).toHaveBeenCalledWith(['query: rent dispute'], expect.any(Object))
+    expect(fakePipe).toHaveBeenCalledWith(['rent dispute'], expect.any(Object))
   })
 
-  it('prioritizes exact text matches for proper names over weaker vector hits', async () => {
-    const docA = await materializeDoc(
-      buildIndexedDoc('a.pdf', 'A', 'Compte rendu pour Jean Dupont au dossier.', [
-        { charStart: 0, charEnd: 40, vector: new Float32Array([0.2, 0.1, 0, 0]) }
-      ])
-    )
-    const docB = await materializeDoc(
-      buildIndexedDoc('b.pdf', 'B', 'Texte plus proche vectoriellement mais sans ce nom.', [
-        { charStart: 0, charEnd: 49, vector: new Float32Array([1, 0, 0, 0]) }
-      ])
-    )
-
-    pipelineSpy.mockResolvedValue(async () => ({
-      data: new Float32Array([1, 0, 0, 0]),
-      dims: [1, 4]
-    }))
-
-    const hits = await searchDossier({
-      documents: [docA, docB],
-      query: 'Jean Dupont',
-      topK: 2,
-      dim: 4
-    })
-
-    expect(hits[0]!.documentId).toBe('a.pdf')
-    expect(hits[0]!.snippet).toContain('Jean Dupont')
-    expect(hits[0]!.score).toBeGreaterThan(hits[1]!.score)
-  })
-
-  it('matches exact names case-insensitively', async () => {
-    const doc = await materializeDoc(
-      buildIndexedDoc('doc.pdf', 'D', 'Le client principal est JEAN DUPONT.', [
-        { charStart: 0, charEnd: 36, vector: new Float32Array([0.1, 0, 0, 0]) }
-      ])
-    )
-
-    pipelineSpy.mockResolvedValue(async () => ({
-      data: new Float32Array([1, 0, 0, 0]),
-      dims: [1, 4]
-    }))
-
-    const hits = await searchDossier({
-      documents: [doc],
-      query: 'jean dupont',
-      topK: 1,
-      dim: 4
-    })
-
-    expect(hits).toHaveLength(1)
-    expect(hits[0]!.snippet).toContain('JEAN DUPONT')
-    expect(hits[0]!.charStart).toBeGreaterThanOrEqual(0)
-    expect(hits[0]!.charEnd).toBeGreaterThan(hits[0]!.charStart)
-  })
+  // NOTE: exact/literal-match behavior (proper names, case-insensitivity) is no
+  // longer part of searchDossier — it moved to keywordSearchService, which is
+  // covered by keywordSearchService.test.ts. searchDossier is now pure-vector.
 
   it('builds snippets from the selected chunk only', async () => {
     const text = 'Chunk A.Chunk B match.Chunk C.Chunk D.'
@@ -345,16 +299,17 @@ describe('searchDossier', () => {
       ])
     )
 
-    // The pipeline mock encodes intent into the returned vector:
-    //   - "query: ..."     → [1, 0, 0, 0]
-    //   - any "passage: " sentence containing "pertinent" → [1, 0, 0, 0]
-    //   - any other "passage: " sentence → [0, 1, 0, 0]
+    // bge-m3 uses no prefix, so query and passages arrive as bare text. The
+    // mock encodes intent by content:
+    //   - the query (contains "quel") → [1, 0, 0, 0]
+    //   - any sentence containing "pertinent" → [1, 0, 0, 0]
+    //   - any other sentence → [0, 1, 0, 0]
     pipelineSpy.mockResolvedValue(async (inputs: unknown) => {
       const arr = Array.isArray(inputs) ? (inputs as string[]) : [String(inputs)]
       const flat = new Float32Array(arr.length * 4)
       for (let i = 0; i < arr.length; i++) {
         const input = arr[i]!
-        const match = input.startsWith('query: ') || input.includes('pertinent')
+        const match = input.includes('quel') || input.includes('pertinent')
         flat.set(match ? [1, 0, 0, 0] : [0, 1, 0, 0], i * 4)
       }
       return { data: flat, dims: [arr.length, 4] }
@@ -379,6 +334,10 @@ describe('searchDossier', () => {
     // Context sentences are included around the match.
     expect(hit.snippet).toContain('Deuxième idée')
     expect(hit.snippet).toContain('Conclusion neutre')
+    // The full-text highlight (charStart/charEnd) is narrowed from the whole
+    // chunk down to the same picked sentence, so the right-hand viewer marks
+    // that passage instead of the entire chunk.
+    expect(text.slice(hit.charStart, hit.charEnd)).toBe('Le passage pertinent gagne ici.')
   })
 })
 

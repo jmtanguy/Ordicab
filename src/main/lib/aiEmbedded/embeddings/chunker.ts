@@ -13,10 +13,11 @@
  *   3. If a single paragraph is already larger than maxChars, hard-split it
  *      at word boundaries. Graceful fallback — never loses text.
  *
- * The chunker is char-based, not token-based, because the embedding side
- * enforces its own token cap (transformers.js truncates at model max length).
- * Using chars keeps the chunker model-agnostic and the offsets directly
- * citable against the extracted text.
+ * The chunker is char-based, not token-based — chars keep it model-agnostic and
+ * the offsets directly citable against the extracted text. The embedding side
+ * passes `truncation: true` to the pipeline as a hard safety cap (transformers.js
+ * does NOT truncate by default), so chunks are sized conservatively below the
+ * model's token window rather than relied upon to hit it exactly.
  *
  * Each returned chunk carries (charStart, charEnd) relative to the input
  * string so the UI can jump straight to the matched passage.
@@ -32,14 +33,21 @@ export interface TextChunk {
 }
 
 export interface ChunkOptions {
-  /** Target window size in characters. Defaults to 2000 (~500 tokens). */
+  /** Target window size in characters. Defaults to 800 (~200 tokens). */
   maxChars?: number
-  /** Overlap between adjacent windows in characters. Defaults to 200 (~50 tokens). */
+  /** Overlap between adjacent windows in characters. Defaults to 150 (~40 tokens). */
   overlapChars?: number
 }
 
-const DEFAULT_MAX_CHARS = 2000
-const DEFAULT_OVERLAP_CHARS = 200
+// ~800 chars (≈ 3-5 sentences) is the retrieval sweet spot for legal documents:
+// small enough that a relevant passage gets its OWN vector instead of being
+// diluted into a whole-document average, large enough to keep the passage's
+// surrounding context. (bge-m3 handles up to 8192 tokens, so the cap is about
+// retrieval granularity, not the model window.) A smaller window also yields
+// tighter, more citable highlights. Overlap preserves spans that straddle a
+// window boundary.
+const DEFAULT_MAX_CHARS = 800
+const DEFAULT_OVERLAP_CHARS = 150
 // Matches normalizeExtractedText's paragraph separator (a blank line).
 const PARAGRAPH_SPLITTER = /\n\s*\n+/
 

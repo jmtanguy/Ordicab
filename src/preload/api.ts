@@ -29,6 +29,8 @@ import type {
   DocumentExtractProgressEvent,
   IndexingDossierInitialCompleteEvent,
   IndexingStatusSnapshot,
+  ModelDownloadStatus,
+  NotificationClickedEvent,
   OrdicabDataChangedEvent,
   TemplateDocxSyncedEvent,
   OrdicabAPI,
@@ -81,7 +83,15 @@ export function createOrdicabApi(
       writeClipboard: (input) => invoke(ipcInvoke, IPC_CHANNELS.app.writeClipboard, input),
       openFolder: (input) => invoke(ipcInvoke, IPC_CHANNELS.app.openFolder, input),
       eulaStatus: (input) => invoke(ipcInvoke, IPC_CHANNELS.app.eulaStatus, input),
-      eulaAccept: (input) => invoke(ipcInvoke, IPC_CHANNELS.app.eulaAccept, input)
+      eulaAccept: (input) => invoke(ipcInvoke, IPC_CHANNELS.app.eulaAccept, input),
+      notify: (input) => invoke(ipcInvoke, IPC_CHANNELS.app.notify, input),
+      onNotificationClicked: (listener) =>
+        subscribeToEvent<NotificationClickedEvent>(
+          ipcOn,
+          ipcOff,
+          IPC_CHANNELS.app.notificationClicked,
+          listener
+        )
     },
     domain: {
       select: () => invoke(ipcInvoke, IPC_CHANNELS.domain.select),
@@ -93,6 +103,7 @@ export function createOrdicabApi(
       get: (input) => invoke(ipcInvoke, IPC_CHANNELS.dossier.get, input),
       open: (input) => invoke(ipcInvoke, IPC_CHANNELS.dossier.open, input),
       register: (input) => invoke(ipcInvoke, IPC_CHANNELS.dossier.register, input),
+      create: (input) => invoke(ipcInvoke, IPC_CHANNELS.dossier.create, input),
       unregister: (input) => invoke(ipcInvoke, IPC_CHANNELS.dossier.unregister, input),
       upsertKeyDate: (input) => invoke(ipcInvoke, IPC_CHANNELS.dossier.upsertKeyDate, input),
       deleteKeyDate: (input) => invoke(ipcInvoke, IPC_CHANNELS.dossier.deleteKeyDate, input),
@@ -108,6 +119,8 @@ export function createOrdicabApi(
         invoke(ipcInvoke, IPC_CHANNELS.dossier.upsertBillingItem, input),
       deleteBillingItem: (input) =>
         invoke(ipcInvoke, IPC_CHANNELS.dossier.deleteBillingItem, input),
+      updateLegalAid: (input) => invoke(ipcInvoke, IPC_CHANNELS.dossier.updateLegalAid, input),
+      setupLegalAid: (input) => invoke(ipcInvoke, IPC_CHANNELS.dossier.setupLegalAid, input),
       upsertKeyReference: (input) =>
         invoke(ipcInvoke, IPC_CHANNELS.dossier.upsertKeyReference, input),
       deleteKeyReference: (input) =>
@@ -224,6 +237,17 @@ export function createOrdicabApi(
           listener
         )
     },
+    models: {
+      getStatus: () => invoke(ipcInvoke, IPC_CHANNELS.models.status),
+      download: () => invoke(ipcInvoke, IPC_CHANNELS.models.download),
+      onStatusChanged: (listener) =>
+        subscribeToEvent<ModelDownloadStatus>(
+          ipcOn,
+          ipcOff,
+          IPC_CHANNELS.models.statusChanged,
+          listener
+        )
+    },
     template: {
       list: () => invoke(ipcInvoke, IPC_CHANNELS.template.list),
       getContent: (input) => invoke(ipcInvoke, IPC_CHANNELS.template.getContent, input),
@@ -259,10 +283,28 @@ export function createOrdicabApi(
       regenerate: (input) => invoke(ipcInvoke, IPC_CHANNELS.claudeMd.regenerate, input),
       status: () => invoke(ipcInvoke, IPC_CHANNELS.claudeMd.status)
     },
+    legalSearch: {
+      getSettings: () => invoke(ipcInvoke, IPC_CHANNELS.legalSearch.settingsGet),
+      saveSettings: (input) => invoke(ipcInvoke, IPC_CHANNELS.legalSearch.settingsSave, input),
+      deleteCredentials: () => invoke(ipcInvoke, IPC_CHANNELS.legalSearch.credentialsDelete),
+      connectionStatus: (input) =>
+        invoke(ipcInvoke, IPC_CHANNELS.legalSearch.connectionStatus, input),
+      searchLegifrance: (input) =>
+        invoke(ipcInvoke, IPC_CHANNELS.legalSearch.searchLegifrance, input),
+      consultLegifrance: (input) =>
+        invoke(ipcInvoke, IPC_CHANNELS.legalSearch.consultLegifrance, input),
+      searchJudilibre: (input) =>
+        invoke(ipcInvoke, IPC_CHANNELS.legalSearch.searchJudilibre, input),
+      consultJudilibre: (input) =>
+        invoke(ipcInvoke, IPC_CHANNELS.legalSearch.consultJudilibre, input),
+      taxonomyJudilibre: (input) =>
+        invoke(ipcInvoke, IPC_CHANNELS.legalSearch.taxonomyJudilibre, input),
+      verifyReferences: (input) =>
+        invoke(ipcInvoke, IPC_CHANNELS.legalSearch.verifyReferences, input)
+    },
     ai: {
       getSettings: () => invoke(ipcInvoke, IPC_CHANNELS.ai.settingsGet),
       saveSettings: (input) => invoke(ipcInvoke, IPC_CHANNELS.ai.settingsSave, input),
-      connectionStatus: () => invoke(ipcInvoke, IPC_CHANNELS.ai.connectionStatus),
       remoteConnectionStatus: (input) =>
         invoke(ipcInvoke, IPC_CHANNELS.ai.remoteConnectionStatus, input),
       deleteApiKey: (provider) => invoke(ipcInvoke, IPC_CHANNELS.ai.deleteApiKey, provider),

@@ -49,7 +49,7 @@ export interface IndexDocumentOptions {
   embeddingConfig?: EmbeddingServiceConfig
   /** Chunking strategy overrides. Defaults to chunker's own defaults. */
   chunkOptions?: ChunkOptions
-  /** Expected vector dimensionality. Defaults to 384 (multilingual-e5-small). */
+  /** Expected vector dimensionality. Defaults to 1024 (bge-m3). */
   dim?: number
   /** Forces re-indexing even when a fresh embedding set already exists. */
   force?: boolean

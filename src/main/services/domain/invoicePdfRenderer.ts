@@ -64,7 +64,8 @@ function formatVatRate(basisPoints: number): string {
 const DOCUMENT_TYPE_LABEL: Record<InvoiceRecord['documentType'], string> = {
   invoice: 'Facture',
   creditNote: 'Avoir',
-  correctiveInvoice: 'Facture rectificative'
+  correctiveInvoice: 'Facture rectificative',
+  stateRetribution: 'Rétribution AJ (État)'
 }
 
 function partyBlock(

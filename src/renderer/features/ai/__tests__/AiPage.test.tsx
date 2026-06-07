@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockAiStore = {
-  settings: { mode: 'local' as const },
+  settings: { mode: 'remote' as const, hasApiKey: true },
   messages: [] as Array<{ id: string; role: 'user' | 'assistant' | 'error'; text: string }>,
   commandLoading: false,
   pendingClarification: null as { question: string; options: string[] } | null,
@@ -30,7 +30,11 @@ vi.mock('react-i18next', () => ({
 }))
 
 vi.mock('@renderer/stores/aiStore', () => ({
-  useAiStore: (selector: (state: typeof mockAiStore) => unknown) => selector(mockAiStore)
+  // Support both selector calls `useAiStore(s => ...)` (AiPage) and bare
+  // `useAiStore()` destructuring (AiDialog), so the configure-gate branch that
+  // mounts <AiDialog> can render in tests.
+  useAiStore: (selector?: (state: typeof mockAiStore) => unknown) =>
+    typeof selector === 'function' ? selector(mockAiStore) : mockAiStore
 }))
 
 const mockDocumentStore = {
@@ -100,7 +104,7 @@ describe('AiPage', () => {
     mockAiStore.commandLoading = false
     mockAiStore.pendingClarification = null
     mockAiStore.selectedModel = 'model-a'
-    mockAiStore.settings = { mode: 'local' }
+    mockAiStore.settings = { mode: 'remote', hasApiKey: true }
     mockAiStore.executeCommand.mockClear()
     mockAiStore.cancelCommand.mockClear()
     mockAiStore.resolveClarification.mockClear()
@@ -173,6 +177,17 @@ describe('AiPage', () => {
     await waitFor(() => {
       expect(mockAiStore.setActiveDossierId).toHaveBeenCalledWith('dos-2')
     })
+  })
+
+  it('blocks input and shows the configure gate when remote mode has no API key', () => {
+    mockAiStore.settings = { mode: 'remote', hasApiKey: false }
+
+    render(<AiPage entityName={null} sampleDossierName={null} dossierId="dos-1" />)
+
+    // The chat input must not render — the gate replaces it.
+    expect(screen.queryByPlaceholderText('ai.panel.placeholder')).toBeNull()
+    // The configure button is shown.
+    expect(screen.getByText('ai.page.activate_remote_button')).toBeTruthy()
   })
 
   it('does not render the clarification question twice in the assistant bubble', () => {

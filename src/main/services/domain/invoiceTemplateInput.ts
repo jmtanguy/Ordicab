@@ -3,7 +3,7 @@ import type {
   DossierDetail,
   InvoiceRecord,
   InvoiceLineTemplateInput,
-  InvoiceSettings,
+  InvoicePartySnapshot,
   InvoiceTemplateInput
 } from '@shared/types'
 import { computeContactDisplayName } from '@shared/computeContactDisplayName'
@@ -18,7 +18,8 @@ export function buildInvoiceTemplateInputFromBillingItems(args: {
   items: DossierBillingItem[]
   dossier: { feeAgreements: DossierDetail['feeAgreements'] }
   contacts: ContactRecord[]
-  settings: InvoiceSettings
+  /** Issuer identity resolved from the Cabinet entity profile (see entityToInvoiceIssuer). */
+  issuer: InvoicePartySnapshot
   number: string
   issuedAt: string
   documentType?: InvoiceTemplateInput['documentType']
@@ -32,7 +33,7 @@ export function buildInvoiceTemplateInputFromBillingItems(args: {
     items,
     dossier,
     contacts,
-    settings,
+    issuer,
     number,
     issuedAt,
     notes,
@@ -83,12 +84,12 @@ export function buildInvoiceTemplateInputFromBillingItems(args: {
     lines,
     client: { displayName: clientLabel },
     issuer: {
-      name: settings.issuerName,
-      address: settings.issuerAddress,
-      siret: settings.issuerSiret,
-      vatNumber: settings.issuerVatNumber,
-      iban: settings.issuerIban,
-      legalFooter: settings.legalFooter
+      name: issuer.name,
+      address: issuer.address,
+      siret: issuer.siret,
+      vatNumber: issuer.vatNumber,
+      iban: issuer.iban,
+      legalFooter: issuer.legalFooter
     }
   }
 }

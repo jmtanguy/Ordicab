@@ -7,7 +7,9 @@ export const IPC_CHANNELS = {
     writeClipboard: 'app:writeClipboard',
     openFolder: 'app:openFolder',
     eulaStatus: 'app:eula-status',
-    eulaAccept: 'app:eula-accept'
+    eulaAccept: 'app:eula-accept',
+    notify: 'app:notify',
+    notificationClicked: 'app:notification-clicked'
   },
   domain: {
     select: 'domain:select',
@@ -19,6 +21,7 @@ export const IPC_CHANNELS = {
     get: 'dossier:get',
     open: 'dossier:open',
     register: 'dossier:register',
+    create: 'dossier:create',
     unregister: 'dossier:unregister',
     upsertKeyDate: 'dossier:upsertKeyDate',
     deleteKeyDate: 'dossier:deleteKeyDate',
@@ -30,6 +33,8 @@ export const IPC_CHANNELS = {
     setActiveFeeAgreement: 'dossier:setActiveFeeAgreement',
     upsertBillingItem: 'dossier:upsertBillingItem',
     deleteBillingItem: 'dossier:deleteBillingItem',
+    updateLegalAid: 'dossier:updateLegalAid',
+    setupLegalAid: 'dossier:setupLegalAid',
     pickExportRoot: 'dossier:export:pick-root',
     analyzeAiExport: 'dossier:export:analyze',
     exportForAi: 'dossier:export:run',
@@ -127,10 +132,21 @@ export const IPC_CHANNELS = {
     regenerate: 'claudeMd:regenerate',
     status: 'claudeMd:status'
   },
+  legalSearch: {
+    settingsGet: 'legal:settings-get',
+    settingsSave: 'legal:settings-save',
+    credentialsDelete: 'legal:credentials-delete',
+    connectionStatus: 'legal:connection-status',
+    searchLegifrance: 'legal:legifrance:search',
+    consultLegifrance: 'legal:legifrance:consult',
+    searchJudilibre: 'legal:judilibre:search',
+    consultJudilibre: 'legal:judilibre:consult',
+    taxonomyJudilibre: 'legal:judilibre:taxonomy',
+    verifyReferences: 'legal:references:verify'
+  },
   ai: {
     settingsGet: 'ai:settings-get',
     settingsSave: 'ai:settings-save',
-    connectionStatus: 'ai:connection-status',
     remoteConnectionStatus: 'ai:remote-connection-status',
     executeCommand: 'ai:execute-command',
     cancelCommand: 'ai:cancel-command',
@@ -139,6 +155,14 @@ export const IPC_CHANNELS = {
     reflection: 'ai:reflection',
     deleteApiKey: 'ai:delete-api-key',
     cloudProviderStatus: 'ai:cloud-provider-status'
+  },
+  models: {
+    /** Get the current download status of the runtime ONNX models. */
+    status: 'models:status',
+    /** Trigger download of any missing models (NER first, then bge-m3). */
+    download: 'models:download',
+    /** Push: model download status changed (for the settings UI progress bar). */
+    statusChanged: 'models:status-changed'
   },
   ocr: {
     progress: 'ocr:progress',

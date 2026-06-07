@@ -95,6 +95,12 @@ export interface SemanticSearchHit {
   snippetMatchStart?: number
   /** Offset within `snippet` where the best-matching sentence ends. */
   snippetMatchEnd?: number
+  /**
+   * How this hit was found. 'keyword' = the document literally contains a query
+   * word (exact result); 'semantic' = vector similarity only (approximate). The
+   * renderer groups results by this. Undefined is treated as 'semantic'.
+   */
+  matchKind?: 'keyword' | 'semantic'
 }
 
 export interface SemanticSearchResult {

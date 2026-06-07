@@ -7,9 +7,9 @@
  * Boundaries enforced by this module:
  *  - Services receive every external dependency through their `options` argument
  *    (no module-level singletons, no hidden state).
- *  - The AI mode lifecycle (mode, ollama endpoint, remote provider, delegated
- *    enabled) lives inside `buildContainer` as a closure so swapping the mode
- *    cannot leak through a top-level `let`.
+ *  - The AI mode lifecycle (mode, remote provider, delegated enabled) lives
+ *    inside `buildContainer` as a closure so swapping the mode cannot leak
+ *    through a top-level `let`.
  *  - Handlers are registered in one place via `registerAllHandlers` so the
  *    `IPC_CHANNELS` surface is fully visible in a single grep.
  *
@@ -45,6 +45,7 @@ import {
   type EmbeddingWorkerClient
 } from './lib/aiEmbedded/embeddings/embeddingWorkerClient'
 import type { EmbeddingServiceConfig } from './lib/aiEmbedded/embeddings/embeddingService'
+import { isModelPresent, EMBEDDING_MODEL } from './lib/aiEmbedded/modelDownloadService'
 import { createDocumentService, type DocumentService } from './services/domain/documentService'
 import {
   createCabinetBillingService,
@@ -56,6 +57,10 @@ import {
 } from './services/domain/dossierRegistryService'
 import { createGenerateService, type GenerateService } from './services/domain/generateService'
 import { createInvoiceService, type InvoiceService } from './services/domain/invoiceService'
+import {
+  createAjOrchestrationService,
+  type AjOrchestrationService
+} from './services/domain/ajOrchestrationService'
 import { createContactService, type ContactService } from './services/domain/contactService'
 import { createEntityService, type EntityService } from './services/domain/entityService'
 import { createTemplateService, type TemplateService } from './services/domain/templateService'
@@ -63,7 +68,7 @@ import {
   createDossierTransferService,
   type DossierTransferService
 } from './services/domain/dossierTransferService'
-import { registerAiHandlers } from './handlers/aiHandler'
+import { AI_REMOTE_API_KEY_SECRET, registerAiHandlers } from './handlers/aiHandler'
 import { registerCabinetBillingHandlers } from './handlers/cabinetBillingHandler'
 import { registerInvoiceHandlers } from './handlers/invoiceHandler'
 import { registerInstructionsHandlers } from './handlers/instructionsHandler'
@@ -74,6 +79,7 @@ import { registerDocumentHandlers } from './handlers/documentHandler'
 import { registerEntityHandlers } from './handlers/entityHandler'
 import { registerGenerateHandlers } from './handlers/generateHandler'
 import { registerIndexingHandlers } from './handlers/indexingHandler'
+import { registerLegalHandlers } from './handlers/legalHandler'
 import { registerTemplateHandlers } from './handlers/templateHandler'
 import { createAppStateStore, type AppStateStore } from './lib/system/appStateStore'
 import { createCredentialStore, type CredentialStore } from './lib/system/credentialStore'
@@ -85,6 +91,7 @@ import {
   type OrdicabDataWatcherLike
 } from './lib/ordicab/OrdicabDataWatcher'
 import { type DomainService } from './services/domain/domainService'
+import { createLegalService, type LegalService } from './services/legal/legalService'
 import {
   createInstructionsGenerator,
   type InstructionsGeneratorLike
@@ -94,9 +101,7 @@ import {
   type DelegatedAiActionProcessorLike
 } from './lib/aiDelegated/aiDelegatedActionProcessor'
 import { createAiSdkAgentRuntime } from './lib/aiEmbedded/aiSdkAgentRuntime'
-import { createOllamaSdkModel } from './lib/aiEmbedded/ollamaSdkProvider'
 import { createOpenAiCompatibleSdkModel } from './lib/aiEmbedded/openAiCompatibleSdkProvider'
-import { ensureOllamaRunning, type OllamaProcessManager } from './lib/aiEmbedded/ollamaProcess'
 import { createInternalAICommandDispatcher } from './lib/aiEmbedded/aiCommandDispatcher'
 
 interface SafeStorageLike {
@@ -176,9 +181,11 @@ export interface AppContainer {
   entityService: EntityService
   cabinetBillingService: CabinetBillingService
   invoiceService: InvoiceService
+  ajOrchestrationService: AjOrchestrationService
   templateService: TemplateService
   generateService: GenerateService
   dossierTransferService: DossierTransferService
+  legalService: LegalService
   fileWatcherService: FileWatcherService
   indexingQueueService: IndexingQueueService
   ordicabDataWatcher: OrdicabDataWatcherLike
@@ -189,13 +196,18 @@ export interface AppContainer {
   aiLifecycle: AiLifecycle
   /** Shared owner of app-state.json; reused by host-constructed stores (e.g. eulaStore). */
   appState: AppStateStore
-  /** Tear down all watchers and shut down the Ollama process if it was launched. */
+  /**
+   * Reload the embedding worker (e.g. after bge-m3 finishes downloading) then
+   * re-run startup catch-up so documents get re-embedded with the new model.
+   * No-op when no embedding worker is configured.
+   */
+  reloadEmbeddingsAndReindex(): Promise<void>
+  /** Tear down all watchers. */
   dispose(): Promise<void>
 }
 
 interface PersistedAiState {
   mode: AiMode
-  ollamaEndpoint: string
   remoteProvider: string | undefined
   remoteProviderKind: RemoteProviderKind | undefined
   delegatedEnabled: boolean
@@ -203,7 +215,6 @@ interface PersistedAiState {
 
 function readPersistedAiState(stateFilePath: string): PersistedAiState {
   let mode: AiMode = 'claude-code'
-  let ollamaEndpoint = 'http://localhost:11434'
   let remoteProvider: string | undefined
   let remoteProviderKind: RemoteProviderKind | undefined
   let delegatedEnabled = false
@@ -213,7 +224,6 @@ function readPersistedAiState(stateFilePath: string): PersistedAiState {
     const state = JSON.parse(raw) as {
       ai?: {
         mode?: string
-        ollamaEndpoint?: string
         remoteProviderKind?: RemoteProviderKind
         remoteProvider?: string
       }
@@ -221,9 +231,6 @@ function readPersistedAiState(stateFilePath: string): PersistedAiState {
     if (typeof state?.ai?.mode === 'string') {
       mode = state.ai.mode as AiMode
       delegatedEnabled = AI_DELEGATED_MODES.includes(mode)
-    }
-    if (typeof state?.ai?.ollamaEndpoint === 'string') {
-      ollamaEndpoint = state.ai.ollamaEndpoint
     }
     if (typeof state?.ai?.remoteProvider === 'string') {
       remoteProvider = state.ai.remoteProvider
@@ -235,7 +242,7 @@ function readPersistedAiState(stateFilePath: string): PersistedAiState {
     // No state file yet -> defaults above remain.
   }
 
-  return { mode, ollamaEndpoint, remoteProvider, remoteProviderKind, delegatedEnabled }
+  return { mode, remoteProvider, remoteProviderKind, delegatedEnabled }
 }
 
 export function buildContainer(opts: BuildContainerOptions): AppContainer {
@@ -244,6 +251,7 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
   const appState = createAppStateStore(opts.stateFilePath)
 
   const credentialStore = createCredentialStore(opts.safeStorage, appState)
+  const legalService = createLegalService({ credentialStore })
 
   const dossierService = createDossierRegistryService({
     stateFilePath: opts.stateFilePath,
@@ -332,6 +340,7 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
     dossierRegistryService: dossierService,
     generateService,
     contactService,
+    entityService,
     printHtmlToPdf: opts.printHtmlToPdf
   })
 
@@ -367,6 +376,13 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
 
   const templateService = createTemplateService({ domainService: opts.domainService })
 
+  const ajOrchestrationService = createAjOrchestrationService({
+    dossierService,
+    invoiceService,
+    generateService,
+    templateService
+  })
+
   const delegatedIntentProcessor = createDelegatedAiActionProcessor({
     domainService: opts.domainService,
     dossierService,
@@ -390,6 +406,12 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
     statusDebounceMs: 250,
     embeddingConfig: opts.modelsPath ? { modelPath: opts.modelsPath } : undefined,
     embedder: workerEmbedder,
+    // Skip embedding until bge-m3 is downloaded. Without this gate the queue
+    // hammers the worker with doomed inference calls (log spam) for every doc.
+    isEmbeddingModelReady: async () =>
+      opts.modelsPath
+        ? isModelPresent(opts.modelsPath, EMBEDDING_MODEL).catch(() => false)
+        : false,
     extractContent: ({ dossierId, documentId }) =>
       documentService.extractContent({ dossierId, documentId }).then(() => undefined),
     resolveDossierPath: async (dossierId) => {
@@ -447,53 +469,11 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
   // ---- AI mode lifecycle (closure-encapsulated mutable state) ----
   const persisted = readPersistedAiState(opts.stateFilePath)
   let currentAiMode: AiMode = persisted.mode
-  let ollamaEndpoint = persisted.ollamaEndpoint
   let remoteProvider: string | undefined = persisted.remoteProvider
   let remoteProviderKind: RemoteProviderKind | undefined = persisted.remoteProviderKind
   let delegatedEnabled = persisted.delegatedEnabled
-  let ollamaProcessManager: OllamaProcessManager | null = null
-  let ollamaLifecycleTask: Promise<void> = Promise.resolve()
 
-  function syncOllamaProcess(
-    previousMode: AiMode,
-    previousEndpoint: string,
-    nextMode: AiMode,
-    nextEndpoint: string
-  ): Promise<void> {
-    ollamaLifecycleTask = ollamaLifecycleTask
-      .catch(() => undefined)
-      .then(async () => {
-        const shouldRun = nextMode === 'local'
-        const mustRestart = previousMode === 'local' && previousEndpoint !== nextEndpoint
-
-        if (!shouldRun || mustRestart) {
-          ollamaProcessManager?.shutdown()
-          ollamaProcessManager = null
-        }
-
-        ollamaEndpoint = nextEndpoint
-
-        if (!shouldRun) {
-          return
-        }
-
-        ollamaProcessManager = await ensureOllamaRunning(ollamaEndpoint)
-      })
-
-    return ollamaLifecycleTask
-  }
-
-  // Auto-launch Ollama when the user has selected local mode at startup.
-  if (currentAiMode === 'local') {
-    void syncOllamaProcess(currentAiMode, ollamaEndpoint, currentAiMode, ollamaEndpoint)
-  }
-
-  const aiAgentRuntime = createAiSdkAgentRuntime({
-    localLanguageModel: createOllamaSdkModel({
-      baseUrl: ollamaEndpoint,
-      model: 'mistral-nemo'
-    })
-  })
+  const aiAgentRuntime = createAiSdkAgentRuntime({})
 
   const configureRemoteLanguageModel = async (requestedModel?: string): Promise<void> => {
     if (currentAiMode !== 'remote' || !remoteProvider) {
@@ -501,7 +481,7 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
       return
     }
 
-    const apiKey = await credentialStore.getApiKey('default')
+    const apiKey = await credentialStore.getSecret(AI_REMOTE_API_KEY_SECRET)
     const model = requestedModel?.trim()
       ? requestedModel.trim()
       : resolveDefaultRemoteModel(remoteProvider, remoteProviderKind)
@@ -538,6 +518,7 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
     dossierService,
     documentService,
     invoiceService,
+    legalService,
     domainService: opts.domainService,
     localeService: opts.mainI18n,
     stateFilePath: opts.stateFilePath,
@@ -664,19 +645,9 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
     getDelegatedEnabled: () => delegatedEnabled,
     applyModeChange: (settings) => {
       const nextMode = settings.mode
-      const nextOllamaEndpoint = settings.ollamaEndpoint ?? 'http://localhost:11434'
-      const previousMode = currentAiMode
-      const previousOllamaEndpoint = ollamaEndpoint
       currentAiMode = nextMode
-      ollamaEndpoint = nextOllamaEndpoint
       remoteProvider = settings.remoteProvider
       remoteProviderKind = settings.remoteProviderKind
-      aiAgentRuntime.setLocalLanguageModel(
-        createOllamaSdkModel({
-          baseUrl: nextOllamaEndpoint,
-          model: 'mistral-nemo'
-        })
-      )
       if (nextMode === 'remote' && settings.remoteProvider) {
         void configureRemoteLanguageModel().catch((error) => {
           console.error('[Container] Failed to configure remote language model.', error)
@@ -704,14 +675,6 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
           )
         })
       }
-      void syncOllamaProcess(
-        previousMode,
-        previousOllamaEndpoint,
-        nextMode,
-        nextOllamaEndpoint
-      ).catch((error) => {
-        console.error('[Container] Failed to synchronize Ollama process on mode change.', error)
-      })
       void instructionsGenerator.generateForMode(undefined, currentAiMode).catch((error) => {
         console.error('[Container] Failed to generate instructions file on mode change.', error)
       })
@@ -726,9 +689,11 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
     entityService,
     cabinetBillingService,
     invoiceService,
+    ajOrchestrationService,
     templateService,
     generateService,
     dossierTransferService,
+    legalService,
     fileWatcherService,
     indexingQueueService,
     ordicabDataWatcher,
@@ -738,6 +703,22 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
     aiService,
     aiLifecycle,
     appState,
+    reloadEmbeddingsAndReindex: async () => {
+      // Reload the worker so it picks up the freshly-downloaded model from the
+      // (now-populated) models path, then re-run catch-up. The indexing gate
+      // re-embeds any document whose embeddings don't match the active
+      // model/dim, so previously text-only documents get bge-m3 vectors.
+      await embeddingWorkerClient?.rebind()
+      try {
+        const registered = await dossierService.listRegisteredDossiers()
+        await indexingQueueService.runStartupCatchUp(registered.map((d) => d.id))
+      } catch (error) {
+        console.warn(
+          '[Container] reindex after embedding-model download failed:',
+          error instanceof Error ? error.message : error
+        )
+      }
+    },
     dispose: async () => {
       // Drain all in-process ONNX operations before tearing down the
       // environment. @huggingface/transformers runs an internal warmup
@@ -753,7 +734,6 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
         delegatedIntentProcessor.dispose()
       ])
       aiAgentRuntime.dispose()
-      ollamaProcessManager?.shutdown()
     }
   }
 }
@@ -806,6 +786,8 @@ export interface RegisterAllHandlersOptions {
   stateFilePath: string
   /** Resolves the active renderer WebContents for AI streaming events. */
   getWebContents: () => WebContentsLike | null | undefined
+  /** Brings the main window to the foreground (used on notification click). */
+  focusMainWindow?: () => void
 }
 
 export function registerAllHandlers(opts: RegisterAllHandlersOptions): void {
@@ -945,6 +927,43 @@ export function registerAllHandlers(opts: RegisterAllHandlersOptions): void {
     }
   )
 
+  // Surfaces a native OS notification (deadline reminders). On click we focus the
+  // main window and echo the dossierId back so the renderer can navigate to it.
+  ipcMain.handle(
+    IPC_CHANNELS.app.notify,
+    async (_event, input: unknown): Promise<IpcResult<null>> => {
+      const value = (input ?? {}) as { title?: unknown; body?: unknown; dossierId?: unknown }
+      const title = typeof value.title === 'string' ? value.title : ''
+      const body = typeof value.body === 'string' ? value.body : ''
+      if (title.length === 0) {
+        return {
+          success: false,
+          error: 'Notification title is required.',
+          code: IpcErrorCode.INVALID_INPUT
+        }
+      }
+      const dossierId = typeof value.dossierId === 'string' ? value.dossierId : undefined
+
+      const { Notification } = await import('electron')
+      if (!Notification.isSupported()) {
+        // No native notification centre on this platform — treat as a no-op
+        // success so the renderer's dedupe logic still marks the date notified.
+        return { success: true, data: null }
+      }
+
+      const notification = new Notification({ title, body, silent: false })
+      notification.on('click', () => {
+        opts.focusMainWindow?.()
+        const webContents = opts.getWebContents()
+        if (webContents && !(webContents as { isDestroyed?: () => boolean }).isDestroyed?.()) {
+          webContents.send(IPC_CHANNELS.app.notificationClicked, { dossierId })
+        }
+      })
+      notification.show()
+      return { success: true, data: null }
+    }
+  )
+
   ipcMain.handle(
     IPC_CHANNELS.app.eulaStatus,
     async (
@@ -1061,7 +1080,11 @@ export function registerAllHandlers(opts: RegisterAllHandlersOptions): void {
     }
   )
 
-  registerDossierHandlers({ ipcMain, dossierService: container.dossierService })
+  registerDossierHandlers({
+    ipcMain,
+    dossierService: container.dossierService,
+    ajOrchestrationService: container.ajOrchestrationService
+  })
 
   registerDossierTransferHandlers({
     ipcMain,
@@ -1102,7 +1125,8 @@ export function registerAllHandlers(opts: RegisterAllHandlersOptions): void {
     generateService: container.generateService,
     dossierRegistryService: container.dossierService,
     invoiceService: container.invoiceService,
-    contactService: container.contactService
+    contactService: container.contactService,
+    entityService: container.entityService
   })
 
   registerInstructionsHandlers({
@@ -1114,6 +1138,11 @@ export function registerAllHandlers(opts: RegisterAllHandlersOptions): void {
   registerIndexingHandlers({
     ipcMain,
     indexingQueueService: container.indexingQueueService
+  })
+
+  registerLegalHandlers({
+    ipcMain,
+    legalService: container.legalService
   })
 
   registerAiHandlers({

@@ -605,7 +605,7 @@ export function ContactForm({
           </div>
 
           <label
-            className="flex min-h-[10rem] grow flex-col gap-2 text-sm text-[#1a1a1a]"
+            className="flex min-h-40 grow flex-col gap-2 text-sm text-[#1a1a1a]"
             htmlFor="contact-information"
           >
             <span>{t('contacts.form.information')}</span>

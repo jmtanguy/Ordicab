@@ -83,7 +83,9 @@ function installApiStub(): void {
         success: true as const,
         data: { name: 'Ordicab', version: '1.0.0' }
       })),
-      setLocale: vi.fn(async () => ({ success: true as const, data: null }))
+      setLocale: vi.fn(async () => ({ success: true as const, data: null })),
+      notify: vi.fn(async () => ({ success: true as const, data: null })),
+      onNotificationClicked: vi.fn(() => vi.fn())
     },
     domain: {
       status: vi.fn(async () => ({
@@ -96,6 +98,7 @@ function installApiStub(): void {
       }))
     },
     dossier: {
+      listEligible: vi.fn(async () => ({ success: true as const, data: [] })),
       list: vi.fn(async () => ({ success: true as const, data: [] })),
       get: vi.fn(async () => ({
         success: true as const,
@@ -172,7 +175,9 @@ function buildOrdicabApiWithDataChanged(
         success: true as const,
         data: { name: 'Ordicab', version: '1.0.0' }
       })),
-      setLocale: vi.fn(async () => ({ success: true as const, data: null }))
+      setLocale: vi.fn(async () => ({ success: true as const, data: null })),
+      notify: vi.fn(async () => ({ success: true as const, data: null })),
+      onNotificationClicked: vi.fn(() => vi.fn())
     },
     domain: {
       status: vi.fn(async () => ({
@@ -185,6 +190,7 @@ function buildOrdicabApiWithDataChanged(
       }))
     },
     dossier: {
+      listEligible: vi.fn(async () => ({ success: true as const, data: [] })),
       list: vi.fn(async () => ({ success: true as const, data: [] })),
       get: vi.fn(async () => ({ success: true as const, data: null })),
       open: vi.fn(async () => ({ success: true as const, data: null }))

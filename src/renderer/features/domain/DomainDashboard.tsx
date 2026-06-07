@@ -38,6 +38,7 @@ import { HomeChronologyPanel } from './HomeChronologyPanel'
 import { SettingsPanel } from './SettingsPanel'
 import { CabinetPanel } from './CabinetPanel'
 import { InvoicesDashboard } from '@renderer/features/invoices/InvoicesDashboard'
+import { LegalSearchPanel } from '@renderer/features/legal-search/LegalSearchPanel'
 
 interface DomainDashboardProps {
   activeDestination: SidebarDestination
@@ -221,6 +222,10 @@ export function DomainDashboard({
 
   if (activeDestination === 'factures') {
     return <InvoicesDashboard onOpenDossier={onOpenDossier} />
+  }
+
+  if (activeDestination === 'legal') {
+    return <LegalSearchPanel key="legal-global" />
   }
 
   // 'dossiers' destination, no dossier opened: show chronology.

@@ -575,7 +575,7 @@ describe('InstructionsGenerator', () => {
       })
     }
 
-    it('writes to CLAUDE.md for claude-code, AGENTS.md for codex, and .github/copilot-instructions.md for copilot', async () => {
+    it('writes to CLAUDE.md for claude-code', async () => {
       const { domainPath, dossierPath } = await createFixture()
       const generator = createGeneratorForMode(domainPath, dossierPath)
 
@@ -584,34 +584,13 @@ describe('InstructionsGenerator', () => {
       expect(claudeContent).toContain('# Ordicab Domain Context')
       expect(claudeContent).toContain('## Delegated Instructions')
       expect(claudeContent).toContain('### Intent Workflow')
-
-      const { domainPath: domainPath2, dossierPath: dossierPath2 } = await createFixture()
-      const generator2 = createGeneratorForMode(domainPath2, dossierPath2)
-      await generator2.generateForMode(domainPath2, 'codex')
-      const codexContent = await readFile(join(domainPath2, 'AGENTS.md'), 'utf8')
-      expect(codexContent).toContain('# Ordicab Domain Context')
-      expect(codexContent).toContain('## Delegated Instructions')
-      expect(codexContent).toContain('### Intent Workflow')
-      await expect(readFile(join(domainPath2, 'CLAUDE.md'), 'utf8')).rejects.toThrow()
-
-      const { domainPath: domainPath3, dossierPath: dossierPath3 } = await createFixture()
-      const generator3 = createGeneratorForMode(domainPath3, dossierPath3)
-      await generator3.generateForMode(domainPath3, 'copilot')
-      const copilotContent = await readFile(
-        join(domainPath3, '.github', 'copilot-instructions.md'),
-        'utf8'
-      )
-      expect(copilotContent).toContain('# Ordicab Domain Context')
-      expect(copilotContent).toContain('## Delegated Instructions')
-      expect(copilotContent).toContain('### Intent Workflow')
-      await expect(readFile(join(domainPath3, 'CLAUDE.md'), 'utf8')).rejects.toThrow()
     })
 
-    it('is a no-op for local and none modes', async () => {
+    it('is a no-op for the none mode', async () => {
       const { domainPath, dossierPath } = await createFixture()
       const writeClaudeMd = vi.fn(async () => undefined)
 
-      for (const mode of ['local', 'none'] as const) {
+      for (const mode of ['none'] as const) {
         const gen = createInstructionsGenerator({
           domainService: {
             getStatus: vi.fn(async () => ({

@@ -13,6 +13,7 @@ import {
 
 import { Button, Card, DialogShell, Field, Input, Select } from '@renderer/components/ui'
 import { useAiStore } from '@renderer/stores/aiStore'
+import { ModelManagerCard } from './ModelManagerCard'
 
 function AiRow({
   label,
@@ -70,6 +71,14 @@ function ConnectionStatusBadge(): React.JSX.Element | null {
 
     const trimmed = raw.trim()
     if (!trimmed) return null
+
+    const localizedKnownError: Record<string, string> = {
+      'API key is required to verify the remote provider.':
+        'ai_settings.connection_error_api_key_required',
+      'Remote provider URL is required.': 'ai_settings.connection_error_provider_url_required'
+    }
+    const knownKey = localizedKnownError[trimmed]
+    if (knownKey) return t(knownKey)
 
     try {
       const parsed = JSON.parse(trimmed) as {
@@ -146,7 +155,6 @@ export function AiDialog({
   const [drafts, setDrafts] = useState<{
     apiEnabled: boolean
     claudeCoworkEnabled: boolean
-    ollamaEndpoint?: string
     remoteProviderKind?: RemoteProviderKind
     remoteProjectRef?: string
     remoteProvider?: string
@@ -161,7 +169,6 @@ export function AiDialog({
       setDrafts({
         apiEnabled: mode === 'remote',
         claudeCoworkEnabled: settings?.claudeCoworkEnabled ?? mode === 'claude-code',
-        ollamaEndpoint: settings?.ollamaEndpoint ?? 'http://localhost:11434',
         remoteProviderKind:
           settings?.remoteProviderKind ?? inferRemoteProviderKind(settings?.remoteProvider),
         remoteProjectRef:
@@ -252,7 +259,7 @@ export function AiDialog({
     <DialogShell
       aria-label={t('ai_settings.section_title')}
       size="lg"
-      panelClassName="max-w-[52rem]"
+      panelClassName="max-w-[60rem]"
     >
       <div className="mb-4 flex shrink-0 items-center justify-between">
         <h2 className="text-lg font-semibold text-[#1a1a1a]">{t('ai_settings.section_title')}</h2>
@@ -541,27 +548,12 @@ export function AiDialog({
 
 export function AiSettings(): React.JSX.Element {
   const { t } = useTranslation()
-  const {
-    settings,
-    loading,
-    error,
-    loadSettings,
-    checkConnection,
-    connectionStatus,
-    cloudAvailability
-  } = useAiStore()
+  const { settings, loading, error, loadSettings, cloudAvailability } = useAiStore()
   const [dialogOpen, setDialogOpen] = useState(false)
 
   useEffect(() => {
     void loadSettings()
   }, [loadSettings])
-
-  // Auto-check connection when local mode is active
-  useEffect(() => {
-    if (settings?.mode === 'local' && connectionStatus === 'idle') {
-      void checkConnection()
-    }
-  }, [settings?.mode, connectionStatus, checkConnection])
 
   const currentMode = settings?.mode ?? null
   const isApiEnabled = currentMode === 'remote'
@@ -573,6 +565,7 @@ export function AiSettings(): React.JSX.Element {
     activeServiceLabels.length > 0 ? activeServiceLabels.join(' · ') : t('ai_settings.mode_none')
 
   return (
+    <div className="space-y-5">
     <Card className="space-y-5">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-2">
@@ -623,5 +616,7 @@ export function AiSettings(): React.JSX.Element {
 
       <AiDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
     </Card>
+    <ModelManagerCard />
+    </div>
   )
 }

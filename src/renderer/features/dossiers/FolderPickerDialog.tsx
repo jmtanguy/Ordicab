@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import type { DossierEligibleFolder } from '@shared/types'
+import { IpcErrorCode } from '@shared/types'
 
 import { Button, DialogShell, Input } from '@renderer/components/ui'
 import { cn } from '@renderer/lib/utils'
@@ -12,6 +13,10 @@ interface FolderPickerDialogProps {
   eligibleFolders: DossierEligibleFolder[]
   onLoadEligibleFolders: () => Promise<void>
   onRegister: (id: string) => Promise<boolean>
+  onCreate: (name: string) => Promise<boolean>
+  createError: string | null
+  createErrorCode: IpcErrorCode | null
+  onClearError: () => void
   onDismiss: () => void
 }
 
@@ -31,11 +36,23 @@ function FolderPickerDialogBody({
   eligibleFolders,
   onLoadEligibleFolders,
   onRegister,
+  onCreate,
+  createError,
+  createErrorCode,
+  onClearError,
   onDismiss
 }: FolderPickerDialogProps): React.JSX.Element {
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [isCreating, setIsCreating] = useState(false)
+  const [newName, setNewName] = useState('')
+
+  const createErrorMessage = createError
+    ? createErrorCode === IpcErrorCode.INVALID_INPUT
+      ? t('dossiers.picker_create_error_invalid')
+      : createError
+    : null
 
   useEffect(() => {
     void onLoadEligibleFolders()
@@ -76,12 +93,26 @@ function FolderPickerDialogBody({
 
       <div className="grid min-h-0 flex-1 gap-4 py-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(280px,0.85fr)]">
         <div className="flex min-h-0 flex-col space-y-3">
-          <label
-            htmlFor="dossier-picker-search"
-            className="text-xs uppercase tracking-[0.2em] text-aurora-soft"
-          >
-            {t('dossiers.picker_search_label')}
-          </label>
+          <div className="flex items-center justify-between gap-2">
+            <label
+              htmlFor="dossier-picker-search"
+              className="text-xs uppercase tracking-[0.2em] text-aurora-soft"
+            >
+              {t('dossiers.picker_search_label')}
+            </label>
+            {!isCreating ? (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setNewName('')
+                  onClearError()
+                  setIsCreating(true)
+                }}
+              >
+                {t('dossiers.picker_create_open_action')}
+              </Button>
+            ) : null}
+          </div>
           <Input
             id="dossier-picker-search"
             type="search"
@@ -89,6 +120,57 @@ function FolderPickerDialogBody({
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t('dossiers.picker_search_placeholder')}
           />
+
+          {isCreating ? (
+            <div className="space-y-3 rounded-2xl border border-[#e5e3da] bg-white p-4">
+              <label
+                htmlFor="dossier-picker-new-name"
+                className="text-xs uppercase tracking-[0.2em] text-aurora-soft"
+              >
+                {t('dossiers.picker_create_name_label')}
+              </label>
+              <Input
+                id="dossier-picker-new-name"
+                value={newName}
+                autoFocus
+                onChange={(event) => {
+                  if (createError) onClearError()
+                  setNewName(event.target.value)
+                }}
+                placeholder={t('dossiers.picker_create_name_placeholder')}
+              />
+              {createErrorMessage ? (
+                <p
+                  role="alert"
+                  className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+                >
+                  {createErrorMessage}
+                </p>
+              ) : null}
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    onClearError()
+                    setIsCreating(false)
+                  }}
+                >
+                  {t('dossiers.picker_create_cancel_action')}
+                </Button>
+                <Button
+                  disabled={isLoading || newName.trim().length === 0}
+                  onClick={async () => {
+                    const trimmed = newName.trim()
+                    if (!trimmed) return
+                    const didCreate = await onCreate(trimmed)
+                    if (didCreate) onDismiss()
+                  }}
+                >
+                  {t('dossiers.picker_create_confirm_action')}
+                </Button>
+              </div>
+            </div>
+          ) : null}
 
           {isLoading && visibleEligibleFolders.length === 0 ? (
             <p className="rounded-2xl border border-[#e5e3da] bg-white p-4 text-sm text-[#1a1a1a]">

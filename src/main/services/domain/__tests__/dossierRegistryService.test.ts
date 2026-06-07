@@ -161,6 +161,96 @@ describe('dossier registry service', () => {
     })
   })
 
+  it('creates a new folder on disk and registers it', async () => {
+    const { domainPath, stateFilePath } = await createConfiguredDomain()
+
+    const registered: Array<{ dossierId: string; dossierPath: string }> = []
+    const service = createDossierRegistryService({
+      stateFilePath,
+      now: () => new Date('2026-03-13T10:00:00.000Z'),
+      onDossierRegistered: (dossierId, dossierPath) => {
+        registered.push({ dossierId, dossierPath })
+      }
+    })
+
+    await expect(service.createDossier({ name: 'Client Gamma' })).resolves.toMatchObject({
+      id: 'Client Gamma',
+      name: 'Client Gamma',
+      status: 'active',
+      type: '',
+      updatedAt: '2026-03-13T10:00:00.000Z'
+    })
+
+    expect(await pathExists(join(domainPath, 'Client Gamma'))).toBe(true)
+    expect(await pathExists(join(domainPath, 'Client Gamma', '.ordicab', 'dossier.json'))).toBe(
+      true
+    )
+    expect(registered).toEqual([
+      { dossierId: 'Client Gamma', dossierPath: join(domainPath, 'Client Gamma') }
+    ])
+
+    await expect(service.listRegisteredDossiers()).resolves.toEqual([
+      expect.objectContaining({ id: 'Client Gamma', name: 'Client Gamma' })
+    ])
+  })
+
+  it('sanitizes illegal filesystem characters into the folder name but keeps the original display name', async () => {
+    const { domainPath, stateFilePath } = await createConfiguredDomain()
+
+    const service = createDossierRegistryService({
+      stateFilePath,
+      now: () => new Date('2026-03-13T10:00:00.000Z')
+    })
+
+    const summary = await service.createDossier({ name: 'Dupont c/ Martin' })
+
+    expect(summary.id).toBe('Dupont c- Martin')
+    expect(summary.name).toBe('Dupont c/ Martin')
+    expect(await pathExists(join(domainPath, 'Dupont c- Martin'))).toBe(true)
+
+    const metadata = JSON.parse(
+      await readFile(join(domainPath, 'Dupont c- Martin', '.ordicab', 'dossier.json'), 'utf8')
+    ) as { name: string }
+    expect(metadata.name).toBe('Dupont c/ Martin')
+  })
+
+  it('rejects creation when a folder with the same name already exists', async () => {
+    const { domainPath, stateFilePath } = await createConfiguredDomain()
+    await mkdir(join(domainPath, 'Client Gamma'))
+
+    const service = createDossierRegistryService({ stateFilePath })
+
+    await expect(service.createDossier({ name: 'Client Gamma' })).rejects.toMatchObject({
+      code: IpcErrorCode.INVALID_INPUT
+    })
+  })
+
+  it('rejects creation for names that are empty or invalid even after sanitization', async () => {
+    const { stateFilePath } = await createConfiguredDomain()
+    const service = createDossierRegistryService({ stateFilePath })
+
+    await expect(service.createDossier({ name: '   ' })).rejects.toBeInstanceOf(
+      DossierRegistryError
+    )
+    // Sanitization strips the illegal characters; a name made only of them becomes empty.
+    await expect(service.createDossier({ name: ':*?' })).rejects.toBeInstanceOf(
+      DossierRegistryError
+    )
+    await expect(service.createDossier({ name: '.hidden' })).rejects.toBeInstanceOf(
+      DossierRegistryError
+    )
+  })
+
+  it('rejects creation when no active domain is configured', async () => {
+    const root = await createTempDir()
+    const stateFilePath = join(root, 'app-state.json')
+    const service = createDossierRegistryService({ stateFilePath })
+
+    await expect(service.createDossier({ name: 'Client Gamma' })).rejects.toMatchObject({
+      code: IpcErrorCode.NOT_FOUND
+    })
+  })
+
   it('loads dossier detail and persists status or type updates atomically', async () => {
     const { domainPath, stateFilePath } = await createConfiguredDomain()
     await mkdir(join(domainPath, 'Client Alpha'))

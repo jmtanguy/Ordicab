@@ -145,6 +145,78 @@ const TEMPLATE_ROUTINE_CATALOG_ALL: TemplateRoutineEntry[] = [
     example: 'Tribunal judiciaire de Paris'
   },
   {
+    tag: '{{dossier.aideJuridictionnelle.statut}}',
+    tagFr: '{{dossier.aideJuridictionnelle.statut}}',
+    group: 'dossier',
+    description: 'Legal aid status (none/requested/granted/rejected)',
+    descriptionFr: "Statut de l'aide juridictionnelle (none/requested/granted/rejected)",
+    example: 'granted'
+  },
+  {
+    tag: '{{dossier.aideJuridictionnelle.type}}',
+    tagFr: '{{dossier.aideJuridictionnelle.type}}',
+    group: 'dossier',
+    description: 'Legal aid type (total/partial)',
+    descriptionFr: "Type d'aide juridictionnelle (totale/partielle)",
+    example: 'partial'
+  },
+  {
+    tag: '{{dossier.aideJuridictionnelle.taux}}',
+    tagFr: '{{dossier.aideJuridictionnelle.taux}}',
+    group: 'dossier',
+    description: 'Partial legal aid rate',
+    descriptionFr: "Taux de l'aide juridictionnelle partielle",
+    example: '55 %'
+  },
+  {
+    tag: '{{dossier.aideJuridictionnelle.numeroDecision}}',
+    tagFr: '{{dossier.aideJuridictionnelle.numeroDecision}}',
+    group: 'dossier',
+    description: 'BAJ decision number',
+    descriptionFr: 'Numéro de la décision du BAJ',
+    example: '2026/01234'
+  },
+  {
+    tag: '{{dossier.aideJuridictionnelle.dateDecision}}',
+    tagFr: '{{dossier.aideJuridictionnelle.dateDecision}}',
+    group: 'dossier',
+    description: 'BAJ decision date',
+    descriptionFr: 'Date de la décision du BAJ',
+    example: '12/03/2026'
+  },
+  {
+    tag: '{{dossier.aideJuridictionnelle.baj}}',
+    tagFr: '{{dossier.aideJuridictionnelle.baj}}',
+    group: 'dossier',
+    description: 'BAJ / court of attachment',
+    descriptionFr: 'BAJ / juridiction de rattachement',
+    example: 'TJ de Paris'
+  },
+  {
+    tag: '{{dossier.aideJuridictionnelle.numeroAj}}',
+    tagFr: '{{dossier.aideJuridictionnelle.numeroAj}}',
+    group: 'dossier',
+    description: 'Legal aid number / CARPA reference',
+    descriptionFr: "Numéro d'AJ / référence CARPA",
+    example: 'AJ-2026-0042'
+  },
+  {
+    tag: '{{dossier.feeAgreement.retributionEtat}}',
+    tagFr: '{{dossier.feeAgreement.retributionEtat}}',
+    group: 'feeAgreement',
+    description: 'State retribution amount (legal aid), excl. VAT',
+    descriptionFr: "Montant de la rétribution versée par l'État (AJ), HT",
+    example: '1 080 €'
+  },
+  {
+    tag: '{{dossier.feeAgreement.complementHonoraires}}',
+    tagFr: '{{dossier.feeAgreement.complementHonoraires}}',
+    group: 'feeAgreement',
+    description: 'Negotiated fee complement (partial legal aid), excl. VAT',
+    descriptionFr: "Complément d'honoraires négocié (AJ partielle), HT",
+    example: '500 €'
+  },
+  {
     tag: '{{contact.displayName}}',
     tagFr: '{{contact.nomAffiche}}',
     group: 'contact',
@@ -600,6 +672,15 @@ const TEMPLATE_ROUTINE_CATALOG_ALL: TemplateRoutineEntry[] = [
     descriptionFr: 'Numéro SIREN du cabinet (9 chiffres)',
     subGroup: 'legal',
     example: '123 456 789'
+  },
+  {
+    tag: '{{entity.siret}}',
+    tagFr: '{{cabinet.siret}}',
+    group: 'entity',
+    description: 'Firm SIRET number (14 digits)',
+    descriptionFr: 'Numéro SIRET du cabinet (14 chiffres)',
+    subGroup: 'legal',
+    example: '123 456 789 00012'
   },
   {
     tag: '{{entity.legalForm}}',

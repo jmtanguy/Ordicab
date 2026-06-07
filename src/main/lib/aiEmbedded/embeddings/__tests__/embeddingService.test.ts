@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { __resetModelRegistryForTests } from '../../modelRegistry'
+import { __resetModelRegistryForTests, awaitInferenceDrain } from '../../modelRegistry'
 import {
   cosineSimilarity,
   decodeVectorBase64,
@@ -50,15 +50,16 @@ describe('embeddingService', () => {
     ])
   })
 
-  it('applies the default E5 passage prefix to every input', async () => {
+  it('applies no input prefix by default (bge-m3 convention)', async () => {
     const fakePipe = vi.fn(async () => fakeTensor([new Float32Array([1, 0])]))
     pipelineSpy.mockResolvedValue(fakePipe)
 
     await embed('document body')
 
-    expect(fakePipe).toHaveBeenCalledWith(['passage: document body'], {
+    expect(fakePipe).toHaveBeenCalledWith(['document body'], {
       pooling: 'mean',
-      normalize: true
+      normalize: true,
+      truncation: true
     })
   })
 
@@ -83,26 +84,42 @@ describe('embeddingService', () => {
     expect(Array.from(result![1]!)).toEqual([0, 1, 0])
   })
 
-  it('serializes concurrent inference calls through a single pipeline run lock', async () => {
+  it('runs inference concurrently and awaitInferenceDrain waits for all in-flight calls', async () => {
+    // Concurrency is intentionally allowed (safe once inputs are token-bounded);
+    // the only guarantee is that awaitInferenceDrain() does not resolve until
+    // every in-flight inference has settled — so dispose() never tears down ONNX
+    // mid-run.
     let inFlight = 0
     let maxInFlight = 0
+    let settled = 0
     const fakePipe = vi.fn(async (inputs: string[]) => {
       inFlight += 1
       maxInFlight = Math.max(maxInFlight, inFlight)
       await new Promise((resolve) => setTimeout(resolve, 10))
       inFlight -= 1
+      settled += 1
       return fakeTensor(inputs.map(() => new Float32Array([1, 0])))
     })
     pipelineSpy.mockResolvedValue(fakePipe)
 
-    const [first, second] = await Promise.all([
+    const inflight = Promise.all([
       embedBatch(['alpha'], {}, { inputPrefix: '' }),
       embedBatch(['beta'], {}, { inputPrefix: '' })
     ])
 
+    // Let the pipeline load and both inferences enter their in-flight window
+    // (mirrors dispose() running after features have started work).
+    await new Promise((resolve) => setTimeout(resolve, 1))
+    expect(settled).toBe(0) // still running
+    await awaitInferenceDrain()
+    // Drain must have waited for both inferences to finish.
+    expect(settled).toBe(2)
+
+    const [first, second] = await inflight
     expect(first).toHaveLength(1)
     expect(second).toHaveLength(1)
-    expect(maxInFlight).toBe(1)
+    // The two calls really did overlap — no serialization.
+    expect(maxInFlight).toBe(2)
   })
 
   it('embedBatch([]) short-circuits without loading the pipeline', async () => {

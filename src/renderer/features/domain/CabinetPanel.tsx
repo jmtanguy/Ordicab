@@ -35,6 +35,7 @@ import {
 } from '@renderer/components/ui'
 
 import { EntityDialog } from './EntityPanel'
+import { serviceLibraryEntryToUpsert, type ServiceLibraryImportEntry } from './serviceLibrary'
 import {
   DeleteConfirmTray,
   IconButton,
@@ -214,17 +215,12 @@ function formatServicePricing(service: CabinetServicePreset): string[] {
   return parts
 }
 
-interface ServiceLibraryImportEntry {
-  item: ServiceLibraryItem
-  group: string
-}
-
 interface ServiceLibraryDialogProps {
   onDismiss: () => void
   onImport: (entries: ServiceLibraryImportEntry[]) => Promise<void>
 }
 
-function ServiceLibraryDialog({
+export function ServiceLibraryDialog({
   onDismiss,
   onImport
 }: ServiceLibraryDialogProps): React.JSX.Element {
@@ -492,22 +488,8 @@ export function CabinetPanel(): React.JSX.Element {
   const deleteService = useCabinetBillingStore((state) => state.deleteService)
 
   const handleImportFromLibrary = async (entries: ServiceLibraryImportEntry[]): Promise<void> => {
-    for (const { item, group } of entries) {
-      await upsertService({
-        name: item.name,
-        description: item.description,
-        group: group || DEFAULT_CABINET_SERVICE_GROUP,
-        usage: item.usage,
-        billingType: item.billingType,
-        flatFeeHtCents: item.flatFeeHtCents,
-        hourlyRateHtCents: item.hourlyRateHtCents,
-        estimatedHours: item.estimatedHours,
-        retainerHtCents: item.retainerHtCents,
-        successFeePercentBasisPoints: item.successFeePercentBasisPoints,
-        vatRateBasisPoints: item.vatRateBasisPoints,
-        paymentTerms: item.paymentTerms,
-        expenseTerms: item.expenseTerms
-      })
+    for (const entry of entries) {
+      await upsertService(serviceLibraryEntryToUpsert(entry))
     }
     showToast(
       entries.length === 1
@@ -601,6 +583,7 @@ export function CabinetPanel(): React.JSX.Element {
               <DetailField label={t('entity.form.email')} value={entityProfile.email} />
               <DetailField label={t('entity.form.vatNumber')} value={entityProfile.vatNumber} />
               <DetailField label={t('entity.form.siren')} value={entityProfile.siren} />
+              <DetailField label={t('entity.form.siret')} value={entityProfile.siret} />
               <DetailField label={t('entity.form.legalForm')} value={entityProfile.legalForm} />
               <DetailField
                 label={t('entity.form.shareCapital')}

@@ -44,8 +44,8 @@ export function UpdateBanner(): React.JSX.Element | null {
     status.kind === 'downloading' && progress ? Math.min(100, Math.max(0, progress.percent)) : 0
 
   return (
-    <div className="fixed inset-x-0 top-0 z-50 flex justify-center px-4 pt-4">
-      <div className="pointer-events-auto w-full max-w-xl rounded-xl border border-[#e5e3da] bg-white p-4 shadow-[0_24px_60px_rgba(0,0,0,0.12)] backdrop-blur">
+    <div className="fixed inset-0 z-60 flex items-center justify-center bg-[rgba(15,23,42,0.32)] px-4 backdrop-blur-sm">
+      <div className="pointer-events-auto w-full max-w-xl rounded-xl border border-[#e5e3da] bg-white p-4 shadow-[0_24px_60px_rgba(0,0,0,0.18)]">
         {status.kind === 'available' ? (
           <div className="flex flex-col gap-3">
             <div>

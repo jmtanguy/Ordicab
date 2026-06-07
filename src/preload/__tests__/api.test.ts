@@ -120,6 +120,19 @@ describe('createOrdicabApi', () => {
     })
     await api.claudeMd.regenerate({ dossierId: 'dos-1' })
     await api.claudeMd.status()
+    await api.legalSearch.getSettings()
+    await api.legalSearch.saveSettings({
+      clientId: 'piste-client',
+      clientSecret: 'piste-secret'
+    })
+    await api.legalSearch.deleteCredentials()
+    await api.legalSearch.connectionStatus({})
+    await api.legalSearch.searchLegifrance({ recherche: 'article 1240 code civil' })
+    await api.legalSearch.consultLegifrance({ id: 'LEGIARTI000006419280' })
+    await api.legalSearch.searchJudilibre({ recherche: 'responsabilité' })
+    await api.legalSearch.consultJudilibre({ decisionId: 'decision-1' })
+    await api.legalSearch.taxonomyJudilibre({ taxonomyId: 'jurisdiction' })
+    await api.legalSearch.verifyReferences({ text: 'Article 1240 du code civil' })
 
     expect(invokeSpy.mock.calls).toEqual([
       [IPC_CHANNELS.app.version],
@@ -222,7 +235,23 @@ describe('createOrdicabApi', () => {
         }
       ],
       [IPC_CHANNELS.claudeMd.regenerate, { dossierId: 'dos-1' }],
-      [IPC_CHANNELS.claudeMd.status]
+      [IPC_CHANNELS.claudeMd.status],
+      [IPC_CHANNELS.legalSearch.settingsGet],
+      [
+        IPC_CHANNELS.legalSearch.settingsSave,
+        {
+          clientId: 'piste-client',
+          clientSecret: 'piste-secret'
+        }
+      ],
+      [IPC_CHANNELS.legalSearch.credentialsDelete],
+      [IPC_CHANNELS.legalSearch.connectionStatus, {}],
+      [IPC_CHANNELS.legalSearch.searchLegifrance, { recherche: 'article 1240 code civil' }],
+      [IPC_CHANNELS.legalSearch.consultLegifrance, { id: 'LEGIARTI000006419280' }],
+      [IPC_CHANNELS.legalSearch.searchJudilibre, { recherche: 'responsabilité' }],
+      [IPC_CHANNELS.legalSearch.consultJudilibre, { decisionId: 'decision-1' }],
+      [IPC_CHANNELS.legalSearch.taxonomyJudilibre, { taxonomyId: 'jurisdiction' }],
+      [IPC_CHANNELS.legalSearch.verifyReferences, { text: 'Article 1240 du code civil' }]
     ])
   })
 

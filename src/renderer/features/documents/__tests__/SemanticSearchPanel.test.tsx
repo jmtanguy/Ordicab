@@ -24,6 +24,9 @@ describe('SemanticSearchPanel', () => {
   beforeEach(() => {
     useDocumentStore.setState(useDocumentStore.getInitialState(), true)
     delete (globalThis as MutableGlobal).ordicabAPI
+    // jsdom doesn't implement scrollIntoView; the viewer calls it to reveal the
+    // highlighted passage once extraction completes.
+    window.HTMLElement.prototype.scrollIntoView = vi.fn()
   })
 
   afterEach(() => {
@@ -70,8 +73,75 @@ describe('SemanticSearchPanel', () => {
     })
   })
 
-  it('opens the document when a hit is clicked', async () => {
+  it('loads the extracted text into the viewer when a hit is selected', async () => {
+    const extractContent = vi.fn(async () => ({
+      success: true as const,
+      data: {
+        documentId: 'a.pdf',
+        filename: 'a.pdf',
+        text: 'Full extracted text of the document.',
+        textLength: 36,
+        method: 'direct' as const,
+        status: { isExtractable: true, state: 'extracted' as const }
+      }
+    }))
+    ;(globalThis as MutableGlobal).ordicabAPI = {
+      document: { extractContent }
+    } as unknown as OrdicabAPI
+    useDocumentStore.setState((state) => {
+      state.semanticSearchStatesByDossierId['dos-1'] = {
+        status: 'ready',
+        query: 'q',
+        results: {
+          dossierId: 'dos-1',
+          query: 'q',
+          hits: [
+            {
+              documentId: 'a.pdf',
+              filename: 'a.pdf',
+              charStart: 0,
+              charEnd: 4,
+              score: 0.5,
+              snippet: 'snippet'
+            }
+          ]
+        },
+        error: null
+      }
+    })
+
+    await renderPanel()
+
+    fireEvent.click(screen.getByText('snippet'))
+
+    expect(extractContent).toHaveBeenCalledWith({ dossierId: 'dos-1', documentId: 'a.pdf' })
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === 'PRE' &&
+            element.textContent === 'Full extracted text of the document.'
+        )
+      ).toBeTruthy()
+    })
+  })
+
+  it('opens the document from the viewer when a hit is selected', async () => {
     const onOpenDocument = vi.fn()
+    const extractContent = vi.fn(async () => ({
+      success: true as const,
+      data: {
+        documentId: 'a.pdf',
+        filename: 'a.pdf',
+        text: 'text',
+        textLength: 4,
+        method: 'direct' as const,
+        status: { isExtractable: true, state: 'extracted' as const }
+      }
+    }))
+    ;(globalThis as MutableGlobal).ordicabAPI = {
+      document: { extractContent }
+    } as unknown as OrdicabAPI
     useDocumentStore.setState((state) => {
       state.semanticSearchStatesByDossierId['dos-1'] = {
         status: 'ready',
@@ -96,7 +166,8 @@ describe('SemanticSearchPanel', () => {
 
     await renderPanel(onOpenDocument)
 
-    fireEvent.click(screen.getByText('a.pdf'))
+    fireEvent.click(screen.getByText('snippet'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Open' }))
 
     expect(onOpenDocument).toHaveBeenCalledWith({ dossierId: 'dos-1', documentId: 'a.pdf' })
   })

@@ -825,6 +825,108 @@ const facturation: TemplateLibraryItem[] = [
   }
 ]
 
+// =============================================================================
+// AIDE JURIDICTIONNELLE — désignation, attestation, convention de complément
+// et factures (rétribution État + complément client).
+// =============================================================================
+
+const AJ_LEGAL_FOOTER = `<p style="font-size:0.85em;color:#5c5c5a">${t('cabinet.avocat.titre')} ${t('cabinet.nomAffiche')} — Avocat au Barreau de ${t('cabinet.barreau')}, Toque ${t('cabinet.toque')}<br/>Rétribution versée par l'État au titre de l'aide juridictionnelle (loi n° 91-647 du 10 juillet 1991).</p>`
+
+const aideJuridictionnelle: TemplateLibraryItem[] = [
+  {
+    id: 'designation-aj',
+    name: 'Désignation — Aide juridictionnelle',
+    description:
+      "Acceptation de la mission au titre de l'aide juridictionnelle suite à la décision du BAJ.",
+    tags: ['aide-juridictionnelle', 'designation'],
+    content:
+      SENDER_BLOCK +
+      RECIPIENT_CLIENT +
+      PLACE_DATE_RIGHT +
+      REFERENCE_LINE +
+      subject(`désignation au titre de l'aide juridictionnelle — ${t('dossier.nom')}`) +
+      `<p>${t('contact.formuleAppel')},</p>` +
+      body(
+        `<p>J'ai l'honneur de vous informer que j'ai été désigné(e) pour assurer la défense de vos intérêts au titre de l'aide juridictionnelle ${t('dossier.aideJuridictionnelle.type')}.</p>` +
+          `<p>Décision du bureau d'aide juridictionnelle n° ${t('dossier.aideJuridictionnelle.numeroDecision')} du ${t('dossier.aideJuridictionnelle.dateDecision')} (${t('dossier.aideJuridictionnelle.baj')}).</p>` +
+          `<p>Référence du dossier d'aide juridictionnelle : ${t('dossier.aideJuridictionnelle.numeroAj')}.</p>`
+      ) +
+      CLOSING_CLIENT +
+      SIGNATURE_SOLO
+  },
+  {
+    id: 'attestation-fin-mission-aj',
+    name: 'Attestation de fin de mission — AJ',
+    description:
+      "Attestation de mission accomplie au titre de l'aide juridictionnelle, à transmettre pour le versement de la rétribution.",
+    tags: ['aide-juridictionnelle', 'attestation'],
+    content:
+      SENDER_BLOCK +
+      PLACE_DATE_RIGHT +
+      `<h2 style="text-align:center">Attestation de fin de mission</h2>` +
+      body(
+        `<p>Je soussigné(e) ${t('cabinet.avocat.titre')} ${t('cabinet.nomAffiche')}, Avocat au Barreau de ${t('cabinet.barreau')}, atteste avoir accompli la mission qui m'a été confiée au titre de l'aide juridictionnelle ${t('dossier.aideJuridictionnelle.type')} dans le dossier ${t('dossier.nom')}.</p>` +
+          `<p>Décision du BAJ n° ${t('dossier.aideJuridictionnelle.numeroDecision')} du ${t('dossier.aideJuridictionnelle.dateDecision')}.</p>` +
+          `<p>Cette attestation est délivrée pour servir et valoir ce que de droit, notamment en vue du versement de la rétribution due par l'État.</p>`
+      ) +
+      SIGNATURE_SOLO +
+      AJ_LEGAL_FOOTER
+  },
+  {
+    id: 'conv-complement-aj',
+    name: "Convention de complément d'honoraires — AJ partielle",
+    description:
+      "Convention d'honoraires complémentaires en cas d'aide juridictionnelle partielle, avec mention légale et plafonnement.",
+    tags: ['aide-juridictionnelle', 'convention', 'complement'],
+    content:
+      CONVENTION_PARTIES +
+      CONVENTION_PREAMBULE +
+      body(
+        `${art(1, 'Objet')} La présente convention fixe le complément d'honoraires dû par le client, bénéficiaire de l'aide juridictionnelle partielle (prise en charge de ${t('dossier.aideJuridictionnelle.taux')} par l'État), en complément de la rétribution versée par l'État.</p>` +
+          `${art(2, "Rétribution de l'État")} La part prise en charge par l'État s'élève à <strong>${t('dossier.feeAgreement.retributionEtat')} HT</strong>, versée par l'intermédiaire de la CARPA.</p>` +
+          `${art(3, "Complément d'honoraires")} Le complément d'honoraires librement négocié, à la charge du client, est fixé à <strong>${t('dossier.feeAgreement.complementHonoraires')} HT</strong>, conformément à l'article 35 de la loi n° 91-647 du 10 juillet 1991.</p>` +
+          `${art(4, 'Versement')} Le complément sera versé par virement sur le compte CARPA suivant : IBAN ${t('cabinet.ibanCarpa')}.</p>` +
+          CONVENTION_COMMON_ARTICLES(5)
+      ) +
+      CONVENTION_SIGNATURE_LINE
+  },
+  {
+    id: 'fac-aj-retribution-etat',
+    name: 'Facture — Rétribution AJ (État)',
+    description:
+      "Facture de la rétribution versée par l'État au titre de l'aide juridictionnelle (paiement via CARPA).",
+    tags: ['aide-juridictionnelle', 'facture', 'etat'],
+    kind: 'invoice',
+    content:
+      INVOICE_HEADER +
+      INVOICE_CLIENT_BLOCK +
+      `<h2 style="text-align:center">${t('facture.typeDocument')} N° ${t('facture.numero')}</h2>` +
+      `<p style="text-align:center;font-size:0.9em;color:#5c5c5a">Rétribution au titre de l'aide juridictionnelle<br/>Émise le ${t('facture.dateEmission')} — Dossier : ${t('dossier.nom')}</p>` +
+      `<p>Décision BAJ n° ${t('dossier.aideJuridictionnelle.numeroDecision')} — Référence AJ : ${t('dossier.aideJuridictionnelle.numeroAj')}</p>` +
+      `<p>${t('facture.tableauPrestations')}</p>` +
+      INVOICE_TOTALS_BLOCK +
+      `<p>Règlement par l'intermédiaire de la CARPA : IBAN ${t('cabinet.ibanCarpa')}.</p>` +
+      AJ_LEGAL_FOOTER
+  },
+  {
+    id: 'fac-aj-complement',
+    name: "Facture — Complément d'honoraires (AJ partielle)",
+    description:
+      "Facture du complément d'honoraires à la charge du client en cas d'aide juridictionnelle partielle.",
+    tags: ['aide-juridictionnelle', 'facture', 'complement'],
+    kind: 'invoice',
+    content:
+      INVOICE_HEADER +
+      INVOICE_CLIENT_BLOCK +
+      `<h2 style="text-align:center">${t('facture.typeDocument')} N° ${t('facture.numero')}</h2>` +
+      `<p style="text-align:center;font-size:0.9em;color:#5c5c5a">Complément d'honoraires — aide juridictionnelle partielle (${t('dossier.aideJuridictionnelle.taux')})<br/>Émise le ${t('facture.dateEmission')} — Échéance le ${t('facture.dateEcheance')}<br/>Dossier : ${t('dossier.nom')}</p>` +
+      `<p>${t('facture.tableauPrestations')}</p>` +
+      INVOICE_TOTALS_BLOCK +
+      INVOICE_PAYMENT_BLOCK +
+      INVOICE_LEGAL_FOOTER
+  }
+]
+
 /**
  * IDs des modèles seedés automatiquement au bootstrap d'un domaine
  * (cf. templateService.seedDefaultTemplatesIfEmpty). Ces 9 modèles couvrent
@@ -840,7 +942,12 @@ export const ESSENTIAL_TEMPLATE_IDS = [
   'conv-mixte',
   'conv-lettre-mission',
   'corr-ouverture-dossier',
-  'email-rdv-confirmation'
+  'email-rdv-confirmation',
+  'designation-aj',
+  'attestation-fin-mission-aj',
+  'conv-complement-aj',
+  'fac-aj-retribution-etat',
+  'fac-aj-complement'
 ] as const
 
 export const TEMPLATE_LIBRARY_THEMES: TemplateLibraryTheme[] = [
@@ -891,6 +998,12 @@ export const TEMPLATE_LIBRARY_THEMES: TemplateLibraryTheme[] = [
     label: 'Facturation',
     description: 'Factures, avoirs et factures rectificatives',
     items: facturation
+  },
+  {
+    id: 'aide-juridictionnelle',
+    label: 'Aide juridictionnelle',
+    description: 'Désignation, attestation, convention de complément et factures AJ',
+    items: aideJuridictionnelle
   }
 ]
 

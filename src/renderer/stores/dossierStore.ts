@@ -12,6 +12,9 @@ import {
   type DossierKeyDateUpsertInput,
   type DossierKeyReferenceDeleteInput,
   type DossierKeyReferenceUpsertInput,
+  type DossierSetupLegalAidInput,
+  type DossierSetupLegalAidResult,
+  type DossierUpdateLegalAidInput,
   IpcErrorCode,
   type DossierDetail,
   type DossierEligibleFolder,
@@ -40,6 +43,8 @@ interface DossierDetailNotice {
     | 'billing-item-deleted'
     | 'key-reference-saved'
     | 'key-reference-deleted'
+    | 'legal-aid-saved'
+    | 'legal-aid-configured'
   dossierName: string
 }
 
@@ -67,6 +72,7 @@ interface DossierStoreState {
   dossiers: DossierSummary[]
   eligibleFolders: DossierEligibleFolder[]
   isLoading: boolean
+  isEligibleLoading: boolean
   isDetailLoading: boolean
   isSavingDetail: boolean
   error: string | null
@@ -89,6 +95,7 @@ interface DossierStoreActions {
   openDetail: (id: string) => Promise<void>
   loadDetail: (id: string) => Promise<void>
   register: (id: string) => Promise<boolean>
+  create: (name: string) => Promise<boolean>
   upsertKeyDate: (input: DossierKeyDateUpsertInput) => Promise<boolean>
   deleteKeyDate: (input: DossierKeyDateDeleteInput) => Promise<boolean>
   upsertFeeAgreement: (input: DossierFeeAgreementUpsertInput) => Promise<boolean>
@@ -99,12 +106,15 @@ interface DossierStoreActions {
   deleteBillingItem: (input: DossierBillingItemDeleteInput) => Promise<boolean>
   upsertKeyReference: (input: DossierKeyReferenceUpsertInput) => Promise<boolean>
   deleteKeyReference: (input: DossierKeyReferenceDeleteInput) => Promise<boolean>
+  updateLegalAid: (input: DossierUpdateLegalAidInput) => Promise<boolean>
+  setupLegalAid: (input: DossierSetupLegalAidInput) => Promise<DossierSetupLegalAidResult | null>
   unregister: (id: string) => Promise<boolean>
   setStatusFilter: (filter: DossierStatusFilter) => void
   setSortMode: (mode: DossierSortMode) => void
   setViewMode: (mode: DossierViewMode) => void
   loadChronology: () => Promise<void>
   clearNotice: () => void
+  clearError: () => void
   clearDetailNotice: () => void
   reset: () => void
 }
@@ -297,6 +307,7 @@ export const useDossierStore = create<DossierStore>()(
       dossiers: [],
       eligibleFolders: [],
       isLoading: false,
+      isEligibleLoading: false,
       isDetailLoading: false,
       isSavingDetail: false,
       error: null,
@@ -343,7 +354,7 @@ export const useDossierStore = create<DossierStore>()(
         if (!api) return
 
         set((state) => {
-          state.isLoading = true
+          state.isEligibleLoading = true
           state.error = null
           state.errorCode = null
           state.notice = null
@@ -352,7 +363,7 @@ export const useDossierStore = create<DossierStore>()(
         const result = await api.dossier.listEligible()
 
         set((state) => {
-          state.isLoading = false
+          state.isEligibleLoading = false
 
           if (!result.success) {
             state.error = result.error
@@ -435,7 +446,7 @@ export const useDossierStore = create<DossierStore>()(
         if (!api) return false
 
         set((state) => {
-          state.isLoading = true
+          state.isEligibleLoading = true
           state.error = null
           state.errorCode = null
           state.notice = null
@@ -445,7 +456,7 @@ export const useDossierStore = create<DossierStore>()(
 
         if (!result.success) {
           set((state) => {
-            state.isLoading = false
+            state.isEligibleLoading = false
             state.error = result.error
             state.errorCode = result.code
           })
@@ -454,10 +465,47 @@ export const useDossierStore = create<DossierStore>()(
         }
 
         set((state) => {
-          state.isLoading = false
+          state.isEligibleLoading = false
 
           state.dossiers = upsertDossierSummary(state.dossiers, result.data, state.sortMode)
           state.eligibleFolders = state.eligibleFolders.filter((entry) => entry.id !== id)
+          state.notice = {
+            kind: 'registered',
+            dossierName: result.data.name
+          }
+          state.error = null
+          state.errorCode = null
+        })
+
+        return true
+      },
+      create: async (name) => {
+        const api = requireApi(set)
+        if (!api) return false
+
+        set((state) => {
+          state.isEligibleLoading = true
+          state.error = null
+          state.errorCode = null
+          state.notice = null
+        })
+
+        const result = await api.dossier.create({ name })
+
+        if (!result.success) {
+          set((state) => {
+            state.isEligibleLoading = false
+            state.error = result.error
+            state.errorCode = result.code
+          })
+
+          return false
+        }
+
+        set((state) => {
+          state.isEligibleLoading = false
+
+          state.dossiers = upsertDossierSummary(state.dossiers, result.data, state.sortMode)
           state.notice = {
             kind: 'registered',
             dossierName: result.data.name
@@ -494,6 +542,46 @@ export const useDossierStore = create<DossierStore>()(
         saveDossierDetail((api) => api.dossier.upsertKeyReference(input), 'key-reference-saved'),
       deleteKeyReference: (input) =>
         saveDossierDetail((api) => api.dossier.deleteKeyReference(input), 'key-reference-deleted'),
+      updateLegalAid: (input) =>
+        saveDossierDetail((api) => api.dossier.updateLegalAid(input), 'legal-aid-saved'),
+      setupLegalAid: async (input) => {
+        const api = requireApi(set, { errorKey: 'detailError', codeKey: 'detailErrorCode' })
+        if (!api) return null
+
+        set((state) => {
+          state.isSavingDetail = true
+          state.detailError = null
+          state.detailErrorCode = null
+          state.detailNotice = null
+        })
+
+        const result = await api.dossier.setupLegalAid(input)
+
+        if (!result.success) {
+          set((state) => {
+            state.isSavingDetail = false
+            state.detailError = result.error
+            state.detailErrorCode = result.code
+          })
+          return null
+        }
+
+        // L'orchestration a créé convention/factures/documents/échéances :
+        // on recharge le détail pour refléter le nouvel état.
+        const refreshed = await api.dossier.get({ dossierId: input.dossierId })
+        set((state) => {
+          state.isSavingDetail = false
+          if (refreshed.success) {
+            applySavedDetail(state, refreshed.data, 'legal-aid-configured')
+          } else {
+            state.detailNotice = {
+              kind: 'legal-aid-configured',
+              dossierName: state.activeDossier?.name ?? ''
+            }
+          }
+        })
+        return result.data
+      },
       unregister: async (id) => {
         const api = requireApi(set)
         if (!api) return false
@@ -617,6 +705,12 @@ export const useDossierStore = create<DossierStore>()(
           state.notice = null
         })
       },
+      clearError: () => {
+        set((state) => {
+          state.error = null
+          state.errorCode = null
+        })
+      },
       clearDetailNotice: () => {
         set((state) => {
           state.detailNotice = null
@@ -627,6 +721,7 @@ export const useDossierStore = create<DossierStore>()(
           state.dossiers = []
           state.eligibleFolders = []
           state.isLoading = false
+          state.isEligibleLoading = false
           state.isDetailLoading = false
           state.isSavingDetail = false
           state.error = null

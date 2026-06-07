@@ -67,7 +67,7 @@ function ImagePreview({ preview }: { preview: ImageDocumentPreview }): React.JSX
     <div className="overflow-hidden rounded-2xl border border-[#e5e3da] bg-white p-2">
       <img
         alt={preview.filename}
-        className="max-h-[480px] w-full rounded-xl object-contain"
+        className="max-h-[min(75vh,720px)] w-full rounded-xl object-contain"
         src={imageUrl}
         onError={() => setRenderError(true)}
       />
@@ -140,7 +140,10 @@ function TiffPreview({ preview }: { preview: TiffImagePreview }): React.JSX.Elem
 
   return (
     <div className="overflow-hidden rounded-2xl border border-[#e5e3da] bg-white p-2">
-      <canvas ref={canvasRef} className="max-h-[480px] w-full rounded-xl bg-white object-contain" />
+      <canvas
+        ref={canvasRef}
+        className="max-h-[min(75vh,720px)] w-full rounded-xl bg-white object-contain"
+      />
     </div>
   )
 }

@@ -1,3 +1,5 @@
+import type { InvoiceDocumentType } from './invoice'
+
 export interface InvoiceLineTemplateInput {
   date: string
   label: string
@@ -13,7 +15,7 @@ export interface InvoiceLineTemplateInput {
 }
 
 export interface InvoiceTemplateInput {
-  documentType?: 'invoice' | 'creditNote' | 'correctiveInvoice'
+  documentType?: InvoiceDocumentType
   number: string
   issuedAt: string
   dueAt?: string

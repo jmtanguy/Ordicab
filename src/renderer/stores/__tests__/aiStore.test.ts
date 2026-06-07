@@ -7,8 +7,7 @@ import { useAiStore } from '../aiStore'
 type MutableGlobal = typeof globalThis & { ordicabAPI?: OrdicabAPI }
 
 const defaultSettings = {
-  mode: 'local' as const,
-  ollamaEndpoint: 'http://localhost:11434',
+  mode: 'none' as const,
   hasApiKey: false
 }
 
@@ -70,7 +69,7 @@ describe('aiStore', () => {
     ;(globalThis as MutableGlobal).ordicabAPI = {
       ai: { getSettings: vi.fn(), saveSettings: saveErr }
     } as unknown as OrdicabAPI
-    await useAiStore.getState().saveSettings({ mode: 'local' })
+    await useAiStore.getState().saveSettings({ mode: 'none' })
     expect(useAiStore.getState().error).toBe('Save failed')
 
     // loading false after throw
@@ -81,7 +80,7 @@ describe('aiStore', () => {
     ;(globalThis as MutableGlobal).ordicabAPI = {
       ai: { getSettings: vi.fn(), saveSettings: saveThrow }
     } as unknown as OrdicabAPI
-    await useAiStore.getState().saveSettings({ mode: 'local' })
+    await useAiStore.getState().saveSettings({ mode: 'none' })
     expect(useAiStore.getState().loading).toBe(false)
     expect(useAiStore.getState().error).toBe('network error')
 
@@ -90,42 +89,46 @@ describe('aiStore', () => {
     const saveOk2 = vi.fn(async () => ({ success: true as const, data: null }))
     const getOk2 = vi.fn(async () => ({
       success: true as const,
-      data: { ...defaultSettings, mode: 'local' as const }
+      data: { ...defaultSettings, mode: 'none' as const }
     }))
     ;(globalThis as MutableGlobal).ordicabAPI = {
       ai: { getSettings: getOk2, saveSettings: saveOk2 }
     } as unknown as OrdicabAPI
     useAiStore.setState({ remoteApiError: { type: 'auth_error', message: 'bad key' } })
-    await useAiStore.getState().saveSettings({ mode: 'local' })
+    await useAiStore.getState().saveSettings({ mode: 'none' })
     expect(useAiStore.getState().remoteApiError).toBeNull()
   })
 
   it('checkConnection sets connected or unreachable status', async () => {
     // connected
-    const connectionStatus = vi.fn(async () => ({
+    const remoteConnectionStatus = vi.fn(async () => ({
       success: true as const,
-      data: { reachable: true, models: ['llama3', 'mistral'] }
+      data: { reachable: true }
     }))
     ;(globalThis as MutableGlobal).ordicabAPI = {
-      ai: { getSettings: vi.fn(), saveSettings: vi.fn(), connectionStatus }
+      ai: { getSettings: vi.fn(), saveSettings: vi.fn(), remoteConnectionStatus }
     } as unknown as OrdicabAPI
-    await useAiStore.getState().checkConnection()
+    await useAiStore.getState().checkConnection({ mode: 'remote' })
     expect(useAiStore.getState().connectionStatus).toBe('connected')
     expect(useAiStore.getState().connectionError).toBeNull()
 
     // unreachable
     useAiStore.setState(useAiStore.getInitialState(), true)
-    const connectionStatusErr = vi.fn(async () => ({
+    const remoteConnectionStatusErr = vi.fn(async () => ({
       success: false as const,
-      error: 'Cannot reach http://localhost:11434',
-      code: 'OLLAMA_UNREACHABLE' as const
+      error: 'Cannot reach provider',
+      code: 'REMOTE_API_ERROR' as const
     }))
     ;(globalThis as MutableGlobal).ordicabAPI = {
-      ai: { getSettings: vi.fn(), saveSettings: vi.fn(), connectionStatus: connectionStatusErr }
+      ai: {
+        getSettings: vi.fn(),
+        saveSettings: vi.fn(),
+        remoteConnectionStatus: remoteConnectionStatusErr
+      }
     } as unknown as OrdicabAPI
-    await useAiStore.getState().checkConnection()
+    await useAiStore.getState().checkConnection({ mode: 'remote' })
     expect(useAiStore.getState().connectionStatus).toBe('unreachable')
-    expect(useAiStore.getState().connectionError).toBe('Cannot reach http://localhost:11434')
+    expect(useAiStore.getState().connectionError).toBe('Cannot reach provider')
   })
 
   it('setSelectedModel is a no-op when the selected model does not change', () => {
@@ -180,7 +183,7 @@ describe('aiStore', () => {
     ;(globalThis as MutableGlobal).ordicabAPI = {
       ai: { getSettings: vi.fn(), saveSettings: vi.fn(), cloudProviderStatus: vi.fn() }
     } as unknown as OrdicabAPI
-    await useAiStore.getState().checkCloudAvailability('local')
+    await useAiStore.getState().checkCloudAvailability('none')
     expect(useAiStore.getState().cloudAvailability).toBeNull()
   })
 

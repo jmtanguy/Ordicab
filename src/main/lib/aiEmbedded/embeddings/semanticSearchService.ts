@@ -31,28 +31,18 @@ import {
   type EmbeddingServiceConfig
 } from './embeddingService'
 import { readEmbeddingsFromCache, type StoredEmbeddings } from './embeddingCache'
+import {
+  buildSnippetWithContext,
+  limitHitsPerDocument,
+  MAX_HITS_PER_DOCUMENT,
+  SNIPPET_MAX_CHARS,
+  splitIntoSentences,
+  type IndexedDocument,
+  type SemanticSearchHit,
+  type Sentence
+} from './textSearchShared'
 
-export interface IndexedDocument {
-  /** Stable identifier for the document (e.g. relative path inside the dossier). */
-  documentId: string
-  /** Human-readable name (shown in the search UI). */
-  displayName?: string
-  /** Absolute path to the per-document content cache JSON. */
-  cachePath: string
-}
-
-export interface SemanticSearchHit {
-  documentId: string
-  displayName?: string
-  charStart: number
-  charEnd: number
-  score: number
-  snippet: string
-  /** Offsets within `snippet` marking the sentence that actually carried the
-   *  match. Surrounding text is context. Undefined when no refinement ran. */
-  snippetMatchStart?: number
-  snippetMatchEnd?: number
-}
+export type { IndexedDocument, SemanticSearchHit } from './textSearchShared'
 
 export interface SemanticSearchParams {
   documents: IndexedDocument[]
@@ -94,23 +84,34 @@ const DEFAULT_TOP_K = 10
 // tweaks while staying well below any plausible noise floor.
 export const SEMANTIC_SEARCH_EXACT_MATCH_SCORE = 1.25
 
-// Cap exact-match hits per document so one high-frequency term (e.g. a
-// common name) can't crowd the top-K and starve vector matches from other
-// documents in the dossier.
-const EXACT_MATCH_MAX_HITS_PER_DOCUMENT = 3
+// Embedding models are anisotropic: any two texts share a large common
+// component, so raw cosine has a high noise floor (~0.5-0.6 here) and an
+// off-topic query like "recette de cuisine" can score as high as a real one.
+// We subtract the corpus mean vector ("all-but-the-top" centering) before
+// scoring vector hits — this collapses the shared component so the genuine
+// signal (the *difference* from the average document) dominates. After
+// centering, clearly off-topic queries fall near/below zero.
+//
+// Relative keep-band: a vector hit survives when its centered score is within
+// this margin of the best centered score for the query. Keeps the strong
+// match plus its near-neighbours; drops documents far below the top.
+const RELATIVE_MARGIN = 0.1
 
-// Maximum number of hits returned per document in the final top-K.
-// Prevents a single document from occupying multiple slots when a common
-// term matches it many times — the reader can open the document to see all
-// occurrences; the search panel should prioritise breadth across documents.
-const MAX_HITS_PER_DOCUMENT = 2
+// Absolute guard: only documents MORE similar than the dossier average survive
+// (centered score > 0). A negative centered score means the document is less
+// like the query than a typical document in the dossier — pure noise.
+//
+// IMPORTANT: this does NOT separate on-topic from off-topic. Measurements
+// across dossiers showed the vector signal simply cannot make that call in a
+// small homogeneous legal corpus — an off-topic word ("football") can land as
+// close to some document as a real term. No fixed/z-score/gap threshold fixes
+// this. So semantic results are presented honestly as "approximate suggestions"
+// in the UI, and literal keyword matches (keywordSearchService) carry real
+// precision. This guard only trims the obvious negative-similarity noise.
+const RELEVANCE_GUARD = 0
 
-// Snippet refinement bounds. Chunks can be ~2000 chars — too long to read
-// at a glance. We re-embed each sentence of the chunk against the query and
-// surface the best one, then frame it with the surrounding sentences so the
-// reader sees enough context to interpret the match. Caps avoid edge cases
-// (one giant unpunctuated chunk) overflowing the panel.
-const SNIPPET_MAX_CHARS = 280
+// MAX_HITS_PER_DOCUMENT and SNIPPET_MAX_CHARS are shared with the keyword
+// search path — see ./textSearchShared.
 
 // Safety bounds for the snippet-refinement embedBatch call. The naive
 // "embed every sentence of every top-K hit in one shot" path easily hits
@@ -122,107 +123,50 @@ const REFINE_BATCH_SIZE = 32
 const REFINE_MAX_SENTENCE_CHARS = 1200
 const REFINE_MAX_SENTENCES_PER_HIT = 24
 
-// Stop words stripped from the query before keyword-presence scoring.
-// Covers French and English (tests use English text).
-const STOP_WORDS = new Set([
-  // French
-  'de',
-  'du',
-  'des',
-  'le',
-  'la',
-  'les',
-  'un',
-  'une',
-  'et',
-  'ou',
-  'au',
-  'aux',
-  'en',
-  'pour',
-  'par',
-  'sur',
-  'avec',
-  'dans',
-  'qui',
-  'que',
-  'se',
-  'ce',
-  'sa',
-  'son',
-  'ses',
-  'leur',
-  'leurs',
-  'je',
-  'tu',
-  'il',
-  'elle',
-  'nous',
-  'vous',
-  'ils',
-  'elles',
-  'est',
-  'sont',
-  'ont',
-  'été',
-  'ne',
-  'pas',
-  'mais',
-  'car',
-  'ni',
-  'dont',
-  'si',
-  'or',
-  // English
-  'the',
-  'an',
-  'and',
-  'in',
-  'of',
-  'to',
-  'is',
-  'are',
-  'was',
-  'for',
-  'on',
-  'at',
-  'this',
-  'that',
-  'it',
-  'be',
-  'by',
-  'with'
-])
+// STOP_WORDS, KEYWORD_BONUS_PER_WORD, buildContentWordRegexes, and
+// computeKeywordBonus are shared with the keyword search path — see
+// ./textSearchShared.
 
-// Score added per matched content word from the query found verbatim in the
-// candidate chunk. This provides a hybrid keyword-presence signal so that
-// documents literally containing the query terms beat documents that are
-// only semantically adjacent — critical in legal dossiers where all docs
-// cluster tightly in embedding space (scores often 0.80–0.85 across the
-// board regardless of actual relevance). The bonus is small enough that
-// vector similarity remains the dominant signal.
-const KEYWORD_BONUS_PER_WORD = 0.04
-
-function buildContentWordRegexes(query: string): RegExp[] {
-  return query
-    .toLocaleLowerCase()
-    .split(/\W+/)
-    .filter((w) => w.length >= 3 && !STOP_WORDS.has(w))
-    .map((w) => {
-      const alt = w.endsWith('s') ? w.slice(0, -1) : w + 's'
-      // Word-boundary match prevents "nom" hitting "notamment", etc.
-      return new RegExp(`\\b(${w}|${alt})\\b`)
-    })
+/** Centroid of every chunk vector across the loaded documents, or null if none. */
+function computeMeanVector(docs: LoadedDocument[]): Float32Array | null {
+  let dim = 0
+  let count = 0
+  for (const doc of docs) {
+    for (const chunk of doc.embeddings.chunks) {
+      if (dim === 0) dim = chunk.vector.length
+      count += 1
+    }
+  }
+  if (dim === 0 || count === 0) return null
+  const mean = new Float32Array(dim)
+  for (const doc of docs) {
+    for (const chunk of doc.embeddings.chunks) {
+      const v = chunk.vector
+      for (let i = 0; i < dim; i++) mean[i]! += v[i]!
+    }
+  }
+  for (let i = 0; i < dim; i++) mean[i]! /= count
+  return mean
 }
 
-function computeKeywordBonus(chunkText: string, wordRegexes: readonly RegExp[]): number {
-  if (wordRegexes.length === 0) return 0
-  const lower = chunkText.toLocaleLowerCase()
-  let bonus = 0
-  for (const re of wordRegexes) {
-    if (re.test(lower)) bonus += KEYWORD_BONUS_PER_WORD
+function subtractVector(a: Float32Array, b: Float32Array): Float32Array {
+  const out = new Float32Array(a.length)
+  for (let i = 0; i < a.length; i++) out[i] = a[i]! - b[i]!
+  return out
+}
+
+/** Cosine similarity that normalizes by magnitude (for non-unit vectors). */
+function fullCosine(a: Float32Array, b: Float32Array): number {
+  let dot = 0
+  let na = 0
+  let nb = 0
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i]! * b[i]!
+    na += a[i]! * a[i]!
+    nb += b[i]! * b[i]!
   }
-  return bonus
+  const denom = Math.sqrt(na) * Math.sqrt(nb)
+  return denom === 0 ? 0 : dot / denom
 }
 
 export async function searchDossier(params: SemanticSearchParams): Promise<SemanticSearchHit[]> {
@@ -235,10 +179,11 @@ export async function searchDossier(params: SemanticSearchParams): Promise<Seman
 
   const embedder = params.embedder ?? embedBatch
 
-  // Kick off query embedding and cache decode in parallel so we don't pay
-  // them sequentially. The query side uses the "query: " E5 prefix.
+  // Kick off query embedding and cache decode in parallel so we don't pay them
+  // sequentially. bge-m3 uses no input prefix, so query and passage embeddings
+  // share the same (empty) prefix — we leave inputPrefix unset.
   const [queryVecBatch, loadResult] = await Promise.all([
-    embedder([query], params.embeddingConfig, { inputPrefix: 'query: ' }),
+    embedder([query], params.embeddingConfig),
     loadAll(params.documents, expectedModel, expectedDim)
   ])
   const queryVec = queryVecBatch?.[0] ?? null
@@ -252,34 +197,77 @@ export async function searchDossier(params: SemanticSearchParams): Promise<Seman
   if (!queryVec) return []
   if (loadResult.loaded.length === 0) return []
 
+  // Mean-center to defeat embedding anisotropy (see CENTERED_SCORE_FLOOR). The
+  // mean is computed over every chunk vector loaded for this dossier, so it is
+  // the centroid of *this* corpus and adapts to its content. Vectors are
+  // L2-normalized at index time; the centered vectors are not re-normalized
+  // because centered cosine (a correlation) is exactly what separates signal
+  // from the shared component.
+  //
+  // Centering needs at least 2 distinct chunk vectors: with a single chunk the
+  // mean equals that chunk, so centering zeroes it out and the score collapses
+  // to 0. Below that threshold we skip centering entirely and rank on raw
+  // cosine with no floor (nothing to denoise against).
+  const totalChunks = loadResult.loaded.reduce((n, d) => n + d.embeddings.chunks.length, 0)
+  const meanVec = totalChunks >= 2 ? computeMeanVector(loadResult.loaded) : null
+  const centeredQuery = meanVec ? subtractVector(queryVec, meanVec) : queryVec
+
   // Pure cosine search — no keyword bonus yet. The bonus is applied later,
   // on the refined snippet, so only hits whose displayed sentence actually
   // contains the query terms benefit. Applying it on the raw chunk (~2000
   // chars) was causing chunks to be over-ranked when the keyword appeared
   // in a different sentence than the one eventually displayed.
-  const vectorHits: SemanticSearchHit[] = []
+  //
+  // We rank/filter on the CENTERED cosine (defeats the noise floor) but keep
+  // the raw cosine for display, since centered scores can be negative and are
+  // not intuitive to show.
+  //
+  // Filtering uses a RELATIVE threshold rather than a fixed centered floor:
+  // a hit is kept when its centered score is within RELATIVE_MARGIN of the
+  // best centered score for this query. This adapts per query — when a strong
+  // match exists we keep its near-neighbours; when everything is weak we keep
+  // little. A low absolute guard (RELEVANCE_GUARD) still applies so a query
+  // with no real match (e.g. "recette de cuisine", whose best centered score
+  // is near zero) doesn't drag in a pile of equally-irrelevant documents.
+  type ScoredChunk = { doc: LoadedDocument; chunk: StoredEmbeddings['chunks'][number]; centered: number }
+  const scored: ScoredChunk[] = []
   for (const doc of loadResult.loaded) {
     for (const chunk of doc.embeddings.chunks) {
-      vectorHits.push({
-        documentId: doc.meta.documentId,
-        displayName: doc.meta.displayName,
-        charStart: chunk.charStart,
-        charEnd: chunk.charEnd,
-        score: cosineSimilarity(queryVec, chunk.vector),
-        snippet: ''
-      })
+      const centeredChunk = meanVec ? subtractVector(chunk.vector, meanVec) : chunk.vector
+      // Centered vectors are not unit-length, so use a full cosine (with
+      // magnitude normalization), not the dot-product fast path.
+      const centered = fullCosine(centeredQuery, centeredChunk)
+      scored.push({ doc, chunk, centered })
     }
   }
+  const bestCentered = scored.reduce((max, s) => Math.max(max, s.centered), -Infinity)
+  // Keep threshold: relative to the best, but never below the absolute guard.
+  const keepThreshold = Math.max(bestCentered - RELATIVE_MARGIN, RELEVANCE_GUARD)
 
-  const exactHits = buildExactMatchHits(loadResult.loaded, query)
-  const mergedHits = mergeHits(vectorHits, exactHits)
-  mergedHits.sort((a, b) => b.score - a.score)
+  const vectorHits: SemanticSearchHit[] = []
+  for (const s of scored) {
+    if (s.centered < keepThreshold) continue
+    vectorHits.push({
+      documentId: s.doc.meta.documentId,
+      displayName: s.doc.meta.displayName,
+      charStart: s.chunk.charStart,
+      charEnd: s.chunk.charEnd,
+      score: cosineSimilarity(queryVec, s.chunk.vector),
+      snippet: ''
+    })
+  }
+
+  // searchDossier returns PURE VECTOR (meaning-based) results. Literal keyword
+  // matches are handled separately by keywordSearchService and merged upstream
+  // in documentService.semanticSearch — doing exact-match here too would inject
+  // duplicate 1.25-scored hits that pollute the "approximate" (semantic) lane.
+  vectorHits.sort((a, b) => b.score - a.score)
 
   // Take a generous candidate pool (topK * 2) so relevant documents are not
   // excluded before the snippet-based re-ranking below. A light per-doc cap
   // (MAX_HITS_PER_DOCUMENT + 1) prevents one document from monopolising the
   // pool while still giving it more than its final allocation.
-  const candidatePool = limitHitsPerDocument(mergedHits, MAX_HITS_PER_DOCUMENT + 1).slice(
+  const candidatePool = limitHitsPerDocument(vectorHits, MAX_HITS_PER_DOCUMENT + 1).slice(
     0,
     topK * 2
   )
@@ -314,25 +302,15 @@ export async function searchDossier(params: SemanticSearchParams): Promise<Seman
     }
   }
 
-  // Re-rank: add keyword bonus based on the SNIPPET text (not the raw chunk)
-  // so the bonus only fires when the displayed passage actually contains the
-  // query terms. Then apply the final per-doc limit and slice to topK.
-  const wordRegexes = buildContentWordRegexes(query)
-  for (const hit of candidatePool) {
-    hit.score += computeKeywordBonus(hit.snippet, wordRegexes)
-  }
+  // Pure vector ranking — no keyword bonus here (the keyword lane is separate;
+  // see comment above). Apply the final per-doc limit and slice to topK.
   candidatePool.sort((a, b) => b.score - a.score)
 
   return limitHitsPerDocument(candidatePool, MAX_HITS_PER_DOCUMENT).slice(0, topK)
 }
 
-interface Sentence {
-  /** Offset relative to the chunk text. */
-  charStart: number
-  charEnd: number
-  /** Trimmed text. */
-  text: string
-}
+// Sentence, splitIntoSentences, BuiltSnippet, and buildSnippetWithContext are
+// shared with the keyword search path — see ./textSearchShared.
 
 async function refineSnippets(
   hits: SemanticSearchHit[],
@@ -442,98 +420,29 @@ async function refineSnippets(
     plan.hit.snippet = built.text
     plan.hit.snippetMatchStart = built.matchStart
     plan.hit.snippetMatchEnd = built.matchEnd
-  }
-}
 
-function splitIntoSentences(text: string): Sentence[] {
-  const sentences: Sentence[] = []
-  // Sentence terminators: a run of .!? followed by whitespace, one or more
-  // newlines, or a semicolon followed by whitespace. Semicolons are included
-  // because French legal text uses them heavily as clause/article separators
-  // (e.g. "L.114-17 du code de la Sécurité sociale ; Article L6145-11...").
-  const boundaryRe = /[.!?]+\s+|\n+|;\s+/g
-  let last = 0
-  let m: RegExpExecArray | null
-  while ((m = boundaryRe.exec(text)) !== null) {
-    const end = m.index + m[0].length
-    const slice = text.slice(last, end)
-    const trimmed = slice.trim()
-    // Skip tiny fragments (abbreviations like "L.", "N°", lone digits) that
-    // produce useless embeddings and clutter context.
-    if (trimmed.length >= 5) sentences.push({ charStart: last, charEnd: end, text: trimmed })
-    last = end
-  }
-  if (last < text.length) {
-    const trimmed = text.slice(last).trim()
-    if (trimmed) sentences.push({ charStart: last, charEnd: text.length, text: trimmed })
-  }
-  return sentences
-}
-
-interface BuiltSnippet {
-  text: string
-  /** Offset into `text` where the picked sentence starts. */
-  matchStart: number
-  /** Offset into `text` where the picked sentence ends. */
-  matchEnd: number
-}
-
-/**
- * Build a snippet from the picked sentence, padded with the sentences
- * immediately before and after so the reader can interpret the match in
- * context. We alternate before/after additions to keep the match roughly
- * centred and stop as soon as we hit SNIPPET_MAX_CHARS.
- */
-function buildSnippetWithContext(sentences: Sentence[], pickedIdx: number): BuiltSnippet {
-  const match = sentences[pickedIdx]!.text
-  let before = ''
-  let after = ''
-  let prev = pickedIdx - 1
-  let next = pickedIdx + 1
-  let addAfterNext = true
-
-  const totalLen = (): number =>
-    (before ? before.length + 1 : 0) + match.length + (after ? after.length + 1 : 0)
-
-  while (prev >= 0 || next < sentences.length) {
-    let added = false
-    if (addAfterNext && next < sentences.length) {
-      const candidate = sentences[next]!.text
-      if (totalLen() + 1 + candidate.length <= SNIPPET_MAX_CHARS) {
-        after = after ? `${after} ${candidate}` : candidate
-        next += 1
-        added = true
-      } else {
-        // Can't fit any more on this side
-        next = sentences.length
-      }
-    } else if (!addAfterNext && prev >= 0) {
-      const candidate = sentences[prev]!.text
-      if (totalLen() + 1 + candidate.length <= SNIPPET_MAX_CHARS) {
-        before = before ? `${candidate} ${before}` : candidate
-        prev -= 1
-        added = true
-      } else {
-        prev = -1
+    // Narrow the full-text highlight (charStart/charEnd) from the whole chunk
+    // down to the picked sentence so the right-hand viewer marks the same
+    // passage shown in the snippet instead of an entire ~2000-char chunk.
+    // The sentence offsets are relative to the chunk; shift by chunkStart to
+    // get absolute offsets into the document text. Trim the leading/trailing
+    // boundary whitespace that splitIntoSentences keeps in charStart/charEnd.
+    const picked = plan.sentences[pickedIdx]!
+    const doc = loadedById.get(plan.hit.documentId)
+    if (doc) {
+      const absStart = plan.chunkStart + picked.charStart
+      const absEnd = plan.chunkStart + picked.charEnd
+      const raw = doc.text.slice(absStart, absEnd)
+      const leading = raw.length - raw.trimStart().length
+      const trailing = raw.length - raw.trimEnd().length
+      const start = absStart + leading
+      const end = absEnd - trailing
+      if (end > start) {
+        plan.hit.charStart = start
+        plan.hit.charEnd = end
       }
     }
-    if (!added) {
-      addAfterNext = !addAfterNext
-      // If both directions are now exhausted, bail
-      if (prev < 0 && next >= sentences.length) break
-      continue
-    }
-    addAfterNext = !addAfterNext
   }
-
-  const parts: string[] = []
-  if (before) parts.push(before)
-  parts.push(match)
-  if (after) parts.push(after)
-  const text = parts.join(' ')
-  const matchStart = before ? before.length + 1 : 0
-  const matchEnd = matchStart + match.length
-  return { text, matchStart, matchEnd }
 }
 
 /**
@@ -600,75 +509,10 @@ async function readDocumentCache(
   }
 }
 
-function limitHitsPerDocument(hits: SemanticSearchHit[], max: number): SemanticSearchHit[] {
-  const countByDoc = new Map<string, number>()
-  return hits.filter((hit) => {
-    const n = countByDoc.get(hit.documentId) ?? 0
-    if (n >= max) return false
-    countByDoc.set(hit.documentId, n + 1)
-    return true
-  })
-}
-
-function mergeHits(
-  vectorHits: SemanticSearchHit[],
-  exactHits: SemanticSearchHit[]
-): SemanticSearchHit[] {
-  // When a vector chunk and an exact-match hit land on the same span, keep
-  // whichever has the higher score (exact always wins — see constant above).
-  const merged = new Map<string, SemanticSearchHit>()
-  for (const hit of [...vectorHits, ...exactHits]) {
-    const key = `${hit.documentId}:${hit.charStart}:${hit.charEnd}`
-    const existing = merged.get(key)
-    if (!existing || hit.score > existing.score) {
-      merged.set(key, hit)
-    }
-  }
-  return [...merged.values()]
-}
-
-function buildExactMatchHits(documents: LoadedDocument[], query: string): SemanticSearchHit[] {
-  const trimmed = query.trim()
-  if (trimmed.length < 2) return []
-
-  const needle = trimmed.toLocaleLowerCase()
-  const hits: SemanticSearchHit[] = []
-
-  for (const doc of documents) {
-    const haystack = doc.text.toLocaleLowerCase()
-    let fromIndex = 0
-    let found = 0
-
-    while (fromIndex < haystack.length && found < EXACT_MATCH_MAX_HITS_PER_DOCUMENT) {
-      const matchIndex = haystack.indexOf(needle, fromIndex)
-      if (matchIndex < 0) break
-
-      const charStart = matchIndex
-      const charEnd = matchIndex + trimmed.length
-      hits.push({
-        documentId: doc.meta.documentId,
-        displayName: doc.meta.displayName,
-        charStart,
-        charEnd,
-        score: SEMANTIC_SEARCH_EXACT_MATCH_SCORE,
-        snippet: readSnippet(doc, charStart, charEnd)
-      })
-
-      found += 1
-      fromIndex = charEnd
-    }
-  }
-
-  return hits
-}
-
-function readSnippet(document: LoadedDocument, charStart: number, charEnd: number): string {
-  // Prefer returning the surrounding chunk's full text so the UI has enough
-  // context to show the match. We match on any overlap with the hit span,
-  // which covers both chunk-aligned vector hits and mid-chunk exact hits.
-  const chunk = document.embeddings.chunks.find(
-    (c) => c.charStart < charEnd && charStart < c.charEnd
-  )
-  if (!chunk) return document.text.slice(charStart, charEnd)
-  return document.text.slice(chunk.charStart, chunk.charEnd).trim()
-}
+// limitHitsPerDocument is shared with the keyword search path — see
+// ./textSearchShared.
+//
+// Literal/exact matching used to live here (buildExactMatchHits, mergeHits,
+// readSnippet) but was removed: keyword matching is now owned by
+// keywordSearchService and merged upstream in documentService.semanticSearch.
+// searchDossier is intentionally pure-vector so the two lanes stay distinct.

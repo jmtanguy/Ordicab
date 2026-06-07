@@ -55,6 +55,7 @@ function createEmptyDraft(locale: AppLocale): EntityProfileDraft {
     country: '',
     vatNumber: '',
     siren: '',
+    siret: '',
     legalForm: '',
     shareCapital: '',
     rcsNumber: '',
@@ -88,6 +89,7 @@ function normalizeDraft(draft: EntityProfileDraft, locale: AppLocale): EntityPro
     country: draft.country ?? '',
     vatNumber: draft.vatNumber ?? '',
     siren: draft.siren ?? '',
+    siret: draft.siret ?? '',
     legalForm: draft.legalForm ?? '',
     shareCapital: draft.shareCapital ?? '',
     rcsNumber: draft.rcsNumber ?? '',
@@ -580,6 +582,14 @@ export function EntityDialog({
                   onChange={(event) => updateField('siren', event.target.value)}
                 />
                 <Input
+                  id="entity-siret"
+                  type="text"
+                  density="compact"
+                  value={values.siret ?? ''}
+                  placeholder={t('entity.form.siret')}
+                  onChange={(event) => updateField('siret', event.target.value)}
+                />
+                <Input
                   id="entity-legal-form"
                   type="text"
                   density="compact"
@@ -873,6 +883,7 @@ export function EntityPanel(): React.JSX.Element {
           {displayName ? <ProfileRow label={t('entity.form.name')} value={displayName} /> : null}
           <ProfileRow label={t('entity.form.vatNumber')} value={profile.vatNumber} />
           <ProfileRow label={t('entity.form.siren')} value={profile.siren} />
+          <ProfileRow label={t('entity.form.siret')} value={profile.siret} />
           <ProfileRow label={t('entity.form.legalForm')} value={profile.legalForm} />
           <ProfileRow label={t('entity.form.shareCapital')} value={profile.shareCapital} />
           <ProfileRow label={t('entity.form.rcsNumber')} value={profile.rcsNumber} />

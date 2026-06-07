@@ -28,13 +28,13 @@ function makeService(result: SemanticSearchResult): DocumentServiceLike {
 }
 
 describe('runDocumentSearch', () => {
-  it('labels hits above the exact-match threshold as "exact" and vector hits as "semantic"', async () => {
+  it('labels keyword hits as "exact" and vector hits as "semantic" from matchKind', async () => {
     const documentService = makeService({
       dossierId: 'dos-1',
       query: 'pension',
       hits: [
-        makeHit({ documentId: 'a.pdf', score: 1.25, snippet: 'a-exact' }),
-        makeHit({ documentId: 'b.pdf', score: 0.82, snippet: 'b-vector' })
+        makeHit({ documentId: 'a.pdf', score: 2, snippet: 'a-exact', matchKind: 'keyword' }),
+        makeHit({ documentId: 'b.pdf', score: 0.82, snippet: 'b-vector', matchKind: 'semantic' })
       ]
     })
 
@@ -44,20 +44,22 @@ describe('runDocumentSearch', () => {
       query: 'pension'
     })
     const parsed = JSON.parse(raw) as {
-      matches: Array<{ documentId: string; score: number; matchType: string }>
+      matches: Array<{ documentId: string; score?: number; matchType: string }>
     }
 
+    // Exact (keyword) hit ranks first and reports NO score (word-count is
+    // internal); semantic hit reports its cosine score.
     expect(parsed.matches[0]!.matchType).toBe('exact')
-    expect(parsed.matches[0]!.score).toBeGreaterThanOrEqual(1)
+    expect(parsed.matches[0]!.score).toBeUndefined()
     expect(parsed.matches[1]!.matchType).toBe('semantic')
     expect(parsed.matches[1]!.score).toBeLessThan(1)
   })
 
-  it('keeps a perfect cosine hit labelled as semantic', async () => {
+  it('labels a hit with no matchKind (or non-keyword) as semantic', async () => {
     const documentService = makeService({
       dossierId: 'dos-1',
       query: 'pension',
-      hits: [makeHit({ documentId: 'a.pdf', score: 1.0, snippet: 'vector-perfect' })]
+      hits: [makeHit({ documentId: 'a.pdf', score: 1.0, snippet: 'vector-perfect', matchKind: 'semantic' })]
     })
 
     const raw = await runDocumentSearch({
@@ -66,7 +68,7 @@ describe('runDocumentSearch', () => {
       query: 'pension'
     })
     const parsed = JSON.parse(raw) as {
-      matches: Array<{ documentId: string; score: number; matchType: string }>
+      matches: Array<{ documentId: string; score?: number; matchType: string }>
     }
 
     expect(parsed.matches).toHaveLength(1)

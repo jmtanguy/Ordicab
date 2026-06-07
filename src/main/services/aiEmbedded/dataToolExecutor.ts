@@ -41,7 +41,6 @@ import type {
   DossierServiceLike,
   InvoiceServiceLike
 } from '../../lib/aiEmbedded/aiCommandDispatcher'
-import { SEMANTIC_SEARCH_EXACT_MATCH_SCORE } from '../../lib/aiEmbedded/embeddings/semanticSearchService'
 import type { LegalService } from '../legal/legalService'
 
 // ── Service interfaces ────────────────────────────────────────────────────────
@@ -460,12 +459,6 @@ function buildContactSearchHaystacks(contact: ContactRecord): string[] {
     .filter(Boolean)
 }
 
-/**
- * Exact-substring hits are deliberately boosted above the cosine-similarity
- * range [-1, 1]. Keep the threshold aligned with semanticSearchService so a
- * perfect vector hit (score 1.0) is still labelled as semantic, not exact.
- */
-const DOCUMENT_SEARCH_EXACT_MATCH_THRESHOLD = SEMANTIC_SEARCH_EXACT_MATCH_SCORE
 const DOCUMENT_SEARCH_MAX_HITS = 8
 
 function enumValue<T extends string>(values: readonly T[], value: unknown): T | undefined {
@@ -482,8 +475,13 @@ function trimmedStringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
-function classifyDocumentSearchMatchType(score: number): 'exact' | 'semantic' {
-  return score >= DOCUMENT_SEARCH_EXACT_MATCH_THRESHOLD ? 'exact' : 'semantic'
+// Match type comes straight from the hybrid search's matchKind: 'keyword' =
+// the document literally contains the query term (exact), anything else is a
+// meaning-based (semantic) suggestion. We no longer infer it from the numeric
+// score — keyword and vector hits now live on different score scales (word
+// count vs cosine), so a score threshold would misclassify them.
+function classifyDocumentSearchMatchType(matchKind: string | undefined): 'exact' | 'semantic' {
+  return matchKind === 'keyword' ? 'exact' : 'semantic'
 }
 
 /**
@@ -509,7 +507,13 @@ export async function runDocumentSearch(args: {
     topK: DOCUMENT_SEARCH_MAX_HITS * 2
   })
 
-  const sorted = [...result.hits].sort((left, right) => right.score - left.score)
+  // Order keyword (exact) hits before semantic ones — they are the reliable
+  // signal — then by score within each lane. Mixing the two raw scores in one
+  // numeric sort is meaningless (word-count vs cosine live on different scales).
+  const laneRank = (h: (typeof result.hits)[number]): number => (h.matchKind === 'keyword' ? 0 : 1)
+  const sorted = [...result.hits].sort(
+    (left, right) => laneRank(left) - laneRank(right) || right.score - left.score
+  )
 
   // First pass: one best hit per document, to show breadth across the dossier.
   const diversified: typeof sorted = []
@@ -534,14 +538,19 @@ export async function runDocumentSearch(args: {
     }
   }
 
-  diversified.sort((left, right) => right.score - left.score)
+  diversified.sort((left, right) => laneRank(left) - laneRank(right) || right.score - left.score)
 
   const matches = diversified.map((hit) => ({
     documentId: hit.documentId,
     filename: hit.filename,
     excerpt: hit.snippet,
-    score: Number(hit.score.toFixed(3)),
-    matchType: classifyDocumentSearchMatchType(hit.score),
+    matchType: classifyDocumentSearchMatchType(hit.matchKind),
+    // Score is a cosine similarity only for semantic hits; for keyword (exact)
+    // hits it is an internal word-count, not meaningful to the model — so report
+    // it only for semantic matches.
+    ...(hit.matchKind === 'keyword'
+      ? {}
+      : { score: Number(hit.score.toFixed(3)) }),
     charStart: hit.charStart,
     charEnd: hit.charEnd
   }))

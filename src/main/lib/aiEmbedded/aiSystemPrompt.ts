@@ -165,6 +165,13 @@ export function buildToolSystemPrompt(context: SystemPromptContext): string {
     'BAD: list documents, then emit `document_analyze` for every document in parallel — this overflows the tool-call channel and gets truncated. ' +
       'GOOD: one `document_search` call (or one `document_summary_batch` call when the goal is per-document output).'
   )
+  if (locale === 'fr') {
+    parts.push(
+      'Format des nombres : les montants lus dans les documents (factures, devis, relevés…) sont écrits au format français — la virgule est le séparateur décimal et l\'espace (ou le point) le séparateur de milliers. ' +
+        'Ainsi "900,00" vaut neuf cents (900), pas quatre-vingt-dix mille ; "1 234,56" vaut mille deux cent trente-quatre virgule cinquante-six ; "1.234,56" vaut la même chose. ' +
+        'Ne supprime jamais la virgule décimale pour concaténer les chiffres (ne transforme pas "900,00" en 90000). Conserve les montants tels qu\'ils sont écrits dans le document et restitue-les au format français.'
+    )
+  }
 
   parts.push('')
   parts.push('## Contact lookup')

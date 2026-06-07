@@ -1770,9 +1770,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
 
       // Merge: keyword (exact) results first, then semantic results that don't
       // duplicate a keyword hit on the same document span.
-      const seen = new Set(
-        keywordHits.map((h) => `${h.documentId}:${h.charStart}:${h.charEnd}`)
-      )
+      const seen = new Set(keywordHits.map((h) => `${h.documentId}:${h.charStart}:${h.charEnd}`))
       const seenDocs = new Set(keywordHits.map((h) => h.documentId))
       const semanticKept = semanticHits.filter((h) => {
         const spanKey = `${h.documentId}:${h.charStart}:${h.charEnd}`

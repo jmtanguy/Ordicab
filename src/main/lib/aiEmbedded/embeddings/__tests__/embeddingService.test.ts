@@ -107,10 +107,16 @@ describe('embeddingService', () => {
       embedBatch(['beta'], {}, { inputPrefix: '' })
     ])
 
-    // Let the pipeline load and both inferences enter their in-flight window
-    // (mirrors dispose() running after features have started work).
-    await new Promise((resolve) => setTimeout(resolve, 1))
-    expect(settled).toBe(0) // still running
+    // Wait until BOTH inferences have actually entered their in-flight window
+    // before draining (mirrors dispose() running after features have started
+    // work). A fixed sleep races the pipeline-load microtask chain: if drain is
+    // called before runInferenceTracked has incremented its counter, it sees no
+    // in-flight work and resolves immediately. Polling on inFlight removes that
+    // race deterministically.
+    while (inFlight < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+    expect(settled).toBe(0) // both still running, none finished yet
     await awaitInferenceDrain()
     // Drain must have waited for both inferences to finish.
     expect(settled).toBe(2)

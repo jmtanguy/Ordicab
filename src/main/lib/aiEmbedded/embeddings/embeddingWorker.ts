@@ -77,7 +77,8 @@ async function loadPipeline(config: WorkerData): Promise<PipelineFn | null> {
       parentPort?.postMessage({
         type: 'log',
         level: 'warn',
-        message: '[embeddingWorker] no modelPath provided — refusing remote download; pipeline will be unavailable until a model path is configured.'
+        message:
+          '[embeddingWorker] no modelPath provided — refusing remote download; pipeline will be unavailable until a model path is configured.'
       })
     }
     const dtype = config.quantized === false ? 'fp32' : 'q8'

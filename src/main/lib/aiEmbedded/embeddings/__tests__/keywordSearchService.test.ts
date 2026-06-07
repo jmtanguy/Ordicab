@@ -4,10 +4,7 @@ import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import {
-  foldDiacritics,
-  keywordSearchDossier
-} from '../keywordSearchService'
+import { foldDiacritics, keywordSearchDossier } from '../keywordSearchService'
 import type { IndexedDocument } from '../textSearchShared'
 
 let counter = 0
@@ -43,7 +40,10 @@ describe('keywordSearchDossier', () => {
 
   it('matches a literal keyword and returns the document', async () => {
     const docs = [
-      await makeDoc('scolarite.docx', "Certificat de scolarité de l'enfant inscrit à l'école primaire."),
+      await makeDoc(
+        'scolarite.docx',
+        "Certificat de scolarité de l'enfant inscrit à l'école primaire."
+      ),
       await makeDoc('mariage.docx', 'Extrait acte de mariage. Mairie de Lyon.')
     ]
     const hits = await keywordSearchDossier({ documents: docs, query: 'école' })

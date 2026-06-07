@@ -332,7 +332,8 @@ export function createAiService(options: AiServiceOptions): AiService {
   // RGPD gate check: present-on-disk by default, overridable for tests.
   const isNerModelReady =
     options.isNerModelReady ??
-    (async () => (nerModelPath ? isModelPresent(nerModelPath, NER_MODEL).catch(() => false) : false))
+    (async () =>
+      nerModelPath ? isModelPresent(nerModelPath, NER_MODEL).catch(() => false) : false)
 
   // Keeps prior-turn mappings only for local decoding. It is never passed back
   // into PiiPseudonymizer, so it cannot seed or alter values sent to the LLM.

@@ -108,7 +108,10 @@ describe('onboardingStore completion + persistence', () => {
 describe('resolveOnboardingComplete (view gate + migration)', () => {
   it('is complete once completedAt is set, regardless of dossier count', () => {
     expect(
-      resolveOnboardingComplete({ completedAt: '2026-01-01T00:00:00.000Z', furthestStep: 'dossier', deferred: [] }, 0)
+      resolveOnboardingComplete(
+        { completedAt: '2026-01-01T00:00:00.000Z', furthestStep: 'dossier', deferred: [] },
+        0
+      )
     ).toBe(true)
   })
 

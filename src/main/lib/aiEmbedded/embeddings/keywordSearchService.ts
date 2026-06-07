@@ -53,22 +53,60 @@ export function foldDiacritics(input: string): string {
 // 1 code point in → 1 code point out. Covers the accented letters that appear
 // in French legal text (and a few common Latin-1 extras).
 const DIACRITIC_MAP: Record<string, string> = {
-  à: 'a', á: 'a', â: 'a', ã: 'a', ä: 'a', å: 'a',
+  à: 'a',
+  á: 'a',
+  â: 'a',
+  ã: 'a',
+  ä: 'a',
+  å: 'a',
   ç: 'c',
-  è: 'e', é: 'e', ê: 'e', ë: 'e',
-  ì: 'i', í: 'i', î: 'i', ï: 'i',
+  è: 'e',
+  é: 'e',
+  ê: 'e',
+  ë: 'e',
+  ì: 'i',
+  í: 'i',
+  î: 'i',
+  ï: 'i',
   ñ: 'n',
-  ò: 'o', ó: 'o', ô: 'o', õ: 'o', ö: 'o',
-  ù: 'u', ú: 'u', û: 'u', ü: 'u',
-  ý: 'y', ÿ: 'y',
-  œ: 'oe', æ: 'ae',
-  À: 'A', Á: 'A', Â: 'A', Ã: 'A', Ä: 'A', Å: 'A',
+  ò: 'o',
+  ó: 'o',
+  ô: 'o',
+  õ: 'o',
+  ö: 'o',
+  ù: 'u',
+  ú: 'u',
+  û: 'u',
+  ü: 'u',
+  ý: 'y',
+  ÿ: 'y',
+  œ: 'oe',
+  æ: 'ae',
+  À: 'A',
+  Á: 'A',
+  Â: 'A',
+  Ã: 'A',
+  Ä: 'A',
+  Å: 'A',
   Ç: 'C',
-  È: 'E', É: 'E', Ê: 'E', Ë: 'E',
-  Ì: 'I', Í: 'I', Î: 'I', Ï: 'I',
+  È: 'E',
+  É: 'E',
+  Ê: 'E',
+  Ë: 'E',
+  Ì: 'I',
+  Í: 'I',
+  Î: 'I',
+  Ï: 'I',
   Ñ: 'N',
-  Ò: 'O', Ó: 'O', Ô: 'O', Õ: 'O', Ö: 'O',
-  Ù: 'U', Ú: 'U', Û: 'U', Ü: 'U',
+  Ò: 'O',
+  Ó: 'O',
+  Ô: 'O',
+  Õ: 'O',
+  Ö: 'O',
+  Ù: 'U',
+  Ú: 'U',
+  Û: 'U',
+  Ü: 'U',
   Ý: 'Y'
 }
 
@@ -93,11 +131,23 @@ async function readCacheText(cachePath: string): Promise<string | null> {
 function frameMatch(
   text: string,
   matchOffset: number
-): { snippet: string; charStart: number; charEnd: number; snippetMatchStart: number; snippetMatchEnd: number } | null {
+): {
+  snippet: string
+  charStart: number
+  charEnd: number
+  snippetMatchStart: number
+  snippetMatchEnd: number
+} | null {
   const sentences = splitIntoSentences(text)
   if (sentences.length === 0) {
     const snippet = text.trim().slice(0, 280)
-    return { snippet, charStart: 0, charEnd: Math.min(text.length, 280), snippetMatchStart: 0, snippetMatchEnd: snippet.length }
+    return {
+      snippet,
+      charStart: 0,
+      charEnd: Math.min(text.length, 280),
+      snippetMatchStart: 0,
+      snippetMatchEnd: snippet.length
+    }
   }
   let pickedIdx = sentences.findIndex((s) => s.charStart <= matchOffset && matchOffset < s.charEnd)
   if (pickedIdx < 0) pickedIdx = 0
@@ -145,7 +195,7 @@ export async function keywordSearchDossier(
   const globalSource = wordRegexes.map((re) => re.source).join('|')
 
   const perDoc = await Promise.all(
-    params.documents.map(async (doc) => {
+    params.documents.map(async (doc): Promise<SemanticSearchHit | null> => {
       const text = await readCacheText(doc.cachePath)
       if (!text) return null
 
@@ -166,9 +216,8 @@ export async function keywordSearchDossier(
       // its first match; the reader opens the document to see all occurrences.
       const framed = frameMatch(text, firstOffset)
       if (!framed) return null
-      return {
+      const hit: SemanticSearchHit = {
         documentId: doc.documentId,
-        displayName: doc.displayName,
         charStart: framed.charStart,
         charEnd: framed.charEnd,
         // Score = distinct query words matched in this document. Keeps
@@ -177,7 +226,9 @@ export async function keywordSearchDossier(
         snippet: framed.snippet,
         snippetMatchStart: framed.snippetMatchStart,
         snippetMatchEnd: framed.snippetMatchEnd
-      } satisfies SemanticSearchHit
+      }
+      if (doc.displayName) hit.displayName = doc.displayName
+      return hit
     })
   )
 

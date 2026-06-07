@@ -341,9 +341,7 @@ export interface OrdicabAPI {
     /** Trigger download of any missing models (NER first, then bge-m3). */
     download: () => Promise<IpcResult<null>>
     /** Push: status changed (progress / readiness), for the settings UI. */
-    onStatusChanged: (
-      listener: (status: ModelDownloadStatus) => void
-    ) => OrdicabEventUnsubscribe
+    onStatusChanged: (listener: (status: ModelDownloadStatus) => void) => OrdicabEventUnsubscribe
   }
   updater: {
     startDownload: () => Promise<IpcResult<null>>

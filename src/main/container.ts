@@ -409,9 +409,7 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
     // Skip embedding until bge-m3 is downloaded. Without this gate the queue
     // hammers the worker with doomed inference calls (log spam) for every doc.
     isEmbeddingModelReady: async () =>
-      opts.modelsPath
-        ? isModelPresent(opts.modelsPath, EMBEDDING_MODEL).catch(() => false)
-        : false,
+      opts.modelsPath ? isModelPresent(opts.modelsPath, EMBEDDING_MODEL).catch(() => false) : false,
     extractContent: ({ dossierId, documentId }) =>
       documentService.extractContent({ dossierId, documentId }).then(() => undefined),
     resolveDossierPath: async (dossierId) => {

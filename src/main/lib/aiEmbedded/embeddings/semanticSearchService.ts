@@ -229,7 +229,11 @@ export async function searchDossier(params: SemanticSearchParams): Promise<Seman
   // little. A low absolute guard (RELEVANCE_GUARD) still applies so a query
   // with no real match (e.g. "recette de cuisine", whose best centered score
   // is near zero) doesn't drag in a pile of equally-irrelevant documents.
-  type ScoredChunk = { doc: LoadedDocument; chunk: StoredEmbeddings['chunks'][number]; centered: number }
+  type ScoredChunk = {
+    doc: LoadedDocument
+    chunk: StoredEmbeddings['chunks'][number]
+    centered: number
+  }
   const scored: ScoredChunk[] = []
   for (const doc of loadResult.loaded) {
     for (const chunk of doc.embeddings.chunks) {

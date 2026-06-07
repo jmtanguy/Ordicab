@@ -1187,7 +1187,12 @@ const dossier4 = {
       label: 'N° RG',
       value: '2026/F/00214'
     },
-    { id: KR11_ID, dossierId: D4_ID, label: 'Décision AJ (BAJ)', value: '2026/0457 — AJ partielle 55 %' },
+    {
+      id: KR11_ID,
+      dossierId: D4_ID,
+      label: 'Décision AJ (BAJ)',
+      value: '2026/0457 — AJ partielle 55 %'
+    },
     { id: KR12_ID, dossierId: D4_ID, label: 'N° AJ / CARPA', value: 'AJ-2026-0457' }
   ],
   feeAgreements: [
@@ -1792,7 +1797,7 @@ const documents2 = [
   },
   {
     filename: 'Acte_de_mariage.docx',
-    title: 'Extrait d\'acte de mariage',
+    title: "Extrait d'acte de mariage",
     bodyHtml: `${letterhead()}
       <h1>Extrait d'acte de mariage</h1>
       <p><strong>Mairie de Lyon 6ᵉ arrondissement.</strong></p>
@@ -1815,7 +1820,7 @@ const documents2 = [
   },
   {
     filename: 'Convocation_audience_JAF.docx',
-    title: 'Convocation à l\'audience JAF',
+    title: "Convocation à l'audience JAF",
     bodyHtml: `${letterhead()}
       <h1>Convocation à l'audience</h1>
       <p><strong>Tribunal judiciaire de Lyon — Juge aux Affaires Familiales.</strong></p>
@@ -1889,7 +1894,7 @@ const documents3 = [
   },
   {
     filename: 'Reponse_assureur_Securitas.docx',
-    title: 'Réponse de l\'assureur',
+    title: "Réponse de l'assureur",
     bodyHtml: `${letterhead()}
       <h1>Réponse de l'assureur</h1>
       <p><strong>De :</strong> Sécuritas Assurances SA.</p>
@@ -1915,7 +1920,7 @@ const documents4 = [
   },
   {
     filename: 'Designation_avocat_AJ.docx',
-    title: "Désignation — Aide juridictionnelle",
+    title: 'Désignation — Aide juridictionnelle',
     bodyHtml: `${letterhead()}
       <h1>Désignation au titre de l'aide juridictionnelle</h1>
       <p>Je soussignée, Maître Sophie Delacroix, Avocat au Barreau de Lyon, déclare accepter la mission d'assistance et de représentation de <strong>Madame Nadia Lemoine</strong> au titre de l'aide juridictionnelle partielle (décision BAJ n° 2026/0457 du 28 mars 2026, taux 55 %).</p>

@@ -52,20 +52,22 @@ export function ModelManagerCard(): React.JSX.Element {
   const { t } = useTranslation()
   const [status, setStatus] = useState<ModelDownloadStatus | null>(null)
 
-  const refresh = useCallback(async () => {
-    const api = getOrdicabApi()
-    if (!api?.models) return
-    const res = await api.models.getStatus()
-    if (res.success) setStatus(res.data)
-  }, [])
-
   useEffect(() => {
-    void refresh()
     const api = getOrdicabApi()
     if (!api?.models) return
+
+    let cancelled = false
+    void api.models.getStatus().then((res) => {
+      if (!cancelled && res.success) setStatus(res.data)
+    })
+
     // Live progress + readiness changes pushed from the main process.
-    return api.models.onStatusChanged((next) => setStatus(next))
-  }, [refresh])
+    const unsubscribe = api.models.onStatusChanged((next) => setStatus(next))
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [])
 
   const handleDownload = useCallback(async () => {
     const api = getOrdicabApi()
@@ -81,7 +83,11 @@ export function ModelManagerCard(): React.JSX.Element {
     if (!p) return null
     const received = formatBytes(p.receivedBytes)
     if (p.totalBytes && p.totalBytes > 0) {
-      return t('models.progress_label', { file: p.file, received, total: formatBytes(p.totalBytes) })
+      return t('models.progress_label', {
+        file: p.file,
+        received,
+        total: formatBytes(p.totalBytes)
+      })
     }
     return t('models.progress_unknown_total', { file: p.file, received })
   })()

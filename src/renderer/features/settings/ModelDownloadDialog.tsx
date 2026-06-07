@@ -29,7 +29,9 @@ function ModelLine({
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#e5e3da]">
         <div
           className={`h-full rounded-full transition-all ${state === 'error' ? 'bg-[#9c2f2f]' : 'bg-aurora'}`}
-          style={{ width: `${state === 'ready' ? 100 : (pct ?? (state === 'downloading' ? 6 : 0))}%` }}
+          style={{
+            width: `${state === 'ready' ? 100 : (pct ?? (state === 'downloading' ? 6 : 0))}%`
+          }}
         />
       </div>
     </div>
@@ -71,8 +73,7 @@ export function ModelDownloadDialog(): React.JSX.Element | null {
 
   if (!status || allReady || dismissed) return null
   // Only surface the dialog when there's actually work to show.
-  const hasWork =
-    status.ner !== 'ready' || status.embedding !== 'ready' || status.progress !== null
+  const hasWork = status.ner !== 'ready' || status.embedding !== 'ready' || status.progress !== null
   if (!hasWork) return null
 
   const readyCount = [status.ner, status.embedding].filter((s) => s === 'ready').length
@@ -90,9 +91,7 @@ export function ModelDownloadDialog(): React.JSX.Element | null {
           label={t('models.ner_label')}
           why={t('models.dialog_ner_why')}
           state={status.ner}
-          fraction={
-            downloadingModelId && status.ner === 'downloading' ? progressFraction : null
-          }
+          fraction={downloadingModelId && status.ner === 'downloading' ? progressFraction : null}
         />
         <ModelLine
           label={t('models.embedding_label')}

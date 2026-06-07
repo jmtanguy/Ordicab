@@ -566,57 +566,60 @@ export function AiSettings(): React.JSX.Element {
 
   return (
     <div className="space-y-5">
-    <Card className="space-y-5">
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-2">
-          <h3 className="text-base font-semibold text-[#1a1a1a]">
-            {t('ai_settings.section_title')}
-          </h3>
-          <p className="text-sm text-[#1a1a1a]">{t('ai_settings.section_summary')}</p>
+      <Card className="space-y-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-2">
+            <h3 className="text-base font-semibold text-[#1a1a1a]">
+              {t('ai_settings.section_title')}
+            </h3>
+            <p className="text-sm text-[#1a1a1a]">{t('ai_settings.section_summary')}</p>
+          </div>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setDialogOpen(true)}>
+            {t('entity.editButton')}
+          </Button>
         </div>
-        <Button type="button" variant="ghost" size="sm" onClick={() => setDialogOpen(true)}>
-          {t('entity.editButton')}
-        </Button>
-      </div>
 
-      {error ? <p className="text-sm text-red-400">{error}</p> : null}
+        {error ? <p className="text-sm text-red-400">{error}</p> : null}
 
-      {loading ? (
-        <p className="text-sm text-[#5c5c5a]">{t('common.loading')}</p>
-      ) : settings ? (
-        <div className="grid gap-x-6 gap-y-4 md:grid-cols-2">
-          <div className="flex items-center gap-2">
-            <AiRow label={t('ai_settings.active_services_label')} value={activeServicesValue} />
-            {isClaudeCoworkEnabled && cloudAvailability !== null && (
-              <CloudAvailabilityBadge status={cloudAvailability} />
+        {loading ? (
+          <p className="text-sm text-[#5c5c5a]">{t('common.loading')}</p>
+        ) : settings ? (
+          <div className="grid gap-x-6 gap-y-4 md:grid-cols-2">
+            <div className="flex items-center gap-2">
+              <AiRow label={t('ai_settings.active_services_label')} value={activeServicesValue} />
+              {isClaudeCoworkEnabled && cloudAvailability !== null && (
+                <CloudAvailabilityBadge status={cloudAvailability} />
+              )}
+            </div>
+            {isApiEnabled && (
+              <>
+                <AiRow
+                  label="Provider"
+                  value={
+                    REMOTE_PROVIDER_PRESETS.find(
+                      (preset) => preset.kind === (settings.remoteProviderKind ?? 'custom')
+                    )?.label
+                  }
+                />
+                <AiRow label="Project Reference" value={settings.remoteProjectRef} />
+                <AiRow
+                  label={t('ai_settings.provider_url_label')}
+                  value={settings.remoteProvider}
+                />
+                {settings.hasApiKey && (
+                  <AiRow
+                    label={t('ai_settings.api_key_label')}
+                    value={`•••••••${settings.apiKeySuffix ?? '????'}`}
+                  />
+                )}
+              </>
             )}
           </div>
-          {isApiEnabled && (
-            <>
-              <AiRow
-                label="Provider"
-                value={
-                  REMOTE_PROVIDER_PRESETS.find(
-                    (preset) => preset.kind === (settings.remoteProviderKind ?? 'custom')
-                  )?.label
-                }
-              />
-              <AiRow label="Project Reference" value={settings.remoteProjectRef} />
-              <AiRow label={t('ai_settings.provider_url_label')} value={settings.remoteProvider} />
-              {settings.hasApiKey && (
-                <AiRow
-                  label={t('ai_settings.api_key_label')}
-                  value={`•••••••${settings.apiKeySuffix ?? '????'}`}
-                />
-              )}
-            </>
-          )}
-        </div>
-      ) : null}
+        ) : null}
 
-      <AiDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
-    </Card>
-    <ModelManagerCard />
+        <AiDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
+      </Card>
+      <ModelManagerCard />
     </div>
   )
 }

@@ -70,7 +70,14 @@ const mockDossierService = {
     .mockResolvedValue({ id: 'dos1', name: 'Test', status: 'active', type: '', billingItems: [] }),
   deleteBillingItem: vi
     .fn()
-    .mockResolvedValue({ id: 'dos1', name: 'Test', status: 'active', type: '', billingItems: [] })
+    .mockResolvedValue({ id: 'dos1', name: 'Test', status: 'active', type: '', billingItems: [] }),
+  upsertNote: vi
+    .fn()
+    .mockResolvedValue({ id: 'dos1', name: 'Test', status: 'active', type: '', notes: [] }),
+  deleteNote: vi
+    .fn()
+    .mockResolvedValue({ id: 'dos1', name: 'Test', status: 'active', type: '', notes: [] }),
+  searchNotes: vi.fn().mockResolvedValue([])
 }
 const mockDocumentService = {
   listDocuments: vi.fn().mockResolvedValue([]),
@@ -782,6 +789,92 @@ describe('intentDispatcher', () => {
 
       expect(result.intent.type).toBe('unknown')
       expect(result.feedback).toBe(guardMessage)
+    })
+  })
+
+  describe('notes', () => {
+    it('creates a note tagged as AI-sourced and reports it', async () => {
+      const services = makeServices()
+      services.dossierService.upsertNote = vi.fn().mockResolvedValue({
+        id: 'dos1',
+        name: 'Test',
+        status: 'active',
+        type: '',
+        notes: [{ id: 'note-1', title: 'Vérifier la prescription' }]
+      })
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const result = await dispatcher.dispatch(
+        {
+          type: 'note_create',
+          dossierId: 'dos1',
+          title: 'Vérifier la prescription',
+          content: 'Délai possiblement expiré',
+          kind: 'to_verify'
+        },
+        {}
+      )
+
+      expect(services.dossierService.upsertNote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dossierId: 'dos1',
+          title: 'Vérifier la prescription',
+          kind: 'to_verify',
+          source: 'ai'
+        })
+      )
+      expect(result.feedback).toBe('Note "Vérifier la prescription" ajoutée.')
+    })
+
+    it('updates a note by id', async () => {
+      const services = makeServices()
+      services.dossierService.upsertNote = vi.fn().mockResolvedValue({
+        id: 'dos1',
+        name: 'Test',
+        status: 'active',
+        type: '',
+        notes: [{ id: 'note-1', title: 'Tâche' }]
+      })
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const result = await dispatcher.dispatch(
+        {
+          type: 'note_update',
+          dossierId: 'dos1',
+          noteId: 'note-1',
+          title: 'Tâche',
+          status: 'done'
+        },
+        {}
+      )
+
+      expect(services.dossierService.upsertNote).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'note-1', status: 'done', source: 'ai' })
+      )
+      expect(result.feedback).toBe('Note "Tâche" mise à jour.')
+    })
+
+    it('deletes a note', async () => {
+      const services = makeServices()
+      services.dossierService.deleteNote = vi.fn().mockResolvedValue({
+        id: 'dos1',
+        name: 'Test',
+        status: 'active',
+        type: '',
+        notes: []
+      })
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const result = await dispatcher.dispatch(
+        { type: 'note_delete', dossierId: 'dos1', noteId: 'note-1' },
+        {}
+      )
+
+      expect(services.dossierService.deleteNote).toHaveBeenCalledWith({
+        dossierId: 'dos1',
+        noteId: 'note-1'
+      })
+      expect(result.feedback).toBe('Note supprimée.')
     })
   })
 

@@ -27,6 +27,8 @@ export const IPC_CHANNELS = {
     deleteKeyDate: 'dossier:deleteKeyDate',
     upsertKeyReference: 'dossier:upsertKeyReference',
     deleteKeyReference: 'dossier:deleteKeyReference',
+    upsertNote: 'dossier:upsertNote',
+    deleteNote: 'dossier:deleteNote',
     upsertFeeAgreement: 'dossier:upsertFeeAgreement',
     deleteFeeAgreement: 'dossier:deleteFeeAgreement',
     archiveFeeAgreement: 'dossier:archiveFeeAgreement',

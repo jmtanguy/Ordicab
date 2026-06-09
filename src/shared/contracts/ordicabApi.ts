@@ -98,6 +98,8 @@ import type {
   DossierKeyDateUpsertInput,
   DossierKeyReferenceDeleteInput,
   DossierKeyReferenceUpsertInput,
+  DossierNoteDeleteInput,
+  DossierNoteUpsertInput,
   DossierRegistrationInput,
   DossierScopedQuery,
   DossierSetupLegalAidInput,
@@ -164,6 +166,8 @@ export interface OrdicabAPI {
     unregister: (input: DossierUnregisterInput) => Promise<IpcResult<null>>
     upsertKeyDate: (input: DossierKeyDateUpsertInput) => Promise<IpcResult<DossierDetail>>
     deleteKeyDate: (input: DossierKeyDateDeleteInput) => Promise<IpcResult<DossierDetail>>
+    upsertNote: (input: DossierNoteUpsertInput) => Promise<IpcResult<DossierDetail>>
+    deleteNote: (input: DossierNoteDeleteInput) => Promise<IpcResult<DossierDetail>>
     upsertFeeAgreement: (input: DossierFeeAgreementUpsertInput) => Promise<IpcResult<DossierDetail>>
     deleteFeeAgreement: (input: DossierFeeAgreementDeleteInput) => Promise<IpcResult<DossierDetail>>
     archiveFeeAgreement: (

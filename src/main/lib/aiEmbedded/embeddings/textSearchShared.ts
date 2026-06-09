@@ -260,3 +260,38 @@ export function limitHitsPerDocument(hits: SemanticSearchHit[], max: number): Se
     return true
   })
 }
+
+/** Which lane a merged hit came from. Keyword (literal) outranks semantic. */
+export type HitMatchKind = 'keyword' | 'semantic'
+
+export interface MergedHit {
+  hit: SemanticSearchHit
+  matchKind: HitMatchKind
+}
+
+/**
+ * Merge keyword (exact) and semantic (meaning-based) hits into one ranked list.
+ *
+ * Keyword hits come first and always win: in a tightly-clustered corpus literal
+ * presence of the query term is the reliable relevance signal. A semantic hit is
+ * dropped when the same document span is already a keyword hit, OR when the
+ * document is already represented by any keyword hit (the document is known
+ * relevant by literal presence, so its fuzzier semantic spans add noise).
+ *
+ * Shared by document search and note search so both lanes fuse identically.
+ */
+export function mergeHybridHits(
+  keywordHits: SemanticSearchHit[],
+  semanticHits: SemanticSearchHit[]
+): MergedHit[] {
+  const seenSpans = new Set(keywordHits.map((h) => `${h.documentId}:${h.charStart}:${h.charEnd}`))
+  const seenDocs = new Set(keywordHits.map((h) => h.documentId))
+  const semanticKept = semanticHits.filter((h) => {
+    const spanKey = `${h.documentId}:${h.charStart}:${h.charEnd}`
+    return !seenSpans.has(spanKey) && !seenDocs.has(h.documentId)
+  })
+  return [
+    ...keywordHits.map((hit) => ({ hit, matchKind: 'keyword' as const })),
+    ...semanticKept.map((hit) => ({ hit, matchKind: 'semantic' as const }))
+  ]
+}

@@ -68,7 +68,8 @@ describe('DelegatedAiActionProcessor', () => {
       feeAgreements: [],
       billingItems: [],
       keyDates: [],
-      keyReferences: []
+      keyReferences: [],
+      notes: []
     }
     const watchers: FakeWatcher[] = []
     const watchFactory: DelegatedAiActionWatchFactory = vi.fn(() => {
@@ -191,7 +192,8 @@ describe('DelegatedAiActionProcessor', () => {
           feeAgreements: [],
           billingItems: [],
           keyDates: [],
-          keyReferences: []
+          keyReferences: [],
+          notes: []
         })),
         updateDossier,
         upsertKeyDate: vi.fn(),
@@ -262,7 +264,8 @@ describe('DelegatedAiActionProcessor', () => {
       feeAgreements: [],
       billingItems: [],
       keyDates: [],
-      keyReferences: []
+      keyReferences: [],
+      notes: []
     }
     const dossierService = {
       getDossier: vi.fn(async () => dossierMutationResult),
@@ -536,7 +539,8 @@ describe('DelegatedAiActionProcessor', () => {
       feeAgreements: [],
       billingItems: [],
       keyDates: [],
-      keyReferences: []
+      keyReferences: [],
+      notes: []
     }
     const processor = createDelegatedAiActionProcessor({
       domainService: {
@@ -695,7 +699,8 @@ describe('DelegatedAiActionProcessor', () => {
       feeAgreements: [],
       billingItems: [],
       keyDates: [],
-      keyReferences: []
+      keyReferences: [],
+      notes: []
     }
     const relocateMetadata = vi.fn(async () => ({
       id: 'moved/report.txt',
@@ -786,7 +791,8 @@ describe('DelegatedAiActionProcessor', () => {
       feeAgreements: [],
       billingItems: [],
       keyDates: [],
-      keyReferences: []
+      keyReferences: [],
+      notes: []
     }
     const dossierService = {
       getDossier: vi.fn(async () => dossierMutationResult),
@@ -869,7 +875,8 @@ describe('DelegatedAiActionProcessor', () => {
       feeAgreements: [],
       billingItems: [],
       keyDates: [],
-      keyReferences: []
+      keyReferences: [],
+      notes: []
     }
 
     await writeJson(oldFailedPath, { failedAt: '2026-03-10T08:00:00.000Z' })

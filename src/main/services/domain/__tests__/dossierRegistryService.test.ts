@@ -608,6 +608,117 @@ describe('dossier registry service', () => {
     expect(cleared.type).toBe('Civil litigation')
   })
 
+  it('creates, updates, and deletes dossier notes with per-file storage and index, triggering indexing', async () => {
+    const { domainPath, stateFilePath } = await createConfiguredDomain()
+    await mkdir(join(domainPath, 'Client Alpha'))
+
+    const indexed: string[] = []
+    let currentTime = new Date('2026-03-21T09:00:00.000Z')
+    const service = createDossierRegistryService({
+      stateFilePath,
+      now: () => currentTime,
+      indexNote: async (_dossierPath, note) => {
+        indexed.push(note.id)
+      }
+    })
+
+    await service.registerDossier({ id: 'Client Alpha' })
+
+    const created = await service.upsertNote({
+      dossierId: 'Client Alpha',
+      title: 'Vérifier la prescription',
+      content: 'Délai possiblement expiré le 12/04.',
+      kind: 'to_verify',
+      tags: ['prescription', 'prescription', '  '],
+      source: 'ai'
+    })
+
+    const note = created.notes.find((entry) => entry.title === 'Vérifier la prescription')
+    expect(note).toBeDefined()
+    expect(note).toMatchObject({
+      kind: 'to_verify',
+      source: 'ai',
+      tags: ['prescription'], // trimmed + de-duplicated, blanks dropped
+      createdAt: '2026-03-21T09:00:00.000Z',
+      updatedAt: '2026-03-21T09:00:00.000Z'
+    })
+    expect(indexed).toEqual([note?.id])
+
+    // The note record and its index entry are persisted; embeddings are not in
+    // dossier.json (per-file storage).
+    const notePath = join(domainPath, 'Client Alpha', '.ordicab', 'notes', `${note?.id}.json`)
+    const indexPath = join(domainPath, 'Client Alpha', '.ordicab', 'notes-index.json')
+    expect(await pathExists(notePath)).toBe(true)
+    const indexJson = JSON.parse(await readFile(indexPath, 'utf8')) as { notes: { id: string }[] }
+    expect(indexJson.notes.map((entry) => entry.id)).toEqual([note?.id])
+    const dossierJson = JSON.parse(
+      await readFile(join(domainPath, 'Client Alpha', '.ordicab', 'dossier.json'), 'utf8')
+    ) as { notes: unknown[] }
+    expect(dossierJson.notes).toEqual([])
+
+    currentTime = new Date('2026-03-21T09:10:00.000Z')
+    const updated = await service.upsertNote({
+      id: note?.id,
+      dossierId: 'Client Alpha',
+      title: 'Vérifier la prescription',
+      content: 'Confirmé : prescription acquise.',
+      kind: 'to_verify',
+      status: 'done'
+    })
+    const updatedNote = updated.notes.find((entry) => entry.id === note?.id)
+    expect(updatedNote).toMatchObject({
+      content: 'Confirmé : prescription acquise.',
+      status: 'done',
+      createdAt: '2026-03-21T09:00:00.000Z', // preserved
+      updatedAt: '2026-03-21T09:10:00.000Z' // bumped
+    })
+    expect(indexed).toEqual([note?.id, note?.id]) // re-indexed on update
+
+    const afterDelete = await service.deleteNote({
+      dossierId: 'Client Alpha',
+      noteId: note?.id ?? ''
+    })
+    expect(afterDelete.notes).toEqual([])
+    expect(await pathExists(notePath)).toBe(false)
+  })
+
+  it('falls back to a substring scan for searchNotes when no embedder is wired', async () => {
+    const { domainPath, stateFilePath } = await createConfiguredDomain()
+    await mkdir(join(domainPath, 'Client Alpha'))
+
+    const service = createDossierRegistryService({
+      stateFilePath,
+      now: () => new Date('2026-03-21T09:00:00.000Z')
+    })
+
+    await service.registerDossier({ id: 'Client Alpha' })
+    await service.upsertNote({
+      dossierId: 'Client Alpha',
+      title: 'Prescription',
+      content: 'Vérifier le délai de prescription.',
+      kind: 'to_verify'
+    })
+    await service.upsertNote({
+      dossierId: 'Client Alpha',
+      title: 'Appeler le client',
+      content: 'Rappeler avant vendredi.',
+      kind: 'todo',
+      status: 'open'
+    })
+
+    const hits = await service.searchNotes({ dossierId: 'Client Alpha', query: 'prescription' })
+    expect(hits).toHaveLength(1)
+    expect(hits[0]).toMatchObject({ title: 'Prescription', matchKind: 'keyword' })
+
+    // Kind/status filters narrow the candidate set before search.
+    const todoHits = await service.searchNotes({
+      dossierId: 'Client Alpha',
+      query: 'prescription',
+      kind: 'todo'
+    })
+    expect(todoHits).toEqual([])
+  })
+
   it('rejects duplicate registration without mutating registry files', async () => {
     const { domainPath, stateFilePath } = await createConfiguredDomain()
     await mkdir(join(domainPath, 'Client Alpha'))

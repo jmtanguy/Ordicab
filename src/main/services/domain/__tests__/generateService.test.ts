@@ -69,6 +69,7 @@ function createDossierDetail(overrides: Partial<DossierDetail> = {}): DossierDet
         note: 'Tribunal reference'
       }
     ],
+    notes: [],
     ...overrides
   }
 }

@@ -107,6 +107,8 @@ export function createOrdicabApi(
       unregister: (input) => invoke(ipcInvoke, IPC_CHANNELS.dossier.unregister, input),
       upsertKeyDate: (input) => invoke(ipcInvoke, IPC_CHANNELS.dossier.upsertKeyDate, input),
       deleteKeyDate: (input) => invoke(ipcInvoke, IPC_CHANNELS.dossier.deleteKeyDate, input),
+      upsertNote: (input) => invoke(ipcInvoke, IPC_CHANNELS.dossier.upsertNote, input),
+      deleteNote: (input) => invoke(ipcInvoke, IPC_CHANNELS.dossier.deleteNote, input),
       upsertFeeAgreement: (input) =>
         invoke(ipcInvoke, IPC_CHANNELS.dossier.upsertFeeAgreement, input),
       deleteFeeAgreement: (input) =>

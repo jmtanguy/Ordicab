@@ -131,7 +131,8 @@ const DOSSIER_DETAIL: DossierDetail = {
   feeAgreements: [],
   billingItems: [],
   keyDates: [],
-  keyReferences: []
+  keyReferences: [],
+  notes: []
 }
 
 const DOCUMENTS: DocumentRecord[] = [
@@ -290,7 +291,10 @@ describe('aiService prompt tuning harness', () => {
         upsertKeyReference: vi.fn().mockResolvedValue(undefined),
         deleteKeyReference: vi.fn().mockResolvedValue(undefined),
         upsertBillingItem: vi.fn().mockResolvedValue(undefined),
-        deleteBillingItem: vi.fn().mockResolvedValue(undefined)
+        deleteBillingItem: vi.fn().mockResolvedValue(undefined),
+        upsertNote: vi.fn().mockResolvedValue(undefined),
+        deleteNote: vi.fn().mockResolvedValue(undefined),
+        searchNotes: vi.fn().mockResolvedValue([])
       },
       invoiceService: {
         list: vi.fn().mockResolvedValue([]),
@@ -419,7 +423,10 @@ describe('aiService prompt tuning harness', () => {
         upsertKeyReference: vi.fn().mockResolvedValue(undefined),
         deleteKeyReference: vi.fn().mockResolvedValue(undefined),
         upsertBillingItem: vi.fn().mockResolvedValue(undefined),
-        deleteBillingItem: vi.fn().mockResolvedValue(undefined)
+        deleteBillingItem: vi.fn().mockResolvedValue(undefined),
+        upsertNote: vi.fn().mockResolvedValue(undefined),
+        deleteNote: vi.fn().mockResolvedValue(undefined),
+        searchNotes: vi.fn().mockResolvedValue([])
       },
       invoiceService: {
         list: vi.fn().mockResolvedValue([]),
@@ -536,7 +543,10 @@ describe('aiService prompt tuning harness', () => {
         upsertKeyReference: vi.fn().mockResolvedValue(undefined),
         deleteKeyReference: vi.fn().mockResolvedValue(undefined),
         upsertBillingItem: vi.fn().mockResolvedValue(undefined),
-        deleteBillingItem: vi.fn().mockResolvedValue(undefined)
+        deleteBillingItem: vi.fn().mockResolvedValue(undefined),
+        upsertNote: vi.fn().mockResolvedValue(undefined),
+        deleteNote: vi.fn().mockResolvedValue(undefined),
+        searchNotes: vi.fn().mockResolvedValue([])
       },
       invoiceService: {
         list: vi.fn().mockResolvedValue([]),
@@ -657,7 +667,10 @@ describe('aiService prompt tuning harness', () => {
         upsertKeyReference: vi.fn().mockResolvedValue(undefined),
         deleteKeyReference: vi.fn().mockResolvedValue(undefined),
         upsertBillingItem: vi.fn().mockResolvedValue(undefined),
-        deleteBillingItem: vi.fn().mockResolvedValue(undefined)
+        deleteBillingItem: vi.fn().mockResolvedValue(undefined),
+        upsertNote: vi.fn().mockResolvedValue(undefined),
+        deleteNote: vi.fn().mockResolvedValue(undefined),
+        searchNotes: vi.fn().mockResolvedValue([])
       },
       invoiceService: {
         list: vi.fn().mockResolvedValue([]),
@@ -774,7 +787,10 @@ describe('aiService prompt tuning harness', () => {
         upsertKeyReference: vi.fn().mockResolvedValue(undefined),
         deleteKeyReference: vi.fn().mockResolvedValue(undefined),
         upsertBillingItem: vi.fn().mockResolvedValue(undefined),
-        deleteBillingItem: vi.fn().mockResolvedValue(undefined)
+        deleteBillingItem: vi.fn().mockResolvedValue(undefined),
+        upsertNote: vi.fn().mockResolvedValue(undefined),
+        deleteNote: vi.fn().mockResolvedValue(undefined),
+        searchNotes: vi.fn().mockResolvedValue([])
       },
       invoiceService: {
         list: vi.fn().mockResolvedValue([]),
@@ -866,7 +882,10 @@ describe('aiService prompt tuning harness', () => {
         upsertKeyReference: vi.fn().mockResolvedValue(undefined),
         deleteKeyReference: vi.fn().mockResolvedValue(undefined),
         upsertBillingItem: vi.fn().mockResolvedValue(undefined),
-        deleteBillingItem: vi.fn().mockResolvedValue(undefined)
+        deleteBillingItem: vi.fn().mockResolvedValue(undefined),
+        upsertNote: vi.fn().mockResolvedValue(undefined),
+        deleteNote: vi.fn().mockResolvedValue(undefined),
+        searchNotes: vi.fn().mockResolvedValue([])
       },
       invoiceService: {
         list: vi.fn().mockResolvedValue([]),
@@ -984,7 +1003,10 @@ describe('aiService prompt tuning harness', () => {
         upsertKeyReference: vi.fn().mockResolvedValue(undefined),
         deleteKeyReference: vi.fn().mockResolvedValue(undefined),
         upsertBillingItem: vi.fn().mockResolvedValue(undefined),
-        deleteBillingItem: vi.fn().mockResolvedValue(undefined)
+        deleteBillingItem: vi.fn().mockResolvedValue(undefined),
+        upsertNote: vi.fn().mockResolvedValue(undefined),
+        deleteNote: vi.fn().mockResolvedValue(undefined),
+        searchNotes: vi.fn().mockResolvedValue([])
       },
       invoiceService: {
         list: vi.fn().mockResolvedValue([]),
@@ -1095,7 +1117,10 @@ describe('aiService prompt tuning harness', () => {
         upsertKeyReference: vi.fn().mockResolvedValue(undefined),
         deleteKeyReference: vi.fn().mockResolvedValue(undefined),
         upsertBillingItem: vi.fn().mockResolvedValue(undefined),
-        deleteBillingItem: vi.fn().mockResolvedValue(undefined)
+        deleteBillingItem: vi.fn().mockResolvedValue(undefined),
+        upsertNote: vi.fn().mockResolvedValue(undefined),
+        deleteNote: vi.fn().mockResolvedValue(undefined),
+        searchNotes: vi.fn().mockResolvedValue([])
       },
       invoiceService: {
         list: vi.fn().mockResolvedValue([]),

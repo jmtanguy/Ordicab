@@ -13,6 +13,7 @@ import type {
   AppLocale,
   DocumentRecord,
   DossierDetail,
+  DossierSummarizeIntent,
   DossierSummary,
   InternalAiCommand,
   TextGenerateIntent
@@ -139,6 +140,46 @@ export async function handleTextGenerate(
   console.log('╚══════════════════════════════════════════════════════════')
   // generatedText is already pseudonymized — store it directly in history.
   ctx.commitIntentToHistory(generatedText.trim(), intent.type)
+  return {
+    intent,
+    feedback,
+    debugContext: ctx.aiAgentRuntime.getDebugTrace() ?? undefined
+  }
+}
+
+// ── dossier_summarize (executive dossier synthesis, second LLM call) ─────────
+
+export async function handleDossierSummarize(
+  ctx: IntentHandlerContext,
+  intent: DossierSummarizeIntent
+): Promise<AiCommandResult> {
+  const targetDossierId = intent.dossierId ?? ctx.dossierId ?? ''
+  if (!targetDossierId) {
+    const feedback =
+      ctx.appLocale === 'en'
+        ? 'No active dossier — select one before requesting a summary.'
+        : 'Aucun dossier actif — sélectionnez-en un avant de demander une synthèse.'
+    ctx.commitIntentToHistory(feedback, intent.type)
+    return { intent, feedback, debugContext: ctx.intentDebugTrace }
+  }
+
+  const { prompt, systemPrompt } = buildDossierSummaryPrompt(
+    ctx.dossierDetail,
+    ctx.documents,
+    intent.language ?? ctx.appLocale
+  )
+  const safePrompt = await ctx.pseudonymizeText(prompt)
+  const safeSystemPrompt = await ctx.pseudonymizeText(systemPrompt)
+
+  const summary = await ctx.aiAgentRuntime.streamText(
+    safePrompt,
+    safeSystemPrompt,
+    undefined,
+    ctx.onToken
+  )
+  const feedback = ctx.revertPiiText(summary.trim())
+  // summary is already pseudonymized — store it directly in history.
+  ctx.commitIntentToHistory(summary.trim(), intent.type)
   return {
     intent,
     feedback,
@@ -378,4 +419,120 @@ async function buildTextGenerationPrompt(
       : `Write ${typeLabel} for: ${intent.instructions}`
 
   return { prompt, systemPrompt: systemLines.join('\n') }
+}
+
+// ── Dossier-summary prompt builder ───────────────────────────────────────────
+
+/** Narrow the context dossier to a full DossierDetail (has keyDates/notes). */
+function hasDossierDetailFields(
+  dossier: DossierDetail | DossierSummary | null
+): dossier is DossierDetail {
+  return !!dossier && 'keyDates' in dossier
+}
+
+function buildDossierSummaryPrompt(
+  dossier: DossierDetail | DossierSummary | null,
+  documents: DocumentRecord[],
+  locale: string
+): { prompt: string; systemPrompt: string } {
+  const lang = locale === 'en' ? 'en' : 'fr'
+  const langName = lang === 'fr' ? 'French' : 'English'
+  const none = lang === 'fr' ? '(aucun)' : '(none)'
+
+  const systemPrompt = [
+    `You are a legal assistant drafting an executive summary of a dossier. Write in ${langName}.`,
+    'Produce a structured synthesis using short Markdown section headings.',
+    lang === 'fr'
+      ? 'Couvre, dans cet ordre, les sections pertinentes : Objet du dossier, Parties, ' +
+        'Faits & contexte, Chronologie & échéances à venir, Références clés, Points à traiter.'
+      : 'Cover, in this order, the relevant sections: Object, Parties, Facts & context, ' +
+        'Timeline & upcoming deadlines, Key references, Open points.',
+    'Be factual and concise. Use ONLY the data provided below — never invent facts, names, ' +
+      'dates or amounts.',
+    lang === 'fr'
+      ? 'Si une section ne contient aucune donnée, indique-le brièvement plutôt que de combler par déduction.'
+      : 'If a section has no data, say so briefly rather than filling it by inference.',
+    'Do not add commentary outside the summary itself.'
+  ].join('\n')
+
+  const sections: string[] = []
+  const L = (label: string, value: string | undefined | null): string =>
+    `${label}: ${value && value.trim() ? value.trim() : none}`
+
+  // Object / nature
+  const objectLines = [
+    L(lang === 'fr' ? 'Nom' : 'Name', dossier && 'name' in dossier ? dossier.name : undefined),
+    L(lang === 'fr' ? 'Type' : 'Type', dossier && 'type' in dossier ? dossier.type : undefined),
+    L(
+      lang === 'fr' ? 'Statut' : 'Status',
+      dossier && 'status' in dossier ? dossier.status : undefined
+    )
+  ]
+  if (hasDossierDetailFields(dossier)) {
+    objectLines.push(
+      L(lang === 'fr' ? 'Juridiction' : 'Jurisdiction', dossier.juridiction),
+      L('Tribunal', dossier.tribunal),
+      L('Description', dossier.description),
+      L('Information', dossier.information)
+    )
+  }
+  sections.push(`## ${lang === 'fr' ? 'Objet du dossier' : 'Object'}\n${objectLines.join('\n')}`)
+
+  // Timeline & upcoming deadlines
+  if (hasDossierDetailFields(dossier)) {
+    const keyDateLines = dossier.keyDates.map((kd) => {
+      const when = [kd.date, kd.time].filter(Boolean).join(' ')
+      const flags = [
+        kd.isClosed ? (lang === 'fr' ? 'clôturée' : 'closed') : undefined,
+        kd.tags && kd.tags.length ? kd.tags.join(', ') : undefined
+      ]
+        .filter(Boolean)
+        .join(' — ')
+      return `- ${when} — ${kd.label}${flags ? ` [${flags}]` : ''}${kd.note ? ` (${kd.note})` : ''}`
+    })
+    sections.push(
+      `## ${lang === 'fr' ? 'Chronologie & échéances' : 'Timeline & deadlines'}\n${
+        keyDateLines.length ? keyDateLines.join('\n') : none
+      }`
+    )
+
+    // Key references
+    const refLines = dossier.keyReferences.map(
+      (kr) => `- ${kr.label}: ${kr.value}${kr.note ? ` (${kr.note})` : ''}`
+    )
+    sections.push(
+      `## ${lang === 'fr' ? 'Références clés' : 'Key references'}\n${
+        refLines.length ? refLines.join('\n') : none
+      }`
+    )
+
+    // Open points (todo / to_verify still open)
+    const openNotes = dossier.notes.filter(
+      (n) => (n.kind === 'todo' || n.kind === 'to_verify') && n.status !== 'done'
+    )
+    const noteLines = openNotes.map(
+      (n) => `- [${n.kind}] ${n.title}${n.content ? `: ${n.content}` : ''}`
+    )
+    sections.push(
+      `## ${lang === 'fr' ? 'Points à traiter' : 'Open points'}\n${
+        noteLines.length ? noteLines.join('\n') : none
+      }`
+    )
+  }
+
+  // Documents (use existing summaries only — do not trigger OCR/summarisation here)
+  const docLines = documents.map((d) => {
+    const meta = [d.description, d.tags && d.tags.length ? `tags: ${d.tags.join(', ')}` : undefined]
+      .filter(Boolean)
+      .join(' — ')
+    return `- ${d.filename}${meta ? `: ${meta}` : ''}`
+  })
+  sections.push(`## Documents\n${docLines.length ? docLines.join('\n') : none}`)
+
+  const intro =
+    lang === 'fr'
+      ? 'Synthétise le dossier à partir des données structurées suivantes :'
+      : 'Summarise the dossier from the following structured data:'
+
+  return { prompt: `${intro}\n\n${sections.join('\n\n')}`, systemPrompt }
 }

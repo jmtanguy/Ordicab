@@ -18,7 +18,9 @@ import type {
   DossierKeyDateDeleteInput,
   DossierKeyDateUpsertInput,
   DossierKeyReferenceDeleteInput,
-  DossierKeyReferenceUpsertInput
+  DossierKeyReferenceUpsertInput,
+  DossierNoteDeleteInput,
+  DossierNoteUpsertInput
 } from '@shared/types'
 import {
   buildBillingItemFromFeeAgreement,
@@ -41,6 +43,7 @@ import { DossierKeyDatesSection } from './DossierKeyDatesSection'
 import { DossierContactsSection } from './DossierContactsSection'
 import { DossierFeeAgreementSection } from './DossierFeeAgreementSection'
 import { DossierKeyReferencesSection } from './DossierKeyReferencesSection'
+import { DossierNotesSection } from './DossierNotesSection'
 import { DossierLegalAidSection } from './DossierLegalAidSection'
 import { useUiStore } from '@renderer/stores/uiStore'
 
@@ -59,6 +62,8 @@ export interface DossierDetailNotice {
     | 'billing-item-deleted'
     | 'key-reference-saved'
     | 'key-reference-deleted'
+    | 'note-saved'
+    | 'note-deleted'
     | 'legal-aid-saved'
     | 'legal-aid-configured'
   dossierName: string
@@ -72,6 +77,7 @@ export type DossierSection =
   | 'factures'
   | 'echeances'
   | 'references'
+  | 'notes'
   | 'documents'
   | 'search'
   | 'legal'
@@ -126,6 +132,14 @@ const NOTICE_TRANSLATIONS: Record<
     key: 'dossiers.detail_notice_key_reference_deleted',
     defaultValue: '{{name}} : référence supprimée.'
   },
+  'note-saved': {
+    key: 'dossiers.detail_notice_note_saved',
+    defaultValue: '{{name}} : note enregistrée.'
+  },
+  'note-deleted': {
+    key: 'dossiers.detail_notice_note_deleted',
+    defaultValue: '{{name}} : note supprimée.'
+  },
   'legal-aid-saved': {
     key: 'dossiers.detail_notice_legal_aid_saved',
     defaultValue: '{{name}} : aide juridictionnelle enregistrée.'
@@ -179,6 +193,8 @@ interface DossierDetailProps {
   onDeleteBillingItem: (input: DossierBillingItemDeleteInput) => Promise<boolean>
   onUpsertKeyReference: (input: DossierKeyReferenceUpsertInput) => Promise<boolean>
   onDeleteKeyReference: (input: DossierKeyReferenceDeleteInput) => Promise<boolean>
+  onUpsertNote: (input: DossierNoteUpsertInput) => Promise<boolean>
+  onDeleteNote: (input: DossierNoteDeleteInput) => Promise<boolean>
   onSaveDocumentMetadata: (input: DocumentMetadataUpdate) => Promise<boolean>
   onOpenDocumentPreview: (input: { dossierId: string; documentId: string }) => Promise<void>
   onOpenDocumentFile: (input: { dossierId: string; documentId: string }) => Promise<void>
@@ -218,6 +234,8 @@ export function DossierDetail({
   onDeleteBillingItem,
   onUpsertKeyReference,
   onDeleteKeyReference,
+  onUpsertNote,
+  onDeleteNote,
   onSaveDocumentMetadata,
   onOpenDocumentPreview,
   onOpenDocumentFile,
@@ -283,6 +301,8 @@ export function DossierDetail({
       onDeleteBillingItem={onDeleteBillingItem}
       onUpsertKeyReference={onUpsertKeyReference}
       onDeleteKeyReference={onDeleteKeyReference}
+      onUpsertNote={onUpsertNote}
+      onDeleteNote={onDeleteNote}
       onSaveDocumentMetadata={onSaveDocumentMetadata}
       onOpenDocumentPreview={onOpenDocumentPreview}
       onOpenDocumentFile={onOpenDocumentFile}
@@ -322,6 +342,8 @@ function DossierDetailLayout({
   onDeleteBillingItem,
   onUpsertKeyReference,
   onDeleteKeyReference,
+  onUpsertNote,
+  onDeleteNote,
   onSaveDocumentMetadata,
   onOpenDocumentPreview,
   onOpenDocumentFile,
@@ -357,6 +379,8 @@ function DossierDetailLayout({
   onDeleteBillingItem: (input: DossierBillingItemDeleteInput) => Promise<boolean>
   onUpsertKeyReference: (input: DossierKeyReferenceUpsertInput) => Promise<boolean>
   onDeleteKeyReference: (input: DossierKeyReferenceDeleteInput) => Promise<boolean>
+  onUpsertNote: (input: DossierNoteUpsertInput) => Promise<boolean>
+  onDeleteNote: (input: DossierNoteDeleteInput) => Promise<boolean>
   onSaveDocumentMetadata: (input: DocumentMetadataUpdate) => Promise<boolean>
   onOpenDocumentPreview: (input: { dossierId: string; documentId: string }) => Promise<void>
   onOpenDocumentFile: (input: { dossierId: string; documentId: string }) => Promise<void>
@@ -527,6 +551,23 @@ function DossierDetailLayout({
             }}
             onDelete={async (input) => {
               return onDeleteKeyReference(input)
+            }}
+          />
+        </DossierSectionPane>
+      )}
+
+      {activeSection === 'notes' && (
+        <DossierSectionPane>
+          <DossierNotesSection
+            dossierId={dossier.id}
+            dossierName={dossier.name}
+            entries={dossier.notes}
+            disabled={isSaving}
+            onSave={async (input) => {
+              return onUpsertNote(input)
+            }}
+            onDelete={async (input) => {
+              return onDeleteNote(input)
             }}
           />
         </DossierSectionPane>

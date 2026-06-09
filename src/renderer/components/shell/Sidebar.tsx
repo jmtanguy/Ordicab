@@ -25,6 +25,7 @@ export type DossierSection =
   | 'factures'
   | 'echeances'
   | 'references'
+  | 'notes'
   | 'documents'
   | 'search'
   | 'legal'
@@ -382,7 +383,8 @@ function SidebarLevel2({
       items: [
         { id: 'echeances', label: t('dossiers.key_dates_title') },
         { id: 'contacts', label: t('contacts.sectionTitle') },
-        { id: 'references', label: t('dossiers.key_references_title') }
+        { id: 'references', label: t('dossiers.key_references_title') },
+        { id: 'notes', label: t('dossiers.notes_nav_label', { defaultValue: 'Notes' }) }
       ]
     },
     {

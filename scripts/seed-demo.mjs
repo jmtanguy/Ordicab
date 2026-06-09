@@ -223,6 +223,66 @@ function makeBillingItem({
   }
 }
 
+function makeInvoiceLineFromBillingItem(item) {
+  return {
+    billingItemId: item.id,
+    date: item.date,
+    label: item.label,
+    ...(item.description ? { description: item.description } : {}),
+    quantity: item.quantity,
+    quantityUnit: item.quantityUnit,
+    unitPriceHtCents: item.unitPriceHtCents,
+    discountHtCents: item.discountHtCents,
+    subtotalHtCents: item.subtotalHtCents,
+    totalHtCents: item.totalHtCents,
+    vatRateBasisPoints: item.vatRateBasisPoints,
+    totalTtcCents: item.totalTtcCents
+  }
+}
+
+function makeInvoiceLines(items) {
+  return items.map(makeInvoiceLineFromBillingItem)
+}
+
+function sumCents(items, selector) {
+  return items.reduce((total, item) => total + selector(item), 0)
+}
+
+function makeVatBreakdown(lines) {
+  const byRate = new Map()
+  for (const line of lines) {
+    const current = byRate.get(line.vatRateBasisPoints) ?? {
+      vatRateBasisPoints: line.vatRateBasisPoints,
+      taxableHtCents: 0,
+      vatCents: 0,
+      totalTtcCents: 0
+    }
+    current.taxableHtCents += line.totalHtCents
+    current.vatCents += line.totalTtcCents - line.totalHtCents
+    current.totalTtcCents += line.totalTtcCents
+    byRate.set(line.vatRateBasisPoints, current)
+  }
+  return [...byRate.values()].sort((a, b) => a.vatRateBasisPoints - b.vatRateBasisPoints)
+}
+
+function makeInvoiceAmounts(lines) {
+  const totalHtCents = sumCents(lines, (line) => line.totalHtCents)
+  const totalTtcCents = sumCents(lines, (line) => line.totalTtcCents)
+  return {
+    totalHtCents,
+    totalVatCents: totalTtcCents - totalHtCents,
+    totalTtcCents,
+    vatBreakdown: makeVatBreakdown(lines)
+  }
+}
+
+function applyInvoiceAmounts(lines) {
+  return {
+    ...makeInvoiceAmounts(lines),
+    lines
+  }
+}
+
 // ─── Données du domaine ───────────────────────────────────────────────────────
 
 const domainData = {
@@ -542,9 +602,27 @@ const dossier1 = {
   nextUpcomingKeyDate: '2026-06-18',
   nextUpcomingKeyDateLabel: 'Audience de plaidoirie',
   keyReferences: [
-    { id: KR1_ID, dossierId: D1_ID, label: 'Nom du dossier', value: 'Dupont c/ Moreau SARL' },
-    { id: KR2_ID, dossierId: D1_ID, label: 'N° RG', value: '2026/00123' },
-    { id: KR3_ID, dossierId: D1_ID, label: 'Juridiction', value: 'Tribunal de Commerce de Lyon' }
+    {
+      id: KR1_ID,
+      dossierId: D1_ID,
+      label: 'Nom du dossier',
+      value: 'Dupont c/ Moreau SARL',
+      note: 'Référence interne utilisée dans les modèles.'
+    },
+    {
+      id: KR2_ID,
+      dossierId: D1_ID,
+      label: 'N° RG',
+      value: '2026/00123',
+      note: 'Numéro confirmé par le greffe après enrôlement.'
+    },
+    {
+      id: KR3_ID,
+      dossierId: D1_ID,
+      label: 'Juridiction',
+      value: 'Tribunal de Commerce de Lyon',
+      note: 'Compétence retenue au regard du contrat de prestation.'
+    }
   ],
   feeAgreements: [
     {
@@ -562,6 +640,8 @@ const dossier1 = {
       estimatedHours: 20,
       vatRateBasisPoints: 2000,
       paymentTerms: 'Paiement à 30 jours à compter de la date de facturation.',
+      notes:
+        'Convention signée sans remise. Prévoir un point de facturation après les conclusions en réponse.',
       sentAt: '2026-01-22',
       signedAt: '2026-01-25'
     }
@@ -765,10 +845,23 @@ const dossier2 = {
       id: KR4_ID,
       dossierId: D2_ID,
       label: 'Nom du dossier',
-      value: 'Renard - Procédure de divorce'
+      value: 'Renard - Procédure de divorce',
+      note: 'Libellé volontairement neutre pour les exports.'
     },
-    { id: KR5_ID, dossierId: D2_ID, label: 'N° RG', value: '2026/FAM/00087' },
-    { id: KR6_ID, dossierId: D2_ID, label: 'Juge référent', value: 'Mme la juge Martin' }
+    {
+      id: KR5_ID,
+      dossierId: D2_ID,
+      label: 'N° RG',
+      value: '2026/FAM/00087',
+      note: 'À reprendre dans tous les courriers au greffe.'
+    },
+    {
+      id: KR6_ID,
+      dossierId: D2_ID,
+      label: 'Juge référent',
+      value: 'Mme la juge Martin',
+      note: 'Mention issue de la convocation JAF.'
+    }
   ],
   feeAgreements: [
     {
@@ -786,6 +879,8 @@ const dossier2 = {
       hourlyRateHtCents: 20000,
       vatRateBasisPoints: 2000,
       paymentTerms: '50 % à la signature de la convention — solde à la clôture de la procédure.',
+      notes:
+        'Forfait initial ventilé en prestations facturables pour illustrer le suivi des diligences.',
       sentAt: '2026-02-03',
       signedAt: '2026-02-05'
     }
@@ -975,10 +1070,23 @@ const dossier3 = {
       id: KR7_ID,
       dossierId: D3_ID,
       label: 'Nom du dossier',
-      value: 'Fontaine - Accident de la route'
+      value: 'Fontaine - Accident de la route',
+      note: 'Dossier de préjudice corporel en phase amiable.'
     },
-    { id: KR8_ID, dossierId: D3_ID, label: 'N° police adverse', value: 'SEC-2025-L3-44821' },
-    { id: KR9_ID, dossierId: D3_ID, label: "Date de l'accident", value: '12 novembre 2025' }
+    {
+      id: KR8_ID,
+      dossierId: D3_ID,
+      label: 'N° police adverse',
+      value: 'SEC-2025-L3-44821',
+      note: 'Référence à rappeler dans les échanges assureur.'
+    },
+    {
+      id: KR9_ID,
+      dossierId: D3_ID,
+      label: "Date de l'accident",
+      value: '12 novembre 2025',
+      note: 'Date pivot pour les délais loi Badinter.'
+    }
   ],
   feeAgreements: [
     {
@@ -999,7 +1107,9 @@ const dossier3 = {
         "Honoraires de résultat de 10 % HT calculés sur les sommes obtenues au-delà de 10 000 € d'indemnisation totale.",
       vatRateBasisPoints: 2000,
       paymentTerms:
-        "Provision de 500 € HT à la signature — honoraires complémentaires à l'issue de la procédure."
+        "Provision de 500 € HT à la signature — honoraires complémentaires à l'issue de la procédure.",
+      notes:
+        'Convention encore en projet : attente retour client avant facturation des diligences non provisionnées.'
     }
   ],
   billingItems: [],
@@ -1064,7 +1174,7 @@ const contacts4 = [
 
 // D4 — 2 prestations issues de la convention AJ :
 //   • Rétribution État : 1 080 € HT, exonérée de TVA (pièce RET-0001, recouvrée CARPA)
-//   • Complément client :  500 € HT + TVA 20 % (facture FAC-0005)
+//   • Complément client :  500 € HT + TVA 20 % (facture FAC-2026-0003)
 const billingItems4 = [
   makeBillingItem({
     id: BI4_STATE_ID,
@@ -1185,15 +1295,23 @@ const dossier4 = {
       id: KR10_ID,
       dossierId: D4_ID,
       label: 'N° RG',
-      value: '2026/F/00214'
+      value: '2026/F/00214',
+      note: 'Référence prud’homale communiquée avec la convocation.'
     },
     {
       id: KR11_ID,
       dossierId: D4_ID,
       label: 'Décision AJ (BAJ)',
-      value: '2026/0457 — AJ partielle 55 %'
+      value: '2026/0457 — AJ partielle 55 %',
+      note: 'Base du paramétrage AJ et de la convention de complément.'
     },
-    { id: KR12_ID, dossierId: D4_ID, label: 'N° AJ / CARPA', value: 'AJ-2026-0457' }
+    {
+      id: KR12_ID,
+      dossierId: D4_ID,
+      label: 'N° AJ / CARPA',
+      value: 'AJ-2026-0457',
+      note: 'À mentionner sur la demande de recouvrement CARPA.'
+    }
   ],
   feeAgreements: [
     {
@@ -1217,6 +1335,8 @@ const dossier4 = {
       legalAidVatExempt: true,
       paymentTerms:
         "Rétribution de l'État recouvrée auprès de la CARPA. Complément d'honoraires de 500 € HT à la charge de la cliente, payable à réception de facture.",
+      notes:
+        'Convention AJ partielle : la note rappelle le plafond du complément et la séparation facture cliente / rétribution État.',
       sentAt: '2026-04-03',
       signedAt: '2026-04-05'
     }
@@ -1249,6 +1369,13 @@ const clientSnapshot4 = {
   address: '5, rue de la Part-Dieu — 69003 Lyon'
 }
 
+const invoice1Lines = makeInvoiceLines([billingItems1[0], billingItems1[1], billingItems1[2]])
+const invoice2Lines = makeInvoiceLines([billingItems1[3], billingItems1[4]])
+const invoice3Lines = makeInvoiceLines([billingItems2[0], billingItems2[1], billingItems2[2]])
+const invoice4Lines = makeInvoiceLines([billingItems3[0], billingItems3[1]])
+const invoice5Lines = makeInvoiceLines([billingItems4[0]])
+const invoice6Lines = makeInvoiceLines([billingItems4[1]])
+
 const invoices = [
   // ── FAC-2026-0001 : Dupont — consultation + assignation + mise en état dossier (5h = 125 000 ct HT) — payée
   {
@@ -1266,74 +1393,27 @@ const invoices = [
     clientSnapshot: clientSnapshot1,
     issuerSnapshot,
     templateId: 'default',
-    totalHtCents: 125000,
-    totalVatCents: 25000,
-    totalTtcCents: 150000,
-    vatBreakdown: [
-      { vatRateBasisPoints: 2000, taxableHtCents: 125000, vatCents: 25000, totalTtcCents: 150000 }
-    ],
+    ...applyInvoiceAmounts(invoice1Lines),
     status: 'paid',
     paymentStatus: 'paid',
-    paidAmountCents: 150000,
+    paidAmountCents: makeInvoiceAmounts(invoice1Lines).totalTtcCents,
     remainingAmountCents: 0,
     paidAt: '2026-03-20',
     payments: [
       {
         id: PAY1_ID,
         paidAt: '2026-03-20',
-        amountCents: 150000,
+        amountCents: makeInvoiceAmounts(invoice1Lines).totalTtcCents,
         method: 'transfer',
         reference: 'VRT-20260320',
+        notes: 'Règlement intégral de la première facture Dupont.',
         createdAt: '2026-03-20T10:00:00.000Z',
         updatedAt: '2026-03-20T10:00:00.000Z'
       }
     ],
     originalInvoiceRefs: [],
     paymentTerms: 'Paiement à 30 jours à compter de la date de facturation.',
-    lines: [
-      {
-        billingItemId: BI1A_ID,
-        date: '2026-02-03',
-        label: 'Consultation initiale et analyse du dossier',
-        description: 'Première consultation, recueil des faits, analyse des pièces contractuelles',
-        quantity: 1,
-        quantityUnit: 'hours',
-        unitPriceHtCents: 25000,
-        discountHtCents: 0,
-        subtotalHtCents: 25000,
-        totalHtCents: 25000,
-        vatRateBasisPoints: 2000,
-        totalTtcCents: 30000
-      },
-      {
-        billingItemId: BI1B_ID,
-        date: '2026-02-20',
-        label: "Rédaction de l'assignation",
-        description: 'Assignation devant le Tribunal de Commerce de Lyon',
-        quantity: 3,
-        quantityUnit: 'hours',
-        unitPriceHtCents: 25000,
-        discountHtCents: 0,
-        subtotalHtCents: 75000,
-        totalHtCents: 75000,
-        vatRateBasisPoints: 2000,
-        totalTtcCents: 90000
-      },
-      {
-        billingItemId: BI1C_ID,
-        date: '2026-02-25',
-        label: 'Signification et mise en état du dossier',
-        description: "Coordination avec l'huissier, constitution du dossier de pièces",
-        quantity: 1,
-        quantityUnit: 'hours',
-        unitPriceHtCents: 25000,
-        discountHtCents: 0,
-        subtotalHtCents: 25000,
-        totalHtCents: 25000,
-        vatRateBasisPoints: 2000,
-        totalTtcCents: 30000
-      }
-    ],
+    notes: 'Facture soldée. Les trois lignes sont dérivées des prestations facturées du dossier.',
     createdAt: '2026-02-28T10:00:00.000Z',
     updatedAt: '2026-03-20T10:00:00.000Z'
   },
@@ -1354,49 +1434,16 @@ const invoices = [
     clientSnapshot: clientSnapshot1,
     issuerSnapshot,
     templateId: 'default',
-    totalHtCents: 100000,
-    totalVatCents: 20000,
-    totalTtcCents: 120000,
-    vatBreakdown: [
-      { vatRateBasisPoints: 2000, taxableHtCents: 100000, vatCents: 20000, totalTtcCents: 120000 }
-    ],
+    ...applyInvoiceAmounts(invoice2Lines),
     status: 'issued',
     paymentStatus: 'unpaid',
     paidAmountCents: 0,
-    remainingAmountCents: 120000,
+    remainingAmountCents: makeInvoiceAmounts(invoice2Lines).totalTtcCents,
     payments: [],
     originalInvoiceRefs: [],
     paymentTerms: 'Paiement à 30 jours à compter de la date de facturation.',
-    lines: [
-      {
-        billingItemId: BI1D_ID,
-        date: '2026-03-12',
-        label: 'Audience de mise en état',
-        description: 'Présentation au Tribunal de Commerce de Lyon, fixation du calendrier',
-        quantity: 2,
-        quantityUnit: 'hours',
-        unitPriceHtCents: 25000,
-        discountHtCents: 0,
-        subtotalHtCents: 50000,
-        totalHtCents: 50000,
-        vatRateBasisPoints: 2000,
-        totalTtcCents: 60000
-      },
-      {
-        billingItemId: BI1E_ID,
-        date: '2026-03-28',
-        label: 'Analyse des pièces adverses',
-        description: 'Examen des conclusions et pièces communiquées par Moreau SARL',
-        quantity: 2,
-        quantityUnit: 'hours',
-        unitPriceHtCents: 25000,
-        discountHtCents: 0,
-        subtotalHtCents: 50000,
-        totalHtCents: 50000,
-        vatRateBasisPoints: 2000,
-        totalTtcCents: 60000
-      }
-    ],
+    notes:
+      'Facture en attente de règlement. Elle reprend uniquement les prestations marquées facturées sur FAC-2026-0005.',
     createdAt: '2026-04-15T10:00:00.000Z',
     updatedAt: '2026-04-15T10:00:00.000Z'
   },
@@ -1417,74 +1464,28 @@ const invoices = [
     clientSnapshot: clientSnapshot2,
     issuerSnapshot,
     templateId: 'default',
-    totalHtCents: 130000,
-    totalVatCents: 26000,
-    totalTtcCents: 156000,
-    vatBreakdown: [
-      { vatRateBasisPoints: 2000, taxableHtCents: 130000, vatCents: 26000, totalTtcCents: 156000 }
-    ],
+    ...applyInvoiceAmounts(invoice3Lines),
     status: 'paid',
     paymentStatus: 'paid',
-    paidAmountCents: 156000,
+    paidAmountCents: makeInvoiceAmounts(invoice3Lines).totalTtcCents,
     remainingAmountCents: 0,
     paidAt: '2026-04-10',
     payments: [
       {
         id: PAY3_ID,
         paidAt: '2026-04-10',
-        amountCents: 156000,
+        amountCents: makeInvoiceAmounts(invoice3Lines).totalTtcCents,
         method: 'transfer',
         reference: 'VRT-20260410',
+        notes: 'Règlement du premier appel forfaitaire et des diligences de préparation.',
         createdAt: '2026-04-10T10:00:00.000Z',
         updatedAt: '2026-04-10T10:00:00.000Z'
       }
     ],
     originalInvoiceRefs: [],
     paymentTerms: '50 % à la signature de la convention — solde à la clôture de la procédure.',
-    lines: [
-      {
-        billingItemId: BI2A_ID,
-        date: '2026-02-15',
-        label: 'Rédaction et dépôt de la requête en divorce',
-        description: 'Requête initiale, constitution du dossier JAF, bordereau de pièces',
-        quantity: 1,
-        quantityUnit: 'units',
-        unitPriceHtCents: 90000,
-        discountHtCents: 0,
-        subtotalHtCents: 90000,
-        totalHtCents: 90000,
-        vatRateBasisPoints: 2000,
-        totalTtcCents: 108000
-      },
-      {
-        billingItemId: BI2B_ID,
-        date: '2026-03-05',
-        label: 'Consultations et préparation des pièces',
-        description: 'Deux rendez-vous avec Mme Renard, collecte des pièces justificatives',
-        quantity: 2,
-        quantityUnit: 'hours',
-        unitPriceHtCents: 20000,
-        discountHtCents: 0,
-        subtotalHtCents: 40000,
-        totalHtCents: 40000,
-        vatRateBasisPoints: 2000,
-        totalTtcCents: 48000
-      },
-      {
-        billingItemId: BI2C_ID,
-        date: '2026-03-18',
-        label: 'Échanges avec le conseil adverse',
-        description: 'Courriers et appels téléphoniques avec Me Launay, conseil de M. Renard',
-        quantity: 1,
-        quantityUnit: 'hours',
-        unitPriceHtCents: 20000,
-        discountHtCents: 0,
-        subtotalHtCents: 20000,
-        totalHtCents: 20000,
-        vatRateBasisPoints: 2000,
-        totalTtcCents: 24000
-      }
-    ],
+    notes:
+      'Facture soldée. Montant aligné sur les prestations forfaitaires et horaires déjà facturées.',
     createdAt: '2026-03-25T10:00:00.000Z',
     updatedAt: '2026-04-10T10:00:00.000Z'
   },
@@ -1505,24 +1506,20 @@ const invoices = [
     clientSnapshot: clientSnapshot3,
     issuerSnapshot,
     templateId: 'default',
-    totalHtCents: 87500,
-    totalVatCents: 17500,
-    totalTtcCents: 105000,
-    vatBreakdown: [
-      { vatRateBasisPoints: 2000, taxableHtCents: 87500, vatCents: 17500, totalTtcCents: 105000 }
-    ],
+    ...applyInvoiceAmounts(invoice4Lines),
     status: 'paid',
     paymentStatus: 'paid',
-    paidAmountCents: 105000,
+    paidAmountCents: makeInvoiceAmounts(invoice4Lines).totalTtcCents,
     remainingAmountCents: 0,
     paidAt: '2026-04-22',
     payments: [
       {
         id: PAY4_ID,
         paidAt: '2026-04-22',
-        amountCents: 105000,
+        amountCents: makeInvoiceAmounts(invoice4Lines).totalTtcCents,
         method: 'transfer',
         reference: 'VRT-20260422',
+        notes: 'Provision réglée avant expertise médicale.',
         createdAt: '2026-04-22T10:00:00.000Z',
         updatedAt: '2026-04-22T10:00:00.000Z'
       }
@@ -1530,39 +1527,8 @@ const invoices = [
     originalInvoiceRefs: [],
     paymentTerms:
       "Provision de 500 € HT à la signature — honoraires complémentaires à l'issue de la procédure.",
-    notes: 'Facture de provision sur honoraires — dossier préjudice corporel.',
-    lines: [
-      {
-        billingItemId: BI3A_ID,
-        date: '2026-03-15',
-        label: 'Consultation initiale et analyse du dossier',
-        description:
-          'Première consultation, recueil des faits, examen du PV de constat et rapport médical initial',
-        quantity: 1.5,
-        quantityUnit: 'hours',
-        unitPriceHtCents: 25000,
-        discountHtCents: 0,
-        subtotalHtCents: 37500,
-        totalHtCents: 37500,
-        vatRateBasisPoints: 2000,
-        totalTtcCents: 45000
-      },
-      {
-        billingItemId: BI3B_ID,
-        date: '2026-04-05',
-        label: "Étude du rapport médical et préparation de l'expertise",
-        description:
-          "Analyse approfondie du rapport médical de consolidation, préparation des questions à l'expert",
-        quantity: 2,
-        quantityUnit: 'hours',
-        unitPriceHtCents: 25000,
-        discountHtCents: 0,
-        subtotalHtCents: 50000,
-        totalHtCents: 50000,
-        vatRateBasisPoints: 2000,
-        totalTtcCents: 60000
-      }
-    ],
+    notes:
+      'Facture de provision sur honoraires — dossier préjudice corporel. Montants issus des prestations facturées.',
     createdAt: '2026-04-10T10:00:00.000Z',
     updatedAt: '2026-04-22T10:00:00.000Z'
   },
@@ -1586,29 +1552,20 @@ const invoices = [
     },
     issuerSnapshot,
     templateId: 'default',
-    totalHtCents: D4_STATE_RETRIBUTION_HT,
-    totalVatCents: 0,
-    totalTtcCents: D4_STATE_RETRIBUTION_HT,
-    vatBreakdown: [
-      {
-        vatRateBasisPoints: 0,
-        taxableHtCents: D4_STATE_RETRIBUTION_HT,
-        vatCents: 0,
-        totalTtcCents: D4_STATE_RETRIBUTION_HT
-      }
-    ],
+    ...applyInvoiceAmounts(invoice5Lines),
     status: 'paid',
     paymentStatus: 'paid',
-    paidAmountCents: D4_STATE_RETRIBUTION_HT,
+    paidAmountCents: makeInvoiceAmounts(invoice5Lines).totalTtcCents,
     remainingAmountCents: 0,
     paidAt: '2026-05-02',
     payments: [
       {
         id: PAY5_ID,
         paidAt: '2026-05-02',
-        amountCents: D4_STATE_RETRIBUTION_HT,
+        amountCents: makeInvoiceAmounts(invoice5Lines).totalTtcCents,
         method: 'transfer',
         reference: 'CARPA-AJ-20260502',
+        notes: 'Versement CARPA de la rétribution AJ.',
         createdAt: '2026-05-02T10:00:00.000Z',
         updatedAt: '2026-05-02T10:00:00.000Z'
       }
@@ -1617,23 +1574,6 @@ const invoices = [
     paymentTerms: "Rétribution de l'État recouvrée auprès de la CARPA de Lyon.",
     notes:
       "Rétribution au titre de l'aide juridictionnelle (décision BAJ n° 2026/0457). Exonérée de TVA — art. 261-4-1° du CGI.",
-    lines: [
-      {
-        billingItemId: BI4_STATE_ID,
-        date: '2026-04-05',
-        label: `Rétribution AJ - État - ${D4_MATTER_LABEL}`,
-        description:
-          "Rétribution au titre de l'aide juridictionnelle partielle (55 %). Exonérée de TVA.",
-        quantity: 1,
-        quantityUnit: 'units',
-        unitPriceHtCents: D4_STATE_RETRIBUTION_HT,
-        discountHtCents: 0,
-        subtotalHtCents: D4_STATE_RETRIBUTION_HT,
-        totalHtCents: D4_STATE_RETRIBUTION_HT,
-        vatRateBasisPoints: 0,
-        totalTtcCents: D4_STATE_RETRIBUTION_HT
-      }
-    ],
     createdAt: '2026-04-08T10:00:00.000Z',
     updatedAt: '2026-05-02T10:00:00.000Z'
   },
@@ -1654,46 +1594,80 @@ const invoices = [
     clientSnapshot: clientSnapshot4,
     issuerSnapshot,
     templateId: 'default',
-    totalHtCents: D4_COMPLEMENT_HT,
-    totalVatCents: Math.round(D4_COMPLEMENT_HT * 0.2),
-    totalTtcCents: Math.round(D4_COMPLEMENT_HT * 1.2),
-    vatBreakdown: [
-      {
-        vatRateBasisPoints: 2000,
-        taxableHtCents: D4_COMPLEMENT_HT,
-        vatCents: Math.round(D4_COMPLEMENT_HT * 0.2),
-        totalTtcCents: Math.round(D4_COMPLEMENT_HT * 1.2)
-      }
-    ],
+    ...applyInvoiceAmounts(invoice6Lines),
     status: 'issued',
     paymentStatus: 'unpaid',
     paidAmountCents: 0,
-    remainingAmountCents: Math.round(D4_COMPLEMENT_HT * 1.2),
+    remainingAmountCents: makeInvoiceAmounts(invoice6Lines).totalTtcCents,
     payments: [],
     originalInvoiceRefs: [],
     paymentTerms: 'Paiement à 30 jours à compter de la date de facturation.',
     notes:
       "Complément d'honoraires librement négocié (AJ partielle), conformément à l'article 35 de la loi n° 91-647 du 10 juillet 1991. Plafond légal : 920 € HT.",
-    lines: [
-      {
-        billingItemId: BI4_COMPL_ID,
-        date: '2026-04-05',
-        label: `Complément d'honoraires - AJ partielle - ${D4_MATTER_LABEL}`,
-        description: "Complément d'honoraires librement négocié : 500,00 € HT.",
-        quantity: 1,
-        quantityUnit: 'units',
-        unitPriceHtCents: D4_COMPLEMENT_HT,
-        discountHtCents: 0,
-        subtotalHtCents: D4_COMPLEMENT_HT,
-        totalHtCents: D4_COMPLEMENT_HT,
-        vatRateBasisPoints: 2000,
-        totalTtcCents: Math.round(D4_COMPLEMENT_HT * 1.2)
-      }
-    ],
     createdAt: '2026-04-08T10:00:00.000Z',
     updatedAt: '2026-04-08T10:00:00.000Z'
   }
 ]
+
+const allBillingItems = [...billingItems1, ...billingItems2, ...billingItems3, ...billingItems4]
+
+function assertEqual(label, actual, expected) {
+  if (actual !== expected) {
+    throw new Error(`${label}: attendu ${expected}, obtenu ${actual}`)
+  }
+}
+
+function assertSeedInvoiceConsistency() {
+  const billingItemsById = new Map(allBillingItems.map((item) => [item.id, item]))
+  const invoicedLineIds = new Set()
+
+  for (const invoice of invoices) {
+    const amounts = makeInvoiceAmounts(invoice.lines)
+    assertEqual(`${invoice.number} total HT`, invoice.totalHtCents, amounts.totalHtCents)
+    assertEqual(`${invoice.number} total TVA`, invoice.totalVatCents, amounts.totalVatCents)
+    assertEqual(`${invoice.number} total TTC`, invoice.totalTtcCents, amounts.totalTtcCents)
+
+    const expectedVatBreakdown = JSON.stringify(amounts.vatBreakdown)
+    const actualVatBreakdown = JSON.stringify(invoice.vatBreakdown)
+    if (actualVatBreakdown !== expectedVatBreakdown) {
+      throw new Error(`${invoice.number} ventilation TVA incohérente`)
+    }
+
+    const paidAmountCents = sumCents(invoice.payments, (payment) => payment.amountCents)
+    assertEqual(`${invoice.number} paiements`, invoice.paidAmountCents, paidAmountCents)
+    assertEqual(
+      `${invoice.number} restant dû`,
+      invoice.remainingAmountCents,
+      invoice.totalTtcCents - invoice.paidAmountCents
+    )
+
+    for (const line of invoice.lines) {
+      const item = billingItemsById.get(line.billingItemId)
+      if (!item) {
+        throw new Error(`${invoice.number}: prestation introuvable ${line.billingItemId}`)
+      }
+      if (item.status !== 'billed') {
+        throw new Error(`${invoice.number}: prestation non facturée ${item.id}`)
+      }
+      assertEqual(`${invoice.number}/${item.id} invoiceId`, item.invoiceId, invoice.id)
+      assertEqual(`${invoice.number}/${item.id} invoiceNumber`, item.invoiceNumber, invoice.number)
+      assertEqual(`${invoice.number}/${item.id} HT`, line.totalHtCents, item.totalHtCents)
+      assertEqual(`${invoice.number}/${item.id} TTC`, line.totalTtcCents, item.totalTtcCents)
+      assertEqual(
+        `${invoice.number}/${item.id} TVA`,
+        line.vatRateBasisPoints,
+        item.vatRateBasisPoints
+      )
+      invoicedLineIds.add(item.id)
+    }
+  }
+
+  for (const item of allBillingItems) {
+    if (item.status === 'billed' && !invoicedLineIds.has(item.id)) {
+      throw new Error(`Prestation facturée absente des factures: ${item.id}`)
+    }
+  }
+}
 
 // ─── Documents de démonstration (vrais fichiers .docx, lisibles & indexables) ──
 
@@ -1973,6 +1947,8 @@ const documents4 = [
 // ─── Écriture des fichiers ────────────────────────────────────────────────────
 
 console.log(`\nGénération du domaine de démonstration : ${ROOT}\n`)
+
+assertSeedInvoiceConsistency()
 
 console.log('📁 Domaine')
 writeJson(join(ROOT, '.ordicab', 'domain.json'), domainData)

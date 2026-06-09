@@ -1,5 +1,6 @@
 import type { StoredDocumentMetadata } from './document'
 import type { DossierBillingItem, DossierFeeAgreement } from './billing'
+import type { DossierNote } from './dossierNote'
 
 export const DOSSIER_STATUS_VALUES = ['active', 'pending', 'completed', 'archived'] as const
 
@@ -299,6 +300,7 @@ export interface DossierDetail extends DossierSummary {
   billingItems: DossierBillingItem[]
   keyDates: KeyDate[]
   keyReferences: KeyReference[]
+  notes: DossierNote[]
 }
 
 export interface DossierMetadataFile extends DossierDetail {

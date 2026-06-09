@@ -33,6 +33,7 @@ function createDossierDetail(options: Partial<DossierDetail> = {}): DossierDetai
     billingItems: [],
     keyDates: [],
     keyReferences: [],
+    notes: [],
     ...options
   }
 }

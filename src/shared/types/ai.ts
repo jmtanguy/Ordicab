@@ -126,6 +126,10 @@ export type InternalAiCommandType =
   | 'dossier_create_billing_item'
   | 'dossier_update_billing_item'
   | 'dossier_delete_billing_item'
+  | 'note_create'
+  | 'note_update'
+  | 'note_delete'
+  | 'note_search'
   | 'text_generate'
   | 'direct_response'
   | 'clarification_request'
@@ -256,6 +260,12 @@ export interface TextGenerateIntent {
   instructions: string
 }
 
+export interface DossierSummarizeIntent {
+  type: 'dossier_summarize'
+  dossierId?: string
+  language?: string
+}
+
 export interface DirectResponseIntent {
   type: 'direct_response'
   message: string
@@ -361,6 +371,31 @@ export interface DossierDeleteBillingItemIntent {
   billingItemId: string
 }
 
+export interface DossierNoteFields {
+  dossierId: string
+  title: string
+  content?: string
+  kind?: 'note' | 'todo' | 'idea' | 'to_verify' | 'ai_log'
+  status?: 'open' | 'done'
+  tags?: string[]
+  pinned?: boolean
+}
+
+export interface NoteCreateIntent extends DossierNoteFields {
+  type: 'note_create'
+}
+
+export interface NoteUpdateIntent extends DossierNoteFields {
+  type: 'note_update'
+  noteId: string
+}
+
+export interface NoteDeleteIntent {
+  type: 'note_delete'
+  dossierId: string
+  noteId: string
+}
+
 export interface TemplateCreateIntent {
   type: 'template_create'
   name: string
@@ -439,7 +474,11 @@ export type InternalAiCommand =
   | DossierCreateBillingItemIntent
   | DossierUpdateBillingItemIntent
   | DossierDeleteBillingItemIntent
+  | NoteCreateIntent
+  | NoteUpdateIntent
+  | NoteDeleteIntent
   | TextGenerateIntent
+  | DossierSummarizeIntent
   | DirectResponseIntent
   | ClarificationRequestIntent
   | UnknownIntent

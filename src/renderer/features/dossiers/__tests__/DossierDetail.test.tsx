@@ -30,7 +30,8 @@ describe('DossierDetail', () => {
               feeAgreements: [],
               billingItems: [],
               keyDates: [],
-              keyReferences: []
+              keyReferences: [],
+              notes: []
             }}
             isLoading={false}
             isSaving={false}
@@ -69,6 +70,8 @@ describe('DossierDetail', () => {
             onDeleteBillingItem={async () => true}
             onUpsertKeyReference={async () => true}
             onDeleteKeyReference={async () => true}
+            onUpsertNote={async () => true}
+            onDeleteNote={async () => true}
             onSaveDocumentMetadata={async () => true}
             onOpenDocumentPreview={async () => undefined}
             onOpenDocumentFile={async () => undefined}

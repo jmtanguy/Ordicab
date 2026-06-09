@@ -66,6 +66,7 @@ import {
   type IndexedDocument
 } from '../../lib/aiEmbedded/embeddings/semanticSearchService'
 import { keywordSearchDossier } from '../../lib/aiEmbedded/embeddings/keywordSearchService'
+import { mergeHybridHits } from '../../lib/aiEmbedded/embeddings/textSearchShared'
 import {
   DEFAULT_EMBEDDING_DIM,
   type EmbeddingServiceConfig
@@ -1769,21 +1770,8 @@ export function createDocumentService(options: DocumentServiceOptions): Document
       ])
 
       // Merge: keyword (exact) results first, then semantic results that don't
-      // duplicate a keyword hit on the same document span.
-      const seen = new Set(keywordHits.map((h) => `${h.documentId}:${h.charStart}:${h.charEnd}`))
-      const seenDocs = new Set(keywordHits.map((h) => h.documentId))
-      const semanticKept = semanticHits.filter((h) => {
-        const spanKey = `${h.documentId}:${h.charStart}:${h.charEnd}`
-        // Drop a semantic hit if the same span is already a keyword hit, or
-        // the document is already represented by a keyword hit (keyword wins
-        // — the document is known-relevant by literal presence).
-        return !seen.has(spanKey) && !seenDocs.has(h.documentId)
-      })
-
-      const merged = [
-        ...keywordHits.map((hit) => ({ hit, matchKind: 'keyword' as const })),
-        ...semanticKept.map((hit) => ({ hit, matchKind: 'semantic' as const }))
-      ]
+      // duplicate a keyword hit on the same document span. Shared with note search.
+      const merged = mergeHybridHits(keywordHits, semanticHits)
 
       return {
         dossierId: input.dossierId,

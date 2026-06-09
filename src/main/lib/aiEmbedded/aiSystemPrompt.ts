@@ -109,7 +109,7 @@ export function buildToolSystemPrompt(context: SystemPromptContext): string {
     '`managed_fields_get` is a schema prerequisite for create/update flows, not for read-only contact lookup.'
   )
   parts.push(
-    'For destructive actions (`contact_delete`, `template_delete`, `dossier_delete_key_date`, `dossier_delete_key_reference`): load live data first, then call `clarification_request` with exactly two options: ' +
+    'For destructive actions (`contact_delete`, `template_delete`, `dossier_delete_key_date`, `dossier_delete_key_reference`, `dossier_delete_billing_item`): load live data first, then call `clarification_request` with exactly two options: ' +
       (locale === 'en' ? '`Yes` and `No`. ' : '`Oui` and `Non`. ') +
       'Do not delete in the same turn as the confirmation request.'
   )
@@ -150,6 +150,12 @@ export function buildToolSystemPrompt(context: SystemPromptContext): string {
   parts.push(
     'Treat `entity_get` as the primary source of truth for the professional entity. Only say a cabinet field is missing when it is empty or absent in `entity_get`.'
   )
+  parts.push(
+    'Whenever you draft or generate any outgoing document or letter (courrier, mise en demeure, lettre de relance, attestation, conclusions, etc.), the sender / letterhead is ALWAYS the cabinet. ' +
+      'Call `entity_get` FIRST to fill the sender block (firm name, lawyer name, address, phone, email, and any other available `entity.*` field) — do this automatically, without being asked and without waiting for confirmation. ' +
+      'NEVER leave placeholders such as "[Votre Nom]", "[Nom du Cabinet]", "[Votre Adresse]", "[Votre Email]" for sender details: those values come from `entity_get`. ' +
+      'Only fields genuinely absent from `entity_get` may remain as an explicit placeholder.'
+  )
 
   parts.push('')
   parts.push('## Grounding')
@@ -164,6 +170,12 @@ export function buildToolSystemPrompt(context: SystemPromptContext): string {
   parts.push(
     'BAD: list documents, then emit `document_analyze` for every document in parallel — this overflows the tool-call channel and gets truncated. ' +
       'GOOD: one `document_search` call (or one `document_summary_batch` call when the goal is per-document output).'
+  )
+  parts.push(
+    'Structured monetary fields ending in `Cents` are integer cents, not euros. Convert them by dividing by 100, and when a sibling `Euros` field is present, use that formatted value in user-facing replies. Example: `totalTtcCents: 30000` means 300,00 €, not 30 000 €.'
+  )
+  parts.push(
+    'When answering about billing items, invoices, fees, or totals, display amounts excluding VAT (HT) first. End the answer with a total HT, then VAT/tax amounts when present, and the TTC total when VAT/taxes apply.'
   )
   if (locale === 'fr') {
     parts.push(
@@ -198,6 +210,22 @@ export function buildToolSystemPrompt(context: SystemPromptContext): string {
       '\n2. If a matching template exists, use `document_generate` (optionally via `template_select`).' +
       '\n3. Use `text_generate` only when no suitable template exists and the user confirms.'
   )
+  parts.push(
+    'For any letter or document you generate (template-based or via `text_generate`), call `entity_get` BEFORE generating so the cabinet letterhead / sender block is filled from the entity profile. ' +
+      'Pass the resolved cabinet values (firm name, lawyer name, address, phone, email) into the draft — never emit "[Votre Nom]" / "[Nom du Cabinet]" / "[Votre Adresse]" placeholders when `entity_get` provides them.'
+  )
+
+  parts.push('')
+  parts.push('## Dossier synthesis')
+  parts.push(
+    'When the user asks for a summary, synthesis or overview of the dossier ' +
+      '("synthétise ce dossier", "résumé du dossier", "fais le point sur le dossier", ' +
+      '"what\'s in this file"), call `dossier_summarize`. ' +
+      'The tool builds an executive summary covering object/nature, parties, facts & context, ' +
+      'timeline & upcoming deadlines, key references, and open points to handle. ' +
+      'Always call the tool — do NOT write the synthesis yourself. ' +
+      'This is for whole-dossier overviews; for per-document summaries use `document_summary_batch` instead.'
+  )
 
   parts.push('')
   parts.push('## Dossier management')
@@ -210,6 +238,8 @@ export function buildToolSystemPrompt(context: SystemPromptContext): string {
   parts.push('## Billing items (prestations)')
   parts.push(
     'Billing items (prestations) are billable lines of work on a dossier. They are visible through `dossier_get` (field `billingItems`). ' +
+      'Use `dossier_get` to list prestations, items to bill, draft billing items, or billed/non-billed work. ' +
+      'For totals, prefer the precomputed `financialSummary.billingItems` values instead of manually summing lines. ' +
       'Use `dossier_create_billing_item` to add one, `dossier_update_billing_item` to modify an existing one (load its exact `billingItemId` with `dossier_get` first), and `dossier_delete_billing_item` to remove one. ' +
       'Provide `quantity` + `quantityUnit` ("hours" or "units"), `unitPriceHtCents` (price excluding VAT, in cents), and `vatRateBasisPoints` (e.g. 2000 for 20%). ' +
       'The HT/VAT/TTC totals are computed automatically — never compute or pass them. ' +
@@ -227,7 +257,10 @@ export function buildToolSystemPrompt(context: SystemPromptContext): string {
   parts.push('')
   parts.push('## Invoices (factures)')
   parts.push(
-    'Use `invoice_list` to list issued invoices (optionally filtered by `dossierId`) and `invoice_get` to read a single invoice in full (lines, VAT, payments, status). ' +
+    'Issued invoices for the current dossier are visible through `dossier_get` (field `invoices`). ' +
+      'For dossier-level questions like "combien a été facturé dans ce dossier ?", call `dossier_get`; do not infer issued invoices from prestations alone. ' +
+      'For totals, prefer the precomputed `financialSummary.invoices` and `financialSummary.totals` values instead of manually summing invoices. ' +
+      'Use `invoice_list` only to list invoices across dossiers or when the user explicitly asks for the global invoice register. Use `invoice_get` to read a single invoice in full (lines, VAT, payments, status). ' +
       'These tools are READ-ONLY: you can summarise, analyse, or look up invoices and their payment status. ' +
       'You CANNOT create, cancel, record payments on, or otherwise modify an invoice. ' +
       'If the user asks to issue, cancel, mark paid, or add a payment to an invoice, explain that this is done by the user in the Invoices tab and is not available to the assistant.'
@@ -265,6 +298,17 @@ export function buildToolSystemPrompt(context: SystemPromptContext): string {
       'Do NOT invent past/upcoming — that is auto-derived from the date.' +
       '\n- `isClosed` (boolean) to mark an event as handled/closed. Defaults to false (open).' +
       '\nOnly set these when the user explicitly mentions them or context makes them unambiguous. Otherwise omit.'
+  )
+
+  parts.push('')
+  parts.push('## Notes and reminders (pense-bête)')
+  parts.push(
+    'Notes are the lawyer’s free-form memory on a dossier: reminders, todos, ideas, suppositions to verify, and research/reflection traces. They are SEPARATE from documents (uploaded files) and from key dates (dated events).' +
+      '\n- When the user asks you to remember / jot down / keep track of something, or to add a task or a "à vérifier", call `note_create`. Choose `kind`: "todo" for a task, "to_verify" for a supposition to check, "idea" for an idea, otherwise "note".' +
+      '\n- When YOU produce a research result or a line of reasoning that will be useful later (e.g. a legal analysis, a synthesis of several documents), you MAY persist it with `note_create` and `kind:"ai_log"` so it can be recalled in a future turn or session. Do this when the user asks you to keep a trace, or when the work is substantial and likely to be needed again — not for every trivial answer.' +
+      '\n- To recall existing notes ("what did I note about X", "is there a reminder", "did we already look into Y"), call `note_search` ONCE with a focused query (optionally narrowed by `kind`/`status`). Treat its results as the source — do not invent notes. If nothing matches, say so.' +
+      '\n- To change a note, call `note_search` first to get the exact `noteId`, then `note_update` (e.g. set `status:"done"` to complete a todo). Delete only after confirming with the user.' +
+      '\n- Prefer a note over a key date when there is no specific date attached; prefer a key date when the item is fundamentally a dated event.'
   )
 
   parts.push('')

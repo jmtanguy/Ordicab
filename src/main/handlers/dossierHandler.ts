@@ -24,6 +24,10 @@ import {
   dossierKeyReferenceDeleteInputSchema,
   dossierKeyReferenceUpsertInputSchema
 } from '@shared/validation/keyReference'
+import {
+  dossierNoteDeleteInputSchema,
+  dossierNoteUpsertInputSchema
+} from '@shared/validation/dossierNote'
 
 import {
   DossierRegistryError,
@@ -114,6 +118,24 @@ export function registerDossierHandlers(options: {
     fallback: 'Unable to delete dossier key date.',
     mapError: mapDossierError,
     handle: (input) => options.dossierService.deleteKeyDate(input)
+  })
+
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.upsertNote,
+    schema: dossierNoteUpsertInputSchema,
+    fallback: 'Unable to save dossier note.',
+    mapError: mapDossierError,
+    handle: (input) => options.dossierService.upsertNote(input)
+  })
+
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.deleteNote,
+    schema: dossierNoteDeleteInputSchema,
+    fallback: 'Unable to delete dossier note.',
+    mapError: mapDossierError,
+    handle: (input) => options.dossierService.deleteNote(input)
   })
 
   registerIpcHandler({

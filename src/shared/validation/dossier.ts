@@ -23,6 +23,7 @@ import { LEGAL_AID_STATUS_VALUES, LEGAL_AID_TYPE_VALUES } from '@shared/domain/d
 import { dossierIdSchema } from './dossierId'
 import { dossierBillingItemSchema, feeAgreementSchema } from './billing'
 import { storedDocumentMetadataSchema } from './document'
+import { dossierNoteSchema } from './dossierNote'
 import { keyDateSchema } from './keyDate'
 import { keyReferenceSchema } from './keyReference'
 
@@ -123,7 +124,11 @@ export const dossierDetailSchema = dossierSchema.extend({
   feeAgreements: z.array(feeAgreementSchema).default([]),
   billingItems: z.array(dossierBillingItemSchema).default([]),
   keyDates: z.array(keyDateSchema),
-  keyReferences: z.array(keyReferenceSchema)
+  keyReferences: z.array(keyReferenceSchema),
+  // Notes are stored per-file (notes/{id}.json) and loaded separately, like
+  // key dates. Defaulted so legacy dossier.json (no notes field) still parses;
+  // persisted metadata always strips them back to [].
+  notes: z.array(dossierNoteSchema).default([])
 })
 
 export const dossierMetadataFileSchema = dossierDetailSchema.extend({

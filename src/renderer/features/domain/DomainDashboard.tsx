@@ -20,6 +20,8 @@ import type {
   DossierKeyDateUpsertInput,
   DossierKeyReferenceDeleteInput,
   DossierKeyReferenceUpsertInput,
+  DossierNoteDeleteInput,
+  DossierNoteUpsertInput,
   DomainStatusSnapshot
 } from '@shared/types'
 
@@ -83,6 +85,8 @@ interface DomainDashboardProps {
   onDeleteDossierBillingItem: (input: DossierBillingItemDeleteInput) => Promise<boolean>
   onUpsertDossierKeyReference: (input: DossierKeyReferenceUpsertInput) => Promise<boolean>
   onDeleteDossierKeyReference: (input: DossierKeyReferenceDeleteInput) => Promise<boolean>
+  onUpsertDossierNote: (input: DossierNoteUpsertInput) => Promise<boolean>
+  onDeleteDossierNote: (input: DossierNoteDeleteInput) => Promise<boolean>
   onSaveDocumentMetadata: (input: DocumentMetadataUpdate) => Promise<boolean>
   onOpenDocumentPreview: (input: { dossierId: string; documentId: string }) => Promise<void>
   onOpenDocumentFile: (input: { dossierId: string; documentId: string }) => Promise<void>
@@ -135,6 +139,8 @@ export function DomainDashboard({
   onDeleteDossierBillingItem,
   onUpsertDossierKeyReference,
   onDeleteDossierKeyReference,
+  onUpsertDossierNote,
+  onDeleteDossierNote,
   onSaveDocumentMetadata,
   onOpenDocumentPreview,
   onOpenDocumentFile,
@@ -191,6 +197,8 @@ export function DomainDashboard({
         onDeleteBillingItem={onDeleteDossierBillingItem}
         onUpsertKeyReference={onUpsertDossierKeyReference}
         onDeleteKeyReference={onDeleteDossierKeyReference}
+        onUpsertNote={onUpsertDossierNote}
+        onDeleteNote={onDeleteDossierNote}
         onSaveDocumentMetadata={onSaveDocumentMetadata}
         onOpenDocumentPreview={onOpenDocumentPreview}
         onOpenDocumentFile={onOpenDocumentFile}

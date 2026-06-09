@@ -23,6 +23,9 @@ export const BATCHABLE_ACTION_TOOL_NAMES = new Set([
   'dossier_create_billing_item',
   'dossier_update_billing_item',
   'dossier_delete_billing_item',
+  'note_create',
+  'note_update',
+  'note_delete',
   'document_analyze',
   'document_metadata_save'
 ])
@@ -54,6 +57,9 @@ export const STALE_TOOL_NAMES_AFTER_ACTION: Partial<Record<string, string[]>> = 
   dossier_create_billing_item: ['dossier_get'],
   dossier_update_billing_item: ['dossier_get'],
   dossier_delete_billing_item: ['dossier_get'],
+  note_create: ['note_search', 'dossier_get'],
+  note_update: ['note_search', 'dossier_get'],
+  note_delete: ['note_search', 'dossier_get'],
   template_select: ['template_list'],
   template_create: ['template_list'],
   template_update: ['template_list'],
@@ -64,6 +70,7 @@ import { tool, type Tool } from 'ai'
 import { z } from 'zod'
 
 import { KEY_DATE_TAG_VALUES } from '@shared/domain/dossier'
+import { NOTE_KIND_VALUES, NOTE_STATUS_VALUES } from '@shared/domain/dossierNote'
 import {
   BILLING_ITEM_DISCOUNT_KIND_VALUES,
   BILLING_ITEM_QUANTITY_UNIT_VALUES,
@@ -139,6 +146,34 @@ const dossierKeyReferenceFieldsSchema = {
   label: z.string().describe('Label for the key reference.'),
   value: z.string().describe('Value of the key reference.'),
   note: z.string().optional().describe('Optional note.')
+} satisfies Record<string, z.ZodTypeAny>
+
+const dossierNoteFieldsSchema = {
+  dossierId: z
+    .string()
+    .describe('Target dossier ID. Omit-not-allowed: pass the active dossier ID.'),
+  title: z.string().describe('Short title summarising the note.'),
+  content: z
+    .string()
+    .optional()
+    .describe('Body of the note (plain text / light markdown). Optional but usually provided.'),
+  kind: z
+    .enum(NOTE_KIND_VALUES)
+    .optional()
+    .describe(
+      'Note kind. "note" (default) for a general memo, "todo" for a task, "idea" for an idea, ' +
+        '"to_verify" for a supposition to check, "ai_log" when YOU are saving a research or reasoning ' +
+        'trace for later recall. Defaults to "note".'
+    ),
+  status: z
+    .enum(NOTE_STATUS_VALUES)
+    .optional()
+    .describe('Todo status: "open" or "done". Use mainly with kind "todo".'),
+  tags: z
+    .array(z.string())
+    .optional()
+    .describe('Optional free-form tags (e.g. "prescription", "à rappeler client").'),
+  pinned: z.boolean().optional().describe('Pin the note to the top of the list.')
 } satisfies Record<string, z.ZodTypeAny>
 
 const dossierBillingItemFieldsSchema = {
@@ -298,8 +333,11 @@ export function buildDataTools(
     }),
     dossier_get: tool({
       description:
-        'Get the full details of a dossier including its key dates, key references, billing items (prestations), and fee agreements. ' +
+        'Get the full details of a dossier including its key dates, key references, billing items (prestations), fee agreements, and issued invoices (factures). ' +
+        'Use this for dossier-level questions about prestations, invoices already issued, amounts already invoiced, paid amounts, remaining payment status, and fee agreements. ' +
+        'The result includes `financialSummary` with precomputed HT, VAT, TTC, paid, and remaining totals; prefer those summary values for totals instead of manually summing lines. ' +
         'Use this before updating or deleting key dates, key references, or billing items to read the existing IDs. ' +
+        'Amount fields ending in Cents are integer cents; when present, prefer the sibling Display/Euros fields in user-facing replies. ' +
         'If you do not have the dossierId, call dossier_list first.',
       inputSchema: z.object({
         dossierId: z
@@ -346,10 +384,36 @@ export function buildDataTools(
       }),
       execute: async (args) => execute('document_search', args as Record<string, unknown>)
     }),
+    note_search: tool({
+      description:
+        'Hybrid search (keyword + semantic) over the dossier NOTES — the lawyer’s pense-bête / TODO / reflection log, including notes you previously saved as research or reasoning traces (kind "ai_log"). ' +
+        'Use this to recall things the lawyer asked to remember, open tasks, ideas, suppositions to verify, or what you logged earlier in this or a past session. ' +
+        'This is SEPARATE from document_search: notes are short authored memos, not the dossier’s documents. When the user asks "what did I note / did we already look into X / is there a reminder about Y", search here. ' +
+        'Returns matching notes with title, an excerpt, kind, and matchType. ' +
+        'Optionally narrow with kind and/or status. This tool is READ-ONLY; the loop continues.',
+      inputSchema: z.object({
+        query: z.string().describe('Natural language query describing the note(s) to find.'),
+        dossierId: z
+          .string()
+          .optional()
+          .describe('Target dossier ID. Omit to use the active dossier.'),
+        kind: z
+          .enum(NOTE_KIND_VALUES)
+          .optional()
+          .describe('Restrict to one note kind: note, todo, idea, to_verify, ai_log.'),
+        status: z
+          .enum(NOTE_STATUS_VALUES)
+          .optional()
+          .describe('Restrict to a todo status: open or done.')
+      }),
+      execute: async (args) => execute('note_search', args as Record<string, unknown>)
+    }),
     invoice_list: tool({
       description:
         'List the invoices (factures) issued by the cabinet, with their number, document type, status, payment status, dossier, client, total amounts (TTC), and key dates. ' +
+        'Use this first when the user asks how much has been invoiced/factured, paid, or remains due for a dossier. ' +
         'Optionally filter by dossierId to list only invoices of one dossier. ' +
+        'Amount fields ending in Cents are integer cents; when present, prefer the sibling Display/Euros fields in user-facing replies. ' +
         'This tool is READ-ONLY: it retrieves data and the loop continues. ' +
         'The assistant cannot create, cancel, or record payments on invoices — those actions are done by the user in the Invoices tab.',
       inputSchema: z.object({
@@ -366,6 +430,7 @@ export function buildDataTools(
       description:
         'Get the full details of a single invoice (facture) by its ID: line items, VAT breakdown, payments, status, and references. ' +
         'Call invoice_list first to discover invoice IDs. ' +
+        'Amount fields ending in Cents are integer cents; when present, prefer the sibling Display/Euros fields in user-facing replies. ' +
         'This tool is READ-ONLY.',
       inputSchema: z.object({
         invoiceId: z.string().describe('Invoice ID from invoice_list.')
@@ -697,6 +762,38 @@ export function buildBatchableActionTools(
       execute: async (args) =>
         execute('dossier_delete_billing_item', args as Record<string, unknown>)
     }),
+    note_create: tool({
+      description:
+        'Create a NEW note in the dossier — the lawyer’s pense-bête / TODO / reflection log. ' +
+        'Use this whenever the user asks you to remember, jot down, or keep track of something (a reminder, a task, an idea, a supposition to verify), ' +
+        'OR when you should persist a research/reasoning trace for later recall (set kind "ai_log"). ' +
+        'Prefer this over answering in prose when the user’s intent is to STORE information for later. ' +
+        'Use note_update (not note_create) to change an existing note — call note_search first to get its ID. ' +
+        'You MUST call this tool to persist the note — do NOT just describe it in text.',
+      inputSchema: z.object(dossierNoteFieldsSchema),
+      execute: async (args) => execute('note_create', args as Record<string, unknown>)
+    }),
+    note_update: tool({
+      description:
+        'Update an existing dossier note. Call note_search first to resolve the exact `noteId`. ' +
+        '`noteId` MUST be an exact existing ID — never omit it. Provide only the fields to change (e.g. set status "done" to complete a todo). ' +
+        'You MUST call this tool to persist the change — do NOT describe it in text.',
+      inputSchema: z.object({
+        noteId: z.string().describe('Existing note ID from note_search.'),
+        ...dossierNoteFieldsSchema
+      }),
+      execute: async (args) => execute('note_update', args as Record<string, unknown>)
+    }),
+    note_delete: tool({
+      description:
+        'Delete a note from the dossier. Call note_search first to resolve the noteId, and confirm with the user before deleting. ' +
+        'You MUST call this tool to perform the deletion — do NOT describe it in text.',
+      inputSchema: z.object({
+        dossierId: z.string().describe('Target dossier ID.'),
+        noteId: z.string().describe('ID of the note to delete.')
+      }),
+      execute: async (args) => execute('note_delete', args as Record<string, unknown>)
+    }),
     document_analyze: tool({
       description:
         'Read the text of a single document and return it as structured JSON. ' +
@@ -891,6 +988,21 @@ export const terminalActionTools = {
       contactId: z.string().optional().describe('Optional target contact ID.'),
       language: z.string().optional().describe('Output language, e.g. fr or en.'),
       instructions: z.string().describe('Drafting instructions.')
+    })
+  }),
+  dossier_summarize: tool({
+    description:
+      'Produce an executive summary of an ENTIRE dossier: object/nature, parties, facts & ' +
+      'context, timeline and upcoming deadlines, key references, and open points to handle. ' +
+      'Use this when the user asks for a summary, synthesis or overview of the dossier ' +
+      '("synthétise ce dossier", "résumé du dossier", "fais le point sur le dossier"). ' +
+      'You MUST call this tool to trigger the synthesis — do NOT write the summary yourself.',
+    inputSchema: z.object({
+      dossierId: z
+        .string()
+        .optional()
+        .describe('Target dossier ID. Omit to use the active dossier.'),
+      language: z.string().optional().describe('Output language, e.g. fr or en.')
     })
   }),
   clarification_request: tool({

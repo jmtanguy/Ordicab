@@ -143,6 +143,28 @@ export function getDossierKeyDateIndexPath(dossierPath: string): string {
   return join(getDossierOrdicabPath(dossierPath), 'key-dates-index.json')
 }
 
+export function getDossierNotesDirectoryPath(dossierPath: string): string {
+  return join(getDossierOrdicabPath(dossierPath), 'notes')
+}
+
+export function getDossierNoteRecordPath(dossierPath: string, id: string): string {
+  return join(getDossierNotesDirectoryPath(dossierPath), `${id}.json`)
+}
+
+export function getDossierNoteIndexPath(dossierPath: string): string {
+  return join(getDossierOrdicabPath(dossierPath), 'notes-index.json')
+}
+
+/**
+ * Per-note embedding cache. Mirrors the per-document content-cache shape
+ * (`{ text, embeddings }`) so the shared semantic-search engine can consume
+ * notes and documents through the same code path. Lives next to the note
+ * record but with a distinct suffix so it is never confused with it.
+ */
+export function getDossierNoteEmbeddingCachePath(dossierPath: string, id: string): string {
+  return join(getDossierNotesDirectoryPath(dossierPath), `${id}.embeddings.json`)
+}
+
 export function getDossierContentCachePath(dossierPath: string): string {
   return join(getDossierOrdicabPath(dossierPath), 'content-cache')
 }

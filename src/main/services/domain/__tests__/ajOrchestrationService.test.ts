@@ -79,7 +79,8 @@ function makeDossier(legalAidType: 'total' | 'partial'): DossierDetail {
     feeAgreements: [],
     billingItems: [],
     keyDates: [],
-    keyReferences: []
+    keyReferences: [],
+    notes: []
   }
 }
 

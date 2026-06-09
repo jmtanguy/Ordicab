@@ -326,7 +326,8 @@ describe('GenerateDocumentPanel', () => {
         keyDates: [
           { id: 'kd-stale', dossierId: 'other-dossier', label: 'Old hearing', date: '2026-02-01' }
         ],
-        keyReferences: []
+        keyReferences: [],
+        notes: []
       }
     })
 
@@ -365,7 +366,8 @@ describe('GenerateDocumentPanel', () => {
         feeAgreements: [],
         billingItems: [],
         keyDates: [{ id: 'kd-1', dossierId: 'dos-1', label: 'Fresh hearing', date: '2026-04-01' }],
-        keyReferences: []
+        keyReferences: [],
+        notes: []
       }
     })
 

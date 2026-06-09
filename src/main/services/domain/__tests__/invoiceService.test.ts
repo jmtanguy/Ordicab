@@ -139,6 +139,9 @@ function buildMocks(
     setActiveFeeAgreement: async () => state.dossier,
     upsertBillingItem: async () => state.dossier,
     deleteBillingItem: async () => state.dossier,
+    upsertNote: async () => state.dossier,
+    deleteNote: async () => state.dossier,
+    searchNotes: async () => [],
     markBillingItemsInvoiced: async (input) => {
       state.registryMarkCalls.push(input)
       state.dossier = {
@@ -548,6 +551,9 @@ describe('invoiceService', () => {
         setActiveFeeAgreement: async () => state.dossier,
         upsertBillingItem: async () => state.dossier,
         deleteBillingItem: async () => state.dossier,
+        upsertNote: async () => state.dossier,
+        deleteNote: async () => state.dossier,
+        searchNotes: async () => [],
         markBillingItemsInvoiced: async (input) => {
           state.registryMarkCalls.push(input)
           state.dossier = {

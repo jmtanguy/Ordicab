@@ -47,6 +47,7 @@ import {
 import type { EmbeddingServiceConfig } from './lib/aiEmbedded/embeddings/embeddingService'
 import { isModelPresent, EMBEDDING_MODEL } from './lib/aiEmbedded/modelDownloadService'
 import { createDocumentService, type DocumentService } from './services/domain/documentService'
+import { indexNoteEmbeddings, searchNotes } from './services/aiEmbedded/noteSearchService'
 import {
   createCabinetBillingService,
   type CabinetBillingService
@@ -253,9 +254,48 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
   const credentialStore = createCredentialStore(opts.safeStorage, appState)
   const legalService = createLegalService({ credentialStore })
 
+  // Spin up the embedding worker before any service that may need to embed
+  // (note indexing, document search, …). Without a worker, embedding inference
+  // falls back to the in-process embedBatch which is prone to HandleScope
+  // crashes in Electron's CFRunLoop integration on macOS arm64.
+  let embeddingWorkerClient: EmbeddingWorkerClient | null = null
+  if (opts.embeddingWorkerPath) {
+    embeddingWorkerClient = createEmbeddingWorkerClient({
+      workerPath: opts.embeddingWorkerPath,
+      defaultConfig: opts.modelsPath ? { modelPath: opts.modelsPath } : undefined
+    })
+  } else {
+    console.warn(
+      '[Container] No embeddingWorkerPath provided — embedding inference will run on the main thread and may freeze the UI during indexing.'
+    )
+  }
+
+  const workerEmbedder = embeddingWorkerClient
+    ? (texts: string[], config?: EmbeddingServiceConfig) =>
+        embeddingWorkerClient!.embedBatch(texts, config)
+    : undefined
+
+  const noteEmbeddingConfig = opts.modelsPath ? { modelPath: opts.modelsPath } : undefined
+
   const dossierService = createDossierRegistryService({
     stateFilePath: opts.stateFilePath,
     now: () => new Date(),
+    indexNote: (dossierPath, note) =>
+      indexNoteEmbeddings({
+        dossierPath,
+        note,
+        embeddingConfig: noteEmbeddingConfig,
+        embedder: workerEmbedder
+      }),
+    searchNotesInDossier: ({ dossierPath, notes, query, topK }) =>
+      searchNotes({
+        dossierPath,
+        notes,
+        query,
+        topK,
+        embeddingConfig: noteEmbeddingConfig,
+        embedder: workerEmbedder
+      }),
     onDossierRegistered: (dossierId, dossierPath) => {
       void subscribeQueueToFileEvents(dossierId, dossierPath).catch((error) => {
         console.error('[Container] Failed to subscribe file events for registered dossier.', error)
@@ -290,27 +330,6 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
   // instead. NER and embeddings remain available; only the 2-3 s first-call
   // latency increases.
   const modelWarmupPromise = Promise.resolve()
-
-  // Spin up the embedding worker before any service that may need to embed.
-  // Without a worker, semantic search and snippet refinement fall back to the
-  // in-process embedBatch which is prone to HandleScope crashes in Electron's
-  // CFRunLoop integration on macOS arm64.
-  let embeddingWorkerClient: EmbeddingWorkerClient | null = null
-  if (opts.embeddingWorkerPath) {
-    embeddingWorkerClient = createEmbeddingWorkerClient({
-      workerPath: opts.embeddingWorkerPath,
-      defaultConfig: opts.modelsPath ? { modelPath: opts.modelsPath } : undefined
-    })
-  } else {
-    console.warn(
-      '[Container] No embeddingWorkerPath provided — embedding inference will run on the main thread and may freeze the UI during indexing.'
-    )
-  }
-
-  const workerEmbedder = embeddingWorkerClient
-    ? (texts: string[], config?: EmbeddingServiceConfig) =>
-        embeddingWorkerClient!.embedBatch(texts, config)
-    : undefined
 
   const documentService = createDocumentService({
     stateFilePath: opts.stateFilePath,

@@ -48,6 +48,9 @@ import type { LegalService } from '../legal/legalService'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+type NoteKindArg = 'note' | 'todo' | 'idea' | 'to_verify' | 'ai_log'
+type NoteStatusArg = 'open' | 'done'
+
 export interface DataToolHistoryEntry {
   toolName: string
   args: Record<string, unknown>
@@ -66,6 +69,13 @@ function formatEurosFromCents(cents: number): string {
   }).format(cents / 100)
 }
 
+function addEuroDisplayFields(out: Record<string, unknown>, key: string, cents: number): void {
+  const stem = key.slice(0, -'Cents'.length)
+  const formatted = formatEurosFromCents(cents)
+  out[`${stem}Euros`] = formatted
+  out[`${stem}Display`] = formatted
+}
+
 export function enrichMoneyFieldsForAi(value: unknown): unknown {
   if (Array.isArray(value)) return value.map((item) => enrichMoneyFieldsForAi(item))
   if (!isJsonRecord(value)) return value
@@ -74,10 +84,134 @@ export function enrichMoneyFieldsForAi(value: unknown): unknown {
   for (const [key, child] of Object.entries(value)) {
     out[key] = enrichMoneyFieldsForAi(child)
     if (key.endsWith('Cents') && typeof child === 'number') {
-      out[`${key.slice(0, -'Cents'.length)}Euros`] = formatEurosFromCents(child)
+      addEuroDisplayFields(out, key, child)
     }
   }
+
+  if (
+    typeof out.totalHtCents === 'number' &&
+    typeof out.totalTtcCents === 'number' &&
+    typeof out.totalVatCents !== 'number'
+  ) {
+    const totalVatCents = Math.max(0, out.totalTtcCents - out.totalHtCents)
+    out.totalVatCents = totalVatCents
+    addEuroDisplayFields(out, 'totalVatCents', totalVatCents)
+  }
+
   return out
+}
+
+type MoneySummary = {
+  count: number
+  totalHtCents: number
+  totalVatCents: number
+  totalTtcCents: number
+}
+
+type InvoiceMoneySummary = MoneySummary & {
+  paidAmountCents: number
+  remainingAmountCents: number
+}
+
+function emptyMoneySummary(): MoneySummary {
+  return {
+    count: 0,
+    totalHtCents: 0,
+    totalVatCents: 0,
+    totalTtcCents: 0
+  }
+}
+
+function emptyInvoiceMoneySummary(): InvoiceMoneySummary {
+  return {
+    ...emptyMoneySummary(),
+    paidAmountCents: 0,
+    remainingAmountCents: 0
+  }
+}
+
+function addMoney(summary: MoneySummary, source: Record<string, unknown>): void {
+  const totalHtCents = typeof source.totalHtCents === 'number' ? source.totalHtCents : 0
+  const totalTtcCents = typeof source.totalTtcCents === 'number' ? source.totalTtcCents : 0
+  const totalVatCents =
+    typeof source.totalVatCents === 'number'
+      ? source.totalVatCents
+      : Math.max(0, totalTtcCents - totalHtCents)
+
+  summary.count += 1
+  summary.totalHtCents += totalHtCents
+  summary.totalVatCents += totalVatCents
+  summary.totalTtcCents += totalTtcCents
+}
+
+function addInvoiceMoney(summary: InvoiceMoneySummary, source: Record<string, unknown>): void {
+  addMoney(summary, source)
+  summary.paidAmountCents += typeof source.paidAmountCents === 'number' ? source.paidAmountCents : 0
+  summary.remainingAmountCents +=
+    typeof source.remainingAmountCents === 'number' ? source.remainingAmountCents : 0
+}
+
+function buildDossierFinancialSummary(
+  billingItems: unknown[],
+  invoices: unknown[]
+): Record<string, unknown> {
+  const billingByStatus = {
+    draft: emptyMoneySummary(),
+    billed: emptyMoneySummary(),
+    cancelled: emptyMoneySummary()
+  }
+  const billingTotal = emptyMoneySummary()
+
+  for (const item of billingItems) {
+    if (!isJsonRecord(item)) continue
+    addMoney(billingTotal, item)
+    const status = typeof item.status === 'string' ? item.status : ''
+    if (status === 'draft' || status === 'billed' || status === 'cancelled') {
+      addMoney(billingByStatus[status], item)
+    }
+  }
+
+  const invoicesByStatus: Record<string, InvoiceMoneySummary> = {}
+  const invoicesByPaymentStatus: Record<string, InvoiceMoneySummary> = {}
+  const invoiceTotal = emptyInvoiceMoneySummary()
+
+  for (const invoice of invoices) {
+    if (!isJsonRecord(invoice)) continue
+    addInvoiceMoney(invoiceTotal, invoice)
+
+    const status = typeof invoice.status === 'string' ? invoice.status : 'unknown'
+    invoicesByStatus[status] ??= emptyInvoiceMoneySummary()
+    addInvoiceMoney(invoicesByStatus[status], invoice)
+
+    const paymentStatus =
+      typeof invoice.paymentStatus === 'string' ? invoice.paymentStatus : 'unknown'
+    invoicesByPaymentStatus[paymentStatus] ??= emptyInvoiceMoneySummary()
+    addInvoiceMoney(invoicesByPaymentStatus[paymentStatus], invoice)
+  }
+
+  return {
+    billingItems: {
+      totals: billingTotal,
+      byStatus: billingByStatus,
+      unbilled: billingByStatus.draft,
+      billed: billingByStatus.billed
+    },
+    invoices: {
+      totals: invoiceTotal,
+      byStatus: invoicesByStatus,
+      byPaymentStatus: invoicesByPaymentStatus
+    },
+    totals: {
+      unbilledHtCents: billingByStatus.draft.totalHtCents,
+      unbilledVatCents: billingByStatus.draft.totalVatCents,
+      unbilledTtcCents: billingByStatus.draft.totalTtcCents,
+      invoicedHtCents: invoiceTotal.totalHtCents,
+      invoicedVatCents: invoiceTotal.totalVatCents,
+      invoicedTtcCents: invoiceTotal.totalTtcCents,
+      paidAmountCents: invoiceTotal.paidAmountCents,
+      remainingAmountCents: invoiceTotal.remainingAmountCents
+    }
+  }
 }
 
 // ── Pure helpers ──────────────────────────────────────────────────────────────
@@ -827,26 +961,6 @@ export class DataToolExecutor {
         : JSON.stringify({ error: `Contact not found: ${contactId}` })
     }
 
-    if (toolName === 'dossier_billing_item_list') {
-      try {
-        const detail = await dossierService.getDossier({ dossierId: targetDossierId })
-        const status = typeof args.status === 'string' ? args.status : ''
-        const billingItems =
-          status.length > 0
-            ? detail.billingItems.filter((item) => item.status === status)
-            : detail.billingItems
-        return JSON.stringify(
-          enrichMoneyFieldsForAi({
-            dossierId: detail.uuid ?? detail.id,
-            dossierName: detail.name,
-            billingItems
-          })
-        )
-      } catch {
-        return JSON.stringify({ error: `Dossier not found: ${targetDossierId}` })
-      }
-    }
-
     if (toolName === 'document_list') {
       const docs = await documentService
         .listDocuments({ dossierId: targetDossierId })
@@ -894,7 +1008,17 @@ export class DataToolExecutor {
     if (toolName === 'dossier_get') {
       try {
         const detail = await dossierService.getDossier({ dossierId: targetDossierId })
-        return JSON.stringify(enrichMoneyFieldsForAi({ dossier: detail }))
+        const invoices = await invoiceService.list().catch(() => [])
+        const dossierInvoices = invoices.filter((invoice) => invoice.dossierId === targetDossierId)
+        return JSON.stringify(
+          enrichMoneyFieldsForAi({
+            dossier: {
+              ...detail,
+              invoices: dossierInvoices,
+              financialSummary: buildDossierFinancialSummary(detail.billingItems, dossierInvoices)
+            }
+          })
+        )
       } catch {
         return JSON.stringify({ error: `Dossier not found: ${targetDossierId}` })
       }
@@ -913,6 +1037,34 @@ export class DataToolExecutor {
       } catch (err) {
         return JSON.stringify({
           error: `document_search failed: ${err instanceof Error ? err.message : 'unknown error'}`
+        })
+      }
+    }
+
+    if (toolName === 'note_search') {
+      const query = typeof args.query === 'string' ? args.query.trim() : ''
+      if (!query) return JSON.stringify({ error: 'query is required.' })
+      const kind = typeof args.kind === 'string' ? (args.kind as NoteKindArg) : undefined
+      const status = typeof args.status === 'string' ? (args.status as NoteStatusArg) : undefined
+
+      try {
+        const hits = await dossierService.searchNotes({
+          dossierId: targetDossierId,
+          query,
+          kind,
+          status
+        })
+        return JSON.stringify({
+          notes: hits.map((hit) => ({
+            noteId: hit.noteId,
+            title: hit.title,
+            excerpt: hit.snippet,
+            matchType: hit.matchKind === 'keyword' ? 'exact' : 'semantic'
+          }))
+        })
+      } catch (err) {
+        return JSON.stringify({
+          error: `note_search failed: ${err instanceof Error ? err.message : 'unknown error'}`
         })
       }
     }

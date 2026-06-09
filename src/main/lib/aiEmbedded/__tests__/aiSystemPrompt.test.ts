@@ -35,11 +35,16 @@ describe('buildToolSystemPrompt', () => {
   it('keeps destructive safety and grounding requirements', () => {
     const prompt = buildToolSystemPrompt({})
     expect(prompt).toContain('For destructive actions (`contact_delete`, `template_delete`')
+    expect(prompt).toContain('`dossier_delete_billing_item`')
     expect(prompt).toContain('`clarification_request` with exactly two options: `Oui` and `Non`')
     expect(prompt).toContain('## Professional entity / Cabinet')
     expect(prompt).toContain('call `entity_get` first')
+    expect(prompt).toContain('the sender / letterhead is ALWAYS the cabinet')
+    expect(prompt).toContain('NEVER leave placeholders')
     expect(prompt).toContain('## Grounding')
     expect(prompt).toContain('answer only from tool results')
+    expect(prompt).toContain('display amounts excluding VAT (HT) first')
+    expect(prompt).toContain('End the answer with a total HT')
   })
 
   it('keeps template-first generation workflow', () => {
@@ -47,5 +52,12 @@ describe('buildToolSystemPrompt', () => {
     expect(prompt).toContain('## Document and text generation workflow')
     expect(prompt).toContain('prefer template-based generation')
     expect(prompt).toContain('Use `text_generate` only when no suitable template exists')
+  })
+
+  it('guides whole-dossier synthesis to dossier_summarize', () => {
+    const prompt = buildToolSystemPrompt({})
+    expect(prompt).toContain('## Dossier synthesis')
+    expect(prompt).toContain('call `dossier_summarize`')
+    expect(prompt).toContain('do NOT write the synthesis yourself')
   })
 })

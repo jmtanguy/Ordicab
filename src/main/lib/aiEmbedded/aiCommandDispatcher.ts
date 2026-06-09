@@ -130,6 +130,27 @@ export interface DossierServiceLike {
     sourceKeyDateId?: string
   }): Promise<DossierDetail>
   deleteBillingItem(input: { dossierId: string; billingItemId: string }): Promise<DossierDetail>
+  upsertNote(input: {
+    dossierId: string
+    id?: string
+    title: string
+    content?: string
+    kind?: 'note' | 'todo' | 'idea' | 'to_verify' | 'ai_log'
+    status?: 'open' | 'done'
+    tags?: string[]
+    pinned?: boolean
+    source?: 'user' | 'ai'
+  }): Promise<DossierDetail>
+  deleteNote(input: { dossierId: string; noteId: string }): Promise<DossierDetail>
+  searchNotes(input: {
+    dossierId: string
+    query: string
+    kind?: 'note' | 'todo' | 'idea' | 'to_verify' | 'ai_log'
+    status?: 'open' | 'done'
+    topK?: number
+  }): Promise<
+    Array<{ noteId: string; title: string; snippet: string; score: number; matchKind: string }>
+  >
 }
 
 export interface InvoiceServiceLike {
@@ -1317,6 +1338,64 @@ export function createInternalAICommandDispatcher(
           }
         }
 
+        case 'note_create':
+        case 'note_update': {
+          const rawRef = intent.dossierId ?? context.dossierId ?? ''
+          const dossierId = rawRef
+            ? ((await resolveDossierRef(rawRef, dossierService)) ?? rawRef)
+            : rawRef
+          if (!dossierId) return askForDossier(dossierService, intent)
+          try {
+            const updatedDossier = await dossierService.upsertNote({
+              dossierId,
+              id: intent.type === 'note_update' ? intent.noteId : undefined,
+              title: intent.title,
+              content: intent.content,
+              kind: intent.kind,
+              status: intent.status,
+              tags: intent.tags,
+              pinned: intent.pinned,
+              // Notes authored through the AI loop are tagged as AI-sourced.
+              source: 'ai'
+            })
+            const savedNote = updatedDossier.notes.find((note) =>
+              intent.type === 'note_update'
+                ? note.id === intent.noteId
+                : note.title === intent.title.trim()
+            )
+            const action = intent.type === 'note_update' ? 'mise à jour' : 'ajoutée'
+            return {
+              intent,
+              feedback: `Note "${intent.title}" ${action}.`,
+              entity: savedNote
+                ? {
+                    id: savedNote.id,
+                    label: savedNote.title,
+                    note: savedNote.content
+                  }
+                : undefined
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : 'Erreur inconnue.'
+            return { intent: { type: 'unknown', message }, feedback: message }
+          }
+        }
+
+        case 'note_delete': {
+          const rawRef = intent.dossierId ?? context.dossierId ?? ''
+          const dossierId = rawRef
+            ? ((await resolveDossierRef(rawRef, dossierService)) ?? rawRef)
+            : rawRef
+          if (!dossierId) return askForDossier(dossierService, intent)
+          try {
+            await dossierService.deleteNote({ dossierId, noteId: intent.noteId })
+            return { intent, feedback: 'Note supprimée.' }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : 'Erreur inconnue.'
+            return { intent: { type: 'unknown', message }, feedback: message }
+          }
+        }
+
         case 'template_create': {
           const created = await templateService.create({
             name: intent.name,
@@ -1377,6 +1456,15 @@ export function createInternalAICommandDispatcher(
           return {
             intent,
             feedback: 'Génération de texte non disponible dans ce mode.'
+          }
+        }
+
+        case 'dossier_summarize': {
+          // Should be handled upstream in aiService where the runtime + PII context live.
+          // Fallback if it reaches here.
+          return {
+            intent,
+            feedback: 'Synthèse de dossier non disponible dans ce mode.'
           }
         }
 

@@ -22,11 +22,14 @@ Outils **intermédiaires** : leur résultat est réinjecté au LLM, la boucle co
 | `contact_lookup`     | Liste les contacts d'un dossier avec leurs UUIDs                         |
 | `contact_get`        | Détail complet d'un contact par UUID                                     |
 | `dossier_list`       | Liste tous les dossiers enregistrés (id/uuid/nom/statut/type)            |
-| `dossier_get`        | Détail d'un dossier (dates clés, références clés)                        |
+| `dossier_get`        | Détail complet d'un dossier (dates, références, prestations, factures)   |
+| `invoice_list`       | Liste les factures émises, filtrable par dossier                         |
+| `invoice_get`        | Détail complet d'une facture                                             |
 | `template_list`      | Liste les modèles disponibles                                            |
 | `document_list`      | Liste les documents d'un dossier                                         |
 | `document_get`       | Métadonnées + statistiques de taille d'un document (**pas** le texte)    |
 | `document_search`    | Recherche hybride (exacte + sémantique) dans le texte extrait            |
+| `note_search`        | Recherche hybride dans les notes/pense-bête (filtrable kind/status)      |
 
 #### Batchable action tools — `buildBatchableActionTools()` / `BATCHABLE_ACTION_TOOL_NAMES`
 
@@ -37,6 +40,8 @@ d'enchaîner plusieurs actions en un tour.
 contact_create, contact_update, contact_delete, dossier_select, template_select,
 dossier_create_key_date, dossier_update_key_date, dossier_delete_key_date,
 dossier_create_key_reference, dossier_update_key_reference, dossier_delete_key_reference,
+dossier_create_billing_item, dossier_update_billing_item, dossier_delete_billing_item,
+note_create, note_update, note_delete,
 document_analyze, document_metadata_save
 ```
 
@@ -52,8 +57,13 @@ renvoie comme `InternalAiCommand` dispatché vers l'application.
 field_populate, document_generate, document_metadata_batch,
 document_summary_batch, dossier_create, dossier_update,
 document_relocate, template_create, template_update, template_delete,
-text_generate, clarification_request, unknown
+text_generate, dossier_summarize, clarification_request, unknown
 ```
+
+`dossier_summarize` produit une **synthèse exécutive** du dossier complet (objet, parties,
+faits & contexte, chronologie & échéances, références clés, points à traiter). Comme
+`text_generate`, il déclenche un second appel LLM (`handleDossierSummarize`) ; le résultat
+est restitué dans le chat (lecture seule, pas de persistance).
 
 ### Invalidation de cache : `STALE_TOOL_NAMES_AFTER_ACTION`
 
@@ -70,6 +80,9 @@ dossier_delete_key_date → dossier_get
 dossier_create_key_reference → dossier_get
 dossier_update_key_reference → dossier_get
 dossier_delete_key_reference → dossier_get
+dossier_create_billing_item → dossier_get
+dossier_update_billing_item → dossier_get
+dossier_delete_billing_item → dossier_get
 dossier_create  → dossier_get, dossier_list
 dossier_update  → dossier_get, dossier_list
 template_create → template_list

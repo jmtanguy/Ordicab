@@ -12,6 +12,8 @@ import {
   type DossierKeyDateUpsertInput,
   type DossierKeyReferenceDeleteInput,
   type DossierKeyReferenceUpsertInput,
+  type DossierNoteDeleteInput,
+  type DossierNoteUpsertInput,
   type DossierSetupLegalAidInput,
   type DossierSetupLegalAidResult,
   type DossierUpdateLegalAidInput,
@@ -43,6 +45,8 @@ interface DossierDetailNotice {
     | 'billing-item-deleted'
     | 'key-reference-saved'
     | 'key-reference-deleted'
+    | 'note-saved'
+    | 'note-deleted'
     | 'legal-aid-saved'
     | 'legal-aid-configured'
   dossierName: string
@@ -106,6 +110,8 @@ interface DossierStoreActions {
   deleteBillingItem: (input: DossierBillingItemDeleteInput) => Promise<boolean>
   upsertKeyReference: (input: DossierKeyReferenceUpsertInput) => Promise<boolean>
   deleteKeyReference: (input: DossierKeyReferenceDeleteInput) => Promise<boolean>
+  upsertNote: (input: DossierNoteUpsertInput) => Promise<boolean>
+  deleteNote: (input: DossierNoteDeleteInput) => Promise<boolean>
   updateLegalAid: (input: DossierUpdateLegalAidInput) => Promise<boolean>
   setupLegalAid: (input: DossierSetupLegalAidInput) => Promise<DossierSetupLegalAidResult | null>
   unregister: (id: string) => Promise<boolean>
@@ -538,6 +544,10 @@ export const useDossierStore = create<DossierStore>()(
         saveDossierDetail((api) => api.dossier.upsertBillingItem(input), 'billing-item-saved'),
       deleteBillingItem: (input) =>
         saveDossierDetail((api) => api.dossier.deleteBillingItem(input), 'billing-item-deleted'),
+      upsertNote: (input) =>
+        saveDossierDetail((api) => api.dossier.upsertNote(input), 'note-saved'),
+      deleteNote: (input) =>
+        saveDossierDetail((api) => api.dossier.deleteNote(input), 'note-deleted'),
       upsertKeyReference: (input) =>
         saveDossierDetail((api) => api.dossier.upsertKeyReference(input), 'key-reference-saved'),
       deleteKeyReference: (input) =>

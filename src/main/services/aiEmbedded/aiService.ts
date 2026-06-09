@@ -64,6 +64,7 @@ import type { LegalService } from '../legal/legalService'
 import {
   handleDocumentAnalyze,
   handleDocumentBatch,
+  handleDossierSummarize,
   handleGenericDispatch,
   handleInlineDispatchSummary,
   handleTextGenerate,
@@ -697,6 +698,8 @@ export function createAiService(options: AiServiceOptions): AiService {
       switch (revertedIntent.type) {
         case 'text_generate':
           return handleTextGenerate(ctx, revertedIntent)
+        case 'dossier_summarize':
+          return handleDossierSummarize(ctx, revertedIntent)
         case 'document_metadata_batch':
         case 'document_summary_batch':
           return handleDocumentBatch(ctx, revertedIntent)

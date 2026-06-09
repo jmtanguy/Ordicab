@@ -25,6 +25,9 @@ import type {
   DossierSummary,
   DossierUnregisterInput,
   DossierUpdateInput,
+  DossierNote,
+  DossierNoteDeleteInput,
+  DossierNoteUpsertInput,
   KeyDate,
   KeyReference
 } from '@shared/types'
@@ -39,6 +42,8 @@ import {
   dossierBillingItemSchema,
   dossierLegalAidSchema,
   dossierMetadataFileSchema,
+  dossierNoteIndexSchema,
+  dossierNoteSchema,
   feeAgreementSchema,
   keyDateIndexSchema,
   keyDateSchema,
@@ -48,6 +53,8 @@ import {
 import type {
   BillingItemIndex,
   BillingItemIndexEntry,
+  DossierNoteIndex,
+  DossierNoteIndexEntry,
   KeyDateIndex,
   KeyDateIndexEntry
 } from '@shared/validation'
@@ -60,6 +67,10 @@ import {
   getDossierKeyDateIndexPath,
   getDossierKeyDateRecordPath,
   getDossierKeyDatesDirectoryPath,
+  getDossierNoteEmbeddingCachePath,
+  getDossierNoteIndexPath,
+  getDossierNoteRecordPath,
+  getDossierNotesDirectoryPath,
   getDossierMetadataPath,
   getDossierOrdicabPath,
   ORDICAB_DIRECTORY_NAME
@@ -92,6 +103,31 @@ export interface DossierRegistryServiceOptions {
   onDossierRegistered?: (dossierId: string, dossierPath: string) => void
   /** Called after a dossier is successfully unregistered. */
   onDossierUnregistered?: (dossierId: string) => void
+  /**
+   * Compute/refresh a note's embeddings after it is created or updated.
+   * Best-effort and awaited so the returned DossierDetail reflects a fresh
+   * index; failures inside must not throw. Omitted in tests/headless runs that
+   * do not need semantic search.
+   */
+  indexNote?: (dossierPath: string, note: DossierNote) => Promise<void>
+  /**
+   * Hybrid (keyword + semantic) search over a dossier's notes. Injected so the
+   * embedding worker lives in the container; omitted in tests that don't search.
+   */
+  searchNotesInDossier?: (input: {
+    dossierPath: string
+    notes: DossierNote[]
+    query: string
+    topK?: number
+  }) => Promise<NoteSearchResult[]>
+}
+
+export interface NoteSearchResult {
+  noteId: string
+  title: string
+  snippet: string
+  score: number
+  matchKind: string
 }
 
 export interface DossierRegistryService {
@@ -109,6 +145,15 @@ export interface DossierRegistryService {
   }) => Promise<DossierDetail>
   upsertKeyDate: (input: DossierKeyDateUpsertInput) => Promise<DossierDetail>
   deleteKeyDate: (input: DossierKeyDateDeleteInput) => Promise<DossierDetail>
+  upsertNote: (input: DossierNoteUpsertInput) => Promise<DossierDetail>
+  deleteNote: (input: DossierNoteDeleteInput) => Promise<DossierDetail>
+  searchNotes: (input: {
+    dossierId: string
+    query: string
+    kind?: DossierNote['kind']
+    status?: DossierNote['status']
+    topK?: number
+  }) => Promise<NoteSearchResult[]>
   upsertFeeAgreement: (input: DossierFeeAgreementUpsertInput) => Promise<DossierDetail>
   deleteFeeAgreement: (input: DossierFeeAgreementDeleteInput) => Promise<DossierDetail>
   archiveFeeAgreement: (input: DossierFeeAgreementArchiveInput) => Promise<DossierDetail>
@@ -165,6 +210,7 @@ function createDefaultMetadata(options: {
     billingItems: [],
     keyDates: [],
     keyReferences: [],
+    notes: [],
     documents: []
   }
 }
@@ -186,7 +232,8 @@ function toSummary(metadata: DossierMetadataFile): DossierSummary {
 function toDetail(
   metadata: DossierMetadataFile,
   billingItems: DossierBillingItem[],
-  keyDates: KeyDate[]
+  keyDates: KeyDate[],
+  notes: DossierNote[]
 ): DossierDetail {
   return {
     ...toSummary(metadata),
@@ -197,7 +244,8 @@ function toDetail(
     feeAgreements: metadata.feeAgreements,
     billingItems,
     keyDates,
-    keyReferences: metadata.keyReferences
+    keyReferences: metadata.keyReferences,
+    notes
   }
 }
 
@@ -259,6 +307,13 @@ function normalizeOptionalText(value: string | undefined): string | undefined {
   return normalized ? normalized : undefined
 }
 
+/** Trim, drop blanks, and de-duplicate note tags. Returns undefined when empty. */
+function normalizeNoteTags(tags: string[] | undefined): string[] | undefined {
+  if (!Array.isArray(tags)) return undefined
+  const cleaned = Array.from(new Set(tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0)))
+  return cleaned.length > 0 ? cleaned : undefined
+}
+
 function cloneMetadata(metadata: DossierMetadataFile): DossierMetadataFile {
   return {
     ...metadata,
@@ -266,7 +321,9 @@ function cloneMetadata(metadata: DossierMetadataFile): DossierMetadataFile {
     feeAgreements: metadata.feeAgreements.map((entry) => ({ ...entry })),
     billingItems: [],
     keyDates: [],
-    keyReferences: [...metadata.keyReferences]
+    keyReferences: [...metadata.keyReferences],
+    // Notes are stored per-file like key dates; never persisted in dossier.json.
+    notes: []
   }
 }
 
@@ -509,7 +566,7 @@ async function saveMetadata(
   dossierPath: string,
   metadata: DossierMetadataFile
 ): Promise<DossierMetadataFile> {
-  const toWrite = { ...metadata, billingItems: [], keyDates: [] }
+  const toWrite = { ...metadata, billingItems: [], keyDates: [], notes: [] }
   const validatedMetadata = dossierMetadataFileSchema.parse(toWrite)
   await atomicWrite(
     getDossierMetadataPath(dossierPath),
@@ -563,6 +620,7 @@ const EMPTY_BILLING_ITEM_INDEX: BillingItemIndex = {
   updatedAt: new Date(0).toISOString()
 }
 const EMPTY_KEY_DATE_INDEX: KeyDateIndex = { keyDates: [], updatedAt: new Date(0).toISOString() }
+const EMPTY_NOTE_INDEX: DossierNoteIndex = { notes: [], updatedAt: new Date(0).toISOString() }
 
 // ---------------------------------------------------------------------------
 // Per-file billing item helpers
@@ -661,6 +719,62 @@ async function updateKeyDateIndex(
 }
 
 // ---------------------------------------------------------------------------
+// Per-file note helpers
+// ---------------------------------------------------------------------------
+
+async function loadNotes(dossierPath: string): Promise<DossierNote[]> {
+  // loadAllRecords reads every *.json in the directory, including each note's
+  // sibling {id}.embeddings.json cache. Those fail the note schema and are
+  // silently skipped, so only real note records come back. Sort newest-first.
+  const notes = await loadAllRecords(getDossierNotesDirectoryPath(dossierPath), dossierNoteSchema)
+  return notes.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+}
+
+async function saveNote(dossierPath: string, note: DossierNote): Promise<void> {
+  return saveRecord(
+    getDossierNotesDirectoryPath(dossierPath),
+    getDossierNoteRecordPath(dossierPath, note.id),
+    note
+  )
+}
+
+async function deleteNoteFiles(dossierPath: string, id: string): Promise<void> {
+  await deleteRecord(getDossierNoteRecordPath(dossierPath, id))
+  // Drop the embedding cache too so a re-created id never reuses stale vectors.
+  await deleteRecord(getDossierNoteEmbeddingCachePath(dossierPath, id))
+}
+
+async function updateNoteIndex(
+  dossierPath: string,
+  note: DossierNote,
+  op: 'upsert' | 'remove',
+  nowIso: string
+): Promise<void> {
+  const index = await loadIndex(
+    getDossierNoteIndexPath(dossierPath),
+    dossierNoteIndexSchema,
+    EMPTY_NOTE_INDEX
+  )
+  const entry: DossierNoteIndexEntry = {
+    id: note.id,
+    dossierId: note.dossierId,
+    title: note.title,
+    kind: note.kind,
+    status: note.status,
+    tags: note.tags,
+    pinned: note.pinned,
+    source: note.source,
+    updatedAt: nowIso
+  }
+  const filtered = index.notes.filter((e) => e.id !== note.id)
+  await saveIndex(getDossierNoteIndexPath(dossierPath), {
+    ...index,
+    notes: op === 'upsert' ? [...filtered, entry] : filtered,
+    updatedAt: nowIso
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Service factory
 // ---------------------------------------------------------------------------
 
@@ -724,6 +838,21 @@ export function createDossierRegistryService(
     return { dossierPath, metadata, billingItems, keyDates }
   }
 
+  /**
+   * Assemble a DossierDetail, loading the per-file notes from disk. Every
+   * mutation returns through here so notes are always present in the response,
+   * regardless of which sub-entity changed.
+   */
+  async function detailWithNotes(
+    dossierPath: string,
+    metadata: DossierMetadataFile,
+    billingItems: DossierBillingItem[],
+    keyDates: KeyDate[]
+  ): Promise<DossierDetail> {
+    const notes = await loadNotes(dossierPath)
+    return toDetail(metadata, billingItems, keyDates, notes)
+  }
+
   async function mutateDossierMeta(
     dossierId: string,
     mutate: (metadata: DossierMetadataFile) => DossierMetadataFile
@@ -751,9 +880,9 @@ export function createDossierRegistryService(
         nextUpcomingKeyDateLabel: nextKeyDate?.label ?? null
       }
       await saveMetadata(dossierPath, updated)
-      return toDetail(updated, billingItems, keyDates)
+      return detailWithNotes(dossierPath, updated, billingItems, keyDates)
     }
-    return toDetail(metadata, billingItems, keyDates)
+    return detailWithNotes(dossierPath, metadata, billingItems, keyDates)
   }
 
   async function markDossierOpened(dossierId: string): Promise<DossierDetail> {
@@ -767,7 +896,7 @@ export function createDossierRegistryService(
       nextUpcomingKeyDateLabel: nextKeyDate?.label ?? null
     }
     const saved = await saveMetadata(dossierPath, updatedMetadata)
-    return toDetail(saved, billingItems, keyDates)
+    return detailWithNotes(dossierPath, saved, billingItems, keyDates)
   }
 
   async function finalizeRegistration(
@@ -937,7 +1066,7 @@ export function createDossierRegistryService(
         loadBillingItems(dossierPath),
         loadKeyDates(dossierPath)
       ])
-      return toDetail(saved, billingItems, keyDates)
+      return detailWithNotes(dossierPath, saved, billingItems, keyDates)
     },
 
     updateLegalAid: async (input): Promise<DossierDetail> => {
@@ -953,7 +1082,7 @@ export function createDossierRegistryService(
         loadBillingItems(dossierPath),
         loadKeyDates(dossierPath)
       ])
-      return toDetail(saved, billingItems, keyDates)
+      return detailWithNotes(dossierPath, saved, billingItems, keyDates)
     },
 
     upsertKeyDate: async (input): Promise<DossierDetail> => {
@@ -992,7 +1121,7 @@ export function createDossierRegistryService(
       }
       const saved = await saveMetadata(dossierPath, updatedMetadata)
       const billingItems = await loadBillingItems(dossierPath)
-      return toDetail(saved, billingItems, allKeyDates)
+      return detailWithNotes(dossierPath, saved, billingItems, allKeyDates)
     },
 
     deleteKeyDate: async (input): Promise<DossierDetail> => {
@@ -1018,7 +1147,103 @@ export function createDossierRegistryService(
       }
       const saved = await saveMetadata(dossierPath, updatedMetadata)
       const billingItems = await loadBillingItems(dossierPath)
-      return toDetail(saved, billingItems, remainingKeyDates)
+      return detailWithNotes(dossierPath, saved, billingItems, remainingKeyDates)
+    },
+
+    upsertNote: async (input): Promise<DossierDetail> => {
+      const { dossierPath, metadata } = await loadRegisteredMetadata(input.dossierId)
+      const nowIso = now().toISOString()
+
+      const notes = await loadNotes(dossierPath)
+      const existingEntry = input.id ? notes.find((entry) => entry.id === input.id) : undefined
+
+      if (input.id && !existingEntry) {
+        throw new DossierRegistryError(IpcErrorCode.NOT_FOUND, 'This note was not found.')
+      }
+
+      const nextEntry = dossierNoteSchema.parse({
+        id: input.id ?? randomUUID(),
+        dossierId: input.dossierId,
+        title: input.title.trim(),
+        content: input.content ?? existingEntry?.content ?? '',
+        kind: input.kind ?? existingEntry?.kind ?? 'note',
+        status: input.status ?? existingEntry?.status,
+        tags: normalizeNoteTags(input.tags) ?? existingEntry?.tags,
+        pinned: input.pinned ?? existingEntry?.pinned,
+        source: input.source ?? existingEntry?.source ?? 'user',
+        createdAt: existingEntry?.createdAt ?? nowIso,
+        updatedAt: nowIso
+      })
+
+      await saveNote(dossierPath, nextEntry)
+      await updateNoteIndex(dossierPath, nextEntry, 'upsert', nowIso)
+      // Refresh embeddings so semantic search reflects the new content. Awaited
+      // but best-effort: indexNote swallows its own failures.
+      await options.indexNote?.(dossierPath, nextEntry)
+
+      const updatedMetadata: DossierMetadataFile = { ...metadata, updatedAt: nowIso }
+      const saved = await saveMetadata(dossierPath, updatedMetadata)
+      const billingItems = await loadBillingItems(dossierPath)
+      const keyDates = await loadKeyDates(dossierPath)
+      return detailWithNotes(dossierPath, saved, billingItems, keyDates)
+    },
+
+    deleteNote: async (input): Promise<DossierDetail> => {
+      const { dossierPath, metadata } = await loadRegisteredMetadata(input.dossierId)
+      const nowIso = now().toISOString()
+
+      const notes = await loadNotes(dossierPath)
+      const removedEntry = notes.find((entry) => entry.id === input.noteId)
+      if (!removedEntry) {
+        throw new DossierRegistryError(IpcErrorCode.NOT_FOUND, 'This note was not found.')
+      }
+
+      await deleteNoteFiles(dossierPath, input.noteId)
+      await updateNoteIndex(dossierPath, removedEntry, 'remove', nowIso)
+
+      const updatedMetadata: DossierMetadataFile = { ...metadata, updatedAt: nowIso }
+      const saved = await saveMetadata(dossierPath, updatedMetadata)
+      const billingItems = await loadBillingItems(dossierPath)
+      const keyDates = await loadKeyDates(dossierPath)
+      return detailWithNotes(dossierPath, saved, billingItems, keyDates)
+    },
+
+    searchNotes: async (input): Promise<NoteSearchResult[]> => {
+      const { dossierPath } = await loadRegisteredMetadata(input.dossierId)
+      const query = input.query.trim()
+      if (!query) return []
+
+      let notes = await loadNotes(dossierPath)
+      if (input.kind) notes = notes.filter((note) => note.kind === input.kind)
+      if (input.status) notes = notes.filter((note) => note.status === input.status)
+      if (notes.length === 0) return []
+
+      if (!options.searchNotesInDossier) {
+        // No embedder wired (e.g. headless): fall back to a simple case-insensitive
+        // title/content substring scan so note recall still works.
+        const needle = query.toLocaleLowerCase('fr-FR')
+        return notes
+          .filter(
+            (note) =>
+              note.title.toLocaleLowerCase('fr-FR').includes(needle) ||
+              note.content.toLocaleLowerCase('fr-FR').includes(needle)
+          )
+          .slice(0, input.topK ?? 10)
+          .map((note) => ({
+            noteId: note.id,
+            title: note.title,
+            snippet: note.content.slice(0, 280),
+            score: 1,
+            matchKind: 'keyword'
+          }))
+      }
+
+      return options.searchNotesInDossier({
+        dossierPath,
+        notes,
+        query,
+        topK: input.topK
+      })
     },
 
     upsertKeyReference: async (input): Promise<DossierDetail> => {
@@ -1094,7 +1319,7 @@ export function createDossierRegistryService(
         loadBillingItems(dossierPath),
         loadKeyDates(dossierPath)
       ])
-      return toDetail(saved, billingItems, keyDates)
+      return detailWithNotes(dossierPath, saved, billingItems, keyDates)
     },
 
     upsertFeeAgreement: async (input): Promise<DossierDetail> => {
@@ -1184,7 +1409,7 @@ export function createDossierRegistryService(
         loadBillingItems(dossierPath),
         loadKeyDates(dossierPath)
       ])
-      return toDetail(saved, billingItems, keyDates)
+      return detailWithNotes(dossierPath, saved, billingItems, keyDates)
     },
 
     deleteFeeAgreement: async (input): Promise<DossierDetail> => {
@@ -1214,7 +1439,7 @@ export function createDossierRegistryService(
         }
       })
       const keyDates = await loadKeyDates(dossierPath)
-      return toDetail(saved, billingItems, keyDates)
+      return detailWithNotes(dossierPath, saved, billingItems, keyDates)
     },
 
     archiveFeeAgreement: async (input): Promise<DossierDetail> => {
@@ -1249,7 +1474,7 @@ export function createDossierRegistryService(
         loadBillingItems(dossierPath),
         loadKeyDates(dossierPath)
       ])
-      return toDetail(saved, billingItems, keyDates)
+      return detailWithNotes(dossierPath, saved, billingItems, keyDates)
     },
 
     setActiveFeeAgreement: async (input): Promise<DossierDetail> => {
@@ -1292,7 +1517,7 @@ export function createDossierRegistryService(
         loadBillingItems(dossierPath),
         loadKeyDates(dossierPath)
       ])
-      return toDetail(saved, billingItems, keyDates)
+      return detailWithNotes(dossierPath, saved, billingItems, keyDates)
     },
 
     upsertBillingItem: async (input): Promise<DossierDetail> => {
@@ -1363,7 +1588,7 @@ export function createDossierRegistryService(
       }
       const saved = await saveMetadata(dossierPath, updatedMetadata)
       const keyDates = await loadKeyDates(dossierPath)
-      return toDetail(saved, allBillingItems, keyDates)
+      return detailWithNotes(dossierPath, saved, allBillingItems, keyDates)
     },
 
     deleteBillingItem: async (input): Promise<DossierDetail> => {
@@ -1389,7 +1614,7 @@ export function createDossierRegistryService(
       const updatedMetadata: DossierMetadataFile = { ...metadata, updatedAt: nowIso }
       const saved = await saveMetadata(dossierPath, updatedMetadata)
       const keyDates = await loadKeyDates(dossierPath)
-      return toDetail(saved, remainingItems, keyDates)
+      return detailWithNotes(dossierPath, saved, remainingItems, keyDates)
     },
 
     markBillingItemsInvoiced: async (input): Promise<DossierDetail> => {
@@ -1427,7 +1652,7 @@ export function createDossierRegistryService(
       const updatedMetadata: DossierMetadataFile = { ...metadata, updatedAt: nowIso }
       const saved = await saveMetadata(dossierPath, updatedMetadata)
       const keyDates = await loadKeyDates(dossierPath)
-      return toDetail(saved, updatedItems, keyDates)
+      return detailWithNotes(dossierPath, saved, updatedItems, keyDates)
     },
 
     unmarkBillingItemsInvoiced: async (input): Promise<DossierDetail> => {
@@ -1454,7 +1679,7 @@ export function createDossierRegistryService(
       const updatedMetadata: DossierMetadataFile = { ...metadata, updatedAt: nowIso }
       const saved = await saveMetadata(dossierPath, updatedMetadata)
       const keyDates = await loadKeyDates(dossierPath)
-      return toDetail(saved, updatedItems, keyDates)
+      return detailWithNotes(dossierPath, saved, updatedItems, keyDates)
     },
 
     deleteKeyReference: async (input): Promise<DossierDetail> => {
@@ -1488,7 +1713,7 @@ export function createDossierRegistryService(
         loadBillingItems(dossierPath),
         loadKeyDates(dossierPath)
       ])
-      return toDetail(saved, billingItems, keyDates)
+      return detailWithNotes(dossierPath, saved, billingItems, keyDates)
     },
 
     unregisterDossier: async (input): Promise<null> => {

@@ -149,6 +149,8 @@ export default function AppShell(): React.JSX.Element {
   const deleteDossierBillingItem = useDossierStore((state) => state.deleteBillingItem)
   const upsertDossierKeyReference = useDossierStore((state) => state.upsertKeyReference)
   const deleteDossierKeyReference = useDossierStore((state) => state.deleteKeyReference)
+  const upsertDossierNote = useDossierStore((state) => state.upsertNote)
+  const deleteDossierNote = useDossierStore((state) => state.deleteNote)
   const setDossierSortMode = useDossierStore((state) => state.setSortMode)
   const setDossierStatusFilter = useDossierStore((state) => state.setStatusFilter)
   const unregisterDossier = useDossierStore((state) => state.unregister)
@@ -715,6 +717,8 @@ export default function AppShell(): React.JSX.Element {
                 onDeleteDossierBillingItem={deleteDossierBillingItem}
                 onUpsertDossierKeyReference={upsertDossierKeyReference}
                 onDeleteDossierKeyReference={deleteDossierKeyReference}
+                onUpsertDossierNote={upsertDossierNote}
+                onDeleteDossierNote={deleteDossierNote}
                 onSaveDocumentMetadata={saveDocumentMetadata}
                 onOpenDocumentPreview={openDocumentPreview}
                 onOpenDocumentFile={openDocumentFile}

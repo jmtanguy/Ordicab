@@ -1,11 +1,11 @@
 {
   "name": "ordicab-electron",
   "productName": "Ordicab",
-  "version": "1.0.0-beta.6",
+  "version": "1.0.0-beta.8",
   "description": "Ordicab desktop foundation built with Electron, React, and TypeScript",
   "main": "./out/main/index.js",
   "author": "Ordicab",
-  "license": "Apache-2.0", 
+  "license": "Apache-2.0",
   "homepage": "https://github.com/jmtanguy/Ordicab",
   "scripts": {
     "format": "prettier --write .",

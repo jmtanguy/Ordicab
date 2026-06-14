@@ -1,4 +1,4 @@
-export { CONTACT_ROLE_FIELD_ALIASES, TEMPLATE_ROUTINE_GROUPS } from './templateRoutines/types'
+export { TEMPLATE_ROUTINE_GROUPS } from './templateRoutines/types'
 export type { TemplateRoutineEntry, TemplateRoutineGroup } from './templateRoutines/types'
 
 import type { TemplateRoutineEntry } from './templateRoutines/types'
@@ -716,8 +716,7 @@ const TEMPLATE_ROUTINE_CATALOG_ALL: TemplateRoutineEntry[] = [
     description: 'City of the RCS court (greffe)',
     descriptionFr: 'Ville du greffe du tribunal de commerce',
     subGroup: 'legal',
-    example: 'Paris',
-    visibility: 'hidden'
+    example: 'Paris'
   },
   {
     tag: '{{entity.iban}}',
@@ -1081,12 +1080,36 @@ const TEMPLATE_ROUTINE_CATALOG_ALL: TemplateRoutineEntry[] = [
     example: '+33 1 23 45 67 89'
   },
   {
+    tag: '{{invoice.documentTypeLabel}}',
+    tagFr: '{{facture.typeDocument}}',
+    group: 'invoice',
+    description: 'Document type label (Invoice, Credit note, Corrective invoice)',
+    descriptionFr: 'Libellé du type de document (Facture, Avoir, Facture rectificative)',
+    example: 'Facture'
+  },
+  {
     tag: '{{invoice.number}}',
     tagFr: '{{facture.numero}}',
     group: 'invoice',
     description: 'Invoice number',
     descriptionFr: 'Numéro de facture',
     example: 'F2026-001'
+  },
+  {
+    tag: '{{invoice.originalInvoiceNumbers}}',
+    tagFr: '{{facture.facturesOrigine}}',
+    group: 'invoice',
+    description: 'Number(s) of the original invoice(s) (credit note / corrective invoice)',
+    descriptionFr: "Numéro(s) de la ou des factures d'origine (avoir / facture rectificative)",
+    example: 'FAC-2026-0004'
+  },
+  {
+    tag: '{{invoice.correctionReason}}',
+    tagFr: '{{facture.motifCorrection}}',
+    group: 'invoice',
+    description: 'Correction reason (credit note / corrective invoice)',
+    descriptionFr: 'Motif de correction (avoir / facture rectificative)',
+    example: 'Erreur sur la quantité facturée'
   },
   {
     tag: '{{invoice.issuedAt}}',

@@ -16,14 +16,18 @@
  * The actual API shape is built in ./api.ts and the full type contract lives in
  * shared/types/api.ts (OrdicabAPI interface).
  */
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 import { createOrdicabApi } from './api'
 
 const ordicabAPI = createOrdicabApi(
   ipcRenderer.invoke.bind(ipcRenderer),
   ipcRenderer.on.bind(ipcRenderer),
-  ipcRenderer.off.bind(ipcRenderer)
+  ipcRenderer.off.bind(ipcRenderer),
+  // webUtils.getPathForFile expects the DOM File the renderer passed through
+  // the contextBridge proxy; the structural type keeps the shared contract
+  // free of the DOM lib.
+  (file) => webUtils.getPathForFile(file as Parameters<typeof webUtils.getPathForFile>[0])
 )
 
 // Hard-fail if contextIsolation was accidentally disabled. Without it the

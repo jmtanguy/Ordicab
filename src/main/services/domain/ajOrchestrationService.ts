@@ -41,8 +41,8 @@ function findTemplateByTags(
   )
 }
 
-export type AjSetupInput = DossierSetupLegalAidInput
-export type AjSetupResult = DossierSetupLegalAidResult
+type AjSetupInput = DossierSetupLegalAidInput
+type AjSetupResult = DossierSetupLegalAidResult
 
 export interface AjOrchestrationService {
   setupLegalAid(input: AjSetupInput): Promise<AjSetupResult>
@@ -66,12 +66,12 @@ export interface AjOrchestrationServiceOptions {
   now?: () => Date
 }
 
-function idsOf(entries: Array<{ id: string }>): Set<string> {
-  return new Set(entries.map((entry) => entry.id))
+function idsOf(entries: Array<{ uuid: string }>): Set<string> {
+  return new Set(entries.map((entry) => entry.uuid))
 }
 
-function findNew<T extends { id: string }>(before: Set<string>, after: T[]): T | undefined {
-  return after.find((entry) => !before.has(entry.id))
+function findNew<T extends { uuid: string }>(before: Set<string>, after: T[]): T | undefined {
+  return after.find((entry) => !before.has(entry.uuid))
 }
 
 export function createAjOrchestrationService(
@@ -82,20 +82,20 @@ export function createAjOrchestrationService(
 
   async function generateAjDocument(
     dossierId: string,
-    templateId: string,
+    templateUuid: string,
     warnings: string[]
   ): Promise<string | undefined> {
     try {
       const result: GeneratedDocumentResult = await generateService.generateDocument({
         dossierId,
-        templateId,
+        templateUuid,
         tags: ['aide-juridictionnelle'],
         description: 'Document généré automatiquement (aide juridictionnelle)'
       })
       return result.documentUuid
     } catch (error) {
       warnings.push(
-        `Impossible de générer le document « ${templateId} » : ${
+        `Impossible de générer le document « ${templateUuid} » : ${
           error instanceof Error ? error.message : 'erreur inconnue'
         }`
       )
@@ -105,15 +105,19 @@ export function createAjOrchestrationService(
 
   async function createInvoice(
     dossierId: string,
-    billingItemId: string,
-    templateId: string,
+    billingItemUuid: string,
+    templateUuid: string,
     warnings: string[]
   ): Promise<InvoiceRecord | undefined> {
     try {
-      return await invoiceService.create({ dossierId, billingItemIds: [billingItemId], templateId })
+      return await invoiceService.create({
+        dossierId,
+        billingItemUuids: [billingItemUuid],
+        templateUuid
+      })
     } catch (error) {
       warnings.push(
-        `Facture non émise (modèle ${templateId}) : ${
+        `Facture non émise (modèle ${templateUuid}) : ${
           error instanceof Error ? error.message : 'erreur inconnue'
         }`
       )
@@ -148,7 +152,7 @@ export function createAjOrchestrationService(
       const complementHtCents =
         legalAid.type === 'partial' ? Math.max(0, legalAid.complementHtCents ?? 0) : 0
 
-      const matterLabel = dossier.name ?? `Dossier ${dossier.id}`
+      const matterLabel = dossier.name ?? `Dossier ${dossier.slug}`
       // TVA cabinet par défaut (20 %) pour la convention ; la rétribution État
       // est traitée comme exonérée via `legalAidVatExempt` au niveau des items.
       const vatRateBasisPoints = 2000
@@ -184,7 +188,7 @@ export function createAjOrchestrationService(
       }
 
       // 2. Items de facturation : rétribution État (+ complément si partielle).
-      const billingItemIds: string[] = []
+      const billingItemUuids: string[] = []
       const billItem = async (
         conversionKind: 'stateRetribution' | 'legalAidComplement'
       ): Promise<DossierBillingItem | undefined> => {
@@ -201,18 +205,18 @@ export function createAjOrchestrationService(
 
       const stateItem = stateRetributionHtCents > 0 ? await billItem('stateRetribution') : undefined
       if (stateItem) {
-        billingItemIds.push(stateItem.id)
+        billingItemUuids.push(stateItem.uuid)
       }
       let complementItem: DossierBillingItem | undefined
       if (legalAid.type === 'partial' && complementHtCents > 0) {
         complementItem = await billItem('legalAidComplement')
         if (complementItem) {
-          billingItemIds.push(complementItem.id)
+          billingItemUuids.push(complementItem.uuid)
         }
       }
 
       // 3. Factures séparées (État vers CARPA, complément client).
-      const invoiceIds: string[] = []
+      const invoiceUuids: string[] = []
       const invoiceNumbers: string[] = []
       const stateInvoiceTemplate = findTemplateByTags(
         templates,
@@ -225,12 +229,12 @@ export function createAjOrchestrationService(
       if (stateItem && stateInvoiceTemplate) {
         const invoice = await createInvoice(
           input.dossierId,
-          stateItem.id,
-          stateInvoiceTemplate.id,
+          stateItem.uuid,
+          stateInvoiceTemplate.uuid,
           warnings
         )
         if (invoice) {
-          invoiceIds.push(invoice.id)
+          invoiceUuids.push(invoice.uuid)
           invoiceNumbers.push(invoice.number)
         }
       } else if (stateItem) {
@@ -241,12 +245,12 @@ export function createAjOrchestrationService(
       if (complementItem && complementInvoiceTemplate) {
         const invoice = await createInvoice(
           input.dossierId,
-          complementItem.id,
-          complementInvoiceTemplate.id,
+          complementItem.uuid,
+          complementInvoiceTemplate.uuid,
           warnings
         )
         if (invoice) {
-          invoiceIds.push(invoice.id)
+          invoiceUuids.push(invoice.uuid)
           invoiceNumbers.push(invoice.number)
         }
       } else if (complementItem) {
@@ -270,14 +274,14 @@ export function createAjOrchestrationService(
           )
           continue
         }
-        const uuid = await generateAjDocument(input.dossierId, template.id, warnings)
+        const uuid = await generateAjDocument(input.dossierId, template.uuid, warnings)
         if (uuid) {
           documentUuids.push(uuid)
         }
       }
 
       // 5. Échéances / alertes automatiques.
-      const keyDateIds: string[] = []
+      const keyDateUuids: string[] = []
       const todayIso = now().toISOString().slice(0, 10)
       const plusDays = (days: number): string => {
         const base = new Date(`${todayIso}T00:00:00.000Z`)
@@ -310,7 +314,7 @@ export function createAjOrchestrationService(
           })
           const created = findNew(before, after.keyDates)
           if (created) {
-            keyDateIds.push(created.id)
+            keyDateUuids.push(created.uuid)
           }
         } catch (error) {
           warnings.push(
@@ -324,7 +328,7 @@ export function createAjOrchestrationService(
       // 6. Marque l'orchestration comme effectuée (idempotence).
       const updatedLegalAid: DossierLegalAid = { ...legalAid, autoSetupDone: true }
       await dossierService.updateDossier({
-        id: dossier.id,
+        slug: dossier.slug,
         status: dossier.status,
         type: dossier.type,
         information: dossier.information,
@@ -334,12 +338,12 @@ export function createAjOrchestrationService(
       })
 
       return {
-        feeAgreementId: feeAgreement.id,
-        billingItemIds,
-        invoiceIds,
+        feeAgreementUuid: feeAgreement.uuid,
+        billingItemUuids,
+        invoiceUuids,
         invoiceNumbers,
         documentUuids,
-        keyDateIds,
+        keyDateUuids,
         warnings
       }
     }

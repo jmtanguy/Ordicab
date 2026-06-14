@@ -113,4 +113,52 @@ export function registerEntityHandlers(options: {
       }
     }
   )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.entity.importStamp,
+    async (): Promise<IpcResult<EntityProfile | null>> => {
+      try {
+        if (!dialog?.showOpenDialog) {
+          return {
+            success: false,
+            error: 'Stamp import is unavailable in this environment.',
+            code: IpcErrorCode.NOT_IMPLEMENTED
+          }
+        }
+        const picker = await dialog.showOpenDialog({
+          filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg'] }],
+          properties: ['openFile']
+        })
+        const sourcePath = picker.canceled ? undefined : picker.filePaths[0]
+        if (!sourcePath) {
+          return { success: true, data: null }
+        }
+        return { success: true, data: await options.entityService.importStamp(sourcePath) }
+      } catch (error) {
+        return mapEntityError(error, 'Unable to import the stamp image.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.entity.removeStamp,
+    async (): Promise<IpcResult<EntityProfile>> => {
+      try {
+        return { success: true, data: await options.entityService.removeStamp() }
+      } catch (error) {
+        return mapEntityError(error, 'Unable to remove the stamp image.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.entity.getStampDataUrl,
+    async (): Promise<IpcResult<string | null>> => {
+      try {
+        return { success: true, data: await options.entityService.getStampDataUrl() }
+      } catch (error) {
+        return mapEntityError(error, 'Unable to read the stamp image.')
+      }
+    }
+  )
 }

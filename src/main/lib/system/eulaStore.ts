@@ -10,7 +10,7 @@ import type { AppStateStore } from './appStateStore'
  * bundled EULA text. Injected so the lib stays free of `electron` imports
  * (ARCHITECTURE.md §5).
  */
-export interface AppPathContext {
+interface AppPathContext {
   isPackaged: boolean
   getAppPath(): string
 }

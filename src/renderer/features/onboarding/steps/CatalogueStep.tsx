@@ -69,10 +69,10 @@ export function CatalogueStep({ onComplete }: CatalogueStepProps): React.JSX.Ele
       <Card className="space-y-4 p-5">
         {hasServices ? (
           <div className="flex items-center gap-2">
-            <span className="rounded-full bg-[#f1f7ec] px-2 py-0.5 text-xs font-medium text-[#3c6132]">
+            <span className="rounded-full bg-success-tint px-2 py-0.5 text-xs font-medium text-success-deep">
               ✓
             </span>
-            <p className="text-sm text-[#1a1a1a]">
+            <p className="text-sm text-ink">
               {t('onboarding.catalogue_count', {
                 count: serviceCount,
                 defaultValue: `${serviceCount} prestation(s) dans votre catalogue.`
@@ -80,7 +80,7 @@ export function CatalogueStep({ onComplete }: CatalogueStepProps): React.JSX.Ele
             </p>
           </div>
         ) : (
-          <p className="text-sm text-[#5c5c5a]">
+          <p className="text-sm text-ink-muted">
             {t('cabinet.library_dialog_description', {
               defaultValue:
                 "Prestations types prêtes à l'emploi. Importez celles qui vous intéressent — elles seront copiées dans votre catalogue et resteront éditables. Tarifs indicatifs 2026."

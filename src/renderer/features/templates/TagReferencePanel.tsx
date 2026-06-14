@@ -34,7 +34,7 @@ const GROUP_DISPLAY_ORDER: TagGroup[] = [
 ]
 
 const TAG_BUTTON_CLASS =
-  'flex w-full items-baseline gap-2 rounded-lg border border-[#e5e3da] bg-[#f4f3ee] px-2.5 py-1.5 text-left transition-all duration-300 hover:border-aurora/45 hover:bg-[#f4f3ee]'
+  'flex w-full items-baseline gap-2 rounded-lg border border-hairline bg-parchment px-2.5 py-1.5 text-left transition-all duration-300 hover:border-aurora/45 hover:bg-parchment'
 
 const ROLE_TAG_RE = /^\{\{contact\.([^.{}]+)\.[^.{}]+\}\}$/
 
@@ -110,27 +110,27 @@ function TagButton({
       data-copied={isCopied ? 'true' : 'false'}
       className={`${TAG_BUTTON_CLASS} ${
         isCopied
-          ? 'border-[#cfe0c5] bg-[#f1f7ec] shadow-[0_0_0_1px_rgba(79,121,66,0.25)] translate-x-1'
+          ? 'border-success-border bg-success-tint shadow-[0_0_0_1px_rgba(79,121,66,0.25)] translate-x-1'
           : ''
       }`}
     >
       <span
         className={`shrink-0 font-mono text-sm transition-colors duration-300 ${
-          isCopied ? 'text-[#3c6132]' : 'text-aurora-soft'
+          isCopied ? 'text-success-deep' : 'text-aurora-soft'
         }`}
       >
         {tag}
       </span>
       <span
         className={`min-w-0 flex-1 truncate text-sm transition-colors duration-300 ${
-          isCopied ? 'text-[#3c6132]/90' : 'text-[#5c5c5a]'
+          isCopied ? 'text-success-deep/90' : 'text-ink-muted'
         }`}
       >
         {description}
       </span>
       <span
         className={`ml-auto inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-colors duration-300 ${
-          isCopied ? 'bg-[#dfead6] text-[#3c6132]' : 'text-[#8a8a85]'
+          isCopied ? 'bg-[#dfead6] text-success-deep' : 'text-ink-subtle'
         }`}
       >
         {isCopied ? <CheckIcon /> : <CopyIcon />}
@@ -158,7 +158,7 @@ function SectionContainer({
   children: ReactNode
 }): React.JSX.Element {
   return variant === 'boxed' ? (
-    <div className="rounded-lg border border-[#e5e3da] bg-white p-3">{children}</div>
+    <div className="rounded-lg border border-hairline bg-white p-3">{children}</div>
   ) : (
     <div className="space-y-1.5">{children}</div>
   )
@@ -176,15 +176,15 @@ function SectionHeader({
   if (variant === 'boxed') {
     return (
       <div className="mb-2">
-        <p className="text-sm font-semibold text-[#1a1a1a]">{label}</p>
-        {hint ? <p className="text-xs text-[#5c5c5a]">{hint}</p> : null}
+        <p className="text-sm font-semibold text-ink">{label}</p>
+        {hint ? <p className="text-xs text-ink-muted">{hint}</p> : null}
       </div>
     )
   }
   return (
     <>
-      <h5 className="text-xs font-semibold uppercase tracking-[0.18em] text-[#5c5c5a]">{label}</h5>
-      {hint ? <p className="text-xs text-[#8a8a85]">{hint}</p> : null}
+      <h5 className="text-xs font-semibold uppercase tracking-[0.18em] text-ink-muted">{label}</h5>
+      {hint ? <p className="text-xs text-ink-subtle">{hint}</p> : null}
     </>
   )
 }
@@ -201,8 +201,8 @@ function SectionInput({
   placeholder: string
 }): React.JSX.Element {
   const base =
-    'rounded-lg border border-[#e5e3da] px-2.5 py-1.5 text-sm text-[#1a1a1a] outline-none placeholder:text-[#8a8a85] focus:border-aurora/45 focus:ring-1 focus:ring-aurora/25'
-  const surface = variant === 'boxed' ? 'w-full bg-white' : 'bg-[#f4f3ee]'
+    'rounded-lg border border-hairline px-2.5 py-1.5 text-sm text-ink outline-none placeholder:text-ink-subtle focus:border-aurora/45 focus:ring-1 focus:ring-aurora/25'
+  const surface = variant === 'boxed' ? 'w-full bg-white' : 'bg-parchment'
   return (
     <input
       type="text"
@@ -234,7 +234,7 @@ function ChipRow({
           key={`${keyPrefix}-${label}`}
           type="button"
           onClick={() => onSelect(label)}
-          className="rounded-full border border-[#e5e3da] bg-[#f4f3ee] px-2 py-1 text-xs text-[#1a1a1a] transition hover:border-aurora/40 hover:text-[#1a1a1a]"
+          className="rounded-full border border-hairline bg-parchment px-2 py-1 text-xs text-ink transition hover:border-aurora/40 hover:text-ink"
         >
           {label}
         </button>
@@ -257,7 +257,7 @@ function TagButtonList({
   if (items.length === 0) return null
   if (variant === 'boxed') {
     return (
-      <ul className="mt-2 divide-y divide-[#e5e3da]">
+      <ul className="mt-2 divide-y divide-hairline">
         {items.map((entry) => (
           <li key={entry.tag} className="py-1.5">
             <TagButton
@@ -302,7 +302,7 @@ function SubGroupBlock({
   if (items.length === 0) return null
   return (
     <div className="space-y-0.5 pt-0.5">
-      <p className="px-0.5 text-xs text-[#8a8a85]">
+      <p className="px-0.5 text-xs text-ink-subtle">
         {title}
         {hint ? <span className="ml-1.5 italic text-[#a3a39e]">{hint}</span> : null}
       </p>
@@ -665,18 +665,18 @@ export function TagReferencePanel({
           value={filterText}
           onChange={(event) => setFilterText(event.target.value)}
           placeholder={t('templates.tagPanel.filterPlaceholder')}
-          className="w-full rounded-lg border border-[#e5e3da] bg-white px-3 py-2 text-sm"
+          className="w-full rounded-lg border border-hairline bg-white px-3 py-2 text-sm"
         />
 
         <div className="flex-1 overflow-y-auto pr-1">
           {filteredEntries ? (
             filteredEntries.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-[#e5e3da] bg-white p-4 text-sm text-[#5c5c5a]">
+              <p className="rounded-lg border border-dashed border-hairline bg-white p-4 text-sm text-ink-muted">
                 {t('templates.tagPanel.filterEmpty')}
               </p>
             ) : (
-              <div className="rounded-lg border border-[#e5e3da] bg-white p-3">
-                <ul className="divide-y divide-[#e5e3da]">
+              <div className="rounded-lg border border-hairline bg-white p-3">
+                <ul className="divide-y divide-hairline">
                   {filteredEntries.map((entry) => (
                     <li key={entry.tag} className="py-1.5">
                       <TagButton
@@ -699,10 +699,10 @@ export function TagReferencePanel({
   }
 
   return (
-    <section className="flex h-full min-h-0 flex-col gap-3 rounded-2xl border border-[#e5e3da] bg-white p-3">
+    <section className="flex h-full min-h-0 flex-col gap-3 rounded-2xl border border-hairline bg-white p-3">
       <div>
-        <h4 className="text-sm font-semibold text-[#1a1a1a]">{t('templates.tagPanel.title')}</h4>
-        <p className="mt-1 text-sm text-[#5c5c5a]">{t('templates.tagPanel.helperText')}</p>
+        <h4 className="text-sm font-semibold text-ink">{t('templates.tagPanel.title')}</h4>
+        <p className="mt-1 text-sm text-ink-muted">{t('templates.tagPanel.helperText')}</p>
       </div>
 
       <input
@@ -710,13 +710,13 @@ export function TagReferencePanel({
         value={filterText}
         onChange={(event) => setFilterText(event.target.value)}
         placeholder={t('templates.tagPanel.filterPlaceholder')}
-        className="shrink-0 rounded-lg border border-[#e5e3da] bg-[#f4f3ee] px-2.5 py-1.5 text-sm text-[#1a1a1a] outline-none placeholder:text-[#8a8a85] focus:border-aurora/45 focus:ring-1 focus:ring-aurora/25"
+        className="shrink-0 rounded-lg border border-hairline bg-parchment px-2.5 py-1.5 text-sm text-ink outline-none placeholder:text-ink-subtle focus:border-aurora/45 focus:ring-1 focus:ring-aurora/25"
       />
 
       {filteredEntries ? (
         <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
           {filteredEntries.length === 0 ? (
-            <p className="px-1 text-sm text-[#8a8a85]">{t('templates.tagPanel.filterEmpty')}</p>
+            <p className="px-1 text-sm text-ink-subtle">{t('templates.tagPanel.filterEmpty')}</p>
           ) : (
             filteredEntries.map((entry) => (
               <TagButton

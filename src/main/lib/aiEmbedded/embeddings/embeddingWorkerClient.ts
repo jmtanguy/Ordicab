@@ -14,7 +14,6 @@
  */
 
 import { Worker } from 'node:worker_threads'
-import { join } from 'node:path'
 
 import type { EmbeddingServiceConfig } from './embeddingService'
 import { DEFAULT_EMBEDDING_MODEL } from './embeddingService'
@@ -23,7 +22,6 @@ interface WorkerOutgoing {
   type: 'embed'
   id: number
   texts: string[]
-  prefix: string
 }
 
 interface WorkerEmbedResult {
@@ -53,11 +51,7 @@ interface PendingRequest {
 }
 
 export interface EmbeddingWorkerClient {
-  embedBatch(
-    texts: string[],
-    config?: EmbeddingServiceConfig,
-    options?: { inputPrefix?: string }
-  ): Promise<Float32Array[] | null>
+  embedBatch(texts: string[], config?: EmbeddingServiceConfig): Promise<Float32Array[] | null>
   /**
    * Tear down the current worker so the next embedBatch spawns a fresh one.
    * Needed when the embedding model becomes available after startup (e.g.
@@ -68,9 +62,6 @@ export interface EmbeddingWorkerClient {
   rebind(): Promise<void>
   dispose(): Promise<void>
 }
-
-// bge-m3 uses no input prefix. Kept configurable per call for E5-style models.
-const DEFAULT_INPUT_PREFIX = ''
 
 export interface CreateEmbeddingWorkerClientOptions {
   /**
@@ -167,8 +158,7 @@ export function createEmbeddingWorkerClient(
 
   async function embedBatch(
     texts: string[],
-    config: EmbeddingServiceConfig = options.defaultConfig ?? {},
-    embedOptions: { inputPrefix?: string } = {}
+    config: EmbeddingServiceConfig = options.defaultConfig ?? {}
   ): Promise<Float32Array[] | null> {
     if (!texts.length) return []
     if (disposed) return null
@@ -177,8 +167,7 @@ export function createEmbeddingWorkerClient(
     if (!w) return null
 
     const id = nextId++
-    const prefix = embedOptions.inputPrefix ?? DEFAULT_INPUT_PREFIX
-    const message: WorkerOutgoing = { type: 'embed', id, texts, prefix }
+    const message: WorkerOutgoing = { type: 'embed', id, texts }
 
     return new Promise<Float32Array[] | null>((resolve, reject) => {
       pending.set(id, { resolve, reject })
@@ -230,9 +219,4 @@ export function createEmbeddingWorkerClient(
   }
 
   return { embedBatch, rebind, dispose }
-}
-
-/** Convenience: resolves the worker path emitted by electron-vite alongside the main bundle. */
-export function defaultEmbeddingWorkerPath(mainDirname: string): string {
-  return join(mainDirname, 'embeddingWorker.js')
 }

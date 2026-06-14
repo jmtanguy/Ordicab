@@ -25,9 +25,14 @@
 import { readFile } from 'node:fs/promises'
 
 import { atomicWrite } from '../../system/atomicWrite'
-import { decodeVectorBase64, encodeVectorBase64, DEFAULT_EMBEDDING_MODEL } from './embeddingService'
+import {
+  decodeVectorBase64,
+  encodeVectorBase64,
+  DEFAULT_EMBEDDING_MODEL,
+  DEFAULT_EMBEDDING_POOLING
+} from './embeddingService'
 
-export interface StoredEmbeddingChunk {
+interface StoredEmbeddingChunk {
   charStart: number
   charEnd: number
   vector: Float32Array
@@ -36,6 +41,13 @@ export interface StoredEmbeddingChunk {
 export interface StoredEmbeddings {
   model: string
   dim: number
+  /**
+   * Pooling mode used to produce the vectors (e.g. 'cls'). Part of the cache
+   * identity: vectors pooled differently than the current model expects are
+   * stale and must be re-indexed, never compared against a freshly-pooled query.
+   * Empty string for legacy caches written before pooling was tracked.
+   */
+  pooling: string
   chunks: StoredEmbeddingChunk[]
   createdAt: string
 }
@@ -49,6 +61,7 @@ interface SerializedEmbeddingChunk {
 interface SerializedEmbeddings {
   model: string
   dim: number
+  pooling?: string
   chunks: SerializedEmbeddingChunk[]
   createdAt: string
 }
@@ -96,6 +109,7 @@ export async function readEmbeddingsFromCache(cachePath: string): Promise<Stored
   return {
     model: serialized.model,
     dim: serialized.dim,
+    pooling: typeof serialized.pooling === 'string' ? serialized.pooling : '',
     chunks,
     createdAt: typeof serialized.createdAt === 'string' ? serialized.createdAt : ''
   }
@@ -137,6 +151,7 @@ export async function writeEmbeddingsToCache(
   const serialized: SerializedEmbeddings = {
     model: input.model ?? DEFAULT_EMBEDDING_MODEL,
     dim: input.dim,
+    pooling: DEFAULT_EMBEDDING_POOLING,
     chunks: input.chunks.map((chunk) => ({
       charStart: chunk.charStart,
       charEnd: chunk.charEnd,
@@ -155,8 +170,9 @@ export async function writeEmbeddingsToCache(
 
 /**
  * Returns true when the cache has a fresh embedding set that matches the
- * requested model (same id, same dim). Callers use this to decide whether
- * to trigger a re-index after text changes or a model swap.
+ * requested model (same id, same dim) and the current pooling mode. Callers
+ * use this to decide whether to trigger a re-index after text changes, a model
+ * swap, or a pooling change (vectors pooled differently must be rebuilt).
  */
 export async function isEmbeddingCacheFresh(
   cachePath: string,
@@ -165,5 +181,10 @@ export async function isEmbeddingCacheFresh(
 ): Promise<boolean> {
   const existing = await readEmbeddingsFromCache(cachePath)
   if (!existing) return false
-  return existing.model === model && existing.dim === dim && existing.chunks.length > 0
+  return (
+    existing.model === model &&
+    existing.dim === dim &&
+    existing.pooling === DEFAULT_EMBEDDING_POOLING &&
+    existing.chunks.length > 0
+  )
 }

@@ -2,13 +2,13 @@
  * keywordSearchService — literal (non-vector) full-text search over a dossier's
  * already-extracted document text.
  *
- * Why this exists: the embedding model (multilingual E5/bge-m3) does not
- * discriminate well inside a tightly-clustered French legal corpus — every
- * document scores ~0.80 regardless of relevance, so a purely semantic search
- * surfaces irrelevant documents (e.g. a marriage certificate for the query
- * "école"). The only reliable relevance signal in that corpus is the literal
- * presence of the query word. This service provides that signal: it returns a
- * hit ONLY when a content word from the query actually appears in the text.
+ * Why this exists: dense embeddings (bge-m3) rank by meaning, so they never
+ * guarantee that a specific term the user typed actually appears — a near-
+ * synonym can outrank the literal match, and short proper nouns (a party name,
+ * a case number) carry little semantic signal. When the user wants the exact
+ * word, the only reliable signal is its literal presence. This service provides
+ * that: it returns a hit ONLY when a content word from the query appears in the
+ * text. The two lanes are merged upstream in documentService.semanticSearch.
  *
  * It depends on no model and no network — it reads the extracted text from each
  * document's content-cache JSON and matches with diacritic- and case-insensitive
@@ -217,7 +217,7 @@ export async function keywordSearchDossier(
       const framed = frameMatch(text, firstOffset)
       if (!framed) return null
       const hit: SemanticSearchHit = {
-        documentId: doc.documentId,
+        itemId: doc.itemId,
         charStart: framed.charStart,
         charEnd: framed.charEnd,
         // Score = distinct query words matched in this document. Keeps

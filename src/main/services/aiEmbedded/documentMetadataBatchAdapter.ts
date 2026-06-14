@@ -124,7 +124,7 @@ export function createDocumentMetadataBatchAdapter(deps: {
     async applyResult(doc: DocumentRecord, result) {
       await deps.documentService.saveMetadata({
         dossierId: deps.dossierId,
-        documentId: doc.id,
+        documentPath: doc.path,
         description: result.description || undefined,
         tags: result.tags
       })

@@ -16,7 +16,8 @@ type MutableGlobal = typeof globalThis & { ordicabAPI?: OrdicabAPI }
 
 function createDocument(options: Partial<DocumentRecord> = {}): DocumentRecord {
   return {
-    id: 'letter.txt',
+    path: 'letter.txt',
+    uuid: 'doc-uuid-letter',
     dossierId: 'dos-1',
     filename: 'letter.txt',
     byteLength: 11,
@@ -45,7 +46,7 @@ describe('documentStore', () => {
         success: true as const,
         data: [
           createDocument({
-            id: 'evidence/photo.png',
+            path: 'evidence/photo.png',
             filename: 'photo.png',
             relativePath: 'evidence/photo.png'
           })
@@ -103,7 +104,7 @@ describe('documentStore', () => {
     expect(list).toHaveBeenCalledTimes(2)
     expect(useDocumentStore.getState().documentsByDossierId['dos-1']).toEqual([
       createDocument({
-        id: 'evidence/photo.png',
+        path: 'evidence/photo.png',
         filename: 'photo.png',
         relativePath: 'evidence/photo.png'
       })
@@ -177,14 +178,14 @@ describe('documentStore', () => {
     await useDocumentStore.getState().load({ dossierId: 'dos-1' })
     await useDocumentStore.getState().saveMetadata({
       dossierId: 'dos-1',
-      documentId: 'letter.txt',
+      documentPath: 'letter.txt',
       description: 'Incoming note',
       tags: ['urgent']
     })
 
     expect(saveMetadata).toHaveBeenCalledWith({
       dossierId: 'dos-1',
-      documentId: 'letter.txt',
+      documentPath: 'letter.txt',
       description: 'Incoming note',
       tags: ['urgent']
     })
@@ -235,7 +236,7 @@ describe('documentStore', () => {
     await useDocumentStore.getState().open({ dossierId: 'dos-1' })
     await useDocumentStore.getState().saveMetadata({
       dossierId: 'dos-1',
-      documentId: 'letter.txt',
+      documentPath: 'letter.txt',
       description: 'Incoming note',
       tags: ['urgent']
     })
@@ -266,7 +267,7 @@ describe('documentStore', () => {
 
   it('extractContent stores extracted text and updates the document extraction status', async () => {
     const extractedContent: DocumentExtractedContent = {
-      documentId: 'letter.txt',
+      documentPath: 'letter.txt',
       filename: 'letter.txt',
       text: 'Extracted body',
       textLength: 14,
@@ -297,13 +298,13 @@ describe('documentStore', () => {
     await useDocumentStore.getState().load({ dossierId: 'dos-1' })
     const success = await useDocumentStore.getState().extractContent({
       dossierId: 'dos-1',
-      documentId: 'letter.txt'
+      documentPath: 'letter.txt'
     })
 
     expect(success).toBe(true)
     expect(extractContent).toHaveBeenCalledWith({
       dossierId: 'dos-1',
-      documentId: 'letter.txt'
+      documentPath: 'letter.txt'
     })
     expect(useDocumentStore.getState().contentStatesByDossierId['dos-1']?.['letter.txt']).toEqual({
       status: 'ready',
@@ -319,7 +320,7 @@ describe('documentStore', () => {
 
   it('extractContent with forceRefresh bypasses the ready content cache', async () => {
     const firstExtractedContent: DocumentExtractedContent = {
-      documentId: 'letter.txt',
+      documentPath: 'letter.txt',
       filename: 'letter.txt',
       text: 'Old body',
       textLength: 8,
@@ -355,21 +356,21 @@ describe('documentStore', () => {
     await useDocumentStore.getState().load({ dossierId: 'dos-1' })
     await useDocumentStore.getState().extractContent({
       dossierId: 'dos-1',
-      documentId: 'letter.txt'
+      documentPath: 'letter.txt'
     })
     await useDocumentStore.getState().extractContent({
       dossierId: 'dos-1',
-      documentId: 'letter.txt',
+      documentPath: 'letter.txt',
       forceRefresh: true
     })
 
     expect(extractContent).toHaveBeenNthCalledWith(1, {
       dossierId: 'dos-1',
-      documentId: 'letter.txt'
+      documentPath: 'letter.txt'
     })
     expect(extractContent).toHaveBeenNthCalledWith(2, {
       dossierId: 'dos-1',
-      documentId: 'letter.txt',
+      documentPath: 'letter.txt',
       forceRefresh: true
     })
     expect(useDocumentStore.getState().contentStatesByDossierId['dos-1']?.['letter.txt']).toEqual({
@@ -402,7 +403,7 @@ describe('documentStore', () => {
     await useDocumentStore.getState().load({ dossierId: 'dos-1' })
     await useDocumentStore.getState().saveMetadata({
       dossierId: 'dos-1',
-      documentId: 'letter.txt',
+      documentPath: 'letter.txt',
       description: 'Incoming note',
       tags: ['urgent']
     })
@@ -414,7 +415,7 @@ describe('documentStore', () => {
     const preview: DocumentPreview = {
       kind: 'text',
       sourceType: 'txt',
-      documentId: 'letter.txt',
+      documentPath: 'letter.txt',
       filename: 'letter.txt',
       mimeType: 'text/plain',
       byteLength: 11,
@@ -438,7 +439,7 @@ describe('documentStore', () => {
     await useDocumentStore.getState().load({ dossierId: 'dos-1' })
     await useDocumentStore.getState().openPreview({
       dossierId: 'dos-1',
-      documentId: 'letter.txt'
+      documentPath: 'letter.txt'
     })
 
     expect(previewSpy).toHaveBeenCalledTimes(1)
@@ -454,7 +455,7 @@ describe('documentStore', () => {
 
     await useDocumentStore.getState().openPreview({
       dossierId: 'dos-1',
-      documentId: 'letter.txt'
+      documentPath: 'letter.txt'
     })
 
     expect(previewSpy).toHaveBeenCalledTimes(1)
@@ -487,7 +488,7 @@ describe('documentStore', () => {
     await useDocumentStore.getState().load({ dossierId: 'dos-1' })
     await useDocumentStore.getState().openPreview({
       dossierId: 'dos-1',
-      documentId: 'letter.txt'
+      documentPath: 'letter.txt'
     })
 
     expect(
@@ -503,7 +504,7 @@ describe('documentStore', () => {
     const pdfPreview: DocumentPreview = {
       kind: 'pdf',
       sourceType: 'pdf',
-      documentId: 'brochure.pdf',
+      documentPath: 'brochure.pdf',
       filename: 'brochure.pdf',
       mimeType: 'application/pdf',
       byteLength: 4,
@@ -512,7 +513,7 @@ describe('documentStore', () => {
     const docxPreview: DocumentPreview = {
       kind: 'docx',
       sourceType: 'docx',
-      documentId: 'brief.docx',
+      documentPath: 'brief.docx',
       filename: 'brief.docx',
       mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       byteLength: 4,
@@ -521,7 +522,7 @@ describe('documentStore', () => {
     const imagePreview: DocumentPreview = {
       kind: 'image',
       sourceType: 'tif',
-      documentId: 'scan.tif',
+      documentPath: 'scan.tif',
       filename: 'scan.tif',
       mimeType: 'image/tiff',
       byteLength: 4,
@@ -530,7 +531,7 @@ describe('documentStore', () => {
     const emailPreview: DocumentPreview = {
       kind: 'email',
       sourceType: 'msg',
-      documentId: 'mail.msg',
+      documentPath: 'mail.msg',
       filename: 'mail.msg',
       mimeType: 'application/vnd.ms-outlook',
       byteLength: 4,
@@ -539,7 +540,7 @@ describe('documentStore', () => {
       to: 'client@example.com',
       cc: null,
       date: '2026-03-14T12:05:00.000Z',
-      attachments: ['scan.tif'],
+      attachments: [{ index: 0, filename: 'scan.tif', byteLength: null }],
       text: 'MSG body'
     }
     const previewSpy = vi
@@ -554,10 +555,10 @@ describe('documentStore', () => {
         list: vi.fn(async () => ({
           success: true as const,
           data: [
-            createDocument({ id: 'brochure.pdf', filename: 'brochure.pdf' }),
-            createDocument({ id: 'brief.docx', filename: 'brief.docx' }),
-            createDocument({ id: 'scan.tif', filename: 'scan.tif' }),
-            createDocument({ id: 'mail.msg', filename: 'mail.msg' })
+            createDocument({ path: 'brochure.pdf', filename: 'brochure.pdf' }),
+            createDocument({ path: 'brief.docx', filename: 'brief.docx' }),
+            createDocument({ path: 'scan.tif', filename: 'scan.tif' }),
+            createDocument({ path: 'mail.msg', filename: 'mail.msg' })
           ]
         })),
         preview: previewSpy,
@@ -574,22 +575,24 @@ describe('documentStore', () => {
 
     await useDocumentStore
       .getState()
-      .openPreview({ dossierId: 'dos-1', documentId: 'brochure.pdf' })
+      .openPreview({ dossierId: 'dos-1', documentPath: 'brochure.pdf' })
     expect(
       useDocumentStore.getState().previewStatesByDossierId['dos-1']?.['brochure.pdf']
     ).toMatchObject({ status: 'ready', preview: pdfPreview })
 
-    await useDocumentStore.getState().openPreview({ dossierId: 'dos-1', documentId: 'brief.docx' })
+    await useDocumentStore
+      .getState()
+      .openPreview({ dossierId: 'dos-1', documentPath: 'brief.docx' })
     expect(
       useDocumentStore.getState().previewStatesByDossierId['dos-1']?.['brief.docx']
     ).toMatchObject({ status: 'ready', preview: docxPreview })
 
-    await useDocumentStore.getState().openPreview({ dossierId: 'dos-1', documentId: 'scan.tif' })
+    await useDocumentStore.getState().openPreview({ dossierId: 'dos-1', documentPath: 'scan.tif' })
     expect(
       useDocumentStore.getState().previewStatesByDossierId['dos-1']?.['scan.tif']
     ).toMatchObject({ status: 'ready', preview: imagePreview })
 
-    await useDocumentStore.getState().openPreview({ dossierId: 'dos-1', documentId: 'mail.msg' })
+    await useDocumentStore.getState().openPreview({ dossierId: 'dos-1', documentPath: 'mail.msg' })
     expect(
       useDocumentStore.getState().previewStatesByDossierId['dos-1']?.['mail.msg']
     ).toMatchObject({ status: 'ready', preview: emailPreview })
@@ -601,7 +604,7 @@ describe('documentStore', () => {
     const preview: DocumentPreview = {
       kind: 'text',
       sourceType: 'txt',
-      documentId: 'letter.txt',
+      documentPath: 'letter.txt',
       filename: 'letter.txt',
       mimeType: 'text/plain',
       byteLength: 11,
@@ -630,7 +633,9 @@ describe('documentStore', () => {
     } as unknown as OrdicabAPI
 
     await useDocumentStore.getState().open({ dossierId: 'dos-1' })
-    await useDocumentStore.getState().openPreview({ dossierId: 'dos-1', documentId: 'letter.txt' })
+    await useDocumentStore
+      .getState()
+      .openPreview({ dossierId: 'dos-1', documentPath: 'letter.txt' })
 
     expect(
       useDocumentStore.getState().previewStatesByDossierId['dos-1']?.['letter.txt']?.status
@@ -651,7 +656,7 @@ describe('documentStore', () => {
           query: 'contract term',
           hits: [
             {
-              documentId: 'a.pdf',
+              documentPath: 'a.pdf',
               filename: 'a.pdf',
               charStart: 0,
               charEnd: 10,

@@ -54,7 +54,7 @@ describe('generateHandler', () => {
     await expect(
       harness.invoke(IPC_CHANNELS.generate.document, {
         dossierId: 'Client Alpha',
-        templateId: 'tpl-1'
+        templateUuid: 'tpl-1'
       })
     ).resolves.toEqual({
       success: true,
@@ -65,7 +65,7 @@ describe('generateHandler', () => {
 
     expect(generateService.generateDocument).toHaveBeenCalledWith({
       dossierId: 'Client Alpha',
-      templateId: 'tpl-1'
+      templateUuid: 'tpl-1'
     })
   })
 
@@ -86,7 +86,7 @@ describe('generateHandler', () => {
     await expect(
       harness.invoke(IPC_CHANNELS.generate.document, {
         dossierId: '',
-        templateId: ''
+        templateUuid: ''
       })
     ).resolves.toEqual({
       success: false,
@@ -116,7 +116,7 @@ describe('generateHandler', () => {
     await expect(
       harness.invoke(IPC_CHANNELS.generate.document, {
         dossierId: 'Client Alpha',
-        templateId: 'missing-template'
+        templateUuid: 'missing-template'
       })
     ).resolves.toEqual({
       success: false,

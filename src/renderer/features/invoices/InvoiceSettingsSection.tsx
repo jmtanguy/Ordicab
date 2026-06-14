@@ -26,11 +26,12 @@ interface FormState {
   creditNoteNextSequence: string
   correctiveInvoiceNumberPattern: string
   correctiveInvoiceNextSequence: string
-  defaultTemplateId: string
-  defaultCreditNoteTemplateId: string
-  defaultCorrectiveInvoiceTemplateId: string
+  defaultTemplateUuid: string
+  defaultCreditNoteTemplateUuid: string
+  defaultCorrectiveInvoiceTemplateUuid: string
   legalFooter: string
   defaultPaymentTerms: string
+  defaultDueDays: string
 }
 
 function settingsToForm(settings: InvoiceSettings): FormState {
@@ -47,11 +48,12 @@ function settingsToForm(settings: InvoiceSettings): FormState {
     creditNoteNextSequence: String(settings.creditNoteNextSequence),
     correctiveInvoiceNumberPattern: settings.correctiveInvoiceNumberPattern,
     correctiveInvoiceNextSequence: String(settings.correctiveInvoiceNextSequence),
-    defaultTemplateId: settings.defaultTemplateId ?? '',
-    defaultCreditNoteTemplateId: settings.defaultCreditNoteTemplateId ?? '',
-    defaultCorrectiveInvoiceTemplateId: settings.defaultCorrectiveInvoiceTemplateId ?? '',
+    defaultTemplateUuid: settings.defaultTemplateUuid ?? '',
+    defaultCreditNoteTemplateUuid: settings.defaultCreditNoteTemplateUuid ?? '',
+    defaultCorrectiveInvoiceTemplateUuid: settings.defaultCorrectiveInvoiceTemplateUuid ?? '',
     legalFooter: settings.legalFooter ?? '',
-    defaultPaymentTerms: settings.defaultPaymentTerms ?? ''
+    defaultPaymentTerms: settings.defaultPaymentTerms ?? '',
+    defaultDueDays: String(settings.defaultDueDays)
   }
 }
 
@@ -65,11 +67,12 @@ function formToPatch(form: FormState): InvoiceSettingsUpdateInput {
     creditNoteNextSequence: Math.max(1, Number(form.creditNoteNextSequence) || 1),
     correctiveInvoiceNumberPattern: form.correctiveInvoiceNumberPattern.trim(),
     correctiveInvoiceNextSequence: Math.max(1, Number(form.correctiveInvoiceNextSequence) || 1),
-    defaultTemplateId: form.defaultTemplateId || null,
-    defaultCreditNoteTemplateId: form.defaultCreditNoteTemplateId || null,
-    defaultCorrectiveInvoiceTemplateId: form.defaultCorrectiveInvoiceTemplateId || null,
+    defaultTemplateUuid: form.defaultTemplateUuid || null,
+    defaultCreditNoteTemplateUuid: form.defaultCreditNoteTemplateUuid || null,
+    defaultCorrectiveInvoiceTemplateUuid: form.defaultCorrectiveInvoiceTemplateUuid || null,
     legalFooter: form.legalFooter || null,
-    defaultPaymentTerms: form.defaultPaymentTerms || null
+    defaultPaymentTerms: form.defaultPaymentTerms || null,
+    defaultDueDays: Math.min(365, Math.max(0, Number(form.defaultDueDays) || 0))
   }
 }
 
@@ -133,9 +136,10 @@ export function InvoiceSettingsDialog({
         DEFAULT_INVOICE_SETTINGS.stateRetributionNextSequence,
       stateRetributionCurrentSequenceYear:
         settings?.stateRetributionCurrentSequenceYear ?? new Date().getFullYear(),
-      defaultTemplateId: form.defaultTemplateId || undefined,
-      defaultCreditNoteTemplateId: form.defaultCreditNoteTemplateId || undefined,
-      defaultCorrectiveInvoiceTemplateId: form.defaultCorrectiveInvoiceTemplateId || undefined
+      defaultTemplateUuid: form.defaultTemplateUuid || undefined,
+      defaultCreditNoteTemplateUuid: form.defaultCreditNoteTemplateUuid || undefined,
+      defaultCorrectiveInvoiceTemplateUuid: form.defaultCorrectiveInvoiceTemplateUuid || undefined,
+      defaultDueDays: Math.min(365, Math.max(0, Number(form.defaultDueDays) || 0))
     }),
     [
       form,
@@ -221,13 +225,13 @@ export function InvoiceSettingsDialog({
       })}
     >
       <div className="mb-4 flex shrink-0 items-center justify-between">
-        <h2 className="text-lg font-semibold text-[#1a1a1a]">
+        <h2 className="text-lg font-semibold text-ink">
           {t('invoices.settings_dialog_title', { defaultValue: 'Paramètres de facturation' })}
         </h2>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-lg p-1.5 text-[#5c5c5a] transition hover:bg-[#e4e1d5] hover:text-[#1a1a1a]"
+          className="rounded-lg p-1.5 text-ink-muted transition hover:bg-parchment-dim hover:text-ink"
           aria-label="Fermer"
         >
           ✕
@@ -237,10 +241,10 @@ export function InvoiceSettingsDialog({
       <div className="flex-1 space-y-5 overflow-y-auto pr-1">
         <section className="space-y-3">
           <div>
-            <h3 className="text-sm font-semibold text-[#1a1a1a]">
+            <h3 className="text-sm font-semibold text-ink">
               {t('invoices.settings_numbering_title', { defaultValue: 'Numérotation' })}
             </h3>
-            <p className="mt-0.5 text-xs text-[#8a8a85]">
+            <p className="mt-0.5 text-xs text-ink-subtle">
               {t('invoices.settings_numbering_hint', {
                 defaultValue: 'Motif appliqué à chaque nouvelle facture émise.'
               })}
@@ -267,7 +271,7 @@ export function InvoiceSettingsDialog({
               />
             </Field>
           </div>
-          <div className="rounded-md border border-[#e5e3da] bg-[#fbf9f4] px-3 py-2 text-xs text-[#5c5c5a]">
+          <div className="rounded-md border border-hairline bg-parchment-bright px-3 py-2 text-xs text-ink-muted">
             <p>
               {t('invoices.settings_pattern_tokens', {
                 defaultValue:
@@ -313,7 +317,7 @@ export function InvoiceSettingsDialog({
               </label>
             </Field>
           </div>
-          <div className="grid gap-3 border-t border-[#e5e3da] pt-3 md:grid-cols-2">
+          <div className="grid gap-3 border-t border-hairline pt-3 md:grid-cols-2">
             <Field label="Motif avoirs">
               <Input
                 value={form.creditNoteNumberPattern}
@@ -351,12 +355,12 @@ export function InvoiceSettingsDialog({
           </div>
         </section>
 
-        <section className="space-y-3 border-t border-[#e5e3da] pt-4">
+        <section className="space-y-3 border-t border-hairline pt-4">
           <div>
-            <h3 className="text-sm font-semibold text-[#1a1a1a]">
+            <h3 className="text-sm font-semibold text-ink">
               {t('invoices.settings_templates_title', { defaultValue: 'Modèles par défaut' })}
             </h3>
-            <p className="mt-0.5 text-xs text-[#8a8a85]">
+            <p className="mt-0.5 text-xs text-ink-subtle">
               {t('invoices.settings_templates_hint', {
                 defaultValue:
                   'Un modèle par type de document, proposé par défaut lors de la génération.'
@@ -366,14 +370,14 @@ export function InvoiceSettingsDialog({
           <div className="grid gap-3 md:grid-cols-3">
             <Field label="Facture">
               <Select
-                value={form.defaultTemplateId}
-                onChange={(e) => setForm((p) => ({ ...p, defaultTemplateId: e.target.value }))}
+                value={form.defaultTemplateUuid}
+                onChange={(e) => setForm((p) => ({ ...p, defaultTemplateUuid: e.target.value }))}
               >
                 <option value="">
                   {t('invoices.settings_no_template', { defaultValue: '— Aucun —' })}
                 </option>
                 {invoiceTemplates.map((tpl) => (
-                  <option key={tpl.id} value={tpl.id}>
+                  <option key={tpl.uuid} value={tpl.uuid}>
                     {tpl.name}
                   </option>
                 ))}
@@ -381,16 +385,16 @@ export function InvoiceSettingsDialog({
             </Field>
             <Field label="Avoir">
               <Select
-                value={form.defaultCreditNoteTemplateId}
+                value={form.defaultCreditNoteTemplateUuid}
                 onChange={(e) =>
-                  setForm((p) => ({ ...p, defaultCreditNoteTemplateId: e.target.value }))
+                  setForm((p) => ({ ...p, defaultCreditNoteTemplateUuid: e.target.value }))
                 }
               >
                 <option value="">
                   {t('invoices.settings_no_template', { defaultValue: '— Aucun —' })}
                 </option>
                 {creditNoteTemplates.map((tpl) => (
-                  <option key={tpl.id} value={tpl.id}>
+                  <option key={tpl.uuid} value={tpl.uuid}>
                     {tpl.name}
                   </option>
                 ))}
@@ -398,16 +402,16 @@ export function InvoiceSettingsDialog({
             </Field>
             <Field label="Facture rectificative">
               <Select
-                value={form.defaultCorrectiveInvoiceTemplateId}
+                value={form.defaultCorrectiveInvoiceTemplateUuid}
                 onChange={(e) =>
-                  setForm((p) => ({ ...p, defaultCorrectiveInvoiceTemplateId: e.target.value }))
+                  setForm((p) => ({ ...p, defaultCorrectiveInvoiceTemplateUuid: e.target.value }))
                 }
               >
                 <option value="">
                   {t('invoices.settings_no_template', { defaultValue: '— Aucun —' })}
                 </option>
                 {correctiveTemplates.map((tpl) => (
-                  <option key={tpl.id} value={tpl.id}>
+                  <option key={tpl.uuid} value={tpl.uuid}>
                     {tpl.name}
                   </option>
                 ))}
@@ -416,12 +420,12 @@ export function InvoiceSettingsDialog({
           </div>
         </section>
 
-        <section className="space-y-3 border-t border-[#e5e3da] pt-4">
+        <section className="space-y-3 border-t border-hairline pt-4">
           <div>
-            <h3 className="text-sm font-semibold text-[#1a1a1a]">
+            <h3 className="text-sm font-semibold text-ink">
               {t('invoices.settings_legal_title', { defaultValue: 'Mentions légales & paiement' })}
             </h3>
-            <p className="mt-0.5 text-xs text-[#8a8a85]">
+            <p className="mt-0.5 text-xs text-ink-subtle">
               {t('invoices.settings_issuer_moved_hint', {
                 defaultValue:
                   "L'identité de l'émetteur (raison sociale, SIREN, N° TVA, IBAN, adresse) provient de la fiche du cabinet (Paramètres › Cabinet)."
@@ -429,21 +433,36 @@ export function InvoiceSettingsDialog({
             </p>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
+            <Field label="Délai de paiement standard (jours)">
+              <Input
+                type="number"
+                min={0}
+                max={365}
+                value={form.defaultDueDays}
+                onChange={(e) => setForm((p) => ({ ...p, defaultDueDays: e.target.value }))}
+              />
+              <p className="mt-1 text-xs text-ink-subtle">
+                {t('invoices.settings_due_days_hint', {
+                  defaultValue:
+                    "L'échéance (tag facture.dateEcheance) est calculée automatiquement : date d'émission + ce délai."
+                })}
+              </p>
+            </Field>
             <Field className="md:col-span-2" label="Mention légale (pied de facture)">
               <textarea
                 value={form.legalFooter}
                 onChange={(e) => setForm((p) => ({ ...p, legalFooter: e.target.value }))}
-                className="min-h-15 rounded-md border border-[#e5e3da] bg-white px-2 py-1 text-sm"
+                className="min-h-15 rounded-md border border-hairline bg-white px-2 py-1 text-sm"
               />
             </Field>
             <Field className="md:col-span-2" label="Conditions de paiement par défaut">
               <textarea
                 value={form.defaultPaymentTerms}
                 onChange={(e) => setForm((p) => ({ ...p, defaultPaymentTerms: e.target.value }))}
-                className="min-h-15 rounded-md border border-[#e5e3da] bg-white px-2 py-1 text-sm"
+                className="min-h-15 rounded-md border border-hairline bg-white px-2 py-1 text-sm"
                 placeholder="Paiement à réception. Tout retard donne lieu à des pénalités…"
               />
-              <p className="mt-1 text-xs text-[#8a8a85]">
+              <p className="mt-1 text-xs text-ink-subtle">
                 {t('invoices.settings_payment_terms_hint', {
                   defaultValue:
                     'Injecté dans {{facture.conditionsPaiement}}. Identique pour toutes les factures émises.'
@@ -460,7 +479,7 @@ export function InvoiceSettingsDialog({
         )}
       </div>
 
-      <div className="mt-4 flex shrink-0 justify-end gap-2 border-t border-[#e5e3da] pt-3">
+      <div className="mt-4 flex shrink-0 justify-end gap-2 border-t border-hairline pt-3">
         <Button type="button" variant="ghost" onClick={onClose} disabled={isSaving}>
           {t('common.cancel', { defaultValue: 'Annuler' })}
         </Button>

@@ -221,7 +221,12 @@ describe('aiStore', () => {
       originalCommand: 'Bonjour',
       clarificationRound: 1,
       streamingMessageId: 'stream-1',
-      lastContext: { dossierId: 'd1', contactId: 'c1', templateId: 't1', pendingTagPaths: ['x'] }
+      lastContext: {
+        dossierId: 'd1',
+        contactUuid: 'c1',
+        templateUuid: 't1',
+        pendingTagPaths: ['x']
+      }
     })
 
     await useAiStore.getState().resetConversation()
@@ -235,8 +240,8 @@ describe('aiStore', () => {
     expect(useAiStore.getState().streamingMessageId).toBeNull()
     expect(useAiStore.getState().lastContext).toEqual({
       dossierId: 'd1',
-      contactId: undefined,
-      templateId: undefined,
+      contactUuid: undefined,
+      templateUuid: undefined,
       pendingTagPaths: undefined
     })
   })

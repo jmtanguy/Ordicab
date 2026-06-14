@@ -1,3 +1,6 @@
 export * from './templateContent/tagPaths'
 export * from './templateContent/html'
 export * from './templateContent/preview'
+export * from './templateContent/fuzzyText'
+export * from './templateContent/tagLint'
+export * from './templateContent/htmlTextReplace'

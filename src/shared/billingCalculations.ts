@@ -261,13 +261,13 @@ export function buildBillingItemFromKeyDate(
     date: keyDate.date,
     label: keyDate.label,
     description,
-    sourceServicePresetId: defaultPreset?.id,
+    sourceServicePresetUuid: defaultPreset?.uuid,
     quantity: quantityHours,
     quantityUnit: 'hours',
     unitPriceHtCents: defaultPreset?.hourlyRateHtCents ?? defaultPreset?.flatFeeHtCents ?? 0,
     vatRateBasisPoints: defaultPreset?.vatRateBasisPoints ?? 2000,
     status: 'draft',
-    sourceKeyDateId: keyDate.id
+    sourceKeyDateUuid: keyDate.uuid
   }
 }
 
@@ -298,13 +298,13 @@ export function buildBillingItemFromFeeAgreement(
         )} HT.`,
         agreement.legalAidVatExempt ? 'Rétribution exonérée de TVA.' : undefined
       ]),
-      sourceServicePresetId: agreement.sourceServicePresetId,
+      sourceServicePresetUuid: agreement.sourceServicePresetUuid,
       quantity: 1,
       quantityUnit: 'units',
       unitPriceHtCents: stateRetributionHtCents,
       vatRateBasisPoints,
       status: 'draft',
-      sourceFeeAgreementId: agreement.id,
+      sourceFeeAgreementUuid: agreement.uuid,
       sourceFeeAgreementBillingKind: conversionKind
     }
   }
@@ -320,13 +320,13 @@ export function buildBillingItemFromFeeAgreement(
         agreement.notes,
         `Complément d'honoraires librement négocié : ${formatEurosCents(complementHtCents)} HT.`
       ]),
-      sourceServicePresetId: agreement.sourceServicePresetId,
+      sourceServicePresetUuid: agreement.sourceServicePresetUuid,
       quantity: 1,
       quantityUnit: 'units',
       unitPriceHtCents: complementHtCents,
       vatRateBasisPoints: agreement.vatRateBasisPoints,
       status: 'draft',
-      sourceFeeAgreementId: agreement.id,
+      sourceFeeAgreementUuid: agreement.uuid,
       sourceFeeAgreementBillingKind: conversionKind
     }
   }
@@ -351,13 +351,13 @@ export function buildBillingItemFromFeeAgreement(
         ? `Provision - ${agreement.matterLabel}`
         : `Solde final - ${agreement.matterLabel}`,
     description,
-    sourceServicePresetId: agreement.sourceServicePresetId,
+    sourceServicePresetUuid: agreement.sourceServicePresetUuid,
     quantity: 1,
     quantityUnit: 'units',
     unitPriceHtCents,
     vatRateBasisPoints: agreement.vatRateBasisPoints,
     status: 'draft',
-    sourceFeeAgreementId: agreement.id,
+    sourceFeeAgreementUuid: agreement.uuid,
     sourceFeeAgreementBillingKind: conversionKind
   }
 }

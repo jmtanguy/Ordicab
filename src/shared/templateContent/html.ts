@@ -24,7 +24,7 @@ export function renderSmartTagSpan(path: string): string {
   return `<span data-template-tag-path="${escapeAttribute(normalizedPath)}" contenteditable="false">${escapeHtml(token)}</span>`
 }
 
-export function isHtmlContent(content: string): boolean {
+function isHtmlContent(content: string): boolean {
   const trimmed = content.trim()
   return /<\/?[a-z][\s\S]*>/i.test(trimmed) || trimmed.includes('data-template-tag-path=')
 }
@@ -37,7 +37,7 @@ function paragraphsFromPlainText(content: string): string[] {
     .filter(Boolean)
 }
 
-export function plainTextToHtml(content: string): string {
+function plainTextToHtml(content: string): string {
   const paragraphs = paragraphsFromPlainText(content)
 
   if (paragraphs.length === 0) {
@@ -53,7 +53,7 @@ export function ensureTemplateHtml(content: string): string {
   return isHtmlContent(content) ? content.trim() : plainTextToHtml(content)
 }
 
-export function replaceRawTagsWithSpans(content: string): string {
+function replaceRawTagsWithSpans(content: string): string {
   return ensureTemplateHtml(content).replace(RAW_TAG_PATTERN, (_match, rawPath: string) =>
     renderSmartTagSpan(rawPath.trim())
   )

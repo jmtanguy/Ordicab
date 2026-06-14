@@ -40,7 +40,8 @@ async function createDocxTemplateBuffer(text: string): Promise<Uint8Array> {
 
 function createDossierDetail(overrides: Partial<DossierDetail> = {}): DossierDetail {
   return {
-    id: 'Client Alpha',
+    slug: 'Client Alpha',
+    uuid: 'uuid-client-alpha',
     name: 'Client Alpha',
     status: 'active',
     type: 'Civil litigation',
@@ -53,7 +54,7 @@ function createDossierDetail(overrides: Partial<DossierDetail> = {}): DossierDet
     billingItems: [],
     keyDates: [
       {
-        id: 'kd-1',
+        uuid: 'kd-1',
         dossierId: 'Client Alpha',
         label: 'Hearing date',
         date: '2026-04-01',
@@ -62,7 +63,7 @@ function createDossierDetail(overrides: Partial<DossierDetail> = {}): DossierDet
     ],
     keyReferences: [
       {
-        id: 'kr-1',
+        uuid: 'kr-1',
         dossierId: 'Client Alpha',
         label: 'Case number',
         value: 'RG 26/001',
@@ -76,7 +77,7 @@ function createDossierDetail(overrides: Partial<DossierDetail> = {}): DossierDet
 
 function createTemplate(overrides: Partial<TemplateRecord> = {}): TemplateRecord {
   return {
-    id: 'tpl-1',
+    uuid: 'tpl-1',
     name: 'Convocation',
     content:
       '<p>Hello <span data-template-tag-path="contact.displayName">{{contact.displayName}}</span></p>',
@@ -136,7 +137,7 @@ async function createServiceFixture(
   // Write content to individual file; store empty content in index JSON.
   if (template.content) {
     await writeFile(
-      join(domainPath, '.ordicab', 'templates', `${template.id}.html`),
+      join(domainPath, '.ordicab', 'templates', `${template.uuid}.html`),
       template.content,
       'utf8'
     )
@@ -177,10 +178,10 @@ async function createServiceFixture(
 
 async function attachDocxTemplate(
   domainPath: string,
-  templateId: string,
+  templateUuid: string,
   text: string
 ): Promise<void> {
-  const outputPath = join(domainPath, '.ordicab', 'templates', `${templateId}.docx`)
+  const outputPath = join(domainPath, '.ordicab', 'templates', `${templateUuid}.docx`)
   await mkdir(dirname(outputPath), { recursive: true })
   await writeFile(outputPath, await createDocxTemplateBuffer(text))
 }
@@ -204,12 +205,12 @@ describe('generateService', () => {
 
     const result = await service.previewDocument({
       dossierId: 'Client Alpha',
-      templateId: 'tpl-1'
+      templateUuid: 'tpl-1'
     })
 
     expect(result).toEqual({
       draftHtml: expect.stringContaining('Client Alpha'),
-      suggestedFilename: 'Convocation-2026-03-15',
+      suggestedFilename: 'Convocation - Client Alpha - 2026-03-15',
       unresolvedTags: ['entity.addressLine2'],
       resolvedTags: {
         'dossier.name': 'Client Alpha',
@@ -246,7 +247,7 @@ describe('generateService', () => {
     )
     const resultF = await serviceF.previewDocument({
       dossierId: 'Client Alpha',
-      templateId: 'tpl-1'
+      templateUuid: 'tpl-1'
     })
     expect(resultF.unresolvedTags).toEqual([])
     expect(resultF.resolvedTags).toEqual({
@@ -277,7 +278,7 @@ describe('generateService', () => {
     )
     const resultN = await serviceN.previewDocument({
       dossierId: 'Client Alpha',
-      templateId: 'tpl-1'
+      templateUuid: 'tpl-1'
     })
     expect(resultN.unresolvedTags).toEqual([])
     expect(resultN.resolvedTags).toEqual({
@@ -306,7 +307,7 @@ describe('generateService', () => {
     )
     const resultAlias = await serviceAlias.previewDocument({
       dossierId: 'Client Alpha',
-      templateId: 'tpl-1'
+      templateUuid: 'tpl-1'
     })
     expect(resultAlias.unresolvedTags).toEqual([])
     expect(resultAlias.resolvedTags).toEqual({ 'contact.salutation': 'Monsieur' })
@@ -338,7 +339,7 @@ describe('generateService', () => {
     )
     const resultRole = await serviceRole.previewDocument({
       dossierId: 'Client Alpha',
-      templateId: 'tpl-1'
+      templateUuid: 'tpl-1'
     })
     expect(resultRole.unresolvedTags).toEqual([])
     expect(resultRole.resolvedTags).toEqual({
@@ -365,7 +366,7 @@ describe('generateService', () => {
     )
     const resultPrenoms = await servicePrenoms.previewDocument({
       dossierId: 'Client Alpha',
-      templateId: 'tpl-1'
+      templateUuid: 'tpl-1'
     })
     expect(resultPrenoms.unresolvedTags).toEqual([])
     expect(resultPrenoms.resolvedTags).toEqual({ 'contact.firstNames': 'Alex Marie Louise' })
@@ -402,7 +403,7 @@ describe('generateService', () => {
     )
     const resultLocale = await serviceLocale.previewDocument({
       dossierId: 'Client Alpha',
-      templateId: 'tpl-1'
+      templateUuid: 'tpl-1'
     })
     expect(resultLocale.unresolvedTags).toEqual([])
     expect(resultLocale.resolvedTags).toEqual({
@@ -418,9 +419,11 @@ describe('generateService', () => {
     )
     const result = await service.generateDocument({
       dossierId: 'Client Alpha',
-      templateId: 'tpl-1'
+      templateUuid: 'tpl-1'
     })
-    expect(result.outputPath).toBe(join(dossierPath, 'Lettre finale-2026-03-15.docx'))
+    expect(result.outputPath).toBe(
+      join(dossierPath, 'Lettre finale - Client Alpha - 2026-03-15.docx')
+    )
     const bytes = await readFile(result.outputPath)
     expect(bytes.subarray(0, 2).toString()).toBe('PK')
 
@@ -430,7 +433,7 @@ describe('generateService', () => {
     )
     const result2 = await service2.generateDocument({
       dossierId: 'Client Alpha',
-      templateId: 'tpl-1'
+      templateUuid: 'tpl-1'
     })
     const bytes2 = await readFile(result2.outputPath)
     expect(bytes2.subarray(0, 2).toString()).toBe('PK')
@@ -455,10 +458,12 @@ describe('generateService', () => {
     )
     const result3 = await service3.generateDocument({
       dossierId: 'Client Alpha',
-      templateId: 'tpl-1',
+      templateUuid: 'tpl-1',
       tagOverrides: { 'dossier.keyDate.judgmentDate': '[judgmentDate not set]' }
     })
-    expect(result3.outputPath).toBe(join(dossierPath3, 'Audience note-2026-03-15.docx'))
+    expect(result3.outputPath).toBe(
+      join(dossierPath3, 'Audience note - Client Alpha - 2026-03-15.docx')
+    )
     const zip3 = new PizZip(await readFile(result3.outputPath))
     const xml3 = zip3.file('word/document.xml')?.asText()
     expect(xml3).toContain('Client Alpha')
@@ -471,7 +476,7 @@ describe('generateService', () => {
       createTemplate({ hasDocxSource: true })
     )
     await expect(
-      service4.generateDocument({ dossierId: 'Client Alpha', templateId: 'tpl-1' })
+      service4.generateDocument({ dossierId: 'Client Alpha', templateUuid: 'tpl-1' })
     ).rejects.toMatchObject({ code: 'ENOENT' })
 
     // malformed docx template
@@ -480,7 +485,7 @@ describe('generateService', () => {
     )
     await attachDocxTemplate(domainPath5, 'tpl-1', 'Broken {{dossier.name')
     await expect(
-      service5.generateDocument({ dossierId: 'Client Alpha', templateId: 'tpl-1' })
+      service5.generateDocument({ dossierId: 'Client Alpha', templateUuid: 'tpl-1' })
     ).rejects.toMatchObject({
       code: IpcErrorCode.UNKNOWN,
       message: expect.stringContaining('Invalid tag in Word template:')
@@ -510,7 +515,7 @@ describe('generateService', () => {
 
     const result = await service.previewDocument({
       dossierId: 'Client Alpha',
-      templateId: 'tpl-1'
+      templateUuid: 'tpl-1'
     })
 
     expect(result.draftHtml).toContain('Paris')
@@ -540,21 +545,21 @@ describe('generateService', () => {
         dossier: {
           keyReferences: [
             {
-              id: 'kr-juridiction',
+              uuid: 'kr-juridiction',
               dossierId: 'Client Alpha',
               label: 'Juridiction',
               value: 'Tribunal judiciaire',
               note: ''
             },
             {
-              id: 'kr-tribunal',
+              uuid: 'kr-tribunal',
               dossierId: 'Client Alpha',
               label: 'Tribunal',
               value: 'Tribunal judiciaire de Paris',
               note: ''
             },
             {
-              id: 'kr-rg',
+              uuid: 'kr-rg',
               dossierId: 'Client Alpha',
               label: 'N° RG',
               value: '24/00321',
@@ -567,7 +572,7 @@ describe('generateService', () => {
 
     const result = await service.previewDocument({
       dossierId: 'Client Alpha',
-      templateId: 'tpl-1'
+      templateUuid: 'tpl-1'
     })
 
     expect(result.draftHtml).toContain('Tribunal judiciaire')
@@ -588,5 +593,52 @@ describe('generateService', () => {
 
     expect(result.outputPath).toBe(join(dossierPath, 'Reviewed draft.txt'))
     await expect(readFile(result.outputPath, 'utf8')).resolves.toBe('HEADING\n\nUpdated body')
+  })
+
+  it('memorizes manual overrides per template and returns them on the next initial preview', async () => {
+    const { dossierPath, service } = await createServiceFixture(
+      createTemplate({
+        content: [
+          '<p><span data-template-tag-path="dossier.name">{{dossier.name}}</span></p>',
+          '<p><span data-template-tag-path="entity.addressLine2">{{entity.addressLine2}}</span></p>'
+        ].join('')
+      })
+    )
+
+    // Save with one context-resolved tag and one manual value
+    await service.saveGeneratedDocument({
+      dossierId: 'Client Alpha',
+      filename: 'Reviewed draft',
+      format: 'docx',
+      html: '<p>Body</p>',
+      templateUuid: 'tpl-1',
+      tagOverrides: {
+        'dossier.name': 'Client Alpha',
+        'entity.addressLine2': 'Étage 3'
+      }
+    })
+
+    const prefillRaw = await readFile(
+      join(dossierPath, '.ordicab', 'generation-prefill.json'),
+      'utf8'
+    )
+    const prefill = JSON.parse(prefillRaw)
+    // Only the manual value is memorized — dossier.name resolves from context
+    expect(prefill['tpl-1'].tagOverrides).toEqual({ 'entity.addressLine2': 'Étage 3' })
+
+    // Initial preview (no overrides) returns the memorized value
+    const preview = await service.previewDocument({
+      dossierId: 'Client Alpha',
+      templateUuid: 'tpl-1'
+    })
+    expect(preview.memorizedOverrides).toEqual({ 'entity.addressLine2': 'Étage 3' })
+
+    // Subsequent previews with overrides do not return memorized values
+    const second = await service.previewDocument({
+      dossierId: 'Client Alpha',
+      templateUuid: 'tpl-1',
+      tagOverrides: { 'entity.addressLine2': 'Étage 4' }
+    })
+    expect(second.memorizedOverrides).toBeUndefined()
   })
 })

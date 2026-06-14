@@ -7,6 +7,19 @@ import type {
   AiSettingsResponse,
   AiSettingsSaveInput
 } from '../types/ai'
+import type { PiiPersonaSettings } from '../types/piiPersonas'
+import type {
+  CalendarSyncOptionsInput,
+  CalendarSyncRunResult,
+  CalendarSyncSettingsSaveInput,
+  CalendarSyncStatus
+} from '../domain/calendarSync'
+import type {
+  CoworkExportProgress,
+  CoworkExportResult,
+  CoworkReimportResult,
+  CoworkStatus
+} from '../domain/cowork'
 import type {
   JudilibreConsultInput,
   JudilibreSearchInput,
@@ -49,6 +62,8 @@ import type {
   DocumentWatchStatus,
   GeneratedDocumentResult,
   GeneratedDraftResult,
+  GlobalSearchQuery,
+  GlobalSearchResult,
   OrdicabDataChangedEvent,
   SemanticSearchQuery,
   SemanticSearchResult,
@@ -66,27 +81,48 @@ import type {
   CabinetBillingDefaultInput,
   CabinetServicePresetDeleteInput,
   CabinetServicePresetUpsertInput,
+  ConflictCheckInput,
+  ConflictMatch,
   ContactDeleteInput,
   ContactRecord,
   ContactUpsertInput,
-  DocumentFileDeleteInput,
+  DocumentFileMoveInput,
   DocumentFileRenameInput,
   DocumentFolderCreateInput,
   DocumentFolderDeleteInput,
+  DocumentFolderDeleteResult,
+  DocumentFolderMoveInput,
   DocumentFolderRenameInput,
+  DocumentImportInput,
+  DocumentImportResult,
   DocumentMetadataUpdate,
+  DocumentMoveResult,
+  DocumentTrashEntry,
+  DocumentTrashInput,
+  DocumentTrashResult,
+  DocumentTrashRestoreInput,
+  DocumentTrashRestoreResult,
+  EmailAttachmentSaveInput,
+  EmailAttachmentSaveResult,
+  PdfExtractPagesInput,
+  PdfMergeInput,
+  PdfOperationResult,
+  PdfSplitInput,
+  PieceAddInput,
+  PieceGenerateInput,
+  PieceGenerateProgressEvent,
+  PieceGenerateResult,
+  PieceRecord,
+  PieceRemoveInput,
+  PieceUpdateInput,
+  CompareProgressEvent,
+  CompareRunInput,
+  ComparisonResult,
   DocumentExtractedContent,
   DocumentPreviewInput,
   DocumentRecord,
   DossierDetail,
   DossierEligibleFolder,
-  DossierAiExportAnalyzeResult,
-  DossierAiExportInput,
-  DossierAiExportResult,
-  DossierAiImportAnalyzeInput,
-  DossierAiImportAnalyzeResult,
-  DossierAiImportInput,
-  DossierAiImportResult,
   DossierBillingItemDeleteInput,
   DossierBillingItemUpsertInput,
   DossierFeeAgreementArchiveInput,
@@ -96,6 +132,10 @@ import type {
   DossierKeyDateDeleteInput,
   DossierCreateInput,
   DossierKeyDateUpsertInput,
+  KeyDateMoveInput,
+  GeneralKeyDate,
+  GeneralKeyDateDeleteInput,
+  GeneralKeyDateUpsertInput,
   DossierKeyReferenceDeleteInput,
   DossierKeyReferenceUpsertInput,
   DossierNoteDeleteInput,
@@ -106,6 +146,7 @@ import type {
   DossierSetupLegalAidResult,
   DossierSummary,
   DossierUnregisterInput,
+  DossierUpdateInput,
   DossierUpdateLegalAidInput,
   EntityProfile,
   EntityProfileDraft,
@@ -117,6 +158,8 @@ import type {
   InvoiceCreateInput,
   InvoiceExportCsvInput,
   InvoiceExportCsvResult,
+  InvoiceExportFecInput,
+  InvoiceExportFecResult,
   InvoiceMarkPaidInput,
   InvoicePaymentDeleteInput,
   InvoicePaymentInput,
@@ -132,6 +175,10 @@ import type {
   TemplateDocxInput,
   TemplateDraft,
   TemplateRecord,
+  TemplateTagifyAnalyzeInput,
+  TemplateTagifyAnalyzeResult,
+  TemplateTagifyApplyInput,
+  TemplateTagifyApplyResult,
   TemplateUpdate
 } from '../domain'
 
@@ -163,9 +210,14 @@ export interface OrdicabAPI {
     open: (input: DossierScopedQuery) => Promise<IpcResult<DossierDetail>>
     register: (input: DossierRegistrationInput) => Promise<IpcResult<DossierSummary>>
     create: (input: DossierCreateInput) => Promise<IpcResult<DossierSummary>>
+    update: (input: DossierUpdateInput) => Promise<IpcResult<DossierDetail>>
     unregister: (input: DossierUnregisterInput) => Promise<IpcResult<null>>
     upsertKeyDate: (input: DossierKeyDateUpsertInput) => Promise<IpcResult<DossierDetail>>
     deleteKeyDate: (input: DossierKeyDateDeleteInput) => Promise<IpcResult<DossierDetail>>
+    moveKeyDate: (input: KeyDateMoveInput) => Promise<IpcResult<null>>
+    listGeneralKeyDates: () => Promise<IpcResult<GeneralKeyDate[]>>
+    upsertGeneralKeyDate: (input: GeneralKeyDateUpsertInput) => Promise<IpcResult<GeneralKeyDate[]>>
+    deleteGeneralKeyDate: (input: GeneralKeyDateDeleteInput) => Promise<IpcResult<GeneralKeyDate[]>>
     upsertNote: (input: DossierNoteUpsertInput) => Promise<IpcResult<DossierDetail>>
     deleteNote: (input: DossierNoteDeleteInput) => Promise<IpcResult<DossierDetail>>
     upsertFeeAgreement: (input: DossierFeeAgreementUpsertInput) => Promise<IpcResult<DossierDetail>>
@@ -184,19 +236,12 @@ export interface OrdicabAPI {
     ) => Promise<IpcResult<DossierSetupLegalAidResult>>
     upsertKeyReference: (input: DossierKeyReferenceUpsertInput) => Promise<IpcResult<DossierDetail>>
     deleteKeyReference: (input: DossierKeyReferenceDeleteInput) => Promise<IpcResult<DossierDetail>>
-    pickExportRoot: () => Promise<IpcResult<string | null>>
-    analyzeAiExport: (input: DossierScopedQuery) => Promise<IpcResult<DossierAiExportAnalyzeResult>>
-    exportForAi: (input: DossierAiExportInput) => Promise<IpcResult<DossierAiExportResult>>
-    pickImportSource: () => Promise<IpcResult<string | null>>
-    analyzeAiImport: (
-      input: DossierAiImportAnalyzeInput
-    ) => Promise<IpcResult<DossierAiImportAnalyzeResult>>
-    importAiProduction: (input: DossierAiImportInput) => Promise<IpcResult<DossierAiImportResult>>
   }
   contact: {
     list: (input: DossierScopedQuery) => Promise<IpcResult<ContactRecord[]>>
     upsert: (input: ContactUpsertInput) => Promise<IpcResult<ContactRecord>>
     delete: (input: ContactDeleteInput) => Promise<IpcResult<null>>
+    checkConflicts: (input: ConflictCheckInput) => Promise<IpcResult<ConflictMatch[]>>
   }
   entity: {
     get: () => Promise<IpcResult<EntityProfile | null>>
@@ -204,6 +249,11 @@ export interface OrdicabAPI {
     importDefaultTemplate: () => Promise<IpcResult<EntityProfile | null>>
     openDefaultTemplate: () => Promise<IpcResult<null>>
     removeDefaultTemplate: () => Promise<IpcResult<EntityProfile>>
+    /** Opens a file picker; resolves null when the user cancels. */
+    importStamp: () => Promise<IpcResult<EntityProfile | null>>
+    removeStamp: () => Promise<IpcResult<EntityProfile>>
+    /** Data URL of the imported stamp image for settings preview; null when none. */
+    getStampDataUrl: () => Promise<IpcResult<string | null>>
   }
   cabinetBilling: {
     get: () => Promise<IpcResult<CabinetBillingCatalog>>
@@ -219,7 +269,7 @@ export interface OrdicabAPI {
   }
   invoice: {
     list: () => Promise<IpcResult<InvoiceRecord[]>>
-    get: (invoiceId: string) => Promise<IpcResult<InvoiceRecord>>
+    get: (invoiceUuid: string) => Promise<IpcResult<InvoiceRecord>>
     create: (input: InvoiceCreateInput) => Promise<IpcResult<InvoiceRecord>>
     cancel: (input: InvoiceCancelInput) => Promise<IpcResult<InvoiceRecord>>
     markPaid: (input: InvoiceMarkPaidInput) => Promise<IpcResult<InvoiceRecord>>
@@ -231,11 +281,12 @@ export interface OrdicabAPI {
     updatePayment: (input: InvoicePaymentUpdateInput) => Promise<IpcResult<InvoiceRecord>>
     deletePayment: (input: InvoicePaymentDeleteInput) => Promise<IpcResult<InvoiceRecord>>
     exportCsv: (input: InvoiceExportCsvInput) => Promise<IpcResult<InvoiceExportCsvResult>>
+    exportFec: (input: InvoiceExportFecInput) => Promise<IpcResult<InvoiceExportFecResult>>
     openDocument: (input: {
-      invoiceId: string
+      invoiceUuid: string
     }) => Promise<IpcResult<{ integrity: InvoiceArtifactIntegrity }>>
     openPdf: (input: {
-      invoiceId: string
+      invoiceUuid: string
     }) => Promise<IpcResult<{ integrity: InvoiceArtifactIntegrity }>>
     getSettings: () => Promise<IpcResult<InvoiceSettings>>
     updateSettings: (input: InvoiceSettingsUpdateInput) => Promise<IpcResult<InvoiceSettings>>
@@ -259,11 +310,51 @@ export interface OrdicabAPI {
     openFile: (input: DocumentPreviewInput) => Promise<IpcResult<null>>
     clearContentCache: (input: DossierScopedQuery) => Promise<IpcResult<null>>
     semanticSearch: (input: SemanticSearchQuery) => Promise<IpcResult<SemanticSearchResult>>
+    searchAll: (input: GlobalSearchQuery) => Promise<IpcResult<GlobalSearchResult>>
     createFolder: (input: DocumentFolderCreateInput) => Promise<IpcResult<{ path: string }>>
     renameFolder: (input: DocumentFolderRenameInput) => Promise<IpcResult<{ path: string }>>
-    deleteFolder: (input: DocumentFolderDeleteInput) => Promise<IpcResult<null>>
+    deleteFolder: (
+      input: DocumentFolderDeleteInput
+    ) => Promise<IpcResult<DocumentFolderDeleteResult>>
     renameFile: (input: DocumentFileRenameInput) => Promise<IpcResult<DocumentRecord>>
-    deleteFile: (input: DocumentFileDeleteInput) => Promise<IpcResult<null>>
+    trashFiles: (input: DocumentTrashInput) => Promise<IpcResult<DocumentTrashResult>>
+    restoreTrash: (
+      input: DocumentTrashRestoreInput
+    ) => Promise<IpcResult<DocumentTrashRestoreResult>>
+    listTrash: (input: DossierScopedQuery) => Promise<IpcResult<DocumentTrashEntry[]>>
+    deleteTrashEntry: (input: DocumentTrashRestoreInput) => Promise<IpcResult<null>>
+    moveFiles: (input: DocumentFileMoveInput) => Promise<IpcResult<DocumentMoveResult>>
+    moveFolder: (input: DocumentFolderMoveInput) => Promise<IpcResult<{ path: string }>>
+    importFiles: (input: DocumentImportInput) => Promise<IpcResult<DocumentImportResult>>
+    saveEmailAttachments: (
+      input: EmailAttachmentSaveInput
+    ) => Promise<IpcResult<EmailAttachmentSaveResult>>
+    pdfExtractPages: (input: PdfExtractPagesInput) => Promise<IpcResult<PdfOperationResult>>
+    pdfMerge: (input: PdfMergeInput) => Promise<IpcResult<PdfOperationResult>>
+    pdfSplit: (input: PdfSplitInput) => Promise<IpcResult<PdfOperationResult>>
+  }
+  pieces: {
+    list: (input: DossierScopedQuery) => Promise<IpcResult<PieceRecord[]>>
+    add: (input: PieceAddInput) => Promise<IpcResult<PieceRecord[]>>
+    update: (input: PieceUpdateInput) => Promise<IpcResult<PieceRecord[]>>
+    remove: (input: PieceRemoveInput) => Promise<IpcResult<PieceRecord[]>>
+    generate: (input: PieceGenerateInput) => Promise<IpcResult<PieceGenerateResult>>
+    onGenerateProgress: (
+      listener: (event: PieceGenerateProgressEvent) => void
+    ) => OrdicabEventUnsubscribe
+  }
+  compare: {
+    run: (input: CompareRunInput) => Promise<IpcResult<ComparisonResult>>
+    onProgress: (listener: (event: CompareProgressEvent) => void) => OrdicabEventUnsubscribe
+  }
+  webUtils: {
+    /**
+     * Resolve the OS path of a DOM File received from a drag-drop event
+     * (Electron webUtils.getPathForFile). Returns '' when the file has no
+     * filesystem path (e.g. dragged from another application's memory).
+     * Structural parameter type so this contract compiles without the DOM lib.
+     */
+    getPathForFile: (file: { readonly name: string; readonly size: number }) => string
   }
   ordicab: {
     onDataChanged: (listener: (event: OrdicabDataChangedEvent) => void) => OrdicabEventUnsubscribe
@@ -284,6 +375,10 @@ export interface OrdicabAPI {
     applyCabinetDocxToAllExisting: () => Promise<
       IpcResult<{ updated: number; skipped: number; failed: string[] }>
     >
+    tagifyAnalyze: (
+      input: TemplateTagifyAnalyzeInput
+    ) => Promise<IpcResult<TemplateTagifyAnalyzeResult>>
+    tagifyApply: (input: TemplateTagifyApplyInput) => Promise<IpcResult<TemplateTagifyApplyResult>>
     onDocxSynced: (listener: (event: TemplateDocxSyncedEvent) => void) => OrdicabEventUnsubscribe
   }
   generate: {
@@ -330,6 +425,23 @@ export interface OrdicabAPI {
     resetConversation: () => Promise<IpcResult<null>>
     onTextToken: (listener: (token: string) => void) => OrdicabEventUnsubscribe
     onReflection: (listener: (text: string) => void) => OrdicabEventUnsubscribe
+    getPersonas: () => Promise<IpcResult<PiiPersonaSettings>>
+    savePersonas: (input: PiiPersonaSettings) => Promise<IpcResult<PiiPersonaSettings>>
+  }
+  calendarSync: {
+    getStatus: () => Promise<IpcResult<CalendarSyncStatus>>
+    /** Verifies the credentials and find-or-creates the remote "Ordicab" calendar. */
+    saveSettings: (input: CalendarSyncSettingsSaveInput) => Promise<IpcResult<CalendarSyncStatus>>
+    deleteCredentials: () => Promise<IpcResult<CalendarSyncStatus>>
+    setOptions: (input: CalendarSyncOptionsInput) => Promise<IpcResult<CalendarSyncStatus>>
+    syncNow: () => Promise<IpcResult<CalendarSyncRunResult>>
+    onStatusChanged: (listener: (status: CalendarSyncStatus) => void) => OrdicabEventUnsubscribe
+  }
+  cowork: {
+    export: (input: { dossierId: string }) => Promise<IpcResult<CoworkExportResult>>
+    reimport: (input: { dossierId: string }) => Promise<IpcResult<CoworkReimportResult>>
+    status: (input: { dossierId: string }) => Promise<IpcResult<CoworkStatus>>
+    onExportProgress: (listener: (event: CoworkExportProgress) => void) => OrdicabEventUnsubscribe
   }
   indexing: {
     getStatus: () => Promise<IpcResult<IndexingStatusSnapshot>>

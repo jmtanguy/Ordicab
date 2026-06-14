@@ -30,7 +30,7 @@ interface InputParser<TInput> {
 
 type IpcErrorMapper = (error: unknown, fallback: string) => IpcError
 
-export function success<T>(data: T): IpcResult<T> {
+function success<T>(data: T): IpcResult<T> {
   return { success: true, data }
 }
 

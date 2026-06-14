@@ -13,7 +13,7 @@ import { IpcErrorCode } from '@shared/types'
 import type { EulaStatus } from '@shared/contracts/app'
 import type { OrdicabDataChangedEvent } from '@shared/contracts/documents'
 
-export type PendingBillingConversion =
+type PendingBillingConversion =
   | { dossierId: string; source: 'keyDate'; keyDate: KeyDate }
   | {
       dossierId: string
@@ -30,10 +30,7 @@ type VersionStatus = 'idle' | 'loading' | 'ready' | 'error'
 type ActiveView = 'onboarding' | 'dashboard'
 type ActiveDashboardPanel = 'grid' | 'detail'
 
-export function resolveActiveView(
-  status: DomainStatusSnapshot,
-  onboardingComplete: boolean
-): ActiveView {
+function resolveActiveView(status: DomainStatusSnapshot, onboardingComplete: boolean): ActiveView {
   if (!status.registeredDomainPath || !status.isAvailable) {
     return 'onboarding'
   }

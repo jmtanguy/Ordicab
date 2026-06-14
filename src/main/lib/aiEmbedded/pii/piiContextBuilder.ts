@@ -19,7 +19,9 @@ import type { ContactRecord, DossierDetail, DossierSummary, TemplateRecord } fro
 import { getContactManagedFieldValue } from '@shared/managedFields'
 import type { EntityProfile } from '@shared/validation/entity'
 
-import { PiiPseudonymizer, type PiiContext } from './piiPseudonymizer'
+import type { PiiPersona } from '@shared/types/piiPersonas'
+
+import { PiiPseudonymizer, type PiiContext, type PiiPersonaIdentity } from './piiPseudonymizer'
 import type { MappingSnapshotEntry } from './piiMapping'
 
 export interface BuildPiiContextInput {
@@ -46,9 +48,15 @@ export interface BuildPiiContextInput {
    * already-known originals and dodges fakes already taken by other originals.
    */
   priorEntries?: MappingSnapshotEntry[]
+  /**
+   * Role personas keyed by roleKey (see personaRegistry.readPiiPersonaMap):
+   * the first contact of a role is impersonated by the persona identity so
+   * the same role reads as the same fake person across dossiers.
+   */
+  personas?: Record<string, PiiPersona>
 }
 
-export function buildPiiContext(input: BuildPiiContextInput): PiiContext {
+function buildPiiContext(input: BuildPiiContextInput): PiiContext {
   return {
     // `customFields` is intentionally omitted from contacts: managed-field VALUES
     // can themselves contain PII (SSN, maiden name, occupation), but their LABELS
@@ -121,8 +129,24 @@ export function buildPiiContext(input: BuildPiiContextInput): PiiContext {
     ],
     locale: input.locale,
     ner: input.nerModelPath ? { enabled: true, modelPath: input.nerModelPath } : undefined,
-    priorEntries: input.priorEntries
+    priorEntries: input.priorEntries,
+    personas: input.personas ? toPersonaIdentities(input.personas) : undefined
   }
+}
+
+function toPersonaIdentities(
+  personas: Record<string, PiiPersona>
+): Record<string, PiiPersonaIdentity> {
+  return Object.fromEntries(
+    Object.entries(personas).map(([roleKey, persona]) => [
+      roleKey,
+      {
+        firstName: persona.firstName,
+        lastName: persona.lastName,
+        institution: persona.institution
+      }
+    ])
+  )
 }
 
 export function buildPiiPseudonymizer(input: BuildPiiContextInput): PiiPseudonymizer {

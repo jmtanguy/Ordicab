@@ -143,7 +143,7 @@ async function pseudonymizeToolResult(
   if (handler) return handler(result, helpers)
   // Batchable action tools (contact_create, contact_update, contact_delete, dossier_select, …):
   // pseudonymize only the human-readable `feedback` field. Structural fields
-  // (contactId, dossierId, templateId, entity.id) are UUIDs that must not be
+  // (contactUuid, dossierId, templateUuid, entity.id) are UUIDs that must not be
   // altered — PII detection can match digit sequences inside UUIDs as phone
   // numbers and break round-trip.
   if (BATCHABLE_ACTION_TOOL_NAMES.has(toolName)) {

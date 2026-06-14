@@ -16,12 +16,12 @@ import type { DomainSelectionResult, DomainStatusSnapshot } from '@shared/types'
 
 import type { BrowserWindowLike, MainWindowLifecycle } from './window'
 
-export interface DomainServiceLike {
+interface DomainServiceLike {
   selectDomain(): Promise<DomainSelectionResult>
   getStatus(): Promise<DomainStatusSnapshot>
 }
 
-export interface UpdaterServiceLike {
+interface UpdaterServiceLike {
   applyPendingUpdateOnLaunch(): Promise<boolean>
   checkForUpdatesOnStartup(): Promise<void>
 }

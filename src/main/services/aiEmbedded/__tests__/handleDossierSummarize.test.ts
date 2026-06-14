@@ -6,7 +6,7 @@ import { handleDossierSummarize, type IntentHandlerContext } from '../intentHand
 
 function makeDossierDetail(overrides: Partial<DossierDetail> = {}): DossierDetail {
   return {
-    id: 'dos-1',
+    slug: 'dos-1',
     uuid: 'dos-uuid-1',
     name: 'Dupont c/ Martin',
     type: 'Contentieux',
@@ -24,7 +24,7 @@ function makeDossierDetail(overrides: Partial<DossierDetail> = {}): DossierDetai
     billingItems: [],
     keyDates: [
       {
-        id: 'kd-1',
+        uuid: 'kd-1',
         dossierId: 'dos-1',
         label: 'Audience de mise en état',
         date: '2026-09-15',
@@ -33,10 +33,10 @@ function makeDossierDetail(overrides: Partial<DossierDetail> = {}): DossierDetai
         isClosed: false
       }
     ],
-    keyReferences: [{ id: 'kr-1', dossierId: 'dos-1', label: 'RG', value: '24/01234' }],
+    keyReferences: [{ uuid: 'kr-1', dossierId: 'dos-1', label: 'RG', value: '24/01234' }],
     notes: [
       {
-        id: 'n-1',
+        uuid: 'n-1',
         dossierId: 'dos-1',
         title: 'Vérifier la prescription',
         content: 'Délai à confirmer',
@@ -46,7 +46,7 @@ function makeDossierDetail(overrides: Partial<DossierDetail> = {}): DossierDetai
         updatedAt: '2026-01-01T00:00:00.000Z'
       },
       {
-        id: 'n-2',
+        uuid: 'n-2',
         dossierId: 'dos-1',
         title: 'Tâche close',
         content: '',

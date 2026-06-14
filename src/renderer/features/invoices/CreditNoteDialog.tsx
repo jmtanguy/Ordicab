@@ -4,17 +4,14 @@ import { useTranslation } from 'react-i18next'
 
 import type { InvoiceRecord } from '@shared/types'
 import { Button, DialogShell, Field, Input, Select, Textarea } from '@renderer/components/ui'
+import { formatEurosFromCents } from '@renderer/lib/billingFormatters'
 import { useInvoiceStore } from '@renderer/stores/invoiceStore'
 import { useTemplateStore } from '@renderer/stores/templateStore'
 
 interface CreditNoteDialogProps {
   invoice: InvoiceRecord
   onClose: () => void
-  onCreated: (invoiceId: string) => void
-}
-
-function formatCents(cents: number): string {
-  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(cents / 100)
+  onCreated: (invoiceUuid: string) => void
 }
 
 type Mode = 'total' | 'partial'
@@ -43,13 +40,13 @@ export function CreditNoteDialog({
     [templates]
   )
 
-  const [templateId, setTemplateId] = useState<string>('')
+  const [templateUuid, setTemplateId] = useState<string>('')
   const [reason, setReason] = useState('Correction de facturation')
   const [notes, setNotes] = useState('')
   const [issuedAt, setIssuedAt] = useState<string>(new Date().toISOString().slice(0, 10))
   const [mode, setMode] = useState<Mode>('total')
   const [selectedLines, setSelectedLines] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(invoice.lines.map((line) => [line.billingItemId, true]))
+    Object.fromEntries(invoice.lines.map((line) => [line.billingItemUuid, true]))
   )
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
@@ -60,18 +57,18 @@ export function CreditNoteDialog({
   }, [loadTemplates, loadSettings])
 
   useEffect(() => {
-    if (templateId && templatesForKind.some((t) => t.id === templateId)) return
-    const defaultId = settings?.defaultCreditNoteTemplateId
-    if (defaultId && templatesForKind.some((t) => t.id === defaultId)) {
+    if (templateUuid && templatesForKind.some((t) => t.uuid === templateUuid)) return
+    const defaultId = settings?.defaultCreditNoteTemplateUuid
+    if (defaultId && templatesForKind.some((t) => t.uuid === defaultId)) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setTemplateId(defaultId)
     } else if (templatesForKind[0]) {
-      setTemplateId(templatesForKind[0].id)
+      setTemplateId(templatesForKind[0].uuid)
     }
-  }, [templateId, templatesForKind, settings?.defaultCreditNoteTemplateId])
+  }, [templateUuid, templatesForKind, settings?.defaultCreditNoteTemplateUuid])
 
   const selectedLineList = useMemo(
-    () => invoice.lines.filter((line) => selectedLines[line.billingItemId]),
+    () => invoice.lines.filter((line) => selectedLines[line.billingItemUuid]),
     [invoice.lines, selectedLines]
   )
 
@@ -83,7 +80,7 @@ export function CreditNoteDialog({
   }, [mode, invoice.lines, selectedLineList])
 
   async function submit(): Promise<void> {
-    if (!templateId) {
+    if (!templateUuid) {
       setLocalError('Sélectionnez un modèle.')
       return
     }
@@ -98,19 +95,19 @@ export function CreditNoteDialog({
     setLocalError(null)
     setIsSubmitting(true)
     const created = await createCreditNote({
-      originalInvoiceId: invoice.id,
-      templateId,
+      originalInvoiceUuid: invoice.uuid,
+      templateUuid,
       issuedAt,
       reason: reason.trim(),
       notes: notes.trim() || undefined,
       lineCredits:
         mode === 'partial'
-          ? selectedLineList.map((line) => ({ billingItemId: line.billingItemId }))
+          ? selectedLineList.map((line) => ({ billingItemUuid: line.billingItemUuid }))
           : undefined
     })
     setIsSubmitting(false)
     if (created) {
-      onCreated(created.id)
+      onCreated(created.uuid)
       onClose()
     }
   }
@@ -120,13 +117,13 @@ export function CreditNoteDialog({
       <div className="flex max-h-[85vh] flex-col gap-4">
         <header className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-[#1a1a1a]">
+            <h2 className="text-lg font-semibold text-ink">
               {t('invoices.credit_note_dialog_title', { defaultValue: 'Émettre un avoir' })}
             </h2>
-            <p className="text-xs text-[#8a8a85]">
+            <p className="text-xs text-ink-subtle">
               {t('invoices.credit_note_dialog_subtitle', {
                 number: invoice.number,
-                total: formatCents(invoice.totalTtcCents),
+                total: formatEurosFromCents(invoice.totalTtcCents),
                 defaultValue: 'Pour la facture {{number}} — {{total}} TTC'
               })}
             </p>
@@ -134,7 +131,7 @@ export function CreditNoteDialog({
           <button
             type="button"
             onClick={onClose}
-            className="text-sm text-[#8a8a85] hover:text-[#1a1a1a]"
+            className="text-sm text-ink-subtle hover:text-ink"
             aria-label="Fermer"
           >
             ✕
@@ -152,7 +149,7 @@ export function CreditNoteDialog({
             <div className="grid grid-cols-2 gap-3">
               <Field label="Modèle">
                 <Select
-                  value={templateId}
+                  value={templateUuid}
                   onChange={(e) => setTemplateId(e.target.value)}
                   disabled={templatesForKind.length === 0}
                 >
@@ -164,7 +161,7 @@ export function CreditNoteDialog({
                     </option>
                   ) : (
                     templatesForKind.map((tpl) => (
-                      <option key={tpl.id} value={tpl.id}>
+                      <option key={tpl.uuid} value={tpl.uuid}>
                         {tpl.name}
                       </option>
                     ))
@@ -198,8 +195,8 @@ export function CreditNoteDialog({
               />
             </Field>
 
-            <fieldset className="rounded-2xl border border-[#e5e3da] bg-white p-3">
-              <legend className="px-1 text-xs font-medium uppercase tracking-[0.12em] text-[#8a8a85]">
+            <fieldset className="rounded-2xl border border-hairline bg-white p-3">
+              <legend className="px-1 text-xs font-medium uppercase tracking-[0.12em] text-ink-subtle">
                 {t('invoices.credit_note_scope_legend', { defaultValue: "Portée de l'avoir" })}
               </legend>
               <div className="flex gap-4 text-sm">
@@ -228,11 +225,11 @@ export function CreditNoteDialog({
               </div>
 
               {mode === 'partial' ? (
-                <ul className="mt-3 max-h-56 space-y-1 overflow-y-auto rounded-md border border-[#efece4] bg-[#fbf9f4] p-2 text-sm">
+                <ul className="mt-3 max-h-56 space-y-1 overflow-y-auto rounded-md border border-[#efece4] bg-parchment-bright p-2 text-sm">
                   {invoice.lines.map((line) => {
-                    const checked = Boolean(selectedLines[line.billingItemId])
+                    const checked = Boolean(selectedLines[line.billingItemUuid])
                     return (
-                      <li key={line.billingItemId}>
+                      <li key={line.billingItemUuid}>
                         <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-white">
                           <input
                             type="checkbox"
@@ -240,14 +237,14 @@ export function CreditNoteDialog({
                             onChange={(e) =>
                               setSelectedLines((prev) => ({
                                 ...prev,
-                                [line.billingItemId]: e.target.checked
+                                [line.billingItemUuid]: e.target.checked
                               }))
                             }
                             className="h-4 w-4 accent-aurora"
                           />
                           <span className="min-w-0 flex-1 truncate">{line.label}</span>
-                          <span className="tabular-nums text-[#5c5c5a]">
-                            {formatCents(line.totalTtcCents)}
+                          <span className="tabular-nums text-ink-muted">
+                            {formatEurosFromCents(line.totalTtcCents)}
                           </span>
                         </label>
                       </li>
@@ -260,7 +257,7 @@ export function CreditNoteDialog({
                 <span>
                   {t('invoices.credit_note_amount_ttc', { defaultValue: 'Montant avoir TTC' })}
                 </span>
-                <span className="tabular-nums">{formatCents(totals.ttc)}</span>
+                <span className="tabular-nums">{formatEurosFromCents(totals.ttc)}</span>
               </div>
             </fieldset>
 
@@ -280,11 +277,11 @@ export function CreditNoteDialog({
             </p>
           )}
 
-          <footer className="flex justify-end gap-2 border-t border-[#e5e3da] pt-3">
+          <footer className="flex justify-end gap-2 border-t border-hairline pt-3">
             <Button type="button" variant="ghost" onClick={onClose} disabled={isSubmitting}>
               {t('common.cancel', { defaultValue: 'Annuler' })}
             </Button>
-            <Button type="submit" disabled={isSubmitting || !templateId}>
+            <Button type="submit" disabled={isSubmitting || !templateUuid}>
               {isSubmitting ? 'Génération…' : "Émettre l'avoir"}
             </Button>
           </footer>

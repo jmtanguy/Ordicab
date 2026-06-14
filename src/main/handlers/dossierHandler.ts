@@ -6,6 +6,7 @@ import {
   dossierScopedQuerySchema,
   dossierSetupLegalAidInputSchema,
   dossierUnregisterInputSchema,
+  dossierUpdateInputSchema,
   dossierUpdateLegalAidInputSchema
 } from '@shared/validation/dossier'
 import {
@@ -18,7 +19,10 @@ import {
 } from '@shared/validation/billing'
 import {
   dossierKeyDateDeleteInputSchema,
-  dossierKeyDateUpsertInputSchema
+  dossierKeyDateUpsertInputSchema,
+  generalKeyDateDeleteInputSchema,
+  generalKeyDateUpsertInputSchema,
+  keyDateMoveInputSchema
 } from '@shared/validation/keyDate'
 import {
   dossierKeyReferenceDeleteInputSchema,
@@ -104,6 +108,15 @@ export function registerDossierHandlers(options: {
 
   registerIpcHandler({
     ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.update,
+    schema: dossierUpdateInputSchema,
+    fallback: 'Unable to update dossier.',
+    mapError: mapDossierError,
+    handle: (input) => options.dossierService.updateDossier(input)
+  })
+
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
     channel: IPC_CHANNELS.dossier.upsertKeyDate,
     schema: dossierKeyDateUpsertInputSchema,
     fallback: 'Unable to save dossier key date.',
@@ -118,6 +131,41 @@ export function registerDossierHandlers(options: {
     fallback: 'Unable to delete dossier key date.',
     mapError: mapDossierError,
     handle: (input) => options.dossierService.deleteKeyDate(input)
+  })
+
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.moveKeyDate,
+    schema: keyDateMoveInputSchema,
+    fallback: 'Unable to move key date.',
+    mapError: mapDossierError,
+    handle: (input) => options.dossierService.moveKeyDate(input)
+  })
+
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.listGeneralKeyDates,
+    fallback: 'Unable to load general key dates.',
+    mapError: mapDossierError,
+    handle: () => options.dossierService.listGeneralKeyDates()
+  })
+
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.upsertGeneralKeyDate,
+    schema: generalKeyDateUpsertInputSchema,
+    fallback: 'Unable to save general key date.',
+    mapError: mapDossierError,
+    handle: (input) => options.dossierService.upsertGeneralKeyDate(input)
+  })
+
+  registerIpcHandler({
+    ipcMain: options.ipcMain,
+    channel: IPC_CHANNELS.dossier.deleteGeneralKeyDate,
+    schema: generalKeyDateDeleteInputSchema,
+    fallback: 'Unable to delete general key date.',
+    mapError: mapDossierError,
+    handle: (input) => options.dossierService.deleteGeneralKeyDate(input)
   })
 
   registerIpcHandler({

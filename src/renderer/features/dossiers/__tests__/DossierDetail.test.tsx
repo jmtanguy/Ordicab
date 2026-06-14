@@ -18,7 +18,8 @@ describe('DossierDetail', () => {
         <ToastProvider>
           <DossierDetail
             dossier={{
-              id: 'dos-1',
+              slug: 'dos-1',
+              uuid: 'uuid-dos-1',
               name: 'Client Alpha',
               registeredAt: '2026-03-13T08:30:00.000Z',
               status: 'active',

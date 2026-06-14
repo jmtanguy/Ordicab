@@ -92,10 +92,6 @@ vi.mock('../settings/AiSettings', () => ({
   AiDialog: () => null
 }))
 
-vi.mock('../delegated/DelegatedReference', () => ({
-  DelegatedReference: () => null
-}))
-
 import { AiPage, MarkdownBubble } from '../AiPage'
 
 describe('AiPage', () => {
@@ -126,7 +122,7 @@ describe('AiPage', () => {
   })
 
   it('uses the active dossier prop as the context for executeCommand', async () => {
-    render(<AiPage entityName={null} sampleDossierName={null} dossierId="dos-1" />)
+    render(<AiPage dossierId="dos-1" />)
 
     fireEvent.change(screen.getByPlaceholderText('ai.panel.placeholder'), {
       target: { value: 'Liste les contacts' }
@@ -141,7 +137,7 @@ describe('AiPage', () => {
   })
 
   it('shows the document suggestion popup when the user types `@` and inserts the chosen filename', async () => {
-    render(<AiPage entityName={null} sampleDossierName={null} dossierId="dos-1" />)
+    render(<AiPage dossierId="dos-1" />)
 
     const textarea = screen.getByPlaceholderText('ai.panel.placeholder') as HTMLTextAreaElement
     fireEvent.change(textarea, { target: { value: '@' } })
@@ -164,15 +160,13 @@ describe('AiPage', () => {
   })
 
   it('notifies the AI store when the active dossier prop changes', async () => {
-    const { rerender } = render(
-      <AiPage entityName={null} sampleDossierName={null} dossierId="dos-1" />
-    )
+    const { rerender } = render(<AiPage dossierId="dos-1" />)
 
     await waitFor(() => {
       expect(mockAiStore.setActiveDossierId).toHaveBeenCalledWith('dos-1')
     })
 
-    rerender(<AiPage entityName={null} sampleDossierName={null} dossierId="dos-2" />)
+    rerender(<AiPage dossierId="dos-2" />)
 
     await waitFor(() => {
       expect(mockAiStore.setActiveDossierId).toHaveBeenCalledWith('dos-2')
@@ -182,7 +176,7 @@ describe('AiPage', () => {
   it('blocks input and shows the configure gate when remote mode has no API key', () => {
     mockAiStore.settings = { mode: 'remote', hasApiKey: false }
 
-    render(<AiPage entityName={null} sampleDossierName={null} dossierId="dos-1" />)
+    render(<AiPage dossierId="dos-1" />)
 
     // The chat input must not render — the gate replaces it.
     expect(screen.queryByPlaceholderText('ai.panel.placeholder')).toBeNull()
@@ -203,7 +197,7 @@ describe('AiPage', () => {
       options: ['Oui', 'Non']
     }
 
-    render(<AiPage entityName={null} sampleDossierName={null} dossierId="dos-1" />)
+    render(<AiPage dossierId="dos-1" />)
 
     expect(screen.getAllByText('Voulez-vous vraiment supprimer le contact Merlin ?')).toHaveLength(
       1
@@ -265,7 +259,7 @@ describe('MarkdownBubble', () => {
       }
     ]
 
-    render(<AiPage entityName={null} sampleDossierName={null} dossierId="dos-1" />)
+    render(<AiPage dossierId="dos-1" />)
 
     expect(screen.getByText('Je regarde les documents…')).toBeTruthy()
   })
@@ -280,7 +274,7 @@ describe('MarkdownBubble', () => {
       }
     ]
 
-    render(<AiPage entityName={null} sampleDossierName={null} dossierId="dos-1" />)
+    render(<AiPage dossierId="dos-1" />)
 
     expect(
       screen.getByText(

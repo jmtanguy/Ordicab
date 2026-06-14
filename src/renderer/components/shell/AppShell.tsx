@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { type AppLocale, IpcErrorCode, type OrdicabDataChangedEvent } from '@shared/types'
+import {
+  type AppLocale,
+  IpcErrorCode,
+  type KeyDate,
+  type OrdicabDataChangedEvent
+} from '@shared/types'
 
 import { normalizeAppLocale } from '@renderer/i18n'
 import { useDeadlineReminders } from '@renderer/features/reminders/useDeadlineReminders'
@@ -29,6 +34,7 @@ import {
 } from '@renderer/stores'
 
 import { AuroraBackground } from './AuroraBackground'
+import { CommandPalette } from './CommandPalette'
 import { Sidebar, type DossierSection, type SidebarDestination } from './Sidebar'
 import { UpdateBanner } from './UpdateBanner'
 
@@ -85,6 +91,7 @@ export default function AppShell(): React.JSX.Element {
   const [activeSection, setActiveSection] = useState<DossierSection>(DEFAULT_DOSSIER_SECTION)
   const [searchQuery, setSearchQuery] = useState('')
   const [isPickerOpen, setIsPickerOpen] = useState(false)
+  const [isPaletteOpen, setIsPaletteOpen] = useState(false)
   const [ordicabSyncWarning, setOrdicabSyncWarning] = useState<string | null>(null)
   const [domainReadyNotice, setDomainReadyNotice] = useState<string | null>(null)
   const [isEulaRequired, setIsEulaRequired] = useState(false)
@@ -105,6 +112,7 @@ export default function AppShell(): React.JSX.Element {
   const bootstrap = useUiStore((state) => state.bootstrap)
   const closeDossierDetail = useUiStore((state) => state.closeDossierDetail)
   const openDossierDetail = useUiStore((state) => state.openDossierDetail)
+  const requestBillingConversion = useUiStore((state) => state.requestBillingConversion)
   const persistLocale = useUiStore((state) => state.persistLocale)
   const getEulaStatus = useUiStore((state) => state.getEulaStatus)
   const acceptEula = useUiStore((state) => state.acceptEula)
@@ -361,6 +369,11 @@ export default function AppShell(): React.JSX.Element {
         return
       }
 
+      if (event.type === 'general-key-dates') {
+        await loadChronology()
+        return
+      }
+
       if (event.type === 'entity') {
         await loadEntityProfile()
 
@@ -486,9 +499,9 @@ export default function AppShell(): React.JSX.Element {
   }, [eulaVersion, i18n.resolvedLanguage, acceptEula])
 
   const handleOpenDossier = useCallback(
-    async (id: string) => {
+    async (id: string, section: DossierSection = DEFAULT_DOSSIER_SECTION) => {
       setActiveDestination('dossiers')
-      setActiveSection(DEFAULT_DOSSIER_SECTION)
+      setActiveSection(section)
       openDossierDetail(id)
       await Promise.all([
         openDossierRecord(id),
@@ -497,6 +510,17 @@ export default function AppShell(): React.JSX.Element {
       ])
     },
     [loadContacts, openDossierDetail, openDossierRecord, openDocumentSession]
+  )
+
+  // Convertit une échéance en prestation depuis la chronologie d'accueil : ouvre
+  // le dossier cible directement sur l'onglet « Prestations » avec le
+  // pré-remplissage déjà mémorisé (même flux que l'action de la section dossier).
+  const handleConvertKeyDateToBilling = useCallback(
+    (dossierId: string, keyDate: KeyDate) => {
+      requestBillingConversion({ dossierId, source: 'keyDate', keyDate })
+      void handleOpenDossier(dossierId, 'prestations')
+    },
+    [requestBillingConversion, handleOpenDossier]
   )
 
   const handleCloseDossier = useCallback(() => {
@@ -540,6 +564,38 @@ export default function AppShell(): React.JSX.Element {
   const handleClosePicker = useCallback(() => {
     setIsPickerOpen(false)
   }, [])
+
+  const handleClosePalette = useCallback(() => {
+    setIsPaletteOpen(false)
+  }, [])
+
+  // Global Cmd/Ctrl+K toggle, registered once for the whole shell.
+  useEffect(() => {
+    function handleGlobalKeyDown(event: KeyboardEvent): void {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        if (useUiStore.getState().activeView !== 'dashboard') {
+          return
+        }
+        setIsPaletteOpen((open) => !open)
+      }
+    }
+
+    window.addEventListener('keydown', handleGlobalKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleGlobalKeyDown)
+    }
+  }, [])
+
+  // Destinations reached from the palette always leave the dossier detail,
+  // mirroring how the sidebar only exposes them at level 1.
+  const handlePaletteSelectDestination = useCallback(
+    (destination: SidebarDestination) => {
+      handleCloseDossier()
+      setActiveDestination(destination)
+    },
+    [handleCloseDossier]
+  )
 
   const handleRegisterDossier = useCallback(
     async (id: string) => {
@@ -598,7 +654,7 @@ export default function AppShell(): React.JSX.Element {
   void mapStatus(versionStatus)
 
   return (
-    <main className="relative flex h-screen overflow-hidden bg-deep-space text-[#1a1a1a]">
+    <main className="relative flex h-screen overflow-hidden bg-deep-space text-ink">
       <AuroraBackground />
 
       <UpdateBanner />
@@ -633,6 +689,17 @@ export default function AppShell(): React.JSX.Element {
 
       {isDashboardView ? (
         <>
+          <CommandPalette
+            open={isPaletteOpen}
+            dossiers={rawDossiers}
+            hasActiveDossier={activeDossierId !== null}
+            onClose={handleClosePalette}
+            onOpenDossier={handleOpenDossier}
+            onSelectDestination={handlePaletteSelectDestination}
+            onSelectSection={setActiveSection}
+            onCreateDossier={handleOpenPicker}
+          />
+
           <Sidebar
             destination={activeDestination}
             activeDossier={activeDossier}
@@ -653,6 +720,7 @@ export default function AppShell(): React.JSX.Element {
             onSetSearchQuery={setSearchQuery}
             onCloseDossier={handleCloseDossier}
             onSelectSection={setActiveSection}
+            onRenameDossier={upsertDossierKeyReference}
             onUnregisterDossier={handleUnregisterDossier}
           />
 
@@ -730,6 +798,7 @@ export default function AppShell(): React.JSX.Element {
                 }}
                 onClearDossierNotice={clearDossierNotice}
                 onOpenDossier={handleOpenDossier}
+                onConvertKeyDateToBilling={handleConvertKeyDateToBilling}
               />
             </div>
           </div>

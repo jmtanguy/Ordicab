@@ -21,7 +21,7 @@ export interface InvoiceTemplateInput {
   dueAt?: string
   paymentTerms?: string
   correctionReason?: string
-  originalInvoiceRefs?: Array<{ id: string; number: string; issuedAt: string }>
+  originalInvoiceRefs?: Array<{ uuid: string; number: string; issuedAt: string }>
   notes?: string
   totalHtCents: number
   totalVatCents: number
@@ -43,8 +43,8 @@ export interface InvoiceTemplateInput {
 
 export interface GenerateDocumentInput {
   dossierId: string
-  templateId: string
-  primaryContactId?: string
+  templateUuid: string
+  primaryContactUuid?: string
   contactRoleOverrides?: Record<string, string>
   tagOverrides?: Record<string, string>
   outputPath?: string
@@ -63,6 +63,14 @@ export interface SaveGeneratedDocumentInput {
   format: 'txt' | 'docx'
   html: string
   outputPath?: string
+  /**
+   * Generation context of the saved draft. When provided, manual tag values
+   * are memorized per (template, dossier) for the next generation.
+   */
+  templateUuid?: string
+  tagOverrides?: Record<string, string>
+  primaryContactUuid?: string
+  contactRoleOverrides?: Record<string, string>
 }
 
 export interface SelectOutputPathInput {
@@ -76,11 +84,13 @@ export interface SelectOutputPathInput {
  */
 export interface GeneratePreviewInvoiceDocxInput {
   dossierId: string
-  templateId: string
-  billingItemIds: string[]
+  templateUuid: string
+  billingItemUuids: string[]
   issuedAt?: string
+  /** Échéance choisie dans le dialogue ; à défaut, émission + defaultDueDays. */
+  dueAt?: string
   notes?: string
   tagOverrides?: Record<string, string>
-  primaryContactId?: string
+  primaryContactUuid?: string
   contactRoleOverrides?: Record<string, string>
 }

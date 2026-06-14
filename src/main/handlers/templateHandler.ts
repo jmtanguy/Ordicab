@@ -11,6 +11,8 @@ import {
   type TemplateDocxInput,
   type TemplateDraft,
   type TemplateRecord,
+  type TemplateTagifyAnalyzeResult,
+  type TemplateTagifyApplyResult,
   type TemplateUpdate
 } from '@shared/types'
 
@@ -18,10 +20,17 @@ import {
   templateDeleteInputSchema,
   templateDocxInputSchema,
   templateDraftSchema,
+  templateTagifyAnalyzeInputSchema,
+  templateTagifyApplyInputSchema,
   templateUpdateSchema
 } from '@shared/validation'
 
 import { type TemplateService, TemplateServiceError } from '../services/domain/templateService'
+import {
+  TemplateTagifyError,
+  type TemplateTagifyService
+} from '../services/aiEmbedded/templateTagifyService'
+import { AiRuntimeError } from '../lib/aiEmbedded/aiSdkAgentRuntime'
 import { type IpcMainLike, mapIpcError } from './ipc'
 
 class TemplateHandlerError extends Error {
@@ -37,13 +46,14 @@ class TemplateHandlerError extends Error {
 const mapTemplateError = (error: unknown, fallback: string): IpcError =>
   mapIpcError(error, fallback, {
     validationMessage: 'Invalid template input.',
-    errorClasses: [TemplateServiceError, TemplateHandlerError]
+    errorClasses: [TemplateServiceError, TemplateHandlerError, TemplateTagifyError, AiRuntimeError]
   })
 
 const PICK_TOKEN_TTL_MS = 5 * 60 * 1000
 
 export function registerTemplateHandlers(options: {
   templateService: TemplateService
+  tagifyService?: TemplateTagifyService
   ipcMain: IpcMainLike
   showOpenDialog?: typeof dialog.showOpenDialog
   openPath?: (path: string) => Promise<string>
@@ -107,7 +117,7 @@ export function registerTemplateHandlers(options: {
     async (_event, input: unknown): Promise<IpcResult<string>> => {
       try {
         const parsed = templateDeleteInputSchema.parse(input)
-        return { success: true, data: await templateService.getContent(parsed.id) }
+        return { success: true, data: await templateService.getContent(parsed.uuid) }
       } catch (error) {
         return mapTemplateError(error, 'Unable to load template content.')
       }
@@ -126,7 +136,8 @@ export function registerTemplateHandlers(options: {
             content: parsed.content,
             description: parsed.description,
             tags: parsed.tags,
-            documentKind: parsed.documentKind
+            documentKind: parsed.documentKind,
+            category: parsed.category
           })
         }
       } catch (error) {
@@ -143,12 +154,13 @@ export function registerTemplateHandlers(options: {
         return {
           success: true,
           data: await templateService.update({
-            id: parsed.id,
+            uuid: parsed.uuid,
             name: parsed.name,
             content: parsed.content,
             description: parsed.description,
             tags: parsed.tags,
-            documentKind: parsed.documentKind
+            documentKind: parsed.documentKind,
+            category: parsed.category
           })
         }
       } catch (error) {
@@ -162,7 +174,7 @@ export function registerTemplateHandlers(options: {
     async (_event, input: unknown): Promise<IpcResult<null>> => {
       try {
         const parsed = templateDeleteInputSchema.parse(input) as TemplateDeleteInput
-        await templateService.delete({ id: parsed.id })
+        await templateService.delete({ uuid: parsed.uuid })
         return { success: true, data: null }
       } catch (error) {
         return mapTemplateError(error, 'Unable to delete template.')
@@ -231,7 +243,7 @@ export function registerTemplateHandlers(options: {
         return {
           success: true,
           data: await templateService.importDocxFromPath({
-            id: parsed.id,
+            uuid: parsed.uuid,
             sourceFilePath
           })
         }
@@ -247,11 +259,11 @@ export function registerTemplateHandlers(options: {
       try {
         const parsed = templateDocxInputSchema.parse(input) as TemplateDocxInput
 
-        if (!(await templateService.hasDocxSource(parsed.id))) {
+        if (!(await templateService.hasDocxSource(parsed.uuid))) {
           throw new TemplateHandlerError(IpcErrorCode.NOT_FOUND, 'DOCX source was not found.')
         }
 
-        const docxPath = await templateService.getDocxPath(parsed.id)
+        const docxPath = await templateService.getDocxPath(parsed.uuid)
         const openResult = await openPath(docxPath)
         if (openResult) {
           throw new TemplateHandlerError(IpcErrorCode.FILE_SYSTEM_ERROR, openResult)
@@ -269,7 +281,7 @@ export function registerTemplateHandlers(options: {
     async (_event, input: unknown): Promise<IpcResult<TemplateRecord>> => {
       try {
         const parsed = templateDocxInputSchema.parse(input) as TemplateDocxInput
-        return { success: true, data: await templateService.removeDocx({ id: parsed.id }) }
+        return { success: true, data: await templateService.removeDocx({ uuid: parsed.uuid }) }
       } catch (error) {
         return mapTemplateError(error, 'Unable to remove DOCX source.')
       }
@@ -283,7 +295,7 @@ export function registerTemplateHandlers(options: {
         const parsed = templateDocxInputSchema.parse(input) as TemplateDocxInput
         return {
           success: true,
-          data: await templateService.applyCabinetDefaultDocx({ id: parsed.id })
+          data: await templateService.applyCabinetDefaultDocx({ uuid: parsed.uuid })
         }
       } catch (error) {
         return mapTemplateError(error, 'Unable to apply cabinet default DOCX template.')
@@ -301,6 +313,42 @@ export function registerTemplateHandlers(options: {
         }
       } catch (error) {
         return mapTemplateError(error, 'Unable to apply cabinet DOCX to all existing templates.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.template.tagifyAnalyze,
+    async (_event, input: unknown): Promise<IpcResult<TemplateTagifyAnalyzeResult>> => {
+      try {
+        if (!options.tagifyService) {
+          throw new TemplateHandlerError(
+            IpcErrorCode.NOT_IMPLEMENTED,
+            'AI tag detection is unavailable in this environment.'
+          )
+        }
+        const parsed = templateTagifyAnalyzeInputSchema.parse(input)
+        return { success: true, data: await options.tagifyService.analyze(parsed) }
+      } catch (error) {
+        return mapTemplateError(error, 'Unable to analyze the template for tags.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.template.tagifyApply,
+    async (_event, input: unknown): Promise<IpcResult<TemplateTagifyApplyResult>> => {
+      try {
+        if (!options.tagifyService) {
+          throw new TemplateHandlerError(
+            IpcErrorCode.NOT_IMPLEMENTED,
+            'AI tag detection is unavailable in this environment.'
+          )
+        }
+        const parsed = templateTagifyApplyInputSchema.parse(input)
+        return { success: true, data: await options.tagifyService.apply(parsed) }
+      } catch (error) {
+        return mapTemplateError(error, 'Unable to apply the tag replacements.')
       }
     }
   )

@@ -23,6 +23,16 @@ import {
   type ParsedDate
 } from './dateNormalization'
 
+/**
+ * Minimum length of a fake value that the revert pass will replace back to its
+ * original. Fakes shorter than this are skipped on revert (a 1–3 char token
+ * would over-match common standalone words), so any fake we mint MUST be at
+ * least this long or it can never be decoded and would leak back verbatim.
+ * The pseudonymizer enforces the same floor at generation time
+ * (`isFakeCandidateSafe`) and the persona path enforces it in aiHandler.
+ */
+export const MIN_REVERTIBLE_FAKE_LENGTH = 4
+
 export interface MappingEntry {
   markerPath: string
   fakeValue: string
@@ -101,7 +111,10 @@ export function revertWithMappingEntriesWithOptions(
   let result = text
 
   const fakeEntries = Array.from(uniqueEntriesByFake.values())
-    .filter(({ fakeValue }) => fakeValue.length >= 4 && parseDateFlexible(fakeValue) === null)
+    .filter(
+      ({ fakeValue }) =>
+        fakeValue.length >= MIN_REVERTIBLE_FAKE_LENGTH && parseDateFlexible(fakeValue) === null
+    )
     .sort((a, b) => b.fakeValue.length - a.fakeValue.length)
 
   for (const { original, fakeValue } of fakeEntries) {

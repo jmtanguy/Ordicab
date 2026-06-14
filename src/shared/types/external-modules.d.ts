@@ -35,6 +35,8 @@ declare module 'mailparser' {
 
   export interface MailAttachment {
     filename?: string | null
+    size?: number
+    content: Buffer
   }
 
   export interface ParsedMail {

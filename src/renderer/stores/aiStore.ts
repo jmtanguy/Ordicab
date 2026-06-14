@@ -43,6 +43,7 @@ import type {
   AiSettingsResponse,
   AiSettingsSaveInput,
   ClarificationRequestIntent,
+  PiiPersona,
   RemoteApiError
 } from '@shared/types'
 import {
@@ -164,7 +165,7 @@ export interface AiChatMessage {
   systemPrompt?: string
 }
 
-export interface AiReflectionMessage {
+interface AiReflectionMessage {
   id: string
   text: string
 }
@@ -210,6 +211,9 @@ interface AiStoreState {
   /** Live reasoning steps emitted between tool calls during the current command.
    *  Cleared when the command completes — not persisted across turns. */
   reflections: AiReflectionMessage[]
+  /** Role personas (stable fake identities); null until loaded. */
+  personas: PiiPersona[] | null
+  personasError: string | null
 }
 
 interface AiStoreActions {
@@ -236,6 +240,8 @@ interface AiStoreActions {
   resetConversation: () => Promise<void>
   subscribeToTextTokens: () => () => void
   subscribeToReflections: () => () => void
+  loadPersonas: () => Promise<void>
+  savePersonas: (personas: PiiPersona[]) => Promise<boolean>
 }
 
 type AiStore = AiStoreState & AiStoreActions
@@ -262,6 +268,39 @@ export const useAiStore = create<AiStore>()(
     activeDossierId: null,
     streamingMessageId: null,
     reflections: [],
+    personas: null,
+    personasError: null,
+
+    loadPersonas: async () => {
+      const api = getOrdicabApi()
+      if (!api) return
+
+      const result = await api.ai.getPersonas()
+      set((state) => {
+        if (result.success) {
+          state.personas = result.data.personas
+          state.personasError = null
+        } else {
+          state.personasError = result.error
+        }
+      })
+    },
+
+    savePersonas: async (personas) => {
+      const api = getOrdicabApi()
+      if (!api) return false
+
+      const result = await api.ai.savePersonas({ personas })
+      set((state) => {
+        if (result.success) {
+          state.personas = result.data.personas
+          state.personasError = null
+        } else {
+          state.personasError = result.error
+        }
+      })
+      return result.success
+    },
 
     loadSettings: async () => {
       const api = getOrdicabApi()
@@ -781,8 +820,8 @@ export const useAiStore = create<AiStore>()(
         state.streamingMessageId = null
         state.lastContext = {
           ...state.lastContext,
-          contactId: undefined,
-          templateId: undefined,
+          contactUuid: undefined,
+          templateUuid: undefined,
           pendingTagPaths: undefined
         }
       })

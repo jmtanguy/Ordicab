@@ -10,6 +10,7 @@ import {
   type IpcResult
 } from '@shared/types'
 import { previewInvoiceNumber } from '@shared/domain/invoiceNumbering'
+import { computeDueDateIso } from '@shared/domain/invoice'
 import { entityToInvoiceIssuer } from '@shared/domain/invoiceIssuer'
 
 import {
@@ -140,8 +141,8 @@ export function registerGenerateHandlers(options: {
         const dossier = await dossierRegistryService.getDossier({
           dossierId: parsed.dossierId
         })
-        const items = parsed.billingItemIds.map((id) => {
-          const found = dossier.billingItems.find((entry) => entry.id === id)
+        const items = parsed.billingItemUuids.map((id) => {
+          const found = dossier.billingItems.find((entry) => entry.uuid === id)
           if (!found) {
             throw new GenerateServiceError(
               IpcErrorCode.NOT_FOUND,
@@ -172,6 +173,8 @@ export function registerGenerateHandlers(options: {
           issuer,
           number: previewNumber,
           issuedAt: issuedAtIso,
+          dueAt: parsed.dueAt ?? computeDueDateIso(issuedAtIso, settings.defaultDueDays),
+          paymentTerms: settings.defaultPaymentTerms,
           notes: parsed.notes
         })
 
@@ -179,9 +182,9 @@ export function registerGenerateHandlers(options: {
           success: true,
           data: await options.generateService.previewDocxDocument({
             dossierId: parsed.dossierId,
-            templateId: parsed.templateId,
+            templateUuid: parsed.templateUuid,
             tagOverrides: parsed.tagOverrides,
-            primaryContactId: parsed.primaryContactId,
+            primaryContactUuid: parsed.primaryContactUuid,
             contactRoleOverrides: parsed.contactRoleOverrides,
             invoiceContext
           })

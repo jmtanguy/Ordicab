@@ -28,47 +28,47 @@ import type {
   DossierNote,
   DossierNoteDeleteInput,
   DossierNoteUpsertInput,
+  GeneralKeyDate,
+  GeneralKeyDateDeleteInput,
+  GeneralKeyDateUpsertInput,
   KeyDate,
+  KeyDateMoveInput,
   KeyReference
 } from '@shared/types'
 import {
+  DOSSIER_INFORMATION_REFERENCE_LABEL,
+  DOSSIER_JURIDICTION_REFERENCE_LABEL,
   DOSSIER_NAME_REFERENCE_LABEL,
+  DOSSIER_REQUIRED_REFERENCE_LABELS,
+  DOSSIER_STATUS_REFERENCE_LABEL,
+  DOSSIER_TRIBUNAL_REFERENCE_LABEL,
+  DOSSIER_TYPE_REFERENCE_LABEL,
   IpcErrorCode,
-  isDossierNameReferenceLabel
+  isDossierNameReferenceLabel,
+  isDossierRequiredReferenceLabel
 } from '@shared/types'
 import { computeBillingItemTotals } from '@shared/billingCalculations'
 import {
-  billingItemIndexSchema,
   dossierBillingItemSchema,
   dossierLegalAidSchema,
   dossierMetadataFileSchema,
-  dossierNoteIndexSchema,
   dossierNoteSchema,
   feeAgreementSchema,
-  keyDateIndexSchema,
+  generalKeyDateSchema,
   keyDateSchema,
   keyReferenceSchema,
   type DossierMetadataFile
 } from '@shared/validation'
-import type {
-  BillingItemIndex,
-  BillingItemIndexEntry,
-  DossierNoteIndex,
-  DossierNoteIndexEntry,
-  KeyDateIndex,
-  KeyDateIndexEntry
-} from '@shared/validation'
 
 import {
+  getDomainGeneralKeyDateRecordPath,
+  getDomainGeneralKeyDatesDirectoryPath,
   getDomainRegistryPath,
-  getDossierBillingItemIndexPath,
   getDossierBillingItemRecordPath,
   getDossierBillingItemsDirectoryPath,
-  getDossierKeyDateIndexPath,
   getDossierKeyDateRecordPath,
   getDossierKeyDatesDirectoryPath,
   getDossierNoteEmbeddingCachePath,
-  getDossierNoteIndexPath,
   getDossierNoteRecordPath,
   getDossierNotesDirectoryPath,
   getDossierMetadataPath,
@@ -77,16 +77,10 @@ import {
 } from '../../lib/ordicab/ordicabPaths'
 import { atomicWrite } from '../../lib/system/atomicWrite'
 import { loadDomainState, pathExists } from '../../lib/system/domainState'
-import {
-  deleteRecord,
-  loadAllRecords,
-  loadIndex,
-  saveIndex,
-  saveRecord
-} from '../../lib/system/perFileStore'
+import { deleteRecord, loadAllRecords, saveRecord } from '../../lib/system/perFileStore'
 
 interface DossierRegistryEntry {
-  id: string
+  slug: string
   uuid?: string
   name: string
   registeredAt: string
@@ -122,12 +116,29 @@ export interface DossierRegistryServiceOptions {
   }) => Promise<NoteSearchResult[]>
 }
 
-export interface NoteSearchResult {
-  noteId: string
+interface NoteSearchResult {
+  noteUuid: string
   title: string
   snippet: string
   score: number
   matchKind: string
+  kind?: DossierNote['kind']
+  status?: DossierNote['status']
+  /** True when `snippet` is a truncated prefix of the note's full content. */
+  truncated?: boolean
+}
+
+/**
+ * Max characters of note content surfaced inline in a search/list result.
+ * Beyond this the snippet is truncated and `truncated:true` is set so the
+ * caller (the AI) knows to fetch the full note by id when the tail matters.
+ */
+export const NOTE_SNIPPET_MAX_LENGTH = 280
+
+/** Build a snippet from note content, flagging truncation. */
+function buildNoteSnippet(content: string): { snippet: string; truncated: boolean } {
+  if (content.length <= NOTE_SNIPPET_MAX_LENGTH) return { snippet: content, truncated: false }
+  return { snippet: content.slice(0, NOTE_SNIPPET_MAX_LENGTH), truncated: true }
 }
 
 export interface DossierRegistryService {
@@ -145,6 +156,15 @@ export interface DossierRegistryService {
   }) => Promise<DossierDetail>
   upsertKeyDate: (input: DossierKeyDateUpsertInput) => Promise<DossierDetail>
   deleteKeyDate: (input: DossierKeyDateDeleteInput) => Promise<DossierDetail>
+  /**
+   * Déplace un événement d'un rattachement à un autre (dossier ou « hors
+   * dossier »), en conservant son uuid. Renvoie `null` : l'appelant recharge la
+   * chronologie et resynchronise le détail ouvert.
+   */
+  moveKeyDate: (input: KeyDateMoveInput) => Promise<null>
+  listGeneralKeyDates: () => Promise<GeneralKeyDate[]>
+  upsertGeneralKeyDate: (input: GeneralKeyDateUpsertInput) => Promise<GeneralKeyDate[]>
+  deleteGeneralKeyDate: (input: GeneralKeyDateDeleteInput) => Promise<GeneralKeyDate[]>
   upsertNote: (input: DossierNoteUpsertInput) => Promise<DossierDetail>
   deleteNote: (input: DossierNoteDeleteInput) => Promise<DossierDetail>
   searchNotes: (input: {
@@ -162,13 +182,13 @@ export interface DossierRegistryService {
   deleteBillingItem: (input: DossierBillingItemDeleteInput) => Promise<DossierDetail>
   markBillingItemsInvoiced: (input: {
     dossierId: string
-    billingItemIds: string[]
-    invoiceId: string
+    billingItemUuids: string[]
+    invoiceUuid: string
     invoiceNumber: string
   }) => Promise<DossierDetail>
   unmarkBillingItemsInvoiced: (input: {
     dossierId: string
-    invoiceId: string
+    invoiceUuid: string
   }) => Promise<DossierDetail>
   upsertKeyReference: (input: DossierKeyReferenceUpsertInput) => Promise<DossierDetail>
   deleteKeyReference: (input: DossierKeyReferenceDeleteInput) => Promise<DossierDetail>
@@ -189,13 +209,13 @@ function isHiddenFolderName(name: string): boolean {
 }
 
 function createDefaultMetadata(options: {
-  id: string
+  slug: string
   uuid?: string
   name: string
   registeredAt: string
 }): DossierMetadataFile {
   return {
-    id: options.id,
+    slug: options.slug,
     uuid: options.uuid ?? randomUUID(),
     name: options.name,
     registeredAt: options.registeredAt,
@@ -211,13 +231,14 @@ function createDefaultMetadata(options: {
     keyDates: [],
     keyReferences: [],
     notes: [],
-    documents: []
+    documents: [],
+    pieces: []
   }
 }
 
 function toSummary(metadata: DossierMetadataFile): DossierSummary {
   return {
-    id: metadata.id,
+    slug: metadata.slug,
     uuid: metadata.uuid,
     name: metadata.name,
     status: metadata.status,
@@ -272,34 +293,14 @@ function parseKeyReferences(value: unknown): KeyReference[] {
   })
 }
 
-function parseFeeAgreements(
-  parsed: Record<string, unknown>,
-  fallbackTimestamp: string
-): DossierFeeAgreement[] {
-  if (Array.isArray(parsed.feeAgreements)) {
-    return parsed.feeAgreements.flatMap((entry) => {
-      const validated = feeAgreementSchema.safeParse(entry)
-      return validated.success ? [validated.data] : []
-    })
+function parseFeeAgreements(parsed: Record<string, unknown>): DossierFeeAgreement[] {
+  if (!Array.isArray(parsed.feeAgreements)) {
+    return []
   }
-
-  const legacy = parsed.feeAgreement
-  if (legacy && typeof legacy === 'object') {
-    const candidate = {
-      id: randomUUID(),
-      createdAt: fallbackTimestamp,
-      updatedAt: fallbackTimestamp,
-      isActive: true,
-      archivedAt: undefined,
-      generatedDocumentUuid: undefined,
-      signedDocumentUuid: undefined,
-      ...(legacy as Record<string, unknown>)
-    }
-    const validated = feeAgreementSchema.safeParse(candidate)
+  return parsed.feeAgreements.flatMap((entry) => {
+    const validated = feeAgreementSchema.safeParse(entry)
     return validated.success ? [validated.data] : []
-  }
-
-  return []
+  })
 }
 
 function normalizeOptionalText(value: string | undefined): string | undefined {
@@ -318,6 +319,7 @@ function cloneMetadata(metadata: DossierMetadataFile): DossierMetadataFile {
   return {
     ...metadata,
     documents: [...metadata.documents],
+    pieces: metadata.pieces.map((entry) => ({ ...entry })),
     feeAgreements: metadata.feeAgreements.map((entry) => ({ ...entry })),
     billingItems: [],
     keyDates: [],
@@ -327,8 +329,8 @@ function cloneMetadata(metadata: DossierMetadataFile): DossierMetadataFile {
   }
 }
 
-function upsertById<T extends { id: string }>(entries: T[], nextEntry: T): T[] {
-  const existingIndex = entries.findIndex((entry) => entry.id === nextEntry.id)
+function upsertByUuid<T extends { uuid: string }>(entries: T[], nextEntry: T): T[] {
+  const existingIndex = entries.findIndex((entry) => entry.uuid === nextEntry.uuid)
 
   if (existingIndex === -1) {
     return [...entries, nextEntry]
@@ -425,7 +427,7 @@ async function loadRegistry(domainPath: string): Promise<DossierRegistryFile> {
           (entry): entry is DossierRegistryEntry =>
             typeof entry === 'object' &&
             entry !== null &&
-            typeof entry.id === 'string' &&
+            typeof entry.slug === 'string' &&
             typeof entry.name === 'string' &&
             typeof entry.registeredAt === 'string' &&
             (typeof (entry as { uuid?: unknown }).uuid === 'string' ||
@@ -486,7 +488,7 @@ async function readMetadata(
     }
 
     if (
-      typeof parsed.id !== 'string' ||
+      typeof parsed.slug !== 'string' ||
       typeof parsed.name !== 'string' ||
       typeof parsed.registeredAt !== 'string' ||
       typeof parsed.type !== 'string' ||
@@ -499,11 +501,11 @@ async function readMetadata(
     }
 
     const keyReferences = parseKeyReferences(parsed.keyReferences)
-    const feeAgreements = parseFeeAgreements(parsed, parsed.updatedAt)
+    const feeAgreements = parseFeeAgreements(parsed)
     // billingItems and keyDates are now stored per-file; pass empty arrays here
     // (they are loaded separately via loadBillingItems / loadKeyDates)
     const validatedMetadata = dossierMetadataFileSchema.safeParse({
-      id: parsed.id,
+      slug: parsed.slug,
       uuid: typeof parsed.uuid === 'string' ? parsed.uuid : randomUUID(),
       name: parsed.name,
       registeredAt: parsed.registeredAt,
@@ -526,7 +528,12 @@ async function readMetadata(
       billingItems: [],
       keyDates: [],
       keyReferences,
-      documents: parsed.documents
+      documents: parsed.documents,
+      // Inline payloads that MUST round-trip through every registry write
+      // (open/lastOpenedAt, status, references…): omitting them here lets the
+      // schema default/strip them and the next saveMetadata erases the data.
+      pieces: parsed.pieces,
+      legalAid: parsed.legalAid
     })
 
     if (!validatedMetadata.success) {
@@ -537,9 +544,8 @@ async function readMetadata(
       return null
     }
 
-    const needsLegacyFeeAgreementMigration =
-      !Array.isArray(parsed.feeAgreements) && parsed.feeAgreement !== undefined
-    if (typeof parsed.uuid !== 'string' || needsLegacyFeeAgreementMigration) {
+    // Backfill a missing uuid on first read (one-time, idempotent).
+    if (typeof parsed.uuid !== 'string') {
       await saveMetadata(dossierPath, validatedMetadata.data)
     }
 
@@ -592,35 +598,126 @@ async function removeDossierMetadata(dossierPath: string): Promise<void> {
   }
 }
 
-/**
- * Returns the metadata with a guaranteed dossier-name key reference present.
- */
-function ensureDossierNameReference(
+function getRequiredDossierReferenceValue(
   metadata: DossierMetadataFile,
-  dossierPath: string
-): DossierMetadataFile {
-  const existing = metadata.keyReferences.find((entry) => isDossierNameReferenceLabel(entry.label))
-  if (existing) return metadata
-  return {
-    ...metadata,
-    keyReferences: [
-      ...metadata.keyReferences,
-      keyReferenceSchema.parse({
-        id: randomUUID(),
-        dossierId: metadata.id,
-        label: DOSSIER_NAME_REFERENCE_LABEL,
-        value: metadata.name || basename(dossierPath)
-      })
-    ]
+  dossierPath: string,
+  label: (typeof DOSSIER_REQUIRED_REFERENCE_LABELS)[number]
+): string {
+  switch (label) {
+    case DOSSIER_NAME_REFERENCE_LABEL:
+      return metadata.name || basename(dossierPath)
+    case DOSSIER_STATUS_REFERENCE_LABEL:
+      return metadata.status
+    case DOSSIER_TYPE_REFERENCE_LABEL:
+      return metadata.type
+    case DOSSIER_JURIDICTION_REFERENCE_LABEL:
+      return metadata.juridiction ?? ''
+    case DOSSIER_TRIBUNAL_REFERENCE_LABEL:
+      return metadata.tribunal ?? ''
+    case DOSSIER_INFORMATION_REFERENCE_LABEL:
+      return metadata.information ?? ''
   }
 }
 
-const EMPTY_BILLING_ITEM_INDEX: BillingItemIndex = {
-  items: [],
-  updatedAt: new Date(0).toISOString()
+function getRequiredReferenceByLabel(
+  references: KeyReference[],
+  label: (typeof DOSSIER_REQUIRED_REFERENCE_LABELS)[number]
+): KeyReference | undefined {
+  return references.find(
+    (entry) => entry.label.trim().toLocaleLowerCase('fr-FR') === label.toLocaleLowerCase('fr-FR')
+  )
 }
-const EMPTY_KEY_DATE_INDEX: KeyDateIndex = { keyDates: [], updatedAt: new Date(0).toISOString() }
-const EMPTY_NOTE_INDEX: DossierNoteIndex = { notes: [], updatedAt: new Date(0).toISOString() }
+
+function normalizeRequiredReferenceStatus(value: string): DossierStatus {
+  return normalizeStatus(value.trim())
+}
+
+function syncDossierFieldsFromRequiredReferences(
+  metadata: DossierMetadataFile
+): DossierMetadataFile {
+  const nameReference = getRequiredReferenceByLabel(
+    metadata.keyReferences,
+    DOSSIER_NAME_REFERENCE_LABEL
+  )
+  const statusReference = getRequiredReferenceByLabel(
+    metadata.keyReferences,
+    DOSSIER_STATUS_REFERENCE_LABEL
+  )
+  const typeReference = getRequiredReferenceByLabel(
+    metadata.keyReferences,
+    DOSSIER_TYPE_REFERENCE_LABEL
+  )
+  const juridictionReference = getRequiredReferenceByLabel(
+    metadata.keyReferences,
+    DOSSIER_JURIDICTION_REFERENCE_LABEL
+  )
+  const tribunalReference = getRequiredReferenceByLabel(
+    metadata.keyReferences,
+    DOSSIER_TRIBUNAL_REFERENCE_LABEL
+  )
+  const informationReference = getRequiredReferenceByLabel(
+    metadata.keyReferences,
+    DOSSIER_INFORMATION_REFERENCE_LABEL
+  )
+
+  return {
+    ...metadata,
+    name: nameReference?.value.trim() || metadata.name,
+    status: statusReference
+      ? normalizeRequiredReferenceStatus(statusReference.value)
+      : metadata.status,
+    type: typeReference?.value.trim() ?? metadata.type,
+    juridiction: normalizeOptionalText(juridictionReference?.value),
+    tribunal: normalizeOptionalText(tribunalReference?.value),
+    information: normalizeOptionalText(informationReference?.value)
+  }
+}
+
+function setRequiredDossierReferenceValue(
+  metadata: DossierMetadataFile,
+  label: (typeof DOSSIER_REQUIRED_REFERENCE_LABELS)[number],
+  value: string
+): DossierMetadataFile {
+  const existing = getRequiredReferenceByLabel(metadata.keyReferences, label)
+  const nextEntry = keyReferenceSchema.parse({
+    uuid: existing?.uuid ?? randomUUID(),
+    dossierId: metadata.slug,
+    label: existing?.label ?? label,
+    value
+  })
+
+  return {
+    ...metadata,
+    keyReferences: upsertByUuid(metadata.keyReferences, nextEntry)
+  }
+}
+
+/**
+ * Returns metadata with guaranteed dossier parameter key references present.
+ */
+function ensureRequiredDossierReferences(
+  metadata: DossierMetadataFile,
+  dossierPath: string
+): DossierMetadataFile {
+  const keyReferences = [...metadata.keyReferences]
+
+  for (const label of DOSSIER_REQUIRED_REFERENCE_LABELS) {
+    if (getRequiredReferenceByLabel(keyReferences, label)) continue
+    keyReferences.push(
+      keyReferenceSchema.parse({
+        uuid: randomUUID(),
+        dossierId: metadata.slug,
+        label,
+        value: getRequiredDossierReferenceValue(metadata, dossierPath, label)
+      })
+    )
+  }
+
+  return syncDossierFieldsFromRequiredReferences({
+    ...metadata,
+    keyReferences
+  })
+}
 
 // ---------------------------------------------------------------------------
 // Per-file billing item helpers
@@ -633,42 +730,13 @@ async function loadBillingItems(dossierPath: string): Promise<DossierBillingItem
 async function saveBillingItem(dossierPath: string, item: DossierBillingItem): Promise<void> {
   return saveRecord(
     getDossierBillingItemsDirectoryPath(dossierPath),
-    getDossierBillingItemRecordPath(dossierPath, item.id),
+    getDossierBillingItemRecordPath(dossierPath, item.uuid),
     item
   )
 }
 
 async function deleteBillingItemFile(dossierPath: string, id: string): Promise<void> {
   return deleteRecord(getDossierBillingItemRecordPath(dossierPath, id))
-}
-
-async function updateBillingItemIndex(
-  dossierPath: string,
-  item: DossierBillingItem,
-  op: 'upsert' | 'remove',
-  nowIso: string
-): Promise<void> {
-  const index = await loadIndex(
-    getDossierBillingItemIndexPath(dossierPath),
-    billingItemIndexSchema,
-    EMPTY_BILLING_ITEM_INDEX
-  )
-  const entry: BillingItemIndexEntry = {
-    id: item.id,
-    dossierId: item.dossierId,
-    label: item.label,
-    status: item.status,
-    date: item.date,
-    totalTtcCents: item.totalTtcCents,
-    invoiceId: item.invoiceId,
-    updatedAt: item.updatedAt
-  }
-  const filtered = index.items.filter((e) => e.id !== item.id)
-  await saveIndex(getDossierBillingItemIndexPath(dossierPath), {
-    ...index,
-    items: op === 'upsert' ? [...filtered, entry] : filtered,
-    updatedAt: nowIso
-  })
 }
 
 // ---------------------------------------------------------------------------
@@ -682,7 +750,7 @@ async function loadKeyDates(dossierPath: string): Promise<KeyDate[]> {
 async function saveKeyDate(dossierPath: string, keyDate: KeyDate): Promise<void> {
   return saveRecord(
     getDossierKeyDatesDirectoryPath(dossierPath),
-    getDossierKeyDateRecordPath(dossierPath, keyDate.id),
+    getDossierKeyDateRecordPath(dossierPath, keyDate.uuid),
     keyDate
   )
 }
@@ -691,31 +759,24 @@ async function deleteKeyDateFile(dossierPath: string, id: string): Promise<void>
   return deleteRecord(getDossierKeyDateRecordPath(dossierPath, id))
 }
 
-async function updateKeyDateIndex(
-  dossierPath: string,
-  keyDate: KeyDate,
-  op: 'upsert' | 'remove',
-  nowIso: string
-): Promise<void> {
-  const index = await loadIndex(
-    getDossierKeyDateIndexPath(dossierPath),
-    keyDateIndexSchema,
-    EMPTY_KEY_DATE_INDEX
+// ---------------------------------------------------------------------------
+// General (hors-dossier) key date helpers — one file per record, no index.
+// ---------------------------------------------------------------------------
+
+async function loadGeneralKeyDates(domainPath: string): Promise<GeneralKeyDate[]> {
+  return loadAllRecords(getDomainGeneralKeyDatesDirectoryPath(domainPath), generalKeyDateSchema)
+}
+
+async function saveGeneralKeyDate(domainPath: string, keyDate: GeneralKeyDate): Promise<void> {
+  return saveRecord(
+    getDomainGeneralKeyDatesDirectoryPath(domainPath),
+    getDomainGeneralKeyDateRecordPath(domainPath, keyDate.uuid),
+    keyDate
   )
-  const entry: KeyDateIndexEntry = {
-    id: keyDate.id,
-    dossierId: keyDate.dossierId,
-    label: keyDate.label,
-    date: keyDate.date,
-    isClosed: keyDate.isClosed,
-    updatedAt: nowIso
-  }
-  const filtered = index.keyDates.filter((e) => e.id !== keyDate.id)
-  await saveIndex(getDossierKeyDateIndexPath(dossierPath), {
-    ...index,
-    keyDates: op === 'upsert' ? [...filtered, entry] : filtered,
-    updatedAt: nowIso
-  })
+}
+
+async function deleteGeneralKeyDateFile(domainPath: string, id: string): Promise<void> {
+  return deleteRecord(getDomainGeneralKeyDateRecordPath(domainPath, id))
 }
 
 // ---------------------------------------------------------------------------
@@ -723,9 +784,8 @@ async function updateKeyDateIndex(
 // ---------------------------------------------------------------------------
 
 async function loadNotes(dossierPath: string): Promise<DossierNote[]> {
-  // loadAllRecords reads every *.json in the directory, including each note's
-  // sibling {id}.embeddings.json cache. Those fail the note schema and are
-  // silently skipped, so only real note records come back. Sort newest-first.
+  // Embedding caches live in the notes/embeddings/ subfolder, so this
+  // non-recursive scan only sees real note records. Sort newest-first.
   const notes = await loadAllRecords(getDossierNotesDirectoryPath(dossierPath), dossierNoteSchema)
   return notes.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 }
@@ -733,7 +793,7 @@ async function loadNotes(dossierPath: string): Promise<DossierNote[]> {
 async function saveNote(dossierPath: string, note: DossierNote): Promise<void> {
   return saveRecord(
     getDossierNotesDirectoryPath(dossierPath),
-    getDossierNoteRecordPath(dossierPath, note.id),
+    getDossierNoteRecordPath(dossierPath, note.uuid),
     note
   )
 }
@@ -742,36 +802,6 @@ async function deleteNoteFiles(dossierPath: string, id: string): Promise<void> {
   await deleteRecord(getDossierNoteRecordPath(dossierPath, id))
   // Drop the embedding cache too so a re-created id never reuses stale vectors.
   await deleteRecord(getDossierNoteEmbeddingCachePath(dossierPath, id))
-}
-
-async function updateNoteIndex(
-  dossierPath: string,
-  note: DossierNote,
-  op: 'upsert' | 'remove',
-  nowIso: string
-): Promise<void> {
-  const index = await loadIndex(
-    getDossierNoteIndexPath(dossierPath),
-    dossierNoteIndexSchema,
-    EMPTY_NOTE_INDEX
-  )
-  const entry: DossierNoteIndexEntry = {
-    id: note.id,
-    dossierId: note.dossierId,
-    title: note.title,
-    kind: note.kind,
-    status: note.status,
-    tags: note.tags,
-    pinned: note.pinned,
-    source: note.source,
-    updatedAt: nowIso
-  }
-  const filtered = index.notes.filter((e) => e.id !== note.id)
-  await saveIndex(getDossierNoteIndexPath(dossierPath), {
-    ...index,
-    notes: op === 'upsert' ? [...filtered, entry] : filtered,
-    updatedAt: nowIso
-  })
 }
 
 // ---------------------------------------------------------------------------
@@ -795,7 +825,7 @@ export function createDossierRegistryService(
     const normalizedDossierId = validateDirectChildId(dossierId)
     const dossierPath = join(domainPath, normalizedDossierId)
     const registry = await loadRegistry(domainPath)
-    const existingEntry = registry.dossiers.find((entry) => entry.id === normalizedDossierId)
+    const existingEntry = registry.dossiers.find((entry) => entry.slug === normalizedDossierId)
 
     if (!existingEntry) {
       throw new DossierRegistryError(IpcErrorCode.NOT_FOUND, 'This dossier is not registered.')
@@ -812,15 +842,27 @@ export function createDossierRegistryService(
     const metadata =
       (await readMetadata(dossierPath, { strict: true })) ??
       createDefaultMetadata({
-        id: normalizedDossierId,
+        slug: normalizedDossierId,
         uuid: existingEntry.uuid,
         name: existingEntry.name || basename(normalizedDossierId),
         registeredAt: existingEntry.registeredAt
       })
 
+    const ensuredMetadata = ensureRequiredDossierReferences(metadata, dossierPath)
+    const shouldPersistEnsuredMetadata =
+      ensuredMetadata.keyReferences.length !== metadata.keyReferences.length ||
+      ensuredMetadata.name !== metadata.name ||
+      ensuredMetadata.status !== metadata.status ||
+      ensuredMetadata.type !== metadata.type ||
+      ensuredMetadata.juridiction !== metadata.juridiction ||
+      ensuredMetadata.tribunal !== metadata.tribunal ||
+      ensuredMetadata.information !== metadata.information
+
     return {
       dossierPath,
-      metadata: ensureDossierNameReference(metadata, dossierPath)
+      metadata: shouldPersistEnsuredMetadata
+        ? await saveMetadata(dossierPath, ensuredMetadata)
+        : ensuredMetadata
     }
   }
 
@@ -906,7 +948,7 @@ export function createDossierRegistryService(
     displayName?: string
   ): Promise<DossierSummary> {
     const registry = await loadRegistry(domainPath)
-    if (registry.dossiers.some((entry) => entry.id === dossierId)) {
+    if (registry.dossiers.some((entry) => entry.slug === dossierId)) {
       throw new DossierRegistryError(
         IpcErrorCode.INVALID_INPUT,
         'This dossier is already registered.'
@@ -916,24 +958,16 @@ export function createDossierRegistryService(
     const registeredAt = now().toISOString()
     const dossierBaseName = displayName?.trim() || basename(dossierPath)
     const metadata = createDefaultMetadata({
-      id: dossierId,
+      slug: dossierId,
       name: dossierBaseName,
       registeredAt
     })
-    metadata.keyReferences = [
-      ...metadata.keyReferences,
-      keyReferenceSchema.parse({
-        id: randomUUID(),
-        dossierId,
-        label: DOSSIER_NAME_REFERENCE_LABEL,
-        value: dossierBaseName
-      })
-    ]
+    metadata.keyReferences = ensureRequiredDossierReferences(metadata, dossierPath).keyReferences
     const nextRegistry: DossierRegistryFile = {
       dossiers: [
         ...registry.dossiers,
         {
-          id: dossierId,
+          slug: dossierId,
           uuid: metadata.uuid,
           name: metadata.name,
           registeredAt
@@ -962,14 +996,14 @@ export function createDossierRegistryService(
       }
 
       const registry = await loadRegistry(domainPath)
-      const registeredIds = new Set(registry.dossiers.map((entry) => entry.id))
+      const registeredIds = new Set(registry.dossiers.map((entry) => entry.slug))
       const entries = await readdir(domainPath, { withFileTypes: true })
 
       return entries
         .filter((entry) => entry.isDirectory() && !isHiddenFolderName(entry.name))
         .filter((entry) => !registeredIds.has(entry.name))
         .map((entry) => ({
-          id: entry.name,
+          slug: entry.name,
           name: entry.name,
           path: join(domainPath, entry.name)
         }))
@@ -986,11 +1020,11 @@ export function createDossierRegistryService(
       const dossiers = await Promise.all(
         registry.dossiers.map(async (entry) => {
           const metadata =
-            (await readMetadata(join(domainPath, entry.id))) ??
+            (await readMetadata(join(domainPath, entry.slug))) ??
             createDefaultMetadata({
-              id: entry.id,
+              slug: entry.slug,
               uuid: entry.uuid,
-              name: entry.name || basename(entry.id),
+              name: entry.name || basename(entry.slug),
               registeredAt: entry.registeredAt
             })
 
@@ -1015,7 +1049,7 @@ export function createDossierRegistryService(
         throw new DossierRegistryError(IpcErrorCode.NOT_FOUND, 'Active domain is not configured.')
       }
 
-      const dossierId = validateDirectChildId(input.id)
+      const dossierId = validateDirectChildId(input.slug)
       const dossierPath = join(domainPath, dossierId)
       const dossierStats = await stat(dossierPath).catch(() => null)
 
@@ -1053,15 +1087,39 @@ export function createDossierRegistryService(
     },
 
     updateDossier: async (input): Promise<DossierDetail> => {
-      const { metadata: saved, dossierPath } = await mutateDossierMeta(input.id, (metadata) => ({
-        ...metadata,
-        status: input.status,
-        type: input.type.trim(),
-        information: normalizeOptionalText(input.information),
-        juridiction: normalizeOptionalText(input.juridiction),
-        tribunal: normalizeOptionalText(input.tribunal),
-        legalAid: input.legalAid ?? metadata.legalAid
-      }))
+      const { metadata: saved, dossierPath } = await mutateDossierMeta(input.slug, (metadata) => {
+        const nextMetadata = {
+          ...metadata,
+          legalAid: input.legalAid ?? metadata.legalAid
+        }
+        const withStatus = setRequiredDossierReferenceValue(
+          nextMetadata,
+          DOSSIER_STATUS_REFERENCE_LABEL,
+          input.status
+        )
+        const withType = setRequiredDossierReferenceValue(
+          withStatus,
+          DOSSIER_TYPE_REFERENCE_LABEL,
+          input.type.trim()
+        )
+        const withInformation = setRequiredDossierReferenceValue(
+          withType,
+          DOSSIER_INFORMATION_REFERENCE_LABEL,
+          normalizeOptionalText(input.information) ?? ''
+        )
+        const withJuridiction = setRequiredDossierReferenceValue(
+          withInformation,
+          DOSSIER_JURIDICTION_REFERENCE_LABEL,
+          normalizeOptionalText(input.juridiction) ?? ''
+        )
+        const withTribunal = setRequiredDossierReferenceValue(
+          withJuridiction,
+          DOSSIER_TRIBUNAL_REFERENCE_LABEL,
+          normalizeOptionalText(input.tribunal) ?? ''
+        )
+
+        return syncDossierFieldsFromRequiredReferences(withTribunal)
+      })
       const [billingItems, keyDates] = await Promise.all([
         loadBillingItems(dossierPath),
         loadKeyDates(dossierPath)
@@ -1090,14 +1148,16 @@ export function createDossierRegistryService(
       const nowIso = now().toISOString()
 
       const keyDates = await loadKeyDates(dossierPath)
-      const existingEntry = input.id ? keyDates.find((entry) => entry.id === input.id) : undefined
+      const existingEntry = input.uuid
+        ? keyDates.find((entry) => entry.uuid === input.uuid)
+        : undefined
 
-      if (input.id && !existingEntry) {
+      if (input.uuid && !existingEntry) {
         throw new DossierRegistryError(IpcErrorCode.NOT_FOUND, 'This key date was not found.')
       }
 
       const nextEntry = keyDateSchema.parse({
-        id: input.id ?? randomUUID(),
+        uuid: input.uuid ?? randomUUID(),
         dossierId: input.dossierId,
         label: input.label.trim(),
         date: input.date,
@@ -1109,9 +1169,8 @@ export function createDossierRegistryService(
       })
 
       await saveKeyDate(dossierPath, nextEntry)
-      await updateKeyDateIndex(dossierPath, nextEntry, 'upsert', nowIso)
 
-      const allKeyDates = upsertById(keyDates, nextEntry)
+      const allKeyDates = upsertByUuid(keyDates, nextEntry)
       const nextKeyDate = deriveNextUpcomingKeyDate(allKeyDates, now())
       const updatedMetadata: DossierMetadataFile = {
         ...metadata,
@@ -1129,15 +1188,13 @@ export function createDossierRegistryService(
       const nowIso = now().toISOString()
 
       const keyDates = await loadKeyDates(dossierPath)
-      if (!keyDates.some((entry) => entry.id === input.keyDateId)) {
+      if (!keyDates.some((entry) => entry.uuid === input.keyDateUuid)) {
         throw new DossierRegistryError(IpcErrorCode.NOT_FOUND, 'This key date was not found.')
       }
 
-      await deleteKeyDateFile(dossierPath, input.keyDateId)
-      const removedEntry = keyDates.find((e) => e.id === input.keyDateId)!
-      await updateKeyDateIndex(dossierPath, removedEntry, 'remove', nowIso)
+      await deleteKeyDateFile(dossierPath, input.keyDateUuid)
 
-      const remainingKeyDates = keyDates.filter((entry) => entry.id !== input.keyDateId)
+      const remainingKeyDates = keyDates.filter((entry) => entry.uuid !== input.keyDateUuid)
       const nextKeyDate = deriveNextUpcomingKeyDate(remainingKeyDates, now())
       const updatedMetadata: DossierMetadataFile = {
         ...metadata,
@@ -1150,19 +1207,140 @@ export function createDossierRegistryService(
       return detailWithNotes(dossierPath, saved, billingItems, remainingKeyDates)
     },
 
+    moveKeyDate: async (input: KeyDateMoveInput): Promise<null> => {
+      const nowIso = now().toISOString()
+
+      // 1. Retrait à la source (suppression best-effort + métadonnées du dossier
+      //    source rafraîchies si c'était un dossier).
+      if (input.fromDossierId === null) {
+        const domainPath = await resolveActiveDomainPath(options.stateFilePath)
+        if (!domainPath) {
+          throw new DossierRegistryError(IpcErrorCode.NOT_FOUND, 'Active domain is not configured.')
+        }
+        await deleteGeneralKeyDateFile(domainPath, input.keyDateUuid)
+      } else {
+        const { dossierPath, metadata } = await loadRegisteredMetadata(input.fromDossierId)
+        await deleteKeyDateFile(dossierPath, input.keyDateUuid)
+        const remaining = await loadKeyDates(dossierPath)
+        const nextKeyDate = deriveNextUpcomingKeyDate(remaining, now())
+        await saveMetadata(dossierPath, {
+          ...metadata,
+          updatedAt: nowIso,
+          nextUpcomingKeyDate: nextKeyDate?.date ?? null,
+          nextUpcomingKeyDateLabel: nextKeyDate?.label ?? null
+        })
+      }
+
+      // 2. Création à la cible, uuid conservé, avec les champs (éventuellement) édités.
+      if (input.toDossierId === null) {
+        const domainPath = await resolveActiveDomainPath(options.stateFilePath)
+        if (!domainPath) {
+          throw new DossierRegistryError(IpcErrorCode.NOT_FOUND, 'Active domain is not configured.')
+        }
+        const nextEntry = generalKeyDateSchema.parse({
+          uuid: input.keyDateUuid,
+          label: input.label.trim(),
+          date: input.date,
+          time: input.time,
+          duration: input.duration,
+          tags: input.tags,
+          isClosed: input.isClosed,
+          note: normalizeOptionalText(input.note)
+        })
+        await saveGeneralKeyDate(domainPath, nextEntry)
+      } else {
+        const { dossierPath, metadata } = await loadRegisteredMetadata(input.toDossierId)
+        const nextEntry = keyDateSchema.parse({
+          uuid: input.keyDateUuid,
+          dossierId: input.toDossierId,
+          label: input.label.trim(),
+          date: input.date,
+          time: input.time,
+          duration: input.duration,
+          tags: input.tags,
+          isClosed: input.isClosed,
+          note: normalizeOptionalText(input.note)
+        })
+        await saveKeyDate(dossierPath, nextEntry)
+        const allKeyDates = await loadKeyDates(dossierPath)
+        const nextKeyDate = deriveNextUpcomingKeyDate(allKeyDates, now())
+        await saveMetadata(dossierPath, {
+          ...metadata,
+          updatedAt: nowIso,
+          nextUpcomingKeyDate: nextKeyDate?.date ?? null,
+          nextUpcomingKeyDateLabel: nextKeyDate?.label ?? null
+        })
+      }
+
+      return null
+    },
+
+    listGeneralKeyDates: async (): Promise<GeneralKeyDate[]> => {
+      const domainPath = await resolveActiveDomainPath(options.stateFilePath)
+      if (!domainPath) return []
+      return loadGeneralKeyDates(domainPath)
+    },
+
+    upsertGeneralKeyDate: async (input: GeneralKeyDateUpsertInput): Promise<GeneralKeyDate[]> => {
+      const domainPath = await resolveActiveDomainPath(options.stateFilePath)
+      if (!domainPath) {
+        throw new DossierRegistryError(IpcErrorCode.NOT_FOUND, 'Active domain is not configured.')
+      }
+
+      const keyDates = await loadGeneralKeyDates(domainPath)
+      const existingEntry = input.uuid
+        ? keyDates.find((entry) => entry.uuid === input.uuid)
+        : undefined
+
+      if (input.uuid && !existingEntry) {
+        throw new DossierRegistryError(IpcErrorCode.NOT_FOUND, 'This key date was not found.')
+      }
+
+      const nextEntry = generalKeyDateSchema.parse({
+        uuid: input.uuid ?? randomUUID(),
+        label: input.label.trim(),
+        date: input.date,
+        time: input.time ?? existingEntry?.time,
+        duration: input.duration ?? existingEntry?.duration,
+        tags: input.tags ?? existingEntry?.tags,
+        isClosed: input.isClosed ?? existingEntry?.isClosed,
+        note: normalizeOptionalText(input.note) ?? existingEntry?.note
+      })
+
+      await saveGeneralKeyDate(domainPath, nextEntry)
+      return upsertByUuid(keyDates, nextEntry)
+    },
+
+    deleteGeneralKeyDate: async (input: GeneralKeyDateDeleteInput): Promise<GeneralKeyDate[]> => {
+      const domainPath = await resolveActiveDomainPath(options.stateFilePath)
+      if (!domainPath) {
+        throw new DossierRegistryError(IpcErrorCode.NOT_FOUND, 'Active domain is not configured.')
+      }
+
+      const keyDates = await loadGeneralKeyDates(domainPath)
+      if (!keyDates.some((entry) => entry.uuid === input.keyDateUuid)) {
+        throw new DossierRegistryError(IpcErrorCode.NOT_FOUND, 'This key date was not found.')
+      }
+
+      await deleteGeneralKeyDateFile(domainPath, input.keyDateUuid)
+      return keyDates.filter((entry) => entry.uuid !== input.keyDateUuid)
+    },
+
     upsertNote: async (input): Promise<DossierDetail> => {
       const { dossierPath, metadata } = await loadRegisteredMetadata(input.dossierId)
       const nowIso = now().toISOString()
 
       const notes = await loadNotes(dossierPath)
-      const existingEntry = input.id ? notes.find((entry) => entry.id === input.id) : undefined
+      const existingEntry = input.uuid
+        ? notes.find((entry) => entry.uuid === input.uuid)
+        : undefined
 
-      if (input.id && !existingEntry) {
+      if (input.uuid && !existingEntry) {
         throw new DossierRegistryError(IpcErrorCode.NOT_FOUND, 'This note was not found.')
       }
 
       const nextEntry = dossierNoteSchema.parse({
-        id: input.id ?? randomUUID(),
+        uuid: input.uuid ?? randomUUID(),
         dossierId: input.dossierId,
         title: input.title.trim(),
         content: input.content ?? existingEntry?.content ?? '',
@@ -1176,7 +1354,6 @@ export function createDossierRegistryService(
       })
 
       await saveNote(dossierPath, nextEntry)
-      await updateNoteIndex(dossierPath, nextEntry, 'upsert', nowIso)
       // Refresh embeddings so semantic search reflects the new content. Awaited
       // but best-effort: indexNote swallows its own failures.
       await options.indexNote?.(dossierPath, nextEntry)
@@ -1193,13 +1370,12 @@ export function createDossierRegistryService(
       const nowIso = now().toISOString()
 
       const notes = await loadNotes(dossierPath)
-      const removedEntry = notes.find((entry) => entry.id === input.noteId)
+      const removedEntry = notes.find((entry) => entry.uuid === input.noteUuid)
       if (!removedEntry) {
         throw new DossierRegistryError(IpcErrorCode.NOT_FOUND, 'This note was not found.')
       }
 
-      await deleteNoteFiles(dossierPath, input.noteId)
-      await updateNoteIndex(dossierPath, removedEntry, 'remove', nowIso)
+      await deleteNoteFiles(dossierPath, input.noteUuid)
 
       const updatedMetadata: DossierMetadataFile = { ...metadata, updatedAt: nowIso }
       const saved = await saveMetadata(dossierPath, updatedMetadata)
@@ -1211,12 +1387,38 @@ export function createDossierRegistryService(
     searchNotes: async (input): Promise<NoteSearchResult[]> => {
       const { dossierPath } = await loadRegisteredMetadata(input.dossierId)
       const query = input.query.trim()
-      if (!query) return []
 
       let notes = await loadNotes(dossierPath)
       if (input.kind) notes = notes.filter((note) => note.kind === input.kind)
       if (input.status) notes = notes.filter((note) => note.status === input.status)
       if (notes.length === 0) return []
+
+      const toResult = (note: DossierNote): NoteSearchResult => {
+        const { snippet, truncated } = buildNoteSnippet(note.content)
+        return {
+          noteUuid: note.uuid,
+          title: note.title,
+          snippet,
+          score: 1,
+          matchKind: 'keyword',
+          kind: note.kind,
+          status: note.status,
+          truncated
+        }
+      }
+
+      // No real query (empty or the "*" wildcard) → list ALL notes (optionally
+      // filtered by kind/status). This is how "synthèse / liste des notes" works:
+      // pinned first, then most recently updated. Capped by topK.
+      if (!query || query === '*') {
+        return [...notes]
+          .sort((a, b) => {
+            if ((a.pinned ?? false) !== (b.pinned ?? false)) return a.pinned ? -1 : 1
+            return b.updatedAt.localeCompare(a.updatedAt)
+          })
+          .slice(0, input.topK ?? 50)
+          .map(toResult)
+      }
 
       if (!options.searchNotesInDossier) {
         // No embedder wired (e.g. headless): fall back to a simple case-insensitive
@@ -1229,20 +1431,28 @@ export function createDossierRegistryService(
               note.content.toLocaleLowerCase('fr-FR').includes(needle)
           )
           .slice(0, input.topK ?? 10)
-          .map((note) => ({
-            noteId: note.id,
-            title: note.title,
-            snippet: note.content.slice(0, 280),
-            score: 1,
-            matchKind: 'keyword'
-          }))
+          .map(toResult)
       }
 
-      return options.searchNotesInDossier({
+      // Hybrid path: the embedding engine builds its own snippets and scores, but
+      // knows nothing about kind/status/full content. Enrich each hit from the
+      // loaded note so callers get the same metadata and a correct truncation flag.
+      const notesById = new Map(notes.map((note) => [note.uuid, note]))
+      const hits = await options.searchNotesInDossier({
         dossierPath,
         notes,
         query,
         topK: input.topK
+      })
+      return hits.map((hit) => {
+        const note = notesById.get(hit.noteUuid)
+        if (!note) return hit
+        return {
+          ...hit,
+          kind: note.kind,
+          status: note.status,
+          truncated: note.content.length > hit.snippet.length
+        }
       })
     },
 
@@ -1250,11 +1460,11 @@ export function createDossierRegistryService(
       const { metadata: saved, dossierPath } = await mutateDossierMeta(
         input.dossierId,
         (metadata) => {
-          const existingEntry = input.id
-            ? metadata.keyReferences.find((entry) => entry.id === input.id)
+          const existingEntryById = input.uuid
+            ? metadata.keyReferences.find((entry) => entry.uuid === input.uuid)
             : undefined
 
-          if (input.id && !existingEntry) {
+          if (input.uuid && !existingEntryById) {
             throw new DossierRegistryError(
               IpcErrorCode.NOT_FOUND,
               'This key reference was not found.'
@@ -1263,37 +1473,55 @@ export function createDossierRegistryService(
 
           const trimmedLabel = input.label.trim()
           const trimmedValue = input.value.trim()
-          const isNameReference =
-            isDossierNameReferenceLabel(trimmedLabel) ||
-            (existingEntry ? isDossierNameReferenceLabel(existingEntry.label) : false)
+          const existingRequiredEntryByLabel = isDossierRequiredReferenceLabel(trimmedLabel)
+            ? metadata.keyReferences.find(
+                (entry) =>
+                  entry.label.trim().toLocaleLowerCase('fr-FR') ===
+                  trimmedLabel.toLocaleLowerCase('fr-FR')
+              )
+            : undefined
+          const existingEntry = existingEntryById ?? existingRequiredEntryByLabel
+          const isRequiredReference =
+            isDossierRequiredReferenceLabel(trimmedLabel) ||
+            (existingEntry ? isDossierRequiredReferenceLabel(existingEntry.label) : false)
 
           if (
             !existingEntry &&
-            isDossierNameReferenceLabel(trimmedLabel) &&
-            metadata.keyReferences.some((entry) => isDossierNameReferenceLabel(entry.label))
+            isDossierRequiredReferenceLabel(trimmedLabel) &&
+            metadata.keyReferences.some(
+              (entry) =>
+                entry.label.trim().toLocaleLowerCase('fr-FR') ===
+                trimmedLabel.toLocaleLowerCase('fr-FR')
+            )
           ) {
             throw new DossierRegistryError(
               IpcErrorCode.VALIDATION_FAILED,
-              'A dossier-name reference already exists.'
+              'This required dossier reference already exists.'
             )
           }
 
           if (
             existingEntry &&
-            isDossierNameReferenceLabel(existingEntry.label) &&
-            !isNameReference
+            isDossierRequiredReferenceLabel(existingEntry.label) &&
+            !isRequiredReference
           ) {
             throw new DossierRegistryError(
               IpcErrorCode.VALIDATION_FAILED,
-              'The dossier-name reference label cannot be changed.'
+              'A required dossier reference label cannot be changed.'
             )
           }
 
-          const resolvedLabel = isNameReference ? DOSSIER_NAME_REFERENCE_LABEL : trimmedLabel
-          const fallbackName = basename(metadata.id)
-          const resolvedValue = isNameReference ? trimmedValue || fallbackName : trimmedValue
+          const resolvedLabel = isRequiredReference
+            ? existingEntry?.label && isDossierRequiredReferenceLabel(existingEntry.label)
+              ? existingEntry.label
+              : trimmedLabel
+            : trimmedLabel
+          const fallbackName = basename(metadata.slug)
+          const resolvedValue = isDossierNameReferenceLabel(resolvedLabel)
+            ? trimmedValue || fallbackName
+            : trimmedValue
 
-          if (!resolvedValue) {
+          if (!resolvedValue && !isRequiredReference) {
             throw new DossierRegistryError(
               IpcErrorCode.VALIDATION_FAILED,
               'A key reference value is required.'
@@ -1301,18 +1529,17 @@ export function createDossierRegistryService(
           }
 
           const nextEntry = keyReferenceSchema.parse({
-            id: existingEntry?.id ?? randomUUID(),
+            uuid: existingEntry?.uuid ?? randomUUID(),
             dossierId: input.dossierId,
             label: resolvedLabel,
             value: resolvedValue,
             note: normalizeOptionalText(input.note) ?? existingEntry?.note
           })
 
-          return {
+          return syncDossierFieldsFromRequiredReferences({
             ...metadata,
-            name: isNameReference ? resolvedValue : metadata.name,
-            keyReferences: upsertById(metadata.keyReferences, nextEntry)
-          }
+            keyReferences: upsertByUuid(metadata.keyReferences, nextEntry)
+          })
         }
       )
       const [billingItems, keyDates] = await Promise.all([
@@ -1327,11 +1554,11 @@ export function createDossierRegistryService(
         input.dossierId,
         (metadata) => {
           const nowIso = now().toISOString()
-          const existing = input.id
-            ? metadata.feeAgreements.find((entry) => entry.id === input.id)
+          const existing = input.uuid
+            ? metadata.feeAgreements.find((entry) => entry.uuid === input.uuid)
             : undefined
 
-          if (input.id && !existing) {
+          if (input.uuid && !existing) {
             throw new DossierRegistryError(
               IpcErrorCode.NOT_FOUND,
               'This fee agreement was not found.'
@@ -1341,7 +1568,7 @@ export function createDossierRegistryService(
           const shouldBeActive = input.setActive ?? (existing ? existing.isActive : true)
 
           const nextEntry: DossierFeeAgreement = feeAgreementSchema.parse({
-            id: existing?.id ?? randomUUID(),
+            uuid: existing?.uuid ?? randomUUID(),
             createdAt: existing?.createdAt ?? nowIso,
             updatedAt: nowIso,
             isActive: shouldBeActive,
@@ -1356,7 +1583,7 @@ export function createDossierRegistryService(
             clientContactUuid: normalizeOptionalText(input.clientContactUuid),
             signatoryContactUuid: normalizeOptionalText(input.signatoryContactUuid),
             billingType: input.billingType,
-            sourceServicePresetId: normalizeOptionalText(input.sourceServicePresetId),
+            sourceServicePresetUuid: normalizeOptionalText(input.sourceServicePresetUuid),
             flatFeeHtCents: input.flatFeeHtCents,
             hourlyRateHtCents: input.hourlyRateHtCents,
             estimatedHours: input.estimatedHours,
@@ -1391,10 +1618,10 @@ export function createDossierRegistryService(
             legalAidVatExempt: input.legalAidMode ? input.legalAidVatExempt : undefined
           })
 
-          let feeAgreements = upsertById(metadata.feeAgreements, nextEntry)
+          let feeAgreements = upsertByUuid(metadata.feeAgreements, nextEntry)
           if (nextEntry.isActive) {
             feeAgreements = feeAgreements.map((entry) =>
-              entry.id === nextEntry.id
+              entry.uuid === nextEntry.uuid
                 ? entry
                 : entry.isActive
                   ? { ...entry, isActive: false, archivedAt: entry.archivedAt ?? nowIso }
@@ -1417,7 +1644,7 @@ export function createDossierRegistryService(
       const billingItems = await loadBillingItems(dossierPath)
 
       const linkedBillingItems = billingItems.filter(
-        (item) => item.sourceFeeAgreementId === input.feeAgreementId
+        (item) => item.sourceFeeAgreementUuid === input.feeAgreementUuid
       )
       if (linkedBillingItems.length > 0) {
         throw new DossierRegistryError(
@@ -1427,7 +1654,7 @@ export function createDossierRegistryService(
       }
 
       const { metadata: saved } = await mutateDossierMeta(input.dossierId, (metadata) => {
-        if (!metadata.feeAgreements.some((entry) => entry.id === input.feeAgreementId)) {
+        if (!metadata.feeAgreements.some((entry) => entry.uuid === input.feeAgreementUuid)) {
           throw new DossierRegistryError(
             IpcErrorCode.NOT_FOUND,
             'This fee agreement was not found.'
@@ -1435,7 +1662,9 @@ export function createDossierRegistryService(
         }
         return {
           ...metadata,
-          feeAgreements: metadata.feeAgreements.filter((entry) => entry.id !== input.feeAgreementId)
+          feeAgreements: metadata.feeAgreements.filter(
+            (entry) => entry.uuid !== input.feeAgreementUuid
+          )
         }
       })
       const keyDates = await loadKeyDates(dossierPath)
@@ -1446,7 +1675,9 @@ export function createDossierRegistryService(
       const { metadata: saved, dossierPath } = await mutateDossierMeta(
         input.dossierId,
         (metadata) => {
-          const target = metadata.feeAgreements.find((entry) => entry.id === input.feeAgreementId)
+          const target = metadata.feeAgreements.find(
+            (entry) => entry.uuid === input.feeAgreementUuid
+          )
           if (!target) {
             throw new DossierRegistryError(
               IpcErrorCode.NOT_FOUND,
@@ -1458,7 +1689,7 @@ export function createDossierRegistryService(
           return {
             ...metadata,
             feeAgreements: metadata.feeAgreements.map((entry) =>
-              entry.id === input.feeAgreementId
+              entry.uuid === input.feeAgreementUuid
                 ? {
                     ...entry,
                     isActive: false,
@@ -1481,7 +1712,9 @@ export function createDossierRegistryService(
       const { metadata: saved, dossierPath } = await mutateDossierMeta(
         input.dossierId,
         (metadata) => {
-          const target = metadata.feeAgreements.find((entry) => entry.id === input.feeAgreementId)
+          const target = metadata.feeAgreements.find(
+            (entry) => entry.uuid === input.feeAgreementUuid
+          )
           if (!target) {
             throw new DossierRegistryError(
               IpcErrorCode.NOT_FOUND,
@@ -1493,7 +1726,7 @@ export function createDossierRegistryService(
           return {
             ...metadata,
             feeAgreements: metadata.feeAgreements.map((entry) => {
-              if (entry.id === input.feeAgreementId) {
+              if (entry.uuid === input.feeAgreementUuid) {
                 return {
                   ...entry,
                   isActive: true,
@@ -1525,9 +1758,11 @@ export function createDossierRegistryService(
       const nowIso = now().toISOString()
 
       const billingItems = await loadBillingItems(dossierPath)
-      const existing = input.id ? billingItems.find((entry) => entry.id === input.id) : undefined
+      const existing = input.uuid
+        ? billingItems.find((entry) => entry.uuid === input.uuid)
+        : undefined
 
-      if (input.id && !existing) {
+      if (input.uuid && !existing) {
         throw new DossierRegistryError(IpcErrorCode.NOT_FOUND, 'This billing item was not found.')
       }
       if (existing?.status === 'billed') {
@@ -1553,12 +1788,12 @@ export function createDossierRegistryService(
       })
 
       const nextEntry: DossierBillingItem = dossierBillingItemSchema.parse({
-        id: existing?.id ?? randomUUID(),
+        uuid: existing?.uuid ?? randomUUID(),
         dossierId: input.dossierId,
         date: input.date,
         label: input.label.trim(),
         description: normalizeOptionalText(input.description),
-        sourceServicePresetId: normalizeOptionalText(input.sourceServicePresetId),
+        sourceServicePresetUuid: normalizeOptionalText(input.sourceServicePresetUuid),
         quantity: input.quantity,
         quantityUnit: input.quantityUnit,
         unitPriceHtCents: input.unitPriceHtCents,
@@ -1571,17 +1806,16 @@ export function createDossierRegistryService(
         vatRateBasisPoints: input.vatRateBasisPoints,
         totalTtcCents: totals.totalTtcCents,
         status: input.status,
-        sourceKeyDateId: normalizeOptionalText(input.sourceKeyDateId),
-        sourceFeeAgreementId: normalizeOptionalText(input.sourceFeeAgreementId),
+        sourceKeyDateUuid: normalizeOptionalText(input.sourceKeyDateUuid),
+        sourceFeeAgreementUuid: normalizeOptionalText(input.sourceFeeAgreementUuid),
         sourceFeeAgreementBillingKind: input.sourceFeeAgreementBillingKind,
         createdAt: existing?.createdAt ?? nowIso,
         updatedAt: nowIso
       })
 
       await saveBillingItem(dossierPath, nextEntry)
-      await updateBillingItemIndex(dossierPath, nextEntry, 'upsert', nowIso)
 
-      const allBillingItems = upsertById(billingItems, nextEntry)
+      const allBillingItems = upsertByUuid(billingItems, nextEntry)
       const updatedMetadata: DossierMetadataFile = {
         ...metadata,
         updatedAt: nowIso
@@ -1596,7 +1830,7 @@ export function createDossierRegistryService(
       const nowIso = now().toISOString()
 
       const billingItems = await loadBillingItems(dossierPath)
-      const existing = billingItems.find((entry) => entry.id === input.billingItemId)
+      const existing = billingItems.find((entry) => entry.uuid === input.billingItemUuid)
       if (!existing) {
         throw new DossierRegistryError(IpcErrorCode.NOT_FOUND, 'This billing item was not found.')
       }
@@ -1607,10 +1841,9 @@ export function createDossierRegistryService(
         )
       }
 
-      await deleteBillingItemFile(dossierPath, input.billingItemId)
-      await updateBillingItemIndex(dossierPath, existing, 'remove', nowIso)
+      await deleteBillingItemFile(dossierPath, input.billingItemUuid)
 
-      const remainingItems = billingItems.filter((entry) => entry.id !== input.billingItemId)
+      const remainingItems = billingItems.filter((entry) => entry.uuid !== input.billingItemUuid)
       const updatedMetadata: DossierMetadataFile = { ...metadata, updatedAt: nowIso }
       const saved = await saveMetadata(dossierPath, updatedMetadata)
       const keyDates = await loadKeyDates(dossierPath)
@@ -1622,9 +1855,9 @@ export function createDossierRegistryService(
       const nowIso = now().toISOString()
 
       const billingItems = await loadBillingItems(dossierPath)
-      const targetIds = new Set(input.billingItemIds)
-      const missing = input.billingItemIds.filter(
-        (id) => !billingItems.some((entry) => entry.id === id)
+      const targetIds = new Set(input.billingItemUuids)
+      const missing = input.billingItemUuids.filter(
+        (id) => !billingItems.some((entry) => entry.uuid === id)
       )
       if (missing.length > 0) {
         throw new DossierRegistryError(
@@ -1635,16 +1868,15 @@ export function createDossierRegistryService(
 
       const updatedItems = await Promise.all(
         billingItems.map(async (entry) => {
-          if (!targetIds.has(entry.id)) return entry
+          if (!targetIds.has(entry.uuid)) return entry
           const updated: DossierBillingItem = {
             ...entry,
             status: 'billed' as const,
-            invoiceId: input.invoiceId,
+            invoiceUuid: input.invoiceUuid,
             invoiceNumber: input.invoiceNumber,
             updatedAt: nowIso
           }
           await saveBillingItem(dossierPath, updated)
-          await updateBillingItemIndex(dossierPath, updated, 'upsert', nowIso)
           return updated
         })
       )
@@ -1662,16 +1894,15 @@ export function createDossierRegistryService(
       const billingItems = await loadBillingItems(dossierPath)
       const updatedItems = await Promise.all(
         billingItems.map(async (entry) => {
-          if (entry.invoiceId !== input.invoiceId) return entry
+          if (entry.invoiceUuid !== input.invoiceUuid) return entry
           const updated: DossierBillingItem = {
             ...entry,
             status: 'draft' as const,
-            invoiceId: undefined,
+            invoiceUuid: undefined,
             invoiceNumber: undefined,
             updatedAt: nowIso
           }
           await saveBillingItem(dossierPath, updated)
-          await updateBillingItemIndex(dossierPath, updated, 'upsert', nowIso)
           return updated
         })
       )
@@ -1686,7 +1917,9 @@ export function createDossierRegistryService(
       const { metadata: saved, dossierPath } = await mutateDossierMeta(
         input.dossierId,
         (metadata) => {
-          const target = metadata.keyReferences.find((entry) => entry.id === input.keyReferenceId)
+          const target = metadata.keyReferences.find(
+            (entry) => entry.uuid === input.keyReferenceUuid
+          )
           if (!target) {
             throw new DossierRegistryError(
               IpcErrorCode.NOT_FOUND,
@@ -1694,17 +1927,17 @@ export function createDossierRegistryService(
             )
           }
 
-          if (isDossierNameReferenceLabel(target.label)) {
+          if (isDossierRequiredReferenceLabel(target.label)) {
             throw new DossierRegistryError(
               IpcErrorCode.VALIDATION_FAILED,
-              'The dossier-name reference cannot be deleted.'
+              'Required dossier references cannot be deleted.'
             )
           }
 
           return {
             ...metadata,
             keyReferences: metadata.keyReferences.filter(
-              (entry) => entry.id !== input.keyReferenceId
+              (entry) => entry.uuid !== input.keyReferenceUuid
             )
           }
         }
@@ -1722,17 +1955,17 @@ export function createDossierRegistryService(
         throw new DossierRegistryError(IpcErrorCode.NOT_FOUND, 'Active domain is not configured.')
       }
 
-      const dossierId = validateDirectChildId(input.id)
+      const dossierId = validateDirectChildId(input.slug)
       const dossierPath = join(domainPath, dossierId)
       const registry = await loadRegistry(domainPath)
-      const existingEntry = registry.dossiers.find((entry) => entry.id === dossierId)
+      const existingEntry = registry.dossiers.find((entry) => entry.slug === dossierId)
 
       if (!existingEntry) {
         throw new DossierRegistryError(IpcErrorCode.NOT_FOUND, 'This dossier is not registered.')
       }
 
       const nextRegistry: DossierRegistryFile = {
-        dossiers: registry.dossiers.filter((entry) => entry.id !== dossierId)
+        dossiers: registry.dossiers.filter((entry) => entry.slug !== dossierId)
       }
 
       await saveRegistry(domainPath, nextRegistry)

@@ -108,10 +108,10 @@ export function TemplateLibraryDialog({
     >
       <div className="flex max-h-[80vh] flex-col gap-4">
         <div className="space-y-1">
-          <h3 className="text-base font-semibold text-[#1a1a1a]">
+          <h3 className="text-base font-semibold text-ink">
             {t('templates.library.title', { defaultValue: 'Bibliothèque de modèles' })}
           </h3>
-          <p className="text-sm text-[#5c5c5a]">
+          <p className="text-sm text-ink-muted">
             {t('templates.library.description', {
               defaultValue:
                 "Modèles prêts à l'emploi pour avocat solo. Importez les modèles qui vous intéressent — ils seront copiés dans vos modèles personnels et éditables."
@@ -126,25 +126,25 @@ export function TemplateLibraryDialog({
           placeholder={t('templates.library.searchPlaceholder', {
             defaultValue: 'Rechercher dans la bibliothèque…'
           })}
-          className="w-full rounded-lg border border-[#e5e3da] bg-white px-3 py-2 text-sm"
+          className="w-full rounded-lg border border-hairline bg-white px-3 py-2 text-sm"
         />
 
         <div className="flex-1 overflow-y-auto pr-1">
           {filteredThemes.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-[#e5e3da] bg-white p-4 text-sm text-[#5c5c5a]">
+            <p className="rounded-lg border border-dashed border-hairline bg-white p-4 text-sm text-ink-muted">
               {t('templates.library.noResults', { defaultValue: 'Aucun modèle ne correspond.' })}
             </p>
           ) : (
             <div className="flex flex-col gap-4">
               {filteredThemes.map((theme) => (
-                <div key={theme.id} className="rounded-lg border border-[#e5e3da] bg-white p-3">
+                <div key={theme.id} className="rounded-lg border border-hairline bg-white p-3">
                   <div className="mb-2">
-                    <p className="text-sm font-semibold text-[#1a1a1a]">{theme.label}</p>
+                    <p className="text-sm font-semibold text-ink">{theme.label}</p>
                     {theme.description ? (
-                      <p className="text-xs text-[#5c5c5a]">{theme.description}</p>
+                      <p className="text-xs text-ink-muted">{theme.description}</p>
                     ) : null}
                   </div>
-                  <ul className="divide-y divide-[#e5e3da]">
+                  <ul className="divide-y divide-hairline">
                     {theme.items.map((item) => {
                       const checked = selected.has(item.id)
                       return (
@@ -157,11 +157,9 @@ export function TemplateLibraryDialog({
                               onChange={() => toggle(item.id)}
                             />
                             <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-medium text-[#1a1a1a]">
-                                {item.name}
-                              </p>
+                              <p className="truncate text-sm font-medium text-ink">{item.name}</p>
                               {item.description ? (
-                                <p className="text-xs text-[#5c5c5a]">{item.description}</p>
+                                <p className="text-xs text-ink-muted">{item.description}</p>
                               ) : null}
                             </div>
                           </label>
@@ -181,8 +179,8 @@ export function TemplateLibraryDialog({
           </p>
         ) : null}
 
-        <div className="flex items-center justify-between border-t border-[#e5e3da] pt-3">
-          <p className="text-xs text-[#5c5c5a]">
+        <div className="flex items-center justify-between border-t border-hairline pt-3">
+          <p className="text-xs text-ink-muted">
             {t('templates.library.selectedCount', {
               count: selected.size,
               defaultValue: '{{count}} sélectionné(s)'

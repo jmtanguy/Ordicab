@@ -1098,4 +1098,95 @@ describe('PiiPseudonymizer', () => {
       expect(p.revert(out)).toBe(text)
     })
   })
+
+  describe('role personas', () => {
+    const personas = {
+      client: { firstName: 'Camille', lastName: 'Legrand' },
+      tribunal: { firstName: 'Pauline', lastName: 'Verdier', institution: 'Tribunal de Brévanne' }
+    }
+
+    it('uses the persona identity as the fake for the first contact of a role', () => {
+      const p = new PiiPseudonymizer({
+        locale: 'fr',
+        personas,
+        contacts: [
+          { id: 'c1', role: 'Client', firstName: 'Jean', lastName: 'Martinet' },
+          {
+            id: 'c2',
+            role: 'Tribunal',
+            firstName: 'Anne',
+            lastName: 'Rousselot',
+            institution: 'TJ de Lyon'
+          }
+        ]
+      })
+
+      const mapping = p.exportMapping()
+      expect(mapping.find((e) => e.markerPath === 'contact.client.firstName')?.fakeValue).toBe(
+        'Camille'
+      )
+      expect(mapping.find((e) => e.markerPath === 'contact.client.lastName')?.fakeValue).toBe(
+        'Legrand'
+      )
+      expect(mapping.find((e) => e.markerPath === 'contact.tribunal.institution')?.fakeValue).toBe(
+        'Tribunal de Brévanne'
+      )
+
+      const out = p.pseudonymize('Jean Martinet a saisi le TJ de Lyon.')
+      expect(out).toContain('Camille Legrand')
+      expect(out).not.toContain('Martinet')
+      expect(p.revert(out)).toBe('Jean Martinet a saisi le TJ de Lyon.')
+    })
+
+    it('falls back to the pools for a second contact sharing the same role', () => {
+      const p = new PiiPseudonymizer({
+        locale: 'fr',
+        personas,
+        contacts: [
+          { id: 'c1', role: 'Client', firstName: 'Jean', lastName: 'Martinet' },
+          { id: 'c2', role: 'Client', firstName: 'Sophie', lastName: 'Bernardin' }
+        ]
+      })
+
+      const mapping = p.exportMapping()
+      const second = mapping.find(
+        (e) => e.markerPath.endsWith('.firstName') && e.original === 'Sophie'
+      )
+      expect(second).toBeTruthy()
+      expect(second!.fakeValue).not.toBe('Camille')
+    })
+
+    it('rotates into the pools when the persona name collides with a real name from the context', () => {
+      const p = new PiiPseudonymizer({
+        locale: 'fr',
+        personas,
+        contacts: [
+          // The real opposing party is literally named like the client persona.
+          { id: 'c1', role: 'Client', firstName: 'Marc', lastName: 'Tisserand' },
+          { id: 'c2', role: 'Adversaire', firstName: 'Camille', lastName: 'Legrand' }
+        ]
+      })
+
+      const mapping = p.exportMapping()
+      const clientFirst = mapping.find((e) => e.markerPath === 'contact.client.firstName')
+      // "Camille" is a reserved original (it belongs to a real person here), so
+      // the persona value must NOT be used as a fake.
+      expect(clientFirst!.fakeValue).not.toBe('Camille')
+      expect(clientFirst!.fakeValue.length).toBeGreaterThanOrEqual(4)
+    })
+
+    it('keeps a persisted prior fake over the persona (decode correctness wins)', () => {
+      const p = new PiiPseudonymizer({
+        locale: 'fr',
+        personas,
+        priorEntries: [
+          { original: 'Jean', markerPath: 'contact.client.firstName', fakeValue: 'Edmond' }
+        ],
+        contacts: [{ id: 'c1', role: 'Client', firstName: 'Jean', lastName: 'Martinet' }]
+      })
+
+      const mapping = p.exportMapping()
+      expect(mapping.find((e) => e.original === 'Jean')?.fakeValue).toBe('Edmond')
+    })
+  })
 })

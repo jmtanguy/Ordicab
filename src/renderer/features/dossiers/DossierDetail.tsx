@@ -31,10 +31,13 @@ import { computeContactDisplayName } from '@shared/computeContactDisplayName'
 import { AlertBanner } from '@renderer/components/ui'
 import { useToast } from '@renderer/contexts/ToastContext'
 import { AiPage } from '@renderer/features/ai/AiPage'
+import { CoworkPage } from '@renderer/features/delegated/CoworkPage'
 import { DocumentList } from '@renderer/features/documents/DocumentList'
 import { SemanticSearchPanel } from '@renderer/features/documents/SemanticSearchPanel'
 import { LegalSearchPanel } from '@renderer/features/legal-search/LegalSearchPanel'
 import { GenerateDocumentPanel } from '@renderer/features/templates/GenerateDocumentPanel'
+import { PiecesSection } from '@renderer/features/pieces/PiecesSection'
+import { CompareSection } from '@renderer/features/compare/CompareSection'
 import type { DocumentContentState, DocumentPreviewState } from '@renderer/stores'
 
 import { DossierBillingItemsSection } from './DossierBillingItemsSection'
@@ -64,6 +67,7 @@ export interface DossierDetailNotice {
     | 'key-reference-deleted'
     | 'note-saved'
     | 'note-deleted'
+    | 'dossier-saved'
     | 'legal-aid-saved'
     | 'legal-aid-configured'
   dossierName: string
@@ -79,11 +83,14 @@ export type DossierSection =
   | 'references'
   | 'notes'
   | 'documents'
+  | 'pieces'
+  | 'compare'
   | 'search'
   | 'legal'
   | 'legal-verify'
   | 'generate'
   | 'ai-assistant'
+  | 'cowork'
 
 const NOTICE_TRANSLATIONS: Record<
   DossierDetailNotice['kind'],
@@ -139,6 +146,10 @@ const NOTICE_TRANSLATIONS: Record<
   'note-deleted': {
     key: 'dossiers.detail_notice_note_deleted',
     defaultValue: '{{name}} : note supprimée.'
+  },
+  'dossier-saved': {
+    key: 'dossiers.detail_notice_dossier_saved',
+    defaultValue: '{{name}} : dossier enregistré.'
   },
   'legal-aid-saved': {
     key: 'dossiers.detail_notice_legal_aid_saved',
@@ -196,9 +207,9 @@ interface DossierDetailProps {
   onUpsertNote: (input: DossierNoteUpsertInput) => Promise<boolean>
   onDeleteNote: (input: DossierNoteDeleteInput) => Promise<boolean>
   onSaveDocumentMetadata: (input: DocumentMetadataUpdate) => Promise<boolean>
-  onOpenDocumentPreview: (input: { dossierId: string; documentId: string }) => Promise<void>
-  onOpenDocumentFile: (input: { dossierId: string; documentId: string }) => Promise<void>
-  onExtractDocumentContent: (input: { dossierId: string; documentId: string }) => Promise<boolean>
+  onOpenDocumentPreview: (input: { dossierId: string; documentPath: string }) => Promise<void>
+  onOpenDocumentFile: (input: { dossierId: string; documentPath: string }) => Promise<void>
+  onExtractDocumentContent: (input: { dossierId: string; documentPath: string }) => Promise<boolean>
   onCloseDocumentPreview?: () => void
 }
 
@@ -249,7 +260,7 @@ export function DossierDetail({
         <p className="text-xs uppercase tracking-[0.2em] text-aurora-soft">
           {t('dossiers.detail_badge')}
         </p>
-        <p className="text-sm text-[#1a1a1a]">{t('dossiers.detail_loading')}</p>
+        <p className="text-sm text-ink">{t('dossiers.detail_loading')}</p>
       </div>
     )
   }
@@ -260,17 +271,15 @@ export function DossierDetail({
         <p className="text-xs uppercase tracking-[0.2em] text-aurora-soft">
           {t('dossiers.detail_badge')}
         </p>
-        <h3 className="text-2xl font-semibold text-[#1a1a1a]">
-          {t('dossiers.detail_empty_title')}
-        </h3>
-        <p className="text-sm text-[#1a1a1a]">{t('dossiers.detail_empty_body')}</p>
+        <h3 className="text-2xl font-semibold text-ink">{t('dossiers.detail_empty_title')}</h3>
+        <p className="text-sm text-ink">{t('dossiers.detail_empty_body')}</p>
       </div>
     )
   }
 
   return (
     <DossierDetailLayout
-      key={dossier.id}
+      key={dossier.slug}
       dossier={dossier}
       entityName={entityName}
       isSaving={isSaving}
@@ -382,9 +391,9 @@ function DossierDetailLayout({
   onUpsertNote: (input: DossierNoteUpsertInput) => Promise<boolean>
   onDeleteNote: (input: DossierNoteDeleteInput) => Promise<boolean>
   onSaveDocumentMetadata: (input: DocumentMetadataUpdate) => Promise<boolean>
-  onOpenDocumentPreview: (input: { dossierId: string; documentId: string }) => Promise<void>
-  onOpenDocumentFile: (input: { dossierId: string; documentId: string }) => Promise<void>
-  onExtractDocumentContent: (input: { dossierId: string; documentId: string }) => Promise<boolean>
+  onOpenDocumentPreview: (input: { dossierId: string; documentPath: string }) => Promise<void>
+  onOpenDocumentFile: (input: { dossierId: string; documentPath: string }) => Promise<void>
+  onExtractDocumentContent: (input: { dossierId: string; documentPath: string }) => Promise<boolean>
 }): React.JSX.Element {
   const { t } = useTranslation()
   const { showToast } = useToast()
@@ -393,12 +402,12 @@ function DossierDetailLayout({
   useEffect(() => {
     if (
       pendingConversion &&
-      pendingConversion.dossierId === dossier.id &&
+      pendingConversion.dossierId === dossier.slug &&
       activeSection !== 'prestations'
     ) {
       onChangeSection('prestations')
     }
-  }, [pendingConversion, dossier.id, activeSection, onChangeSection])
+  }, [pendingConversion, dossier.slug, activeSection, onChangeSection])
 
   useEffect(() => {
     if (!notice) return
@@ -418,7 +427,7 @@ function DossierDetailLayout({
       {activeSection === 'contacts' && (
         <DossierSectionPane>
           <DossierContactsSection
-            dossierId={dossier.id}
+            dossierId={dossier.slug}
             entries={contacts}
             error={contactsError}
             isLoading={contactsIsLoading}
@@ -429,7 +438,7 @@ function DossierDetailLayout({
               if (saved) {
                 const displayName = computeContactDisplayName(input)
                 showToast(
-                  t(input.id ? 'contacts.toast.updated' : 'contacts.toast.added', {
+                  t(input.uuid ? 'contacts.toast.updated' : 'contacts.toast.added', {
                     name: displayName
                   })
                 )
@@ -457,7 +466,7 @@ function DossierDetailLayout({
       {activeSection === 'convention' && (
         <DossierSectionPane>
           <DossierFeeAgreementSection
-            dossierId={dossier.id}
+            dossierId={dossier.slug}
             dossierName={dossier.name}
             feeAgreements={dossier.feeAgreements}
             billingItems={dossier.billingItems}
@@ -471,7 +480,7 @@ function DossierDetailLayout({
             onOpenDocumentFile={onOpenDocumentFile}
             onConvertToBillingItem={(agreement, feeAgreementConversionKind) => {
               useUiStore.getState().requestBillingConversion({
-                dossierId: dossier.id,
+                dossierId: dossier.slug,
                 source: 'feeAgreement',
                 agreement,
                 feeAgreementConversionKind
@@ -484,14 +493,14 @@ function DossierDetailLayout({
 
       {activeSection === 'aide-juridictionnelle' && (
         <DossierSectionPane>
-          <DossierLegalAidSection key={dossier.id} dossier={dossier} disabled={isSaving} />
+          <DossierLegalAidSection key={dossier.slug} dossier={dossier} disabled={isSaving} />
         </DossierSectionPane>
       )}
 
       {activeSection === 'prestations' && (
         <DossierSectionPane>
           <DossierBillingItemsSectionWithPrefill
-            dossierId={dossier.id}
+            dossierId={dossier.slug}
             entries={dossier.billingItems}
             disabled={isSaving}
             onSave={onUpsertBillingItem}
@@ -503,21 +512,21 @@ function DossierDetailLayout({
 
       {activeSection === 'factures' && (
         <DossierSectionPane>
-          <DossierInvoicesSection dossierId={dossier.id} onChangeSection={onChangeSection} />
+          <DossierInvoicesSection dossierId={dossier.slug} onChangeSection={onChangeSection} />
         </DossierSectionPane>
       )}
 
       {activeSection === 'echeances' && (
         <DossierSectionPane>
           <DossierKeyDatesSection
-            dossierId={dossier.id}
+            dossierId={dossier.slug}
             dossierName={dossier.name}
             entries={dossier.keyDates}
             disabled={isSaving}
             billedKeyDateIds={
               new Set(
                 dossier.billingItems
-                  .map((item) => item.sourceKeyDateId)
+                  .map((item) => item.sourceKeyDateUuid)
                   .filter((value): value is string => Boolean(value))
               )
             }
@@ -529,7 +538,7 @@ function DossierDetailLayout({
             }}
             onConvertToBillingItem={(keyDate) => {
               useUiStore.getState().requestBillingConversion({
-                dossierId: dossier.id,
+                dossierId: dossier.slug,
                 source: 'keyDate',
                 keyDate
               })
@@ -542,7 +551,7 @@ function DossierDetailLayout({
       {activeSection === 'references' && (
         <DossierSectionPane>
           <DossierKeyReferencesSection
-            dossierId={dossier.id}
+            dossierId={dossier.slug}
             dossierName={dossier.name}
             entries={dossier.keyReferences}
             disabled={isSaving}
@@ -559,7 +568,7 @@ function DossierDetailLayout({
       {activeSection === 'notes' && (
         <DossierSectionPane>
           <DossierNotesSection
-            dossierId={dossier.id}
+            dossierId={dossier.slug}
             dossierName={dossier.name}
             entries={dossier.notes}
             disabled={isSaving}
@@ -575,21 +584,21 @@ function DossierDetailLayout({
 
       {activeSection === 'search' && (
         <DossierSectionPane>
-          <SemanticSearchPanel dossierId={dossier.id} onOpenDocument={onOpenDocumentPreview} />
+          <SemanticSearchPanel dossierId={dossier.slug} onOpenDocument={onOpenDocumentPreview} />
         </DossierSectionPane>
       )}
 
       {activeSection === 'legal' && (
         <DossierSectionPane>
-          <LegalSearchPanel key={`legal-${dossier.id}`} dossierId={dossier.id} mode="search" />
+          <LegalSearchPanel key={`legal-${dossier.slug}`} dossierId={dossier.slug} mode="search" />
         </DossierSectionPane>
       )}
 
       {activeSection === 'legal-verify' && (
         <DossierSectionPane>
           <LegalSearchPanel
-            key={`legal-verify-${dossier.id}`}
-            dossierId={dossier.id}
+            key={`legal-verify-${dossier.slug}`}
+            dossierId={dossier.slug}
             mode="verify"
           />
         </DossierSectionPane>
@@ -598,7 +607,7 @@ function DossierDetailLayout({
       {activeSection === 'documents' && (
         <DossierSectionPane>
           <DocumentList
-            dossierId={dossier.id}
+            dossierId={dossier.slug}
             documents={documents}
             error={documentError}
             isLoading={documentIsLoading}
@@ -616,16 +625,38 @@ function DossierDetailLayout({
         </DossierSectionPane>
       )}
 
+      {activeSection === 'pieces' && (
+        <DossierSectionPane>
+          <PiecesSection dossier={dossier} />
+        </DossierSectionPane>
+      )}
+
+      {activeSection === 'compare' && (
+        <DossierSectionPane>
+          <CompareSection key={`compare-${dossier.slug}`} dossier={dossier} />
+        </DossierSectionPane>
+      )}
+
       {activeSection === 'generate' && (
         <DossierSectionPane>
-          <GenerateDocumentPanel dossierId={dossier.id} />
+          <GenerateDocumentPanel dossierId={dossier.slug} />
         </DossierSectionPane>
       )}
 
       {activeSection === 'ai-assistant' && (
         <div className="flex min-h-0 flex-1 flex-col">
-          <AiPage entityName={entityName} sampleDossierName={dossier.name} dossierId={dossier.id} />
+          <AiPage dossierId={dossier.slug} />
         </div>
+      )}
+
+      {activeSection === 'cowork' && (
+        <DossierSectionPane>
+          <CoworkPage
+            dossierId={dossier.slug}
+            entityName={entityName}
+            sampleDossierName={dossier.name}
+          />
+        </DossierSectionPane>
       )}
     </div>
   )

@@ -30,13 +30,13 @@ const nullableTrimmedStringSchema = z.preprocess(
   z.string().trim().min(1).nullable().optional()
 )
 
-export const invoiceStatusSchema = z.enum(INVOICE_STATUS_VALUES)
-export const invoiceDocumentTypeSchema = z.enum(INVOICE_DOCUMENT_TYPE_VALUES)
+const invoiceStatusSchema = z.enum(INVOICE_STATUS_VALUES)
+const invoiceDocumentTypeSchema = z.enum(INVOICE_DOCUMENT_TYPE_VALUES)
 export const invoicePaymentStatusSchema = z.enum(INVOICE_PAYMENT_STATUS_VALUES)
-export const invoicePaymentMethodSchema = z.enum(INVOICE_PAYMENT_METHOD_VALUES)
+const invoicePaymentMethodSchema = z.enum(INVOICE_PAYMENT_METHOD_VALUES)
 
 export const invoiceLineSchema = z.object({
-  billingItemId: z.string().uuid(),
+  billingItemUuid: z.string().uuid(),
   date: z.string().trim().min(1),
   label: z.string().trim().min(1),
   description: optionalTrimmedStringSchema,
@@ -57,7 +57,7 @@ export const invoiceVatBreakdownLineSchema = z.object({
   totalTtcCents: z.number().int().nonnegative()
 })
 
-export const invoicePartySnapshotSchema = z.object({
+const invoicePartySnapshotSchema = z.object({
   name: optionalTrimmedStringSchema,
   address: optionalTrimmedStringSchema,
   siret: optionalTrimmedStringSchema,
@@ -66,14 +66,14 @@ export const invoicePartySnapshotSchema = z.object({
   legalFooter: optionalTrimmedStringSchema
 })
 
-export const invoiceOriginalRefSchema = z.object({
-  id: z.string().uuid(),
+const invoiceOriginalRefSchema = z.object({
+  uuid: z.string().uuid(),
   number: z.string().trim().min(1),
   issuedAt: z.string().trim().min(1)
 })
 
-export const invoicePaymentSchema = z.object({
-  id: z.string().uuid(),
+const invoicePaymentSchema = z.object({
+  uuid: z.string().uuid(),
   paidAt: z.string().trim().min(1),
   amountCents: z.number().int().positive(),
   method: invoicePaymentMethodSchema,
@@ -84,7 +84,7 @@ export const invoicePaymentSchema = z.object({
 })
 
 const invoiceRecordRawSchema = z.object({
-  id: z.string().uuid(),
+  uuid: z.string().uuid(),
   documentType: invoiceDocumentTypeSchema,
   number: z.string().trim().min(1),
   sequenceYear: z.number().int(),
@@ -97,7 +97,7 @@ const invoiceRecordRawSchema = z.object({
   clientLabel: optionalTrimmedStringSchema,
   clientSnapshot: invoicePartySnapshotSchema.optional(),
   issuerSnapshot: invoicePartySnapshotSchema.optional(),
-  templateId: z.string().trim().min(1),
+  templateUuid: z.string().trim().min(1),
   generatedDocumentUuid: optionalTrimmedStringSchema,
   generatedDocumentName: optionalTrimmedStringSchema,
   generatedDocumentPath: optionalTrimmedStringSchema,
@@ -189,32 +189,6 @@ export const invoiceRecordSchema = z.preprocess((value) => {
   }
 }, invoiceRecordRawSchema)
 
-export const invoiceRegistrySchema = z.object({
-  invoices: z.array(invoiceRecordSchema).default([]),
-  updatedAt: z.string().trim().min(1)
-})
-
-export const invoiceIndexEntrySchema = z.object({
-  id: z.string().uuid(),
-  number: z.string().trim().min(1),
-  dossierId: dossierIdSchema,
-  status: invoiceStatusSchema,
-  paymentStatus: invoicePaymentStatusSchema,
-  totalTtcCents: z.number().int().nonnegative(),
-  documentType: invoiceDocumentTypeSchema,
-  issuedAt: z.string().trim().min(1),
-  updatedAt: z.string().trim().min(1)
-})
-
-export const invoiceIndexSchema = z.object({
-  invoices: z.array(invoiceIndexEntrySchema).default([]),
-  updatedAt: z.string().trim().min(1),
-  migrated: z.boolean().optional()
-})
-
-export type InvoiceIndexEntry = z.infer<typeof invoiceIndexEntrySchema>
-export type InvoiceIndex = z.infer<typeof invoiceIndexSchema>
-
 const invoiceSettingsRawSchema = z.object({
   numberPattern: z
     .string()
@@ -254,11 +228,12 @@ const invoiceSettingsRawSchema = z.object({
     }),
   stateRetributionNextSequence: z.number().int().positive(),
   stateRetributionCurrentSequenceYear: z.number().int(),
-  defaultTemplateId: optionalTrimmedStringSchema,
-  defaultCreditNoteTemplateId: optionalTrimmedStringSchema,
-  defaultCorrectiveInvoiceTemplateId: optionalTrimmedStringSchema,
+  defaultTemplateUuid: optionalTrimmedStringSchema,
+  defaultCreditNoteTemplateUuid: optionalTrimmedStringSchema,
+  defaultCorrectiveInvoiceTemplateUuid: optionalTrimmedStringSchema,
   legalFooter: optionalTrimmedStringSchema,
-  defaultPaymentTerms: optionalTrimmedStringSchema
+  defaultPaymentTerms: optionalTrimmedStringSchema,
+  defaultDueDays: z.number().int().min(0).max(365)
 })
 
 export const invoiceSettingsSchema = z.preprocess((value) => {
@@ -293,40 +268,42 @@ export const invoiceSettingsSchema = z.preprocess((value) => {
     stateRetributionCurrentSequenceYear:
       candidate.stateRetributionCurrentSequenceYear ??
       candidate.currentSequenceYear ??
-      DEFAULT_INVOICE_SETTINGS.stateRetributionCurrentSequenceYear
+      DEFAULT_INVOICE_SETTINGS.stateRetributionCurrentSequenceYear,
+    defaultDueDays: candidate.defaultDueDays ?? DEFAULT_INVOICE_SETTINGS.defaultDueDays
   }
 }, invoiceSettingsRawSchema)
 
 export const invoiceCreateInputSchema = z.object({
   dossierId: dossierIdSchema,
-  billingItemIds: z.array(z.string().uuid()).min(1),
-  templateId: z.string().trim().min(1),
+  billingItemUuids: z.array(z.string().uuid()).min(1),
+  templateUuid: z.string().trim().min(1),
   issuedAt: optionalTrimmedStringSchema,
+  dueAt: optionalTrimmedStringSchema,
   notes: optionalTrimmedStringSchema,
   rememberTemplateAsDefault: z.boolean().optional(),
   tagOverrides: z.record(z.string(), z.string()).optional(),
-  primaryContactId: z.string().trim().min(1).optional(),
+  primaryContactUuid: z.string().trim().min(1).optional(),
   contactRoleOverrides: z.record(z.string(), z.string()).optional()
 })
 
 export const invoiceCancelInputSchema = z.object({
-  invoiceId: z.string().uuid()
+  invoiceUuid: z.string().uuid()
 })
 
 export const invoiceMarkPaidInputSchema = z.object({
-  invoiceId: z.string().uuid(),
+  invoiceUuid: z.string().uuid(),
   paidAt: optionalTrimmedStringSchema
 })
 
-export const invoiceCreditLineInputSchema = z.object({
-  billingItemId: z.string().uuid(),
+const invoiceCreditLineInputSchema = z.object({
+  billingItemUuid: z.string().uuid(),
   quantity: z.number().positive().optional(),
   totalHtCents: z.number().int().positive().optional()
 })
 
 export const invoiceCreateCreditNoteInputSchema = z.object({
-  originalInvoiceId: z.string().uuid(),
-  templateId: z.string().trim().min(1),
+  originalInvoiceUuid: z.string().uuid(),
+  templateUuid: z.string().trim().min(1),
   issuedAt: optionalTrimmedStringSchema,
   dueAt: optionalTrimmedStringSchema,
   reason: z.string().trim().min(1),
@@ -335,13 +312,13 @@ export const invoiceCreateCreditNoteInputSchema = z.object({
 })
 
 export const invoiceCreateCorrectiveInputSchema = invoiceCreateInputSchema.extend({
-  originalInvoiceId: z.string().uuid(),
+  originalInvoiceUuid: z.string().uuid(),
   correctionReason: z.string().trim().min(1),
   dueAt: optionalTrimmedStringSchema
 })
 
 export const invoicePaymentInputSchema = z.object({
-  invoiceId: z.string().uuid(),
+  invoiceUuid: z.string().uuid(),
   paidAt: optionalTrimmedStringSchema,
   amountCents: z.number().int().positive(),
   method: invoicePaymentMethodSchema.optional(),
@@ -350,15 +327,21 @@ export const invoicePaymentInputSchema = z.object({
 })
 
 export const invoicePaymentUpdateInputSchema = invoicePaymentInputSchema.extend({
-  paymentId: z.string().uuid()
+  paymentUuid: z.string().uuid()
 })
 
 export const invoicePaymentDeleteInputSchema = z.object({
-  invoiceId: z.string().uuid(),
-  paymentId: z.string().uuid()
+  invoiceUuid: z.string().uuid(),
+  paymentUuid: z.string().uuid()
 })
 
 export const invoiceExportCsvInputSchema = z.object({
+  dateFrom: optionalTrimmedStringSchema,
+  dateTo: optionalTrimmedStringSchema,
+  includeCancelled: z.boolean().optional()
+})
+
+export const invoiceExportFecInputSchema = z.object({
   dateFrom: optionalTrimmedStringSchema,
   dateTo: optionalTrimmedStringSchema,
   includeCancelled: z.boolean().optional()
@@ -388,9 +371,10 @@ export const invoiceSettingsUpdateInputSchema = z.object({
     .refine((p) => p.includes('{SEQ}'))
     .optional(),
   correctiveInvoiceNextSequence: z.number().int().positive().optional(),
-  defaultTemplateId: nullableTrimmedStringSchema,
-  defaultCreditNoteTemplateId: nullableTrimmedStringSchema,
-  defaultCorrectiveInvoiceTemplateId: nullableTrimmedStringSchema,
+  defaultTemplateUuid: nullableTrimmedStringSchema,
+  defaultCreditNoteTemplateUuid: nullableTrimmedStringSchema,
+  defaultCorrectiveInvoiceTemplateUuid: nullableTrimmedStringSchema,
   legalFooter: nullableTrimmedStringSchema,
-  defaultPaymentTerms: nullableTrimmedStringSchema
+  defaultPaymentTerms: nullableTrimmedStringSchema,
+  defaultDueDays: z.number().int().min(0).max(365).optional()
 })

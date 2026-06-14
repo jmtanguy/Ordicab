@@ -20,15 +20,12 @@
 
 /**
  * Dossier shape for prompt context.
- * Used by buildToolSystemPrompt to resolve the active dossier's stable id.
- * Both `id` (folder name / legacy id) and `uuid` (stable UUID) are kept for
- * backward compatibility. The tool system prompt uses `uuid` when available
- * (via `activeDossier.uuid ?? activeDossier.id`).
- * TODO: once all dossiers have UUIDs, make `uuid` required and use it exclusively.
+ * `id` is the folder name; `uuid` is the stable identifier the prompt exposes
+ * to the model as `dossierId`.
  */
-export interface PromptDossier {
+interface PromptDossier {
   id: string
-  uuid?: string
+  uuid: string
 }
 
 /**
@@ -51,7 +48,7 @@ export interface SystemPromptContext {
   documentMentions?: Array<{ uuid: string; filename: string }>
 }
 
-export function buildPiiInstructionBlock(): string {
+function buildPiiInstructionBlock(): string {
   return `
 ## Anonymised data / Données anonymisées
 
@@ -66,12 +63,17 @@ Rules you MUST follow:
 }
 
 export function buildToolSystemPrompt(context: SystemPromptContext): string {
-  const parts: string[] = []
   const activeDossier = context.dossiers?.find((d) => d.id === context.dossierId)
   const locale = context.locale === 'en' ? 'en' : 'fr'
 
+  // The prompt is split in two: a STABLE guidance prefix (byte-identical for a
+  // given locale + piiEnabled), then the per-request VOLATILE context (date,
+  // active dossier, document mentions). Keeping the volatile part LAST maximises
+  // any prefix caching the provider offers and avoids invalidating the prefix
+  // on every request. Do NOT move per-request values into the prefix.
+  const parts: string[] = []
+
   parts.push('You are the Ordicab agent runtime assistant.')
-  if (context.currentDate) parts.push(`Today's date: ${context.currentDate}`)
   parts.push(
     locale === 'en'
       ? 'Always write your replies, questions, and clarification options to the user in English.'
@@ -79,9 +81,160 @@ export function buildToolSystemPrompt(context: SystemPromptContext): string {
   )
 
   parts.push('')
+  parts.push('## Runtime contract')
+  parts.push(
+    'For any create/update/delete/select/generate action, you MUST emit the native tool call; never claim an action is done without it. Respond with plain text only when no tool matches, and keep it concise. ' +
+      'You may reuse IDs from recent tool results when still valid; otherwise call the data tool again.'
+  )
+  parts.push(
+    'Call `managed_fields_get` before `contact_create`/`contact_update` and before `dossier_create_key_date`/`dossier_update_key_date`/`dossier_create_key_reference`/`dossier_update_key_reference` (unless its result is already visible and current) — it is a schema prerequisite for create/update flows, not for read-only lookups.'
+  )
+  parts.push(
+    'Unless a tool says otherwise, an omitted optional `dossierId` targets the active dossier. IDs passed to update/delete tools (`contactUuid`, `keyDateUuid`, `keyReferenceUuid`, `billingItemUuid`, `noteUuid`, `documentUuid`, template `uuid`) MUST be exact existing IDs read from the matching data tool (`contact_lookup`, `dossier_get`, `note_search`, `document_list`, `template_list`) — never a name, a placeholder, or an invented value.'
+  )
+  parts.push(
+    'For destructive actions (`contact_delete`, `template_delete`, `dossier_delete_key_date`, `dossier_delete_key_reference`, `dossier_delete_billing_item`): load live data first, then call `clarification_request` with exactly two options (' +
+      (locale === 'en' ? '`Yes`/`No`' : '`Oui`/`Non`') +
+      '). Do not delete in the same turn as the confirmation request.'
+  )
+
+  parts.push('')
+  parts.push('## Document mentions (`@filename`)')
+  parts.push(
+    'A `@<filename>` token in a user message is an explicit reference to that specific document (use it, do not search broadly). ' +
+      'Resolve it via the `## Active document references` block below when present (use its `documentUuid` directly with `document_get`/`document_analyze` — do NOT call `document_list`); otherwise call `document_list` and match on `filename` (extension is the right-hand anchor). ' +
+      'Never invent `documentUuid` values. If nothing matches, tell the user the file was not found before doing anything else.' +
+      (context.piiEnabled
+        ? ' With anonymisation active the `@<filename>` token is pseudonymized — trust the references block over character-level filename matching.'
+        : '')
+  )
+
+  parts.push('')
+  parts.push('## Professional entity / Cabinet')
+  parts.push(
+    "The user's own cabinet / office / firm lives in the entity profile (Settings), not in dossier contacts or documents. " +
+      'For any question about cabinet info or `entity.*` template values (name, address, email, phone…), call `entity_get` first; it is the source of truth — only say a field is missing when it is empty/absent there. ' +
+      'For ANY outgoing document or letter you draft (courrier, mise en demeure, relance, attestation, conclusions…), the sender/letterhead is ALWAYS the cabinet: call `entity_get` FIRST, automatically and without confirmation, to fill the sender block (firm name, lawyer name, address, phone, email). ' +
+      'NEVER emit placeholders like "[Votre Nom]" / "[Nom du Cabinet]" / "[Votre Adresse]" / "[Votre Email]" for sender details — only fields genuinely absent from `entity_get` may stay as a placeholder.'
+  )
+
+  parts.push('')
+  parts.push('## Grounding')
+  parts.push(
+    'For dossier-content questions (facts, claims, dates, amounts, procedural history), answer only from tool results — never invent missing information. ' +
+      'For whole-dossier questions ("find X", "who are the children", "list all dates"), use `document_search` with 2–4 DIFFERENT focused queries (query expansion), then aggregate the excerpts. Reserve `document_analyze` for ONE document the user named or for re-reading a document already surfaced by `document_search`. ' +
+      'BAD: list documents then `document_analyze` each in parallel (overflows the tool-call channel). GOOD: a few `document_search` queries (or one `document_summary_batch` for per-document output).'
+  )
+  parts.push(
+    'Monetary fields ending in `Cents` are integer cents, not euros: divide by 100, and prefer a sibling `Euros` field for replies (e.g. `totalTtcCents: 30000` = 300,00 €, not 30 000 €). ' +
+      'For billing/invoices/fees/totals, display amounts excluding VAT (HT) first, then VAT/tax, then TTC when taxes apply.'
+  )
+  if (locale === 'fr') {
+    parts.push(
+      'Format des nombres : les montants lus dans les documents sont au format français — virgule = séparateur décimal, espace (ou point) = séparateur de milliers. ' +
+        'Ainsi "900,00" vaut 900 (pas 90000) ; "1 234,56" et "1.234,56" valent mille deux cent trente-quatre virgule cinquante-six. ' +
+        'Ne supprime jamais la virgule décimale pour concaténer les chiffres ; conserve et restitue les montants au format français.'
+    )
+  }
+
+  parts.push('')
+  parts.push('## Contacts (lookup + create/update)')
+  parts.push(
+    'For a contact or a contact detail (identity, role, phone, email, address…), resolve in order: ' +
+      '(1) `contact_lookup` then `contact_get` if needed — the structured records are the source of truth; ' +
+      '(2) if no record matches OR the asked detail is empty on the record, fall back to `document_search` — do NOT answer "not found"/"not available" before searching the documents. ' +
+      'Always say where the answer came from (record, or which document); when a value is found only in a document, offer to save it with `contact_update`.'
+  )
+  parts.push(
+    'To create/update a contact: call `managed_fields_get` first, then `contact_create` (new) or `contact_lookup`/`contact_get` → `contact_update` (existing, exact `contactUuid`, only changed fields). ' +
+      'Capitalise proper names ("dupont"→"Dupont", "MARIE"→"Marie"). Set `role` only to a value from managed_fields_get, and only when explicit or unambiguous — never guess. ' +
+      'Use `customFields` only for managed fields explicitly present and certain in the request or source, with keys matching the managed_fields_get labels exactly (e.g. { "Numéro de dossier": "2024-001" }) — never invent, infer, auto-complete, or mirror standard fields.'
+  )
+
+  parts.push('')
+  parts.push('## Document and text generation')
+  parts.push(
+    'Prefer template-based generation: (1) `template_list` (or reuse visible IDs); (2) if a matching template exists, `document_generate` (optionally via `template_select`); (3) `text_generate` only when no suitable template exists and the user confirms. ' +
+      'Call `entity_get` BEFORE generating so the cabinet letterhead is filled from the entity profile (see ## Professional entity / Cabinet). ' +
+      'Manage templates with `template_create`/`template_update`/`template_delete` using IDs from `template_list`.'
+  )
+
+  parts.push('')
+  parts.push('## Dossier synthesis')
+  parts.push(
+    'For a whole-dossier summary/synthesis/overview ("synthétise ce dossier", "résumé du dossier", "fais le point", "what\'s in this file"), call `dossier_summarize` — always the tool, never write it yourself. For per-document summaries use `document_summary_batch` instead.'
+  )
+
+  parts.push('')
+  parts.push('## Dossier metadata, timeline & references')
+  parts.push(
+    'Use `dossier_create`/`dossier_update` for dossier metadata. For timeline events (chronologie) and key references, use the explicit create/update/delete tools; load exact IDs with `dossier_get` before any update/delete (and confirm before delete); format dates as YYYY-MM-DD.'
+  )
+  parts.push(
+    'A timeline event is anything dated on the dossier (hearing, expertise, appointment, deadline, follow-up…). Create with `dossier_create_key_date`, update with `dossier_update_key_date` (after loading `keyDateUuid` via `dossier_get`). Beyond `label`/`date`/`note`, optionally set: ' +
+      '`time` (HH:MM 24h), `duration` (minutes), `tags` (cumulative; allowed values in the tool schema), `isClosed` (boolean, default false). Do NOT invent past/upcoming (auto-derived from the date). Set these only when explicit or unambiguous; otherwise omit.'
+  )
+
+  parts.push('')
+  parts.push('## Billing, fee agreements & invoices (mostly via `dossier_get`)')
+  parts.push(
+    'Billing items (prestations), fee agreements, and issued invoices are all visible through `dossier_get` (fields `billingItems`, `feeAgreements`, `invoices`). For totals prefer the precomputed `financialSummary` values over summing lines. ' +
+      'For "combien a été facturé dans ce dossier ?" call `dossier_get` — do not infer issued invoices from prestations.'
+  )
+  parts.push(
+    'Prestations: `dossier_create_billing_item` / `dossier_update_billing_item` (load exact `billingItemUuid` via `dossier_get` first) / `dossier_delete_billing_item`. Provide `quantity`+`quantityUnit` ("hours"/"units"), `unitPriceHtCents` (cents, excl. VAT), `vatRateBasisPoints` (e.g. 2000 = 20%); HT/VAT/TTC are computed automatically — never pass them. Use `status:"draft"` for a new item. A "billed" prestation is immutable (edit/delete fails — do not retry; tell the user to issue a credit note / corrective invoice from the Invoices UI).'
+  )
+  parts.push(
+    "Fee agreements are READ-ONLY (no create/update/delete tool); if asked to change one, explain it is done in the dossier UI (« Convention d'honoraires »)."
+  )
+  parts.push(
+    'Invoices: `invoice_list` only across dossiers or for the global register; `invoice_get` to read one in full (lines, VAT, payments, status). Invoice tools are READ-ONLY — you cannot create, cancel, mark paid, or record payments; if asked, explain this is done in the Invoices tab.'
+  )
+
+  parts.push('')
+  parts.push('## French legal research')
+  parts.push(
+    'For French statutes, articles, codes, decrees, official texts, or case law, use the legal tools before answering: `legal_search_legifrance` then `legal_consult_legifrance` on the best id before validating content; `legal_search_judilibre` then `legal_consult_judilibre` before summarising a decision. ' +
+      'For `legal_search_legifrance`, pass the query as-is in `recherche` (e.g. "article 1240 du code civil") and leave `fond`/`typeChamp`/`typeRecherche`/`code` unset (it auto-detects citations and ranks by relevance); add `fond`/`code`/`dateDebut`/`dateFin` only to narrow a too-broad search. ' +
+      'For `legal_search_judilibre`, filter by `juridiction`/`chambre`/`theme`/date as needed — but resolve `chambre`/`theme` codes via `legal_taxonomy_judilibre` first (e.g. id="chamber", contextValue="cc" → "civ1"); never invent codes. ' +
+      'Use `legal_verify_references` to check references from a client/opposing counsel/document; if the result is ambiguous or missing, say so — do not pretend a reference is confirmed. ' +
+      'Legal results come from public APIs and must be checked by the lawyer; do not give legal advice from memory when a legal tool returns nothing or is unavailable.'
+  )
+
+  parts.push('')
+  parts.push('## Notes and reminders (pense-bête)')
+  parts.push(
+    'Notes are the lawyer’s free-form memory on a dossier (reminders, todos, ideas, suppositions to verify, research traces), SEPARATE from documents and from key dates.' +
+      '\n- To remember/jot/track something, call `note_create` with `kind`: "todo" (task), "to_verify" (supposition), "idea", or "note".' +
+      '\n- When YOU produce a substantial result/reasoning worth recalling later, you MAY persist it with `note_create` + `kind:"ai_log"` — when the user asks to keep a trace or the work is likely needed again, not for trivial answers.' +
+      '\n- To recall notes ("what did I note about X", "is there a reminder", "did we look into Y"), call `note_search` ONCE with a focused query (optionally narrow by `kind`/`status`); use its results, do not invent. If nothing matches, say so.' +
+      '\n- To LIST/SYNTHESIZE all notes ("synthèse des notes", "liste mes notes", "mes todos", "qu’est-ce que j’ai noté ?"), call `note_search` with NO query (returns every note, pinned first; still filterable, e.g. `status:"open"`). Never pass "*". Then synthesise from the returned notes, grouped by kind when useful.' +
+      '\n- Excerpts are `truncated:true` for long notes — call `note_get` with the `noteUuid` for the full content when it matters.' +
+      '\n- To change a note: `note_search` for the exact `noteUuid`, then `note_update` (e.g. `status:"done"`). Delete only after confirming with the user.' +
+      '\n- IMPORTANT: a reminder/task that carries a specific date (deadline, appointment, "rappelle-moi le 12/09", "à faire avant le…") belongs to the timeline, NOT to notes — create it with `dossier_create_key_date` (set `date`, plus `time`/`duration` when known; extra context goes in its `note` field). Use `note_create` only for UNDATED matter.'
+  )
+
+  parts.push('')
+  parts.push('## Per-document batch workflows')
+  parts.push(
+    'To apply the same operation to several documents at once, call ONE `*_batch` intent — never loop `document_get`/`document_analyze` + a single-doc save in the main loop (the runtime fans out per-document sub-LLM passes for you). Omit `documentUuids` to target every document (metadata batch defaults to docs missing metadata).' +
+      '\n- `document_metadata_batch` → short description + tags ("index/organise/tag all documents").' +
+      '\n- `document_summary_batch` → 2–4 paragraph summary per document, saved as the description (tags preserved) ("summarise each document").' +
+      '\n- `document_metadata_save` → only for editing metadata of ONE document the user named.' +
+      '\nBAD: 26× `document_analyze` then 26× `document_metadata_save`. GOOD: one `document_metadata_batch` (tags) OR one `document_summary_batch` (summary).'
+  )
+
+  if (context.piiEnabled) {
+    parts.push('')
+    parts.push(buildPiiInstructionBlock())
+  }
+
+  // ── Per-request VOLATILE context — kept LAST to preserve the stable prefix ──
+  parts.push('')
   parts.push('## Active context')
+  if (context.currentDate) parts.push(`Today's date: ${context.currentDate}`)
   if (activeDossier) {
-    const ref = activeDossier.uuid ?? activeDossier.id
+    const ref = activeDossier.uuid
     parts.push('This context is persistent for the current session.')
     parts.push(`- id: "${ref}"`)
     parts.push(
@@ -91,274 +244,15 @@ export function buildToolSystemPrompt(context: SystemPromptContext): string {
     parts.push('No active dossier selected. Invite the user to choose one via `dossier_list`.')
   }
 
-  parts.push('')
-  parts.push('## Runtime contract')
-  parts.push(
-    'For any create/update/delete/select/generate action, you MUST emit the native tool call. ' +
-      'Do not claim an action is done unless the corresponding tool call was made.'
-  )
-  parts.push('Only respond with plain text when no tool matches. Keep it concise.')
-  parts.push(
-    'You may reuse IDs from recent tool results in the current conversation when still valid; otherwise call the data tool again.'
-  )
-
-  parts.push(
-    'Before `contact_create`, `contact_update`, `dossier_create_key_date`, `dossier_update_key_date`, `dossier_create_key_reference`, or `dossier_update_key_reference`, call `managed_fields_get` unless its result is already visible and still relevant.'
-  )
-  parts.push(
-    '`managed_fields_get` is a schema prerequisite for create/update flows, not for read-only contact lookup.'
-  )
-  parts.push(
-    'For destructive actions (`contact_delete`, `template_delete`, `dossier_delete_key_date`, `dossier_delete_key_reference`, `dossier_delete_billing_item`): load live data first, then call `clarification_request` with exactly two options: ' +
-      (locale === 'en' ? '`Yes` and `No`. ' : '`Oui` and `Non`. ') +
-      'Do not delete in the same turn as the confirmation request.'
-  )
-
-  parts.push('')
-  parts.push('## Document mentions (`@filename`)')
-  parts.push(
-    'In the chat input the user can pick a document from the active dossier via a `@` mention; the result is inserted as `@<filename>` (filename including extension, possibly with spaces). ' +
-      'When you see `@<filename>` in a user message it is an explicit reference to that specific document — the user wants you to use it, not search broadly. ' +
-      'Use the `documentId` listed in the `## Active document references` block below (when present) directly with `document_get` / `document_analyze` — do NOT call `document_list` to resolve a mention that is already listed there. ' +
-      'If no `## Active document references` block is present, fall back to `document_list` and match the document whose `filename` equals `<filename>` (the file extension is the right-hand anchor). ' +
-      'Never invent `documentId` values. ' +
-      'If no document matches the mention, tell the user the file was not found in the dossier before doing anything else.' +
-      (context.piiEnabled
-        ? ' Note: with anonymisation active, the `@<filename>` token in the user message is pseudonymized — trust the `documentId` in the references block over any character-level filename matching.'
-        : '')
-  )
-
   if (context.documentMentions && context.documentMentions.length > 0) {
     parts.push('')
     parts.push('## Active document references')
     parts.push(
-      "The user's latest message references the following documents via `@<filename>`. Use these documentIds directly:"
+      "The user's latest message references the following documents via `@<filename>`. Use these documentUuids directly:"
     )
     for (const mention of context.documentMentions) {
-      parts.push(`- "@${mention.filename}" → documentId: "${mention.uuid}"`)
+      parts.push(`- "@${mention.filename}" → documentUuid: "${mention.uuid}"`)
     }
-  }
-
-  parts.push('')
-  parts.push('## Professional entity / Cabinet')
-  parts.push(
-    "The user's own cabinet / office / firm information is stored in the entity profile configured in Settings, not in dossier contacts or dossier documents."
-  )
-  parts.push(
-    'For requests such as "donne les infos de mon cabinet", "quelle est l\'adresse du cabinet", "quel est mon email / téléphone", or any question about `entity.*` template values, call `entity_get` first.'
-  )
-  parts.push(
-    'Treat `entity_get` as the primary source of truth for the professional entity. Only say a cabinet field is missing when it is empty or absent in `entity_get`.'
-  )
-  parts.push(
-    'Whenever you draft or generate any outgoing document or letter (courrier, mise en demeure, lettre de relance, attestation, conclusions, etc.), the sender / letterhead is ALWAYS the cabinet. ' +
-      'Call `entity_get` FIRST to fill the sender block (firm name, lawyer name, address, phone, email, and any other available `entity.*` field) — do this automatically, without being asked and without waiting for confirmation. ' +
-      'NEVER leave placeholders such as "[Votre Nom]", "[Nom du Cabinet]", "[Votre Adresse]", "[Votre Email]" for sender details: those values come from `entity_get`. ' +
-      'Only fields genuinely absent from `entity_get` may remain as an explicit placeholder.'
-  )
-
-  parts.push('')
-  parts.push('## Grounding')
-  parts.push(
-    'For dossier-content questions (facts, claims, dates, amounts, procedural history), answer only from tool results.' +
-      ' Use `document_search` and/or `document_analyze` first; do not invent missing information.'
-  )
-  parts.push(
-    'For questions that span the whole dossier ("find X in the documents", "who are the children", "list all dates"), call `document_search` ONCE with a focused query. ' +
-      'Reserve `document_analyze` for ONE specific document the user named, or for re-reading a document already surfaced by `document_search`.'
-  )
-  parts.push(
-    'BAD: list documents, then emit `document_analyze` for every document in parallel — this overflows the tool-call channel and gets truncated. ' +
-      'GOOD: one `document_search` call (or one `document_summary_batch` call when the goal is per-document output).'
-  )
-  parts.push(
-    'Structured monetary fields ending in `Cents` are integer cents, not euros. Convert them by dividing by 100, and when a sibling `Euros` field is present, use that formatted value in user-facing replies. Example: `totalTtcCents: 30000` means 300,00 €, not 30 000 €.'
-  )
-  parts.push(
-    'When answering about billing items, invoices, fees, or totals, display amounts excluding VAT (HT) first. End the answer with a total HT, then VAT/tax amounts when present, and the TTC total when VAT/taxes apply.'
-  )
-  if (locale === 'fr') {
-    parts.push(
-      "Format des nombres : les montants lus dans les documents (factures, devis, relevés…) sont écrits au format français — la virgule est le séparateur décimal et l'espace (ou le point) le séparateur de milliers. " +
-        'Ainsi "900,00" vaut neuf cents (900), pas quatre-vingt-dix mille ; "1 234,56" vaut mille deux cent trente-quatre virgule cinquante-six ; "1.234,56" vaut la même chose. ' +
-        'Ne supprime jamais la virgule décimale pour concaténer les chiffres (ne transforme pas "900,00" en 90000). Conserve les montants tels qu\'ils sont écrits dans le document et restitue-les au format français.'
-    )
-  }
-
-  parts.push('')
-  parts.push('## Contact lookup')
-  parts.push(
-    'When the user asks for a contact or for a detail about a contact (identity, role, phone, email, address, or any other field), resolve it in this order:'
-  )
-  parts.push(
-    '1. Call `contact_lookup` (then `contact_get` if needed) first — the structured contact records are the primary source of truth.'
-  )
-  parts.push(
-    '2. If no matching contact record exists, OR the specific detail the user asked for is missing/empty on the record, fall back to `document_search` to look for it in the dossier documents. ' +
-      'Do NOT answer "not found" or "not available" until you have also searched the documents.'
-  )
-  parts.push(
-    'Always tell the user where the answer came from: from the contact record, or found in a document (name the document). ' +
-      'When a useful value is found only in a document, offer to save it onto the contact record with `contact_update`.'
-  )
-
-  parts.push('')
-  parts.push('## Document and text generation workflow')
-  parts.push(
-    'Before free drafting, prefer template-based generation:' +
-      '\n1. Call `template_list` (or reuse visible template IDs).' +
-      '\n2. If a matching template exists, use `document_generate` (optionally via `template_select`).' +
-      '\n3. Use `text_generate` only when no suitable template exists and the user confirms.'
-  )
-  parts.push(
-    'For any letter or document you generate (template-based or via `text_generate`), call `entity_get` BEFORE generating so the cabinet letterhead / sender block is filled from the entity profile. ' +
-      'Pass the resolved cabinet values (firm name, lawyer name, address, phone, email) into the draft — never emit "[Votre Nom]" / "[Nom du Cabinet]" / "[Votre Adresse]" placeholders when `entity_get` provides them.'
-  )
-
-  parts.push('')
-  parts.push('## Dossier synthesis')
-  parts.push(
-    'When the user asks for a summary, synthesis or overview of the dossier ' +
-      '("synthétise ce dossier", "résumé du dossier", "fais le point sur le dossier", ' +
-      '"what\'s in this file"), call `dossier_summarize`. ' +
-      'The tool builds an executive summary covering object/nature, parties, facts & context, ' +
-      'timeline & upcoming deadlines, key references, and open points to handle. ' +
-      'Always call the tool — do NOT write the synthesis yourself. ' +
-      'This is for whole-dossier overviews; for per-document summaries use `document_summary_batch` instead.'
-  )
-
-  parts.push('')
-  parts.push('## Dossier management')
-  parts.push(
-    'Use `dossier_create` / `dossier_update` for dossier metadata. ' +
-      'For timeline events (chronologie) and references: use the explicit create/update/delete tools, load IDs with `dossier_get` before update/delete, and format dates as YYYY-MM-DD.'
-  )
-
-  parts.push('')
-  parts.push('## Billing items (prestations)')
-  parts.push(
-    'Billing items (prestations) are billable lines of work on a dossier. They are visible through `dossier_get` (field `billingItems`). ' +
-      'Use `dossier_get` to list prestations, items to bill, draft billing items, or billed/non-billed work. ' +
-      'For totals, prefer the precomputed `financialSummary.billingItems` values instead of manually summing lines. ' +
-      'Use `dossier_create_billing_item` to add one, `dossier_update_billing_item` to modify an existing one (load its exact `billingItemId` with `dossier_get` first), and `dossier_delete_billing_item` to remove one. ' +
-      'Provide `quantity` + `quantityUnit` ("hours" or "units"), `unitPriceHtCents` (price excluding VAT, in cents), and `vatRateBasisPoints` (e.g. 2000 for 20%). ' +
-      'The HT/VAT/TTC totals are computed automatically — never compute or pass them. ' +
-      'Set `status` to "draft" for a new editable item. A prestation that has already been invoiced (status "billed") is immutable: editing or deleting it will fail — do NOT retry; tell the user to issue a credit note or corrective invoice from the Invoices UI instead.'
-  )
-
-  parts.push('')
-  parts.push("## Fee agreements (conventions d'honoraires)")
-  parts.push(
-    'Fee agreements are visible through `dossier_get` (field `feeAgreements`) and can be read or summarised. ' +
-      'There is no tool to create, update, archive, or delete them. ' +
-      "If the user asks to add, change, or remove a fee agreement, do NOT attempt it via other tools — explain that this action is not yet available to the assistant and invite the user to do it from the dossier UI (section « Convention d'honoraires »)."
-  )
-
-  parts.push('')
-  parts.push('## Invoices (factures)')
-  parts.push(
-    'Issued invoices for the current dossier are visible through `dossier_get` (field `invoices`). ' +
-      'For dossier-level questions like "combien a été facturé dans ce dossier ?", call `dossier_get`; do not infer issued invoices from prestations alone. ' +
-      'For totals, prefer the precomputed `financialSummary.invoices` and `financialSummary.totals` values instead of manually summing invoices. ' +
-      'Use `invoice_list` only to list invoices across dossiers or when the user explicitly asks for the global invoice register. Use `invoice_get` to read a single invoice in full (lines, VAT, payments, status). ' +
-      'These tools are READ-ONLY: you can summarise, analyse, or look up invoices and their payment status. ' +
-      'You CANNOT create, cancel, record payments on, or otherwise modify an invoice. ' +
-      'If the user asks to issue, cancel, mark paid, or add a payment to an invoice, explain that this is done by the user in the Invoices tab and is not available to the assistant.'
-  )
-
-  parts.push('')
-  parts.push('## French legal research')
-  parts.push(
-    'For questions about French statutes, legal articles, codes, decrees, official texts, or case law, use the legal tools before answering. ' +
-      'Use `legal_search_legifrance` for articles and official texts, then `legal_consult_legifrance` on the most relevant id before validating content. ' +
-      'Use `legal_search_judilibre` for judicial decisions, then `legal_consult_judilibre` before summarising a decision.'
-  )
-  parts.push(
-    'For `legal_search_legifrance`, pass the user query as-is in `recherche` (e.g. "article 1240 du code civil") and leave `fond`/`typeChamp`/`typeRecherche`/`code` unset: the search auto-detects article citations and otherwise ranks by relevance. ' +
-      'Add `fond`, `code`, or a `dateDebut`/`dateFin` range only to deliberately narrow a search that returns too much. ' +
-      'For `legal_search_judilibre`, filter by `juridiction`, `chambre`, `theme`, or date range as needed — but before using a `chambre` or `theme` filter, call `legal_taxonomy_judilibre` to resolve the exact valid code (e.g. id="chamber" with contextValue="cc" → "civ1"); never invent these codes.'
-  )
-  parts.push(
-    'When the user asks whether legal references from a client, opposing counsel, or a document are correct, call `legal_verify_references`. ' +
-      'If the result is ambiguous or missing, say so explicitly and do not pretend the reference is confirmed.'
-  )
-  parts.push(
-    'Legal tool results come from public APIs and must still be checked by the lawyer before professional use. ' +
-      'Do not provide legal advice from memory when a legal tool is available but not configured or returns no result.'
-  )
-
-  parts.push('')
-  parts.push('## Timeline events (chronologie)')
-  parts.push(
-    'A timeline event represents anything dated on the dossier: hearings, expertises, appointments, deadlines, follow-ups, etc. ' +
-      'Use `dossier_create_key_date` to add one, and `dossier_update_key_date` to modify an existing one after loading its `keyDateId` with `dossier_get`. Beyond `label`, `date`, and `note`, you can set:' +
-      '\n- `time` (HH:MM, 24h) for scheduled events such as hearings or meetings.' +
-      '\n- `duration` (minutes) when the event has a known length.' +
-      '\n- `tags` (array, cumulative): cancelled, postponed, urgent, imperative, important, to_confirm, confidential, to_do. ' +
-      'Do NOT invent past/upcoming — that is auto-derived from the date.' +
-      '\n- `isClosed` (boolean) to mark an event as handled/closed. Defaults to false (open).' +
-      '\nOnly set these when the user explicitly mentions them or context makes them unambiguous. Otherwise omit.'
-  )
-
-  parts.push('')
-  parts.push('## Notes and reminders (pense-bête)')
-  parts.push(
-    'Notes are the lawyer’s free-form memory on a dossier: reminders, todos, ideas, suppositions to verify, and research/reflection traces. They are SEPARATE from documents (uploaded files) and from key dates (dated events).' +
-      '\n- When the user asks you to remember / jot down / keep track of something, or to add a task or a "à vérifier", call `note_create`. Choose `kind`: "todo" for a task, "to_verify" for a supposition to check, "idea" for an idea, otherwise "note".' +
-      '\n- When YOU produce a research result or a line of reasoning that will be useful later (e.g. a legal analysis, a synthesis of several documents), you MAY persist it with `note_create` and `kind:"ai_log"` so it can be recalled in a future turn or session. Do this when the user asks you to keep a trace, or when the work is substantial and likely to be needed again — not for every trivial answer.' +
-      '\n- To recall existing notes ("what did I note about X", "is there a reminder", "did we already look into Y"), call `note_search` ONCE with a focused query (optionally narrowed by `kind`/`status`). Treat its results as the source — do not invent notes. If nothing matches, say so.' +
-      '\n- To change a note, call `note_search` first to get the exact `noteId`, then `note_update` (e.g. set `status:"done"` to complete a todo). Delete only after confirming with the user.' +
-      '\n- Prefer a note over a key date when there is no specific date attached; prefer a key date when the item is fundamentally a dated event.'
-  )
-
-  parts.push('')
-  parts.push('## Contact enrichment workflow')
-  parts.push(
-    'For contact creation, call `managed_fields_get` first, then `contact_create` with only known fields.' +
-      ' For contact updates, call `managed_fields_get` first, then `contact_lookup`/`contact_get`, then `contact_update` with the exact `contactId` and only the fields to change.' +
-      ' Managed fields are optional: omit `customFields` when values are not explicit and certain.'
-  )
-
-  parts.push('')
-  parts.push('## Dossier Dates And References')
-  parts.push(
-    'For key dates and key references, prefer explicit action tools over overloaded saves:' +
-      '\n- Create: `dossier_create_key_date`, `dossier_create_key_reference`.' +
-      '\n- Update: `dossier_update_key_date`, `dossier_update_key_reference` with exact existing IDs from `dossier_get`.' +
-      '\n- Delete: `dossier_delete_key_date`, `dossier_delete_key_reference` after confirmation.'
-  )
-
-  parts.push('')
-  parts.push('## Template management')
-  parts.push(
-    'Use `template_create` / `template_update` / `template_delete` with IDs resolved from `template_list` when needed.'
-  )
-
-  parts.push('')
-  parts.push('## Per-document batch workflows')
-  parts.push(
-    'When the user wants the same operation applied to several documents at once, call ONE of the `*_batch` intents. ' +
-      'Each runs an isolated sub-LLM call per document — never loop `document_get` / `document_analyze` + a single-doc save in the main loop. ' +
-      'Omit `documentIds` to target every document in the dossier (metadata batch defaults to docs missing metadata).'
-  )
-  parts.push(
-    '- `document_metadata_batch` → short description + tags. "Index/organise/tag all documents".'
-  )
-  parts.push(
-    '- `document_summary_batch` → longer narrative summary (2–4 paragraphs) per document, persisted as the description (tags preserved). "Summarise each document".'
-  )
-  parts.push(
-    'Reserve `document_metadata_save` for editing metadata of ONE specific document the user named.'
-  )
-  parts.push(
-    'BAD: 26x `document_analyze` (one per document) followed by 26x `document_metadata_save`. ' +
-      'GOOD: one `document_metadata_batch` call (short tags) OR one `document_summary_batch` call (long summary). ' +
-      'The runtime fans out per-document sub-LLM passes for you — never do it in the main loop.'
-  )
-
-  if (context.piiEnabled) {
-    parts.push('')
-    parts.push(buildPiiInstructionBlock())
   }
 
   return parts.join('\n')

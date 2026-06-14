@@ -35,7 +35,7 @@ export interface ContactRecord {
  * and `displayName` is absent (it is computed server-side from firstName + lastName).
  */
 export interface ContactUpsertInput {
-  id?: string
+  uuid?: string
   dossierId: string
   title?: string
   firstName?: string

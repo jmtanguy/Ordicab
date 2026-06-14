@@ -1,5 +1,6 @@
 export * from './alert'
 export * from './button'
 export * from './card'
+export * from './confirm-dialog'
 export * from './dialog'
 export * from './form'

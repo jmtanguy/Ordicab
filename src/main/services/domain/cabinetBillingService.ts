@@ -49,18 +49,18 @@ function createEmptyCatalog(now: () => Date): CabinetBillingCatalog {
 }
 
 function ensureValidDefaultService(catalog: CabinetBillingCatalog): CabinetBillingCatalog {
-  if (!catalog.defaultServiceId) {
+  if (!catalog.defaultServiceUuid) {
     return catalog
   }
 
-  const hasDefault = catalog.services.some((service) => service.id === catalog.defaultServiceId)
+  const hasDefault = catalog.services.some((service) => service.uuid === catalog.defaultServiceUuid)
   if (hasDefault) {
     return catalog
   }
 
   return {
     ...catalog,
-    defaultServiceId: undefined
+    defaultServiceUuid: undefined
   }
 }
 
@@ -140,7 +140,7 @@ export function createCabinetBillingService(options: {
     return {
       ...existing,
       ...parsed,
-      id: existing?.id ?? parsed.id ?? randomUUID(),
+      uuid: existing?.uuid ?? parsed.uuid ?? randomUUID(),
       updatedAt: now().toISOString()
     } satisfies CabinetServicePreset
   }
@@ -155,11 +155,11 @@ export function createCabinetBillingService(options: {
       const domainPath = await resolveActiveDomainPath()
       const catalogPath = getDomainCabinetBillingPath(domainPath)
       const catalog = await loadCatalog(catalogPath)
-      const existing = input.id
-        ? catalog.services.find((service) => service.id === input.id)
+      const existing = input.uuid
+        ? catalog.services.find((service) => service.uuid === input.uuid)
         : undefined
 
-      if (input.id && !existing) {
+      if (input.uuid && !existing) {
         throw new CabinetBillingServiceError(
           IpcErrorCode.NOT_FOUND,
           'This cabinet service preset was not found.'
@@ -167,7 +167,9 @@ export function createCabinetBillingService(options: {
       }
 
       const nextPreset = toStoredPreset(input, existing)
-      const existingIndex = catalog.services.findIndex((service) => service.id === nextPreset.id)
+      const existingIndex = catalog.services.findIndex(
+        (service) => service.uuid === nextPreset.uuid
+      )
       const services =
         existingIndex === -1
           ? [...catalog.services, nextPreset]
@@ -184,7 +186,7 @@ export function createCabinetBillingService(options: {
 
     // Deleting a preset does not cascade into existing dossiers: fee agreements
     // and billing items snapshot the preset values at creation time, so they
-    // keep working. The only side effect is that `sourceServicePresetId` on
+    // keep working. The only side effect is that `sourceServicePresetUuid` on
     // existing entries becomes a stale pointer (origin tooltip will not
     // resolve). This is intentional — see the code review notes on cascade
     // strategy for fee agreements (block) vs presets (silent detach).
@@ -192,7 +194,7 @@ export function createCabinetBillingService(options: {
       const domainPath = await resolveActiveDomainPath()
       const catalogPath = getDomainCabinetBillingPath(domainPath)
       const catalog = await loadCatalog(catalogPath)
-      const hasService = catalog.services.some((service) => service.id === input.id)
+      const hasService = catalog.services.some((service) => service.uuid === input.uuid)
 
       if (!hasService) {
         throw new CabinetBillingServiceError(
@@ -202,9 +204,9 @@ export function createCabinetBillingService(options: {
       }
 
       return saveCatalog(catalogPath, {
-        services: catalog.services.filter((service) => service.id !== input.id),
-        defaultServiceId:
-          catalog.defaultServiceId === input.id ? undefined : catalog.defaultServiceId,
+        services: catalog.services.filter((service) => service.uuid !== input.uuid),
+        defaultServiceUuid:
+          catalog.defaultServiceUuid === input.uuid ? undefined : catalog.defaultServiceUuid,
         updatedAt: now().toISOString()
       })
     },
@@ -214,8 +216,8 @@ export function createCabinetBillingService(options: {
       const catalogPath = getDomainCabinetBillingPath(domainPath)
       const catalog = await loadCatalog(catalogPath)
 
-      if (input.serviceId) {
-        const exists = catalog.services.some((service) => service.id === input.serviceId)
+      if (input.serviceUuid) {
+        const exists = catalog.services.some((service) => service.uuid === input.serviceUuid)
         if (!exists) {
           throw new CabinetBillingServiceError(
             IpcErrorCode.NOT_FOUND,
@@ -226,7 +228,7 @@ export function createCabinetBillingService(options: {
 
       return saveCatalog(catalogPath, {
         ...catalog,
-        defaultServiceId: input.serviceId,
+        defaultServiceUuid: input.serviceUuid,
         updatedAt: now().toISOString()
       })
     }

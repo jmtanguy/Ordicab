@@ -49,7 +49,7 @@ describe('cabinetBillingService', () => {
       const catalog = await service.get()
 
       expect(catalog.services).toEqual([])
-      expect(catalog.defaultServiceId).toBeUndefined()
+      expect(catalog.defaultServiceUuid).toBeUndefined()
     })
 
     it('throws NOT_FOUND when domain is unavailable', async () => {
@@ -80,7 +80,7 @@ describe('cabinetBillingService', () => {
       await expect(service.get()).rejects.toMatchObject({ code: IpcErrorCode.NOT_FOUND })
     })
 
-    it('defaults legacy service usage to feeAgreement', async () => {
+    it('defaults missing service usage to feeAgreement', async () => {
       const domainPath = await createTempDir()
       const service = createService(domainPath)
       const cabinetDir = join(domainPath, '.ordicab')
@@ -90,7 +90,7 @@ describe('cabinetBillingService', () => {
         JSON.stringify({
           services: [
             {
-              id: 'legacy-service',
+              uuid: 'stored-service',
               name: 'Ancienne prestation',
               billingType: 'flat',
               vatRateBasisPoints: 2000,
@@ -118,7 +118,7 @@ describe('cabinetBillingService', () => {
       expect(catalog.services).toHaveLength(1)
       expect(catalog.services[0]!.name).toBe('Forfait standard')
       expect(catalog.services[0]!.usage).toBe('feeAgreement')
-      expect(catalog.services[0]!.id).toMatch(
+      expect(catalog.services[0]!.uuid).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
       )
     })
@@ -139,13 +139,17 @@ describe('cabinetBillingService', () => {
       const service = createService(domainPath)
 
       const catalog = await service.upsertService(basePreset)
-      const id = catalog.services[0]!.id
+      const id = catalog.services[0]!.uuid
 
-      const updated = await service.upsertService({ ...basePreset, id, name: 'Forfait modifié' })
+      const updated = await service.upsertService({
+        ...basePreset,
+        uuid: id,
+        name: 'Forfait modifié'
+      })
 
       expect(updated.services).toHaveLength(1)
       expect(updated.services[0]!.name).toBe('Forfait modifié')
-      expect(updated.services[0]!.id).toBe(id)
+      expect(updated.services[0]!.uuid).toBe(id)
     })
 
     it('updates the usage of an existing service by ID', async () => {
@@ -153,9 +157,9 @@ describe('cabinetBillingService', () => {
       const service = createService(domainPath)
 
       const catalog = await service.upsertService(basePreset)
-      const id = catalog.services[0]!.id
+      const id = catalog.services[0]!.uuid
 
-      const updated = await service.upsertService({ ...basePreset, id, usage: 'billing' })
+      const updated = await service.upsertService({ ...basePreset, uuid: id, usage: 'billing' })
 
       expect(updated.services).toHaveLength(1)
       expect(updated.services[0]!.usage).toBe('billing')
@@ -166,7 +170,7 @@ describe('cabinetBillingService', () => {
       const service = createService(domainPath)
 
       await expect(
-        service.upsertService({ ...basePreset, id: 'non-existent-id' })
+        service.upsertService({ ...basePreset, uuid: 'non-existent-id' })
       ).rejects.toMatchObject({ code: IpcErrorCode.NOT_FOUND })
     })
 
@@ -193,45 +197,45 @@ describe('cabinetBillingService', () => {
       const service = createService(domainPath)
 
       const catalog = await service.upsertService(basePreset)
-      const id = catalog.services[0]!.id
+      const id = catalog.services[0]!.uuid
 
-      const updated = await service.deleteService({ id })
+      const updated = await service.deleteService({ uuid: id })
 
       expect(updated.services).toHaveLength(0)
     })
 
-    it('clears defaultServiceId when the default service is deleted', async () => {
+    it('clears defaultServiceUuid when the default service is deleted', async () => {
       const domainPath = await createTempDir()
       const service = createService(domainPath)
 
       const catalog = await service.upsertService(basePreset)
-      const id = catalog.services[0]!.id
-      await service.setDefaultService({ serviceId: id })
+      const id = catalog.services[0]!.uuid
+      await service.setDefaultService({ serviceUuid: id })
 
-      const updated = await service.deleteService({ id })
+      const updated = await service.deleteService({ uuid: id })
 
-      expect(updated.defaultServiceId).toBeUndefined()
+      expect(updated.defaultServiceUuid).toBeUndefined()
     })
 
-    it('preserves defaultServiceId when a different service is deleted', async () => {
+    it('preserves defaultServiceUuid when a different service is deleted', async () => {
       const domainPath = await createTempDir()
       const service = createService(domainPath)
 
       await service.upsertService({ ...basePreset, name: 'A' })
       const catalog = await service.upsertService({ ...basePreset, name: 'B' })
-      const [idA, idB] = [catalog.services[0]!.id, catalog.services[1]!.id]
-      await service.setDefaultService({ serviceId: idA })
+      const [idA, idB] = [catalog.services[0]!.uuid, catalog.services[1]!.uuid]
+      await service.setDefaultService({ serviceUuid: idA })
 
-      const updated = await service.deleteService({ id: idB! })
+      const updated = await service.deleteService({ uuid: idB! })
 
-      expect(updated.defaultServiceId).toBe(idA)
+      expect(updated.defaultServiceUuid).toBe(idA)
     })
 
     it('throws NOT_FOUND when deleting a non-existent service', async () => {
       const domainPath = await createTempDir()
       const service = createService(domainPath)
 
-      await expect(service.deleteService({ id: 'ghost-id' })).rejects.toMatchObject({
+      await expect(service.deleteService({ uuid: 'ghost-id' })).rejects.toMatchObject({
         code: IpcErrorCode.NOT_FOUND
       })
     })
@@ -243,31 +247,31 @@ describe('cabinetBillingService', () => {
       const service = createService(domainPath)
 
       const catalog = await service.upsertService(basePreset)
-      const id = catalog.services[0]!.id
+      const id = catalog.services[0]!.uuid
 
-      const updated = await service.setDefaultService({ serviceId: id })
+      const updated = await service.setDefaultService({ serviceUuid: id })
 
-      expect(updated.defaultServiceId).toBe(id)
+      expect(updated.defaultServiceUuid).toBe(id)
     })
 
-    it('clears the default when called with undefined serviceId', async () => {
+    it('clears the default when called with undefined serviceUuid', async () => {
       const domainPath = await createTempDir()
       const service = createService(domainPath)
 
       const catalog = await service.upsertService(basePreset)
-      const id = catalog.services[0]!.id
-      await service.setDefaultService({ serviceId: id })
+      const id = catalog.services[0]!.uuid
+      await service.setDefaultService({ serviceUuid: id })
 
-      const updated = await service.setDefaultService({ serviceId: undefined })
+      const updated = await service.setDefaultService({ serviceUuid: undefined })
 
-      expect(updated.defaultServiceId).toBeUndefined()
+      expect(updated.defaultServiceUuid).toBeUndefined()
     })
 
     it('throws NOT_FOUND when the target service does not exist', async () => {
       const domainPath = await createTempDir()
       const service = createService(domainPath)
 
-      await expect(service.setDefaultService({ serviceId: 'ghost-id' })).rejects.toMatchObject({
+      await expect(service.setDefaultService({ serviceUuid: 'ghost-id' })).rejects.toMatchObject({
         code: IpcErrorCode.NOT_FOUND
       })
     })

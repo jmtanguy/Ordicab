@@ -19,7 +19,7 @@ export interface ParsedDate {
   day: number
 }
 
-export const FR_MONTH_TO_INDEX: Record<string, number> = {
+const FR_MONTH_TO_INDEX: Record<string, number> = {
   janvier: 1,
   février: 2,
   fevrier: 2,
@@ -37,7 +37,7 @@ export const FR_MONTH_TO_INDEX: Record<string, number> = {
   decembre: 12
 }
 
-export const EN_MONTH_TO_INDEX: Record<string, number> = {
+const EN_MONTH_TO_INDEX: Record<string, number> = {
   january: 1,
   february: 2,
   march: 3,
@@ -52,7 +52,7 @@ export const EN_MONTH_TO_INDEX: Record<string, number> = {
   december: 12
 }
 
-export const FR_MONTH_NAMES = [
+const FR_MONTH_NAMES = [
   'janvier',
   'février',
   'mars',
@@ -67,7 +67,7 @@ export const FR_MONTH_NAMES = [
   'décembre'
 ]
 
-export const EN_MONTH_NAMES = [
+const EN_MONTH_NAMES = [
   'january',
   'february',
   'march',
@@ -112,7 +112,7 @@ const DATE_TOKEN_FIND_SOURCE =
   `|(?:${EN_MONTHS_ALT})${TEXTUAL_DATE_SEP}\\d{1,2}(?:st|nd|rd|th)?,?${TEXTUAL_DATE_SEP}\\d{2,4}` +
   ')\\b'
 
-export function expandTwoDigitYear(year: number): number {
+function expandTwoDigitYear(year: number): number {
   if (year >= 100) return year
   // Legal/civil-status inputs frequently use two-digit years for older birth
   // dates. Treating every `81` as 2081 corrupts date revert when the LLM

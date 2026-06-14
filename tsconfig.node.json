@@ -8,7 +8,6 @@
     "src/renderer/i18n/**/*",
     "src/renderer/stores/**/*",
     "src/renderer/features/reminders/reminderScan.ts",
-    "src/**/*.test.ts",
     "vitest.config.ts"
   ],
   "compilerOptions": {

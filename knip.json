@@ -1,0 +1,17 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "entry": [
+    "src/main/index.ts",
+    "src/preload/index.ts",
+    "src/preload/docx2pdf.ts",
+    "src/renderer/main.tsx",
+    "src/renderer/docx2pdf/main.ts",
+    "src/main/lib/aiEmbedded/embeddings/embeddingWorker.ts",
+    "electron.vite.config.ts",
+    "electron-builder.config.ts",
+    "scripts/*.{mjs,js}"
+  ],
+  "project": ["src/**/*.{ts,tsx}", "scripts/**/*.mjs"],
+  "ignore": ["archives/**", "docs/**", "out/**", "build/**"],
+  "ignoreDependencies": ["@tailwindcss/vite", "@vitejs/plugin-react", "tailwindcss", "dotenv-cli"]
+}

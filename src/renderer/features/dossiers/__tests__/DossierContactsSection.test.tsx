@@ -12,7 +12,16 @@ afterEach(() => {
   cleanup()
   useEntityStore.setState(useEntityStore.getInitialState(), true)
   vi.useRealTimers()
+  delete (globalThis as { ordicabAPI?: unknown }).ordicabAPI
 })
+
+function installConflictCheckApi(checkConflicts: ReturnType<typeof vi.fn>): void {
+  ;(globalThis as { ordicabAPI?: unknown }).ordicabAPI = {
+    contact: { checkConflicts },
+    // ContactForm loads the entity profile on mount via the same bridge.
+    entity: { get: vi.fn(async () => ({ success: true, data: null })) }
+  }
+}
 
 async function renderSection(
   options: {
@@ -186,6 +195,82 @@ describe('DossierContactsSection', () => {
 
     expect(screen.getByText('Camille Martin')).toBeTruthy()
     expect(screen.queryByText('Alex Durand')).toBeNull()
+  })
+
+  it('shows a non-blocking conflict warning after saving a contact whose name exists elsewhere', async () => {
+    const checkConflicts = vi.fn(async () => ({
+      success: true,
+      data: [
+        {
+          dossierId: 'dos-2',
+          dossierName: 'Dossier Dupont',
+          contactUuid: 'c-9',
+          contactDisplayName: 'Camille Martin',
+          contactRole: 'Adversaire',
+          matchKind: 'exact'
+        }
+      ]
+    }))
+    installConflictCheckApi(checkConflicts)
+
+    const onSave = vi.fn(async () => true)
+    await renderSection({ onSave })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Contact' }))
+    fireEvent.change(screen.getByLabelText('First name'), { target: { value: 'Camille' } })
+    fireEvent.change(screen.getByLabelText('Last name'), { target: { value: 'Martin' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save contact' }))
+
+    // The save itself goes through unchanged.
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({ firstName: 'Camille', lastName: 'Martin' })
+      )
+    })
+
+    expect(checkConflicts).toHaveBeenCalledWith({
+      dossierId: 'dos-1',
+      firstName: 'Camille',
+      lastName: 'Martin'
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Potential conflict of interest')).toBeTruthy()
+    })
+    expect(
+      screen.getByText('Camille Martin appears in matter Dossier Dupont as Adversaire')
+    ).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+    expect(screen.queryByText('Potential conflict of interest')).toBeNull()
+  })
+
+  it('runs an on-demand conflict check from the contact form', async () => {
+    const checkConflicts = vi.fn(async () => ({ success: true, data: [] }))
+    installConflictCheckApi(checkConflicts)
+
+    await renderSection()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Contact' }))
+
+    const checkButton = screen.getByRole('button', { name: 'Check for conflicts' })
+    expect((checkButton as HTMLButtonElement).disabled).toBe(true)
+
+    fireEvent.change(screen.getByLabelText('Last name'), { target: { value: 'Lefèvre' } })
+    fireEvent.click(checkButton)
+
+    expect(checkConflicts).toHaveBeenCalledWith({
+      dossierId: 'dos-1',
+      firstName: '',
+      lastName: 'Lefèvre'
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('No conflict of interest detected for Lefèvre.')).toBeTruthy()
+    })
+
+    // The form stays open — the check never blocks editing or saving.
+    expect(screen.getByLabelText('Last name')).toBeTruthy()
   })
 
   it('pre-fills the form when editing a contact', async () => {

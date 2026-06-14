@@ -122,7 +122,7 @@ describe('TemplateEditor', () => {
         content: 'Hello world'
       },
       template: {
-        id: 'tpl-1',
+        uuid: 'tpl-1',
         name: 'Legacy template',
         updatedAt: '2026-03-15T12:00:00.000Z',
         macros: [],
@@ -140,7 +140,7 @@ describe('TemplateEditor', () => {
   it('inserts smart tags as atomic chips in the stored html', async () => {
     await renderEditor({
       template: {
-        id: 'tpl-1',
+        uuid: 'tpl-1',
         name: 'Template',
         updatedAt: '2026-03-15T12:00:00.000Z',
         macros: [],
@@ -158,7 +158,7 @@ describe('TemplateEditor', () => {
   it('shows DOCX actions and relabels content when the template has a DOCX source', async () => {
     await renderEditor({
       template: {
-        id: 'tpl-1',
+        uuid: 'tpl-1',
         name: 'Word template',
         updatedAt: '2026-03-15T12:00:00.000Z',
         macros: [],
@@ -178,7 +178,7 @@ describe('TemplateEditor', () => {
 
     await renderEditor({
       template: {
-        id: 'tpl-1',
+        uuid: 'tpl-1',
         name: 'Word template',
         updatedAt: '2026-03-15T12:00:00.000Z',
         macros: [],
@@ -199,7 +199,7 @@ describe('TemplateEditor', () => {
 
     await renderEditor({
       template: {
-        id: 'tpl-1',
+        uuid: 'tpl-1',
         name: 'Word template',
         updatedAt: '2026-03-15T12:00:00.000Z',
         macros: [],
@@ -217,7 +217,7 @@ describe('TemplateEditor', () => {
   it('shows the import action for edit mode and dedicated docx creation mode', async () => {
     await renderEditor({
       template: {
-        id: 'tpl-1',
+        uuid: 'tpl-1',
         name: 'Text template',
         updatedAt: '2026-03-15T12:00:00.000Z',
         macros: [],

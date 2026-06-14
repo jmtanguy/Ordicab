@@ -83,7 +83,10 @@ describe('OrdicabDataWatcher', () => {
         }))
       },
       instructionsGenerator,
-      listRegisteredDossiers: vi.fn(async () => [{ id: 'Client Alpha' }, { id: 'Client Beta' }]),
+      listRegisteredDossiers: vi.fn(async () => [
+        { slug: 'Client Alpha' },
+        { slug: 'Client Beta' }
+      ]),
       watchFactory
     })
 
@@ -123,7 +126,10 @@ describe('OrdicabDataWatcher', () => {
         }))
       },
       instructionsGenerator,
-      listRegisteredDossiers: vi.fn(async () => [{ id: 'Client Alpha' }, { id: 'Client Beta' }]),
+      listRegisteredDossiers: vi.fn(async () => [
+        { slug: 'Client Alpha' },
+        { slug: 'Client Beta' }
+      ]),
       watchFactory
     })
 
@@ -160,7 +166,7 @@ describe('OrdicabDataWatcher', () => {
         }))
       },
       instructionsGenerator,
-      listRegisteredDossiers: vi.fn(async () => [{ id: 'Client Alpha' }]),
+      listRegisteredDossiers: vi.fn(async () => [{ slug: 'Client Alpha' }]),
       watchFactory
     })
 
@@ -197,7 +203,7 @@ describe('OrdicabDataWatcher', () => {
         }))
       },
       instructionsGenerator,
-      listRegisteredDossiers: vi.fn(async () => [{ id: 'Client Alpha' }]),
+      listRegisteredDossiers: vi.fn(async () => [{ slug: 'Client Alpha' }]),
       watchFactory
     })
 
@@ -234,7 +240,7 @@ describe('OrdicabDataWatcher', () => {
         }))
       },
       instructionsGenerator,
-      listRegisteredDossiers: vi.fn(async () => [{ id: 'Client Alpha' }]),
+      listRegisteredDossiers: vi.fn(async () => [{ slug: 'Client Alpha' }]),
       watchFactory
     })
 
@@ -272,7 +278,7 @@ describe('OrdicabDataWatcher', () => {
         }))
       },
       instructionsGenerator,
-      listRegisteredDossiers: vi.fn(async () => [{ id: 'Client Alpha' }]),
+      listRegisteredDossiers: vi.fn(async () => [{ slug: 'Client Alpha' }]),
       watchFactory
     })
 
@@ -309,7 +315,7 @@ describe('OrdicabDataWatcher', () => {
         generateForMode: vi.fn(async () => undefined),
         getStatus: vi.fn()
       },
-      listRegisteredDossiers: vi.fn(async () => [{ id: 'Client Alpha' }]),
+      listRegisteredDossiers: vi.fn(async () => [{ slug: 'Client Alpha' }]),
       onDataChanged,
       watchFactory
     })
@@ -353,7 +359,7 @@ describe('OrdicabDataWatcher', () => {
         generateForMode: vi.fn(async () => undefined),
         getStatus: vi.fn()
       },
-      listRegisteredDossiers: vi.fn(async () => [{ id: 'Client Alpha' }]),
+      listRegisteredDossiers: vi.fn(async () => [{ slug: 'Client Alpha' }]),
       onDataChanged,
       watchFactory
     })
@@ -399,7 +405,7 @@ describe('OrdicabDataWatcher', () => {
           dossierCount: 1
         }))
       },
-      listRegisteredDossiers: vi.fn(async () => [{ id: 'Client Alpha' }]),
+      listRegisteredDossiers: vi.fn(async () => [{ slug: 'Client Alpha' }]),
       instructionsGenerator: {
         generateDossier: vi.fn(async () => {
           throw new Error('disk full')

@@ -8,6 +8,60 @@ import type { ContactRecord } from '@shared/validation'
 
 import { contactFieldValues } from './tagValueHelpers'
 
+export type TagProvenance =
+  | 'contact'
+  | 'dossier'
+  | 'entity'
+  | 'invoice'
+  | 'system'
+  | 'memorized'
+  | 'empty'
+
+/**
+ * Determines where each pre-filled value comes from, for the provenance badges
+ * of the tag-filling step. Priority: context-resolved > contact hydration >
+ * memorized manual value > empty.
+ */
+export function computeTagProvenance(
+  tagPaths: string[],
+  resolvedTags: Record<string, string>,
+  hydratedValues: Record<string, string>,
+  memorizedOverrides: Record<string, string> | undefined
+): Record<string, TagProvenance> {
+  const provenance: Record<string, TagProvenance> = {}
+  for (const path of tagPaths) {
+    const root = path.split('.')[0]
+    if ((resolvedTags[path] ?? '').trim() !== '') {
+      provenance[path] =
+        root === 'contact' || root === 'dossier' || root === 'entity' || root === 'invoice'
+          ? root
+          : 'system'
+    } else if ((hydratedValues[path] ?? '').trim() !== '') {
+      provenance[path] = 'contact'
+    } else if ((memorizedOverrides?.[path] ?? '').trim() !== '') {
+      provenance[path] = 'memorized'
+    } else {
+      provenance[path] = 'empty'
+    }
+  }
+  return provenance
+}
+
+/** Fills still-empty fields with memorized manual values — live data always wins. */
+export function mergeMemorizedOverrides(
+  values: Record<string, string>,
+  memorizedOverrides: Record<string, string> | undefined
+): Record<string, string> {
+  if (!memorizedOverrides) return values
+  const next = { ...values }
+  for (const [path, value] of Object.entries(memorizedOverrides)) {
+    if (path in next && (next[path] ?? '').trim() === '' && value) {
+      next[path] = value
+    }
+  }
+  return next
+}
+
 export interface CategorizedTagPaths {
   primaryTagPaths: string[]
   roleTagGroups: Record<string, string[]>
@@ -76,12 +130,12 @@ export function categorizeTagPaths(tagPaths: string[]): CategorizedTagPaths {
 }
 
 export function applyPrimaryContact(
-  contactId: string,
+  contactUuid: string,
   currentTagValues: Record<string, string>,
   contacts: ContactRecord[],
   managedFieldsConfig: EntityManagedFieldsConfig
 ): Record<string, string> {
-  const contact = contacts.find((c) => c.uuid === contactId)
+  const contact = contacts.find((c) => c.uuid === contactUuid)
   const fields = contactFieldValues(contact, 'contact', managedFieldsConfig.contacts)
   const next = { ...currentTagValues }
   for (const path of Object.keys(next)) {
@@ -95,12 +149,12 @@ export function applyPrimaryContact(
 
 export function applyRoleContact(
   roleKey: string,
-  contactId: string,
+  contactUuid: string,
   currentTagValues: Record<string, string>,
   contacts: ContactRecord[],
   managedFieldsConfig: EntityManagedFieldsConfig
 ): Record<string, string> {
-  const contact = contacts.find((c) => c.uuid === contactId)
+  const contact = contacts.find((c) => c.uuid === contactUuid)
   const fields = contactFieldValues(contact, `contact.${roleKey}`, managedFieldsConfig.contacts)
   const next = { ...currentTagValues }
   for (const path of Object.keys(next)) {
@@ -123,9 +177,9 @@ export function hydrateAutoSelectedContactTags(
   if (initialPrimaryContactId) {
     next = applyPrimaryContact(initialPrimaryContactId, next, contacts, managedFieldsConfig)
   }
-  for (const [roleKey, contactId] of Object.entries(initialRoleContactIds)) {
-    if (contactId) {
-      next = applyRoleContact(roleKey, contactId, next, contacts, managedFieldsConfig)
+  for (const [roleKey, contactUuid] of Object.entries(initialRoleContactIds)) {
+    if (contactUuid) {
+      next = applyRoleContact(roleKey, contactUuid, next, contacts, managedFieldsConfig)
     }
   }
   return next

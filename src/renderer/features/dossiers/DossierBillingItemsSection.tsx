@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
+  BILLING_ITEM_STATUS_VALUES,
   DEFAULT_CABINET_SERVICE_GROUP,
   isCabinetServicePresetEligibleForBilling
 } from '@shared/types'
@@ -26,7 +27,14 @@ import {
   parseEurosToCents,
   parsePercentToBasisPoints
 } from '@renderer/lib/billingFormatters'
-import { useCabinetBillingStore } from '@renderer/stores'
+import { billingItemStatusLabel } from '@renderer/lib/domainLabels'
+import { useCabinetBillingStore, useDossierStore } from '@renderer/stores'
+import {
+  formatElapsed,
+  useTimerElapsedMs,
+  useTimerStore,
+  type RunningTimer
+} from '@renderer/stores/timerStore'
 import {
   AlertBanner,
   Button,
@@ -61,7 +69,7 @@ interface BillingItemEditorState {
   date: string
   label: string
   description: string
-  sourceServicePresetId: string
+  sourceServicePresetUuid: string
   quantity: string
   quantityUnit: BillingItemQuantityUnit
   unitPriceHt: string
@@ -70,8 +78,8 @@ interface BillingItemEditorState {
   discountAmount: string
   vatRate: string
   status: BillingItemStatus
-  sourceKeyDateId?: string
-  sourceFeeAgreementId?: string
+  sourceKeyDateUuid?: string
+  sourceFeeAgreementUuid?: string
   sourceFeeAgreementBillingKind?: SourceFeeAgreementBillingKind
 }
 
@@ -81,7 +89,7 @@ function createEmptyEditor(): BillingItemEditorState {
     date: today,
     label: '',
     description: '',
-    sourceServicePresetId: '',
+    sourceServicePresetUuid: '',
     quantity: '1',
     quantityUnit: 'hours',
     unitPriceHt: '',
@@ -93,19 +101,19 @@ function createEmptyEditor(): BillingItemEditorState {
 
 function createEditorFromItem(item: DossierBillingItem): BillingItemEditorState {
   return {
-    id: item.id,
+    id: item.uuid,
     date: item.date,
     label: item.label,
     description: item.description ?? '',
-    sourceServicePresetId: item.sourceServicePresetId ?? '',
+    sourceServicePresetUuid: item.sourceServicePresetUuid ?? '',
     quantity: formatNumberInput(item.quantity),
     quantityUnit: item.quantityUnit,
     unitPriceHt: formatMoneyInput(item.unitPriceHtCents),
     ...createDiscountEditorFields(item),
     vatRate: formatPercentInput(item.vatRateBasisPoints),
     status: item.status,
-    sourceKeyDateId: item.sourceKeyDateId,
-    sourceFeeAgreementId: item.sourceFeeAgreementId,
+    sourceKeyDateUuid: item.sourceKeyDateUuid,
+    sourceFeeAgreementUuid: item.sourceFeeAgreementUuid,
     sourceFeeAgreementBillingKind: item.sourceFeeAgreementBillingKind
   }
 }
@@ -114,20 +122,20 @@ function createEditorFromPrefill(
   input: DossierBillingItemUpsertInput,
   defaultPreset?: CabinetServicePreset
 ): BillingItemEditorState {
-  const presetId = input.sourceServicePresetId ?? defaultPreset?.id ?? ''
+  const presetId = input.sourceServicePresetUuid ?? defaultPreset?.uuid ?? ''
   return {
     date: input.date,
     label: input.label,
     description: input.description ?? '',
-    sourceServicePresetId: presetId,
+    sourceServicePresetUuid: presetId,
     quantity: formatNumberInput(input.quantity),
     quantityUnit: input.quantityUnit,
     unitPriceHt: formatMoneyInput(input.unitPriceHtCents),
     ...createDiscountEditorFields(input),
     vatRate: formatPercentInput(input.vatRateBasisPoints),
     status: input.status,
-    sourceKeyDateId: input.sourceKeyDateId,
-    sourceFeeAgreementId: input.sourceFeeAgreementId,
+    sourceKeyDateUuid: input.sourceKeyDateUuid,
+    sourceFeeAgreementUuid: input.sourceFeeAgreementUuid,
     sourceFeeAgreementBillingKind: input.sourceFeeAgreementBillingKind
   }
 }
@@ -144,7 +152,7 @@ function applyPresetToEditor(
   const descriptionIsUserInput = current.description.trim().length > 0 && !descriptionFromPrevious
   return {
     ...current,
-    sourceServicePresetId: preset.id,
+    sourceServicePresetUuid: preset.uuid,
     label: labelIsUserInput ? current.label : preset.name,
     description: descriptionIsUserInput ? current.description : (preset.description ?? ''),
     quantityUnit: preset.billingType === 'flat' ? 'units' : 'hours',
@@ -163,32 +171,24 @@ function buildUpsertInput(
   const discount = parseDiscountEditorFields(state)
   const candidate = {
     dossierId,
-    id: state.id,
+    uuid: state.id,
     date: state.date,
     label: state.label.trim(),
     description: state.description.trim() || undefined,
-    sourceServicePresetId: state.sourceServicePresetId || undefined,
+    sourceServicePresetUuid: state.sourceServicePresetUuid || undefined,
     quantity: typeof quantity === 'number' ? quantity : 0,
     quantityUnit: state.quantityUnit,
     unitPriceHtCents: typeof unitPriceHtCents === 'number' ? unitPriceHtCents : 0,
     ...discount,
     vatRateBasisPoints: typeof vatRateBasisPoints === 'number' ? vatRateBasisPoints : 0,
     status: state.status,
-    sourceKeyDateId: state.sourceKeyDateId,
-    sourceFeeAgreementId: state.sourceFeeAgreementId,
+    sourceKeyDateUuid: state.sourceKeyDateUuid,
+    sourceFeeAgreementUuid: state.sourceFeeAgreementUuid,
     sourceFeeAgreementBillingKind: state.sourceFeeAgreementBillingKind
   }
 
   const parsed = dossierBillingItemUpsertInputSchema.safeParse(candidate)
   return parsed.success ? parsed.data : null
-}
-
-function statusLabel(status: BillingItemStatus, t: ReturnType<typeof useTranslation>['t']): string {
-  if (status === 'billed')
-    return t('dossiers.billing_item_status_billed', { defaultValue: 'Facturée' })
-  if (status === 'cancelled')
-    return t('dossiers.billing_item_status_cancelled', { defaultValue: 'Annulée' })
-  return t('dossiers.billing_item_status_draft', { defaultValue: 'À facturer' })
 }
 
 function quantityUnitLabel(
@@ -232,7 +232,7 @@ function PresetCombobox({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const searchRef = useRef<HTMLInputElement | null>(null)
 
-  const selected = presets.find((preset) => preset.id === value) ?? null
+  const selected = presets.find((preset) => preset.uuid === value) ?? null
 
   const filtered = useMemo(() => {
     const trimmed = query.trim().toLowerCase()
@@ -286,14 +286,14 @@ function PresetCombobox({
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="flex w-full items-center justify-between gap-3 rounded-xl border border-[#d1cfc6] bg-white px-4 py-2.5 text-left text-sm text-[#1a1a1a] outline-none transition hover:border-[#a8a59a] focus:border-aurora focus:ring-2 focus:ring-aurora/45"
+        className="flex w-full items-center justify-between gap-3 rounded-xl border border-hairline-strong bg-white px-4 py-2.5 text-left text-sm text-ink outline-none transition hover:border-[#a8a59a] focus:border-aurora focus:ring-2 focus:ring-aurora/45"
         aria-haspopup="listbox"
         aria-expanded={open}
       >
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate font-medium">{selected ? selected.name : freeEntryLabel}</span>
           {selected ? (
-            <span className="truncate text-xs text-[#8a8a85]">
+            <span className="truncate text-xs text-ink-subtle">
               {(selected.group?.trim() || DEFAULT_CABINET_SERVICE_GROUP) +
                 ' · ' +
                 presetPriceHint(selected)}
@@ -303,7 +303,7 @@ function PresetCombobox({
         <svg
           aria-hidden="true"
           viewBox="0 0 20 20"
-          className={`h-4 w-4 shrink-0 text-[#8a8a85] transition ${open ? 'rotate-180' : ''}`}
+          className={`h-4 w-4 shrink-0 text-ink-subtle transition ${open ? 'rotate-180' : ''}`}
           fill="none"
           stroke="currentColor"
           strokeWidth={2}
@@ -313,7 +313,7 @@ function PresetCombobox({
       </button>
 
       {open ? (
-        <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-xl border border-[#d1cfc6] bg-white shadow-lg">
+        <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-xl border border-hairline-strong bg-white shadow-lg">
           <div className="border-b border-[#ece9df] p-2">
             <input
               ref={searchRef}
@@ -340,25 +340,25 @@ function PresetCombobox({
                 }
               }}
               placeholder={searchPlaceholder}
-              className="w-full rounded-lg border border-[#d1cfc6] bg-white px-3 py-2 text-sm outline-none focus:border-aurora focus:ring-2 focus:ring-aurora/45"
+              className="w-full rounded-lg border border-hairline-strong bg-white px-3 py-2 text-sm outline-none focus:border-aurora focus:ring-2 focus:ring-aurora/45"
             />
           </div>
           <div className="max-h-72 overflow-y-auto py-1">
             {flatItems.length === 0 ? (
-              <div className="px-4 py-6 text-center text-sm text-[#8a8a85]">—</div>
+              <div className="px-4 py-6 text-center text-sm text-ink-subtle">—</div>
             ) : (
               grouped.map(([groupName, items]) => (
                 <div key={groupName} className="py-1">
-                  <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8a8a85]">
+                  <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-subtle">
                     {groupName}
                   </div>
                   {items.map((preset) => {
                     const flatIndex = flatItems.indexOf(preset)
                     const isActive = flatIndex === activeIndex
-                    const isSelected = preset.id === value
+                    const isSelected = preset.uuid === value
                     return (
                       <button
-                        key={preset.id}
+                        key={preset.uuid}
                         type="button"
                         onMouseEnter={() => setActiveIndex(flatIndex)}
                         onMouseDown={(event) => {
@@ -367,17 +367,17 @@ function PresetCombobox({
                         }}
                         className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition ${
                           isActive ? 'bg-aurora/10' : 'bg-transparent'
-                        } ${isSelected ? 'font-semibold text-aurora' : 'text-[#1a1a1a]'}`}
+                        } ${isSelected ? 'font-semibold text-aurora' : 'text-ink'}`}
                       >
                         <span className="flex min-w-0 flex-1 flex-col">
                           <span className="truncate">{preset.name}</span>
                           {preset.description ? (
-                            <span className="truncate text-xs text-[#8a8a85]">
+                            <span className="truncate text-xs text-ink-subtle">
                               {preset.description}
                             </span>
                           ) : null}
                         </span>
-                        <span className="shrink-0 text-xs text-[#8a8a85]">
+                        <span className="shrink-0 text-xs text-ink-subtle">
                           {presetPriceHint(preset)}
                         </span>
                       </button>
@@ -394,7 +394,7 @@ function PresetCombobox({
               commit(null)
             }}
             className={`flex w-full items-center gap-2 border-t border-[#ece9df] px-3 py-2 text-left text-sm transition hover:bg-[#f5f3ec] ${
-              !value ? 'font-semibold text-aurora' : 'text-[#1a1a1a]'
+              !value ? 'font-semibold text-aurora' : 'text-ink'
             }`}
           >
             <svg
@@ -415,6 +415,148 @@ function PresetCombobox({
           </button>
         </div>
       ) : null}
+    </div>
+  )
+}
+
+function PlayIcon(): React.JSX.Element {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M5 3.5v9l7.5-4.5L5 3.5z" />
+    </svg>
+  )
+}
+
+function PauseIcon(): React.JSX.Element {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M5.5 3.5v9" />
+      <path d="M10.5 3.5v9" />
+    </svg>
+  )
+}
+
+function StopIcon(): React.JSX.Element {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="4" y="4" width="8" height="8" rx="1" />
+    </svg>
+  )
+}
+
+function TimerControls({
+  dossierId,
+  dossierName,
+  disabled,
+  onStop
+}: {
+  dossierId: string
+  dossierName: string
+  disabled: boolean
+  onStop: (timer: RunningTimer) => void
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const timer = useTimerStore((state) => state.timer)
+  const start = useTimerStore((state) => state.start)
+  const pause = useTimerStore((state) => state.pause)
+  const resume = useTimerStore((state) => state.resume)
+  const discard = useTimerStore((state) => state.discard)
+  const elapsedMs = useTimerElapsedMs()
+
+  if (!timer || timer.dossierId !== dossierId) {
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        disabled={disabled || timer !== null}
+        title={
+          timer !== null
+            ? t('timer.start_blocked_other_dossier', {
+                defaultValue: 'Un chronomètre est déjà en cours sur {{name}}.',
+                name: timer.dossierName
+              })
+            : undefined
+        }
+        onClick={() => start(dossierId, dossierName)}
+      >
+        {t('timer.start_action', { defaultValue: 'Démarrer le chrono' })}
+      </Button>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-1.5 rounded-full border border-hairline bg-parchment py-1 pl-3 pr-1">
+      <span
+        aria-hidden="true"
+        className={`h-2 w-2 shrink-0 rounded-full ${
+          timer.isPaused ? 'bg-[#c4c2b8]' : 'animate-pulse bg-aurora'
+        }`}
+      />
+      <span className="text-sm tabular-nums text-ink">{formatElapsed(elapsedMs ?? 0)}</span>
+      {timer.isPaused ? (
+        <IconButton
+          alwaysVisible
+          label={t('timer.resume_action', { defaultValue: 'Reprendre le chrono' })}
+          onClick={resume}
+        >
+          <PlayIcon />
+        </IconButton>
+      ) : (
+        <IconButton
+          alwaysVisible
+          label={t('timer.pause_action', { defaultValue: 'Mettre en pause' })}
+          onClick={pause}
+        >
+          <PauseIcon />
+        </IconButton>
+      )}
+      <IconButton
+        alwaysVisible
+        label={t('timer.stop_action', { defaultValue: 'Arrêter et facturer' })}
+        disabled={disabled}
+        onClick={() => onStop(timer)}
+      >
+        <StopIcon />
+      </IconButton>
+      <IconButton
+        alwaysVisible
+        tone="danger"
+        label={t('timer.discard_action', { defaultValue: 'Abandonner le chrono' })}
+        onClick={discard}
+      >
+        <TrashIcon />
+      </IconButton>
     </div>
   )
 }
@@ -481,6 +623,29 @@ export function DossierBillingItemsSection({
   const catalogError = useCabinetBillingStore((state) => state.error)
   const loadCatalog = useCabinetBillingStore((state) => state.load)
 
+  const activeDossier = useDossierStore((state) => state.activeDossier)
+  const timerDossierName = activeDossier?.slug === dossierId ? activeDossier.name : dossierId
+  const activeAgreementHourlyRateHtCents =
+    activeDossier?.slug === dossierId
+      ? activeDossier.feeAgreements.find((agreement) => agreement.isActive)?.hourlyRateHtCents
+      : undefined
+
+  const handleTimerStop = (timer: RunningTimer): void => {
+    const minutes = useTimerStore.getState().stop()
+    if (minutes === null) return
+    // Minutes are already rounded up to whole minutes by the store (min 1);
+    // hours are then rounded to 2 decimals, so the minimum quantity is 0.02.
+    const quantityHours = Math.round((minutes / 60) * 100) / 100
+    setEditor({
+      ...createEmptyEditor(),
+      label: timer.label ?? '',
+      quantity: formatNumberInput(quantityHours),
+      unitPriceHt: formatMoneyInput(activeAgreementHourlyRateHtCents)
+    })
+    setEditorError(null)
+    setEditorFromPrefill(false)
+  }
+
   useEffect(() => {
     void loadCatalog()
   }, [loadCatalog])
@@ -494,7 +659,7 @@ export function DossierBillingItemsSection({
   )
 
   const defaultPreset =
-    activePresets.find((preset) => preset.id === catalog?.defaultServiceId) ?? activePresets[0]
+    activePresets.find((preset) => preset.uuid === catalog?.defaultServiceUuid) ?? activePresets[0]
 
   useEffect(() => {
     if (prefillItem && editor === null) {
@@ -527,7 +692,7 @@ export function DossierBillingItemsSection({
   const hasAnyDiscount = totals.discountHt > 0
 
   const selectedInvoiceItems = useMemo(
-    () => sortedEntries.filter((item) => selectedInvoiceItemIds.has(item.id)),
+    () => sortedEntries.filter((item) => selectedInvoiceItemIds.has(item.uuid)),
     [sortedEntries, selectedInvoiceItemIds]
   )
   const selectionTotalTtc = selectedInvoiceItems.reduce((acc, item) => acc + item.totalTtcCents, 0)
@@ -539,17 +704,25 @@ export function DossierBillingItemsSection({
           badge={t('dossiers.billing_items_badge', { defaultValue: 'Prestations' })}
           count={sortedEntries.length || null}
           actions={
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={disabled}
-              onClick={() => setEditor(createEmptyEditor())}
-            >
-              {t('dossiers.billing_items_create_action', {
-                defaultValue: 'Nouvelle prestation'
-              })}
-            </Button>
+            <>
+              <TimerControls
+                dossierId={dossierId}
+                dossierName={timerDossierName}
+                disabled={disabled}
+                onStop={handleTimerStop}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={disabled}
+                onClick={() => setEditor(createEmptyEditor())}
+              >
+                {t('dossiers.billing_items_create_action', {
+                  defaultValue: 'Nouvelle prestation'
+                })}
+              </Button>
+            </>
           }
         />
 
@@ -557,7 +730,7 @@ export function DossierBillingItemsSection({
 
         {selectedInvoiceItems.length > 0 ? (
           <div className="flex shrink-0 items-center justify-between gap-3 rounded-md border border-aurora/30 bg-aurora/5 px-3 py-2 text-sm">
-            <span className="text-[#1a1a1a]">
+            <span className="text-ink">
               {t('dossiers.billing_items_selection_summary', {
                 count: selectedInvoiceItems.length,
                 total: formatEurosFromCents(selectionTotalTtc),
@@ -568,7 +741,7 @@ export function DossierBillingItemsSection({
               <button
                 type="button"
                 onClick={() => setSelectedInvoiceItemIds(new Set())}
-                className="text-xs text-[#5c5c5a] underline-offset-2 hover:underline"
+                className="text-xs text-ink-muted underline-offset-2 hover:underline"
               >
                 {t('dossiers.billing_items_deselect_all', { defaultValue: 'Tout désélectionner' })}
               </button>
@@ -587,7 +760,7 @@ export function DossierBillingItemsSection({
         ) : null}
 
         {sortedEntries.length === 0 ? (
-          <p className="shrink-0 rounded-2xl border border-dashed border-[#e5e3da] bg-white p-4 text-sm text-[#5c5c5a]">
+          <p className="shrink-0 rounded-2xl border border-dashed border-hairline bg-white p-4 text-sm text-ink-muted">
             {t('dossiers.billing_items_empty', {
               defaultValue:
                 'Aucune prestation enregistrée pour ce dossier. Ajoutez-en une ou convertissez une échéance.'
@@ -631,8 +804,8 @@ export function DossierBillingItemsSection({
               <ul className="min-h-0 flex-1 divide-y divide-deep-space overflow-y-auto">
                 {sortedEntries.map((item) => (
                   <li
-                    key={item.id}
-                    className={`group flex items-center gap-3 px-4 py-2.5 transition-colors duration-150 hover:bg-[#fbf9f4] ${
+                    key={item.uuid}
+                    className={`group flex items-center gap-3 px-4 py-2.5 transition-colors duration-150 hover:bg-parchment-bright ${
                       item.status === 'cancelled' ? 'opacity-60' : ''
                     }`}
                   >
@@ -640,41 +813,41 @@ export function DossierBillingItemsSection({
                       {item.status === 'draft' ? (
                         <input
                           type="checkbox"
-                          checked={selectedInvoiceItemIds.has(item.id)}
-                          onChange={() => toggleInvoiceSelection(item.id)}
+                          checked={selectedInvoiceItemIds.has(item.uuid)}
+                          onChange={() => toggleInvoiceSelection(item.uuid)}
                           aria-label="Inclure dans la facture"
                           className="h-4 w-4 cursor-pointer accent-aurora"
                         />
                       ) : null}
                     </div>
                     <div className="w-24 shrink-0">
-                      <p className="text-sm tabular-nums text-[#1a1a1a]">
+                      <p className="text-sm tabular-nums text-ink">
                         {formatDisplayDate(item.date, locale)}
                       </p>
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-[#1a1a1a]">{item.label}</p>
+                      <p className="truncate text-sm font-medium text-ink">{item.label}</p>
                       {item.description ? (
-                        <p className="truncate text-xs text-[#8a8a85]">{item.description}</p>
+                        <p className="truncate text-xs text-ink-subtle">{item.description}</p>
                       ) : null}
                     </div>
-                    <div className="w-20 shrink-0 text-right text-sm tabular-nums text-[#1a1a1a]">
+                    <div className="w-20 shrink-0 text-right text-sm tabular-nums text-ink">
                       {item.quantity.toLocaleString(locale, { maximumFractionDigits: 2 })}{' '}
                       {quantityUnitLabel(item.quantityUnit, t)}
                     </div>
-                    <div className="w-24 shrink-0 text-right text-sm tabular-nums text-[#1a1a1a]">
+                    <div className="w-24 shrink-0 text-right text-sm tabular-nums text-ink">
                       {formatEurosFromCents(item.unitPriceHtCents)}
                     </div>
-                    <div className="w-24 shrink-0 text-right text-sm tabular-nums text-[#1a1a1a]">
+                    <div className="w-24 shrink-0 text-right text-sm tabular-nums text-ink">
                       {item.discountKind ? (
                         <div className="flex flex-col items-end">
                           <span>−{formatEurosFromCents(item.discountHtCents)}</span>
                           {item.discountKind === 'percent' ? (
-                            <span className="text-[10px] text-[#8a8a85]">
+                            <span className="text-[10px] text-ink-subtle">
                               {formatBasisPoints(item.discountPercentBasisPoints)}
                             </span>
                           ) : (
-                            <span className="text-[10px] text-[#8a8a85]">
+                            <span className="text-[10px] text-ink-subtle">
                               {t('dossiers.billing_items_discount_amount_short', {
                                 defaultValue: 'Montant'
                               })}
@@ -685,11 +858,11 @@ export function DossierBillingItemsSection({
                         <span className="text-[#c4c2b8]">—</span>
                       )}
                     </div>
-                    <div className="w-24 shrink-0 text-right text-sm tabular-nums text-[#1a1a1a]">
+                    <div className="w-24 shrink-0 text-right text-sm tabular-nums text-ink">
                       {item.discountHtCents > 0 ? (
                         <div className="flex flex-col items-end">
                           <span>{formatEurosFromCents(item.totalHtCents)}</span>
-                          <span className="text-[10px] text-[#8a8a85] line-through">
+                          <span className="text-[10px] text-ink-subtle line-through">
                             {formatEurosFromCents(item.subtotalHtCents)}
                           </span>
                         </div>
@@ -697,16 +870,16 @@ export function DossierBillingItemsSection({
                         formatEurosFromCents(item.totalHtCents)
                       )}
                     </div>
-                    <div className="w-28 shrink-0 text-right text-sm tabular-nums text-[#1a1a1a]">
+                    <div className="w-28 shrink-0 text-right text-sm tabular-nums text-ink">
                       <div>{formatEurosFromCents(item.totalTtcCents)}</div>
-                      <div className="text-[10px] text-[#8a8a85]">
+                      <div className="text-[10px] text-ink-subtle">
                         {t('dossiers.billing_items_vat_short', { defaultValue: 'TVA' })}{' '}
                         {formatBasisPoints(item.vatRateBasisPoints)}
                       </div>
                     </div>
                     <div className="w-24 shrink-0">
-                      <span className="inline-flex rounded-full bg-[#f4f3ee] px-2 py-1 text-[11px] font-medium text-[#5c5c5a]">
-                        {statusLabel(item.status, t)}
+                      <span className="inline-flex rounded-full bg-parchment px-2 py-1 text-[11px] font-medium text-ink-muted">
+                        {billingItemStatusLabel(item.status, t)}
                       </span>
                     </div>
                     <div className="w-28 shrink-0 text-sm">
@@ -728,7 +901,7 @@ export function DossierBillingItemsSection({
                       {item.status !== 'billed' ? (
                         <div
                           className={
-                            confirmingDeleteId === item.id ? 'invisible flex gap-1' : 'flex gap-1'
+                            confirmingDeleteId === item.uuid ? 'invisible flex gap-1' : 'flex gap-1'
                           }
                         >
                           <IconButton
@@ -745,13 +918,13 @@ export function DossierBillingItemsSection({
                             label={t('common.delete', { defaultValue: 'Supprimer' })}
                             tone="danger"
                             disabled={disabled}
-                            onClick={() => setConfirmingDeleteId(item.id)}
+                            onClick={() => setConfirmingDeleteId(item.uuid)}
                           >
                             <TrashIcon />
                           </IconButton>
                         </div>
                       ) : null}
-                      {confirmingDeleteId === item.id ? (
+                      {confirmingDeleteId === item.uuid ? (
                         <div className="absolute right-0 top-1/2 -translate-y-1/2">
                           <DeleteConfirmTray
                             label={t('dossiers.billing_item_delete_confirm_label', {
@@ -765,7 +938,7 @@ export function DossierBillingItemsSection({
                             })}
                             disabled={disabled}
                             onConfirm={async () => {
-                              await onDelete({ dossierId, billingItemId: item.id })
+                              await onDelete({ dossierId, billingItemUuid: item.uuid })
                               setConfirmingDeleteId(null)
                             }}
                             onCancel={() => setConfirmingDeleteId(null)}
@@ -777,10 +950,10 @@ export function DossierBillingItemsSection({
                 ))}
               </ul>
 
-              <div className="shrink-0 border-t border-deep-space bg-[#fbf9f4]">
+              <div className="shrink-0 border-t border-deep-space bg-parchment-bright">
                 {hasAnyDiscount ? (
                   <>
-                    <div className="flex items-center gap-3 px-4 py-1 text-xs text-[#8a8a85]">
+                    <div className="flex items-center gap-3 px-4 py-1 text-xs text-ink-subtle">
                       <span className="w-8 shrink-0" aria-hidden="true" />
                       <span className="w-24 shrink-0" aria-hidden="true" />
                       <span className="min-w-0 flex-1 text-right uppercase tracking-[0.08em]">
@@ -799,7 +972,7 @@ export function DossierBillingItemsSection({
                       <span className="w-28 shrink-0" aria-hidden="true" />
                       <span className="w-16 shrink-0" aria-hidden="true" />
                     </div>
-                    <div className="flex items-center gap-3 px-4 py-1 text-xs text-[#8a8a85]">
+                    <div className="flex items-center gap-3 px-4 py-1 text-xs text-ink-subtle">
                       <span className="w-8 shrink-0" aria-hidden="true" />
                       <span className="w-24 shrink-0" aria-hidden="true" />
                       <span className="min-w-0 flex-1 text-right uppercase tracking-[0.08em]">
@@ -820,10 +993,10 @@ export function DossierBillingItemsSection({
                     </div>
                   </>
                 ) : null}
-                <div className="flex items-center gap-3 border-t-2 border-[#d1cfc6] px-4 py-2 text-sm font-semibold">
+                <div className="flex items-center gap-3 border-t-2 border-hairline-strong px-4 py-2 text-sm font-semibold">
                   <span className="w-8 shrink-0" aria-hidden="true" />
                   <span className="w-24 shrink-0" aria-hidden="true" />
-                  <span className="min-w-0 flex-1 text-right uppercase tracking-[0.08em] text-[#5c5c5a]">
+                  <span className="min-w-0 flex-1 text-right uppercase tracking-[0.08em] text-ink-muted">
                     {t('dossiers.billing_items_total_label', { defaultValue: 'Total' })}
                   </span>
                   <span className="w-20 shrink-0" aria-hidden="true" />
@@ -855,7 +1028,7 @@ export function DossierBillingItemsSection({
           }}
         >
           <div>
-            <h3 className="text-lg font-semibold text-[#1a1a1a]">
+            <h3 className="text-lg font-semibold text-ink">
               {editor.id
                 ? t('dossiers.billing_item_dialog_title_edit', {
                     defaultValue: 'Modifier la prestation'
@@ -896,7 +1069,7 @@ export function DossierBillingItemsSection({
 
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1.08fr)_minmax(20rem,0.92fr)]">
               <section className="flex min-w-0 flex-col gap-3">
-                <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-[#8a8a85]">
+                <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-ink-subtle">
                   {t('dossiers.billing_item_section_service', { defaultValue: 'Prestation' })}
                 </h4>
                 <Field
@@ -906,14 +1079,14 @@ export function DossierBillingItemsSection({
                   })}
                 >
                   <PresetCombobox
-                    value={editor.sourceServicePresetId}
+                    value={editor.sourceServicePresetUuid}
                     presets={activePresets}
                     onSelect={(preset) =>
                       setEditor((current) => {
                         if (!current) return current
-                        if (!preset) return { ...current, sourceServicePresetId: '' }
+                        if (!preset) return { ...current, sourceServicePresetUuid: '' }
                         const previous = activePresets.find(
-                          (entry) => entry.id === current.sourceServicePresetId
+                          (entry) => entry.uuid === current.sourceServicePresetUuid
                         )
                         return applyPresetToEditor(current, preset, previous)
                       })
@@ -962,7 +1135,7 @@ export function DossierBillingItemsSection({
               </section>
 
               <section className="flex min-w-0 flex-col gap-3">
-                <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-[#8a8a85]">
+                <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-ink-subtle">
                   {t('dossiers.billing_item_section_pricing', { defaultValue: 'Tarification' })}
                 </h4>
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -1108,15 +1281,11 @@ export function DossierBillingItemsSection({
                         )
                       }
                     >
-                      <option value="draft">
-                        {t('dossiers.billing_item_status_draft', { defaultValue: 'À facturer' })}
-                      </option>
-                      <option value="billed">
-                        {t('dossiers.billing_item_status_billed', { defaultValue: 'Facturée' })}
-                      </option>
-                      <option value="cancelled">
-                        {t('dossiers.billing_item_status_cancelled', { defaultValue: 'Annulée' })}
-                      </option>
+                      {BILLING_ITEM_STATUS_VALUES.map((status) => (
+                        <option key={status} value={status}>
+                          {billingItemStatusLabel(status, t)}
+                        </option>
+                      ))}
                     </Select>
                   </Field>
                 </div>
@@ -1136,17 +1305,17 @@ export function DossierBillingItemsSection({
                   {hasDiscount ? (
                     <>
                       <div className="flex items-baseline gap-2 text-sm">
-                        <span className="text-xs text-[#8a8a85]">
+                        <span className="text-xs text-ink-subtle">
                           {t('dossiers.billing_item_preview_subtotal', {
                             defaultValue: 'Sous-total HT'
                           })}
                         </span>
-                        <span className="text-[#1a1a1a]">
+                        <span className="text-ink">
                           {formatEurosFromCents(totals.subtotalHtCents)}
                         </span>
                       </div>
                       <div className="flex items-baseline gap-2 text-sm">
-                        <span className="text-xs text-[#8a8a85]">
+                        <span className="text-xs text-ink-subtle">
                           {t('dossiers.billing_item_preview_discount', {
                             defaultValue: 'Remise'
                           })}
@@ -1158,18 +1327,16 @@ export function DossierBillingItemsSection({
                     </>
                   ) : null}
                   <div className="flex items-baseline gap-2 text-sm">
-                    <span className="text-xs text-[#8a8a85]">
+                    <span className="text-xs text-ink-subtle">
                       {t('dossiers.billing_item_preview_total_ht', { defaultValue: 'Total HT' })}
                     </span>
-                    <span className="text-[#1a1a1a]">
-                      {formatEurosFromCents(totals.totalHtCents)}
-                    </span>
+                    <span className="text-ink">{formatEurosFromCents(totals.totalHtCents)}</span>
                   </div>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-xs font-medium uppercase tracking-[0.12em] text-[#5c5c5a]">
+                    <span className="text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
                       {t('dossiers.billing_item_preview_total_ttc', { defaultValue: 'Total TTC' })}
                     </span>
-                    <span className="text-lg font-semibold text-[#1a1a1a]">
+                    <span className="text-lg font-semibold text-ink">
                       {formatEurosFromCents(totals.totalTtcCents)}
                     </span>
                   </div>

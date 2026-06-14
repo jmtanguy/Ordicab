@@ -12,8 +12,8 @@ function makeExecutor(invoices: unknown[]): {
     list: vi.fn().mockResolvedValue(invoices),
     get: vi
       .fn()
-      .mockImplementation(async (id: string) =>
-        invoices.find((inv) => (inv as { id: string }).id === id)
+      .mockImplementation(async (uuid: string) =>
+        invoices.find((inv) => (inv as { uuid: string }).uuid === uuid)
       )
   }
   const dossierService = {
@@ -43,7 +43,8 @@ function makeExecutor(invoices: unknown[]): {
     dossierId: 'dos1',
     dossiers: [
       {
-        id: 'dos1',
+        slug: 'dos1',
+        uuid: 'uuid-dos1',
         name: 'Dupont',
         status: 'active',
         type: 'contentieux',
@@ -70,7 +71,7 @@ function makeExecutor(invoices: unknown[]): {
 }
 
 const INVOICE_A = {
-  id: 'inv-a',
+  uuid: 'inv-a',
   number: 'FAC-2026-001',
   documentType: 'invoice',
   dossierId: 'dos1',
@@ -85,7 +86,7 @@ const INVOICE_A = {
   status: 'issued',
   paymentStatus: 'paid'
 }
-const INVOICE_B = { ...INVOICE_A, id: 'inv-b', number: 'FAC-2026-002', dossierId: 'dos2' }
+const INVOICE_B = { ...INVOICE_A, uuid: 'inv-b', number: 'FAC-2026-002', dossierId: 'dos2' }
 
 describe('DataToolExecutor invoice tools', () => {
   it('invoice_list returns a light summary of all invoices', async () => {
@@ -94,7 +95,7 @@ describe('DataToolExecutor invoice tools', () => {
     const parsed = JSON.parse(raw)
     expect(parsed.invoices).toHaveLength(2)
     expect(parsed.invoices[0]).toEqual(
-      expect.objectContaining({ invoiceId: 'inv-a', number: 'FAC-2026-001', status: 'issued' })
+      expect.objectContaining({ invoiceUuid: 'inv-a', number: 'FAC-2026-001', status: 'issued' })
     )
   })
 
@@ -113,15 +114,23 @@ describe('DataToolExecutor invoice tools', () => {
     const raw = await executor.execute('invoice_list', { dossierId: 'dos2' })
     const parsed = JSON.parse(raw)
     expect(parsed.invoices).toHaveLength(1)
-    expect(parsed.invoices[0].invoiceId).toBe('inv-b')
+    expect(parsed.invoices[0].invoiceUuid).toBe('inv-b')
+  })
+
+  it('invoice_list resolves dossier UUID filters to stored dossier slugs', async () => {
+    const { executor } = makeExecutor([INVOICE_A, INVOICE_B])
+    const raw = await executor.execute('invoice_list', { dossierId: 'uuid-dos1' })
+    const parsed = JSON.parse(raw)
+    expect(parsed.invoices).toHaveLength(1)
+    expect(parsed.invoices[0].invoiceUuid).toBe('inv-a')
   })
 
   it('invoice_get returns the full invoice', async () => {
     const { executor, invoiceService } = makeExecutor([INVOICE_A])
-    const raw = await executor.execute('invoice_get', { invoiceId: 'inv-a' })
+    const raw = await executor.execute('invoice_get', { invoiceUuid: 'inv-a' })
     const parsed = JSON.parse(raw)
     expect(invoiceService.get).toHaveBeenCalledWith('inv-a')
-    expect(parsed.invoice.id).toBe('inv-a')
+    expect(parsed.invoice.uuid).toBe('inv-a')
   })
 
   it('invoice_get exposes formatted euro amounts for nested invoice data', async () => {
@@ -131,7 +140,7 @@ describe('DataToolExecutor invoice tools', () => {
       payments: [{ amountCents: 36000 }]
     }
     const { executor } = makeExecutor([invoice])
-    const raw = await executor.execute('invoice_get', { invoiceId: 'inv-a' })
+    const raw = await executor.execute('invoice_get', { invoiceUuid: 'inv-a' })
     const parsed = JSON.parse(raw)
 
     expect(parsed.invoice.totalTtcEuros).toMatch(/^360,00\s€$/)
@@ -151,7 +160,7 @@ describe('DataToolExecutor invoice tools', () => {
     expect(parsed.dossier.billingItems[0].totalTtcEuros).toMatch(/^300,00\s€$/)
     expect(parsed.dossier.billingItems[0].totalVatDisplay).toMatch(/^50,00\s€$/)
     expect(parsed.dossier.invoices).toHaveLength(1)
-    expect(parsed.dossier.invoices[0].invoiceId ?? parsed.dossier.invoices[0].id).toBe('inv-a')
+    expect(parsed.dossier.invoices[0].uuid).toBe('inv-a')
     expect(parsed.dossier.invoices[0].totalTtcEuros).toMatch(/^360,00\s€$/)
     expect(parsed.dossier.financialSummary.billingItems.byStatus.draft.totalHtCents).toBe(15000)
     expect(parsed.dossier.financialSummary.billingItems.byStatus.billed.totalTtcCents).toBe(30000)
@@ -163,15 +172,15 @@ describe('DataToolExecutor invoice tools', () => {
 
   it('invoice_get reports an error for an unknown invoice', async () => {
     const { executor } = makeExecutor([INVOICE_A])
-    const raw = await executor.execute('invoice_get', { invoiceId: 'missing' })
+    const raw = await executor.execute('invoice_get', { invoiceUuid: 'missing' })
     const parsed = JSON.parse(raw)
     expect(parsed.error).toContain('missing')
   })
 
-  it('invoice_get requires an invoiceId', async () => {
+  it('invoice_get requires an invoiceUuid', async () => {
     const { executor } = makeExecutor([INVOICE_A])
     const raw = await executor.execute('invoice_get', {})
     const parsed = JSON.parse(raw)
-    expect(parsed.error).toBe('invoiceId is required.')
+    expect(parsed.error).toBe('invoiceUuid is required.')
   })
 })

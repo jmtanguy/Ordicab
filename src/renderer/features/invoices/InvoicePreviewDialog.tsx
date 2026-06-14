@@ -4,15 +4,13 @@ import { useTranslation } from 'react-i18next'
 
 import type { InvoiceArtifactIntegrity, InvoiceRecord } from '@shared/types'
 import { Button, DialogShell } from '@renderer/components/ui'
+import { formatEurosFromCents } from '@renderer/lib/billingFormatters'
+import { paymentMethodLabel } from '@renderer/lib/domainLabels'
 import { useInvoiceStore } from '@renderer/stores/invoiceStore'
 
 interface InvoicePreviewDialogProps {
   invoice: InvoiceRecord
   onClose: () => void
-}
-
-function formatCents(cents: number): string {
-  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(cents / 100)
 }
 
 function formatDateIso(iso: string | undefined): string {
@@ -37,14 +35,6 @@ const DOCUMENT_TYPE_LABEL: Record<InvoiceRecord['documentType'], string> = {
   stateRetribution: 'Rétribution AJ (État)'
 }
 
-const PAYMENT_METHOD_LABEL: Record<string, string> = {
-  transfer: 'Virement',
-  card: 'Carte',
-  cash: 'Espèces',
-  check: 'Chèque',
-  other: 'Autre'
-}
-
 export function InvoicePreviewDialog({
   invoice,
   onClose
@@ -61,11 +51,11 @@ export function InvoicePreviewDialog({
   const sign = invoice.documentType === 'creditNote' ? -1 : 1
   const totalsLabel = useMemo(
     () => ({
-      ht: formatCents(sign * invoice.totalHtCents),
-      vat: formatCents(sign * invoice.totalVatCents),
-      ttc: formatCents(sign * invoice.totalTtcCents),
-      paid: formatCents(invoice.paidAmountCents),
-      remaining: formatCents(invoice.remainingAmountCents)
+      ht: formatEurosFromCents(sign * invoice.totalHtCents),
+      vat: formatEurosFromCents(sign * invoice.totalVatCents),
+      ttc: formatEurosFromCents(sign * invoice.totalTtcCents),
+      paid: formatEurosFromCents(invoice.paidAmountCents),
+      remaining: formatEurosFromCents(invoice.remainingAmountCents)
     }),
     [invoice, sign]
   )
@@ -77,11 +67,11 @@ export function InvoicePreviewDialog({
       <div className="flex max-h-[85vh] flex-col gap-4">
         <header className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.16em] text-[#8a8a85]">
+            <p className="text-xs uppercase tracking-[0.16em] text-ink-subtle">
               {DOCUMENT_TYPE_LABEL[invoice.documentType]}
             </p>
-            <h2 className="text-lg font-semibold text-[#1a1a1a]">{invoice.number}</h2>
-            <p className="text-xs text-[#8a8a85]">
+            <h2 className="text-lg font-semibold text-ink">{invoice.number}</h2>
+            <p className="text-xs text-ink-subtle">
               {t('invoices.preview_issued_on', {
                 date: formatDateIso(invoice.issuedAt),
                 defaultValue: 'Émise le {{date}}'
@@ -92,7 +82,7 @@ export function InvoicePreviewDialog({
           <button
             type="button"
             onClick={onClose}
-            className="text-sm text-[#8a8a85] hover:text-[#1a1a1a]"
+            className="text-sm text-ink-subtle hover:text-ink"
             aria-label="Fermer"
           >
             ✕
@@ -113,8 +103,8 @@ export function InvoicePreviewDialog({
             />
           </section>
 
-          <section className="rounded-2xl border border-[#e5e3da] bg-white">
-            <div className="flex h-9 items-center gap-3 border-b border-deep-space bg-[#fbf9f4] px-4 text-xs font-medium uppercase tracking-[0.12em] text-[#8a8a85]">
+          <section className="rounded-2xl border border-hairline bg-white">
+            <div className="flex h-9 items-center gap-3 border-b border-deep-space bg-parchment-bright px-4 text-xs font-medium uppercase tracking-[0.12em] text-ink-subtle">
               <span className="w-24 shrink-0">
                 {t('invoices.preview_col_date', { defaultValue: 'Date' })}
               </span>
@@ -139,33 +129,33 @@ export function InvoicePreviewDialog({
             </div>
             <ul className="divide-y divide-[#efece4]">
               {invoice.lines.map((line) => (
-                <li key={line.billingItemId} className="flex items-start gap-3 px-4 py-2 text-sm">
-                  <span className="w-24 shrink-0 text-xs tabular-nums text-[#8a8a85]">
+                <li key={line.billingItemUuid} className="flex items-start gap-3 px-4 py-2 text-sm">
+                  <span className="w-24 shrink-0 text-xs tabular-nums text-ink-subtle">
                     {formatDateIso(line.date)}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[#1a1a1a]">{line.label}</span>
+                    <span className="block truncate text-ink">{line.label}</span>
                     {line.description ? (
-                      <span className="block truncate text-xs text-[#8a8a85]">
+                      <span className="block truncate text-xs text-ink-subtle">
                         {line.description}
                       </span>
                     ) : null}
                   </span>
-                  <span className="w-16 shrink-0 text-right tabular-nums text-[#5c5c5a]">
+                  <span className="w-16 shrink-0 text-right tabular-nums text-ink-muted">
                     {line.quantity}
                     {line.quantityUnit === 'hours' ? ' h' : ''}
                   </span>
-                  <span className="w-24 shrink-0 text-right tabular-nums text-[#5c5c5a]">
-                    {formatCents(line.unitPriceHtCents)}
+                  <span className="w-24 shrink-0 text-right tabular-nums text-ink-muted">
+                    {formatEurosFromCents(line.unitPriceHtCents)}
                   </span>
-                  <span className="w-28 shrink-0 text-right tabular-nums text-[#5c5c5a]">
-                    {formatCents(sign * line.totalHtCents)}
+                  <span className="w-28 shrink-0 text-right tabular-nums text-ink-muted">
+                    {formatEurosFromCents(sign * line.totalHtCents)}
                   </span>
-                  <span className="w-16 shrink-0 text-right tabular-nums text-[#5c5c5a]">
+                  <span className="w-16 shrink-0 text-right tabular-nums text-ink-muted">
                     {formatVatRate(line.vatRateBasisPoints)}
                   </span>
-                  <span className="w-28 shrink-0 text-right tabular-nums text-[#1a1a1a]">
-                    {formatCents(sign * line.totalTtcCents)}
+                  <span className="w-28 shrink-0 text-right tabular-nums text-ink">
+                    {formatEurosFromCents(sign * line.totalTtcCents)}
                   </span>
                 </li>
               ))}
@@ -173,12 +163,12 @@ export function InvoicePreviewDialog({
           </section>
 
           <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div className="rounded-2xl border border-[#e5e3da] bg-white p-3">
-              <p className="mb-2 text-xs font-medium uppercase tracking-[0.12em] text-[#8a8a85]">
+            <div className="rounded-2xl border border-hairline bg-white p-3">
+              <p className="mb-2 text-xs font-medium uppercase tracking-[0.12em] text-ink-subtle">
                 {t('invoices.preview_vat_breakdown', { defaultValue: 'Ventilation TVA' })}
               </p>
               {invoice.vatBreakdown.length === 0 ? (
-                <p className="text-sm text-[#8a8a85]">—</p>
+                <p className="text-sm text-ink-subtle">—</p>
               ) : (
                 <ul className="space-y-1 text-sm">
                   {invoice.vatBreakdown.map((entry) => (
@@ -186,22 +176,24 @@ export function InvoicePreviewDialog({
                       key={entry.vatRateBasisPoints}
                       className="flex items-center justify-between tabular-nums"
                     >
-                      <span className="text-[#5c5c5a]">
+                      <span className="text-ink-muted">
                         {t('invoices.preview_vat_line', {
                           rate: formatVatRate(entry.vatRateBasisPoints),
-                          base: formatCents(sign * entry.taxableHtCents),
+                          base: formatEurosFromCents(sign * entry.taxableHtCents),
                           defaultValue: 'TVA {{rate}} sur {{base}}'
                         })}
                       </span>
-                      <span className="text-[#1a1a1a]">{formatCents(sign * entry.vatCents)}</span>
+                      <span className="text-ink">
+                        {formatEurosFromCents(sign * entry.vatCents)}
+                      </span>
                     </li>
                   ))}
                 </ul>
               )}
             </div>
 
-            <div className="rounded-2xl border border-[#e5e3da] bg-white p-3">
-              <p className="mb-2 text-xs font-medium uppercase tracking-[0.12em] text-[#8a8a85]">
+            <div className="rounded-2xl border border-hairline bg-white p-3">
+              <p className="mb-2 text-xs font-medium uppercase tracking-[0.12em] text-ink-subtle">
                 {t('invoices.preview_totals', { defaultValue: 'Totaux' })}
               </p>
               <dl className="space-y-1 text-sm tabular-nums">
@@ -219,22 +211,22 @@ export function InvoicePreviewDialog({
           </section>
 
           {invoice.payments.length > 0 ? (
-            <section className="rounded-2xl border border-[#e5e3da] bg-white p-3">
-              <p className="mb-2 text-xs font-medium uppercase tracking-[0.12em] text-[#8a8a85]">
+            <section className="rounded-2xl border border-hairline bg-white p-3">
+              <p className="mb-2 text-xs font-medium uppercase tracking-[0.12em] text-ink-subtle">
                 {t('invoices.preview_payments', { defaultValue: 'Règlements' })}
               </p>
               <ul className="divide-y divide-[#efece4] text-sm">
                 {invoice.payments.map((payment) => (
-                  <li key={payment.id} className="flex items-center justify-between gap-3 py-1.5">
-                    <span className="tabular-nums text-[#5c5c5a]">
+                  <li key={payment.uuid} className="flex items-center justify-between gap-3 py-1.5">
+                    <span className="tabular-nums text-ink-muted">
                       {formatDateIso(payment.paidAt)}
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-[#1a1a1a]">
-                      {PAYMENT_METHOD_LABEL[payment.method] ?? payment.method}
+                    <span className="min-w-0 flex-1 truncate text-ink">
+                      {paymentMethodLabel(payment.method, t)}
                       {payment.reference ? ` · ${payment.reference}` : ''}
                     </span>
                     <span className="tabular-nums text-emerald-700">
-                      {formatCents(payment.amountCents)}
+                      {formatEurosFromCents(payment.amountCents)}
                     </span>
                   </li>
                 ))}
@@ -243,15 +235,15 @@ export function InvoicePreviewDialog({
           ) : null}
 
           {invoice.originalInvoiceRefs.length > 0 ? (
-            <section className="rounded-2xl border border-[#e5e3da] bg-white p-3 text-sm">
-              <p className="mb-1 text-xs font-medium uppercase tracking-[0.12em] text-[#8a8a85]">
+            <section className="rounded-2xl border border-hairline bg-white p-3 text-sm">
+              <p className="mb-1 text-xs font-medium uppercase tracking-[0.12em] text-ink-subtle">
                 {t('invoices.preview_original_invoices', { defaultValue: "Factures d'origine" })}
               </p>
-              <p className="text-[#1a1a1a]">
+              <p className="text-ink">
                 {invoice.originalInvoiceRefs.map((ref) => ref.number).join(', ')}
               </p>
               {invoice.correctionReason ? (
-                <p className="mt-1 text-xs text-[#5c5c5a]">
+                <p className="mt-1 text-xs text-ink-muted">
                   {t('invoices.preview_correction_reason', {
                     reason: invoice.correctionReason,
                     defaultValue: 'Motif : {{reason}}'
@@ -262,8 +254,8 @@ export function InvoicePreviewDialog({
           ) : null}
 
           {invoice.notes ? (
-            <section className="rounded-2xl border border-[#e5e3da] bg-white p-3 text-sm text-[#1a1a1a]">
-              <p className="mb-1 text-xs font-medium uppercase tracking-[0.12em] text-[#8a8a85]">
+            <section className="rounded-2xl border border-hairline bg-white p-3 text-sm text-ink">
+              <p className="mb-1 text-xs font-medium uppercase tracking-[0.12em] text-ink-subtle">
                 {t('invoices.preview_notes', { defaultValue: 'Notes' })}
               </p>
               <p className="whitespace-pre-wrap">{invoice.notes}</p>
@@ -271,8 +263,8 @@ export function InvoicePreviewDialog({
           ) : null}
         </div>
 
-        <footer className="flex items-center justify-between gap-2 border-t border-[#e5e3da] pt-3">
-          <p className="text-xs text-[#8a8a85]">
+        <footer className="flex items-center justify-between gap-2 border-t border-hairline pt-3">
+          <p className="text-xs text-ink-subtle">
             {invoice.generatedDocumentName ?? 'Aucun document généré'}
           </p>
           <div className="flex gap-2">
@@ -286,7 +278,7 @@ export function InvoicePreviewDialog({
               onClick={async () => {
                 setIsOpeningPdf(true)
                 try {
-                  const outcome = await openPdf({ invoiceId: invoice.id })
+                  const outcome = await openPdf({ invoiceUuid: invoice.uuid })
                   if (outcome && outcome.integrity !== 'ok') {
                     setIntegrityNotice({ target: 'pdf', integrity: outcome.integrity })
                   } else if (outcome) {
@@ -303,7 +295,7 @@ export function InvoicePreviewDialog({
               type="button"
               disabled={!hasDocument}
               onClick={async () => {
-                const outcome = await openDocument({ invoiceId: invoice.id })
+                const outcome = await openDocument({ invoiceUuid: invoice.uuid })
                 if (outcome && outcome.integrity !== 'ok') {
                   setIntegrityNotice({ target: 'docx', integrity: outcome.integrity })
                 } else if (outcome) {
@@ -335,24 +327,26 @@ interface PartyCardProps {
 function PartyCard({ title, snapshot, fallbackName }: PartyCardProps): React.JSX.Element {
   const name = snapshot?.name ?? fallbackName
   return (
-    <div className="rounded-2xl border border-[#e5e3da] bg-white p-3 text-sm">
-      <p className="mb-1 text-xs font-medium uppercase tracking-[0.12em] text-[#8a8a85]">{title}</p>
-      <p className="font-medium text-[#1a1a1a]">{name ?? '—'}</p>
+    <div className="rounded-2xl border border-hairline bg-white p-3 text-sm">
+      <p className="mb-1 text-xs font-medium uppercase tracking-[0.12em] text-ink-subtle">
+        {title}
+      </p>
+      <p className="font-medium text-ink">{name ?? '—'}</p>
       {snapshot?.address ? (
-        <p className="mt-1 whitespace-pre-wrap text-xs text-[#5c5c5a]">{snapshot.address}</p>
+        <p className="mt-1 whitespace-pre-wrap text-xs text-ink-muted">{snapshot.address}</p>
       ) : null}
       {snapshot?.siret ? (
-        <p className="mt-1 text-xs text-[#5c5c5a]">
+        <p className="mt-1 text-xs text-ink-muted">
           {'SIRET'} {snapshot.siret}
         </p>
       ) : null}
       {snapshot?.vatNumber ? (
-        <p className="text-xs text-[#5c5c5a]">
+        <p className="text-xs text-ink-muted">
           {'TVA'} {snapshot.vatNumber}
         </p>
       ) : null}
       {snapshot?.iban ? (
-        <p className="text-xs text-[#5c5c5a]">
+        <p className="text-xs text-ink-muted">
           {'IBAN'} {snapshot.iban}
         </p>
       ) : null}
@@ -407,14 +401,10 @@ function IntegrityBanner({ notice, onDismiss }: IntegrityBannerProps): React.JSX
 
 function Row({ label, value, strong, accent }: RowProps): React.JSX.Element {
   const accentClass =
-    accent === 'emerald'
-      ? 'text-emerald-700'
-      : accent === 'amber'
-        ? 'text-amber-700'
-        : 'text-[#1a1a1a]'
+    accent === 'emerald' ? 'text-emerald-700' : accent === 'amber' ? 'text-amber-700' : 'text-ink'
   return (
     <div className={`flex items-center justify-between ${strong ? 'font-semibold' : ''}`}>
-      <dt className="text-[#5c5c5a]">{label}</dt>
+      <dt className="text-ink-muted">{label}</dt>
       <dd className={accentClass}>{value}</dd>
     </div>
   )

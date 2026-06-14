@@ -29,7 +29,8 @@ import type {
   AppLocale,
   ContactRecord,
   DocumentRecord,
-  DossierSummary
+  DossierSummary,
+  InternalAiCommand
 } from '@shared/types'
 import { AI_DELEGATED_MODES, IpcErrorCode } from '@shared/types'
 import type { EntityProfile } from '@shared/validation/entity'
@@ -37,6 +38,8 @@ import { entityProfileSchema } from '@shared/validation/entity'
 
 import { PiiPseudonymizer } from '../../lib/aiEmbedded/pii/piiPseudonymizer'
 import { buildPiiPseudonymizer } from '../../lib/aiEmbedded/pii/piiContextBuilder'
+import { readPiiPersonaMap } from '../../lib/aiEmbedded/pii/personaRegistry'
+import { readDossierPiiMapping } from '../../lib/aiEmbedded/pii/piiMappingStore'
 import { isModelPresent, NER_MODEL } from '../../lib/aiEmbedded/modelDownloadService'
 import {
   revertJsonValueWithMappingEntries,
@@ -88,7 +91,7 @@ async function pathExists(filePath: string): Promise<boolean> {
   }
 }
 
-interface ReadAiSettingsResult {
+export interface ReadAiSettingsResult {
   mode: AiMode
   piiEnabled: boolean
   piiWordlist: string[]
@@ -99,7 +102,7 @@ interface ReadAiSettingsResult {
  * @param stateFilePath
  * @returns persistent states
  */
-async function readAiSettings(stateFilePath: string): Promise<ReadAiSettingsResult> {
+export async function readAiSettings(stateFilePath: string): Promise<ReadAiSettingsResult> {
   const defaultResult: ReadAiSettingsResult = { mode: 'none', piiEnabled: true, piiWordlist: [] }
   if (!(await pathExists(stateFilePath))) return defaultResult
 
@@ -130,11 +133,35 @@ async function readAiSettings(stateFilePath: string): Promise<ReadAiSettingsResu
   }
 }
 
-export interface DomainServiceLike {
+function normalizeIntentDossierReferences(
+  intent: InternalAiCommand,
+  dossiers: DossierSummary[]
+): InternalAiCommand {
+  let normalized = intent
+  const dossierId = (normalized as { dossierId?: unknown }).dossierId
+
+  if (typeof dossierId === 'string') {
+    const resolved = resolveDossierRef(dossierId, dossiers)
+    if (resolved && resolved !== dossierId) {
+      normalized = { ...normalized, dossierId: resolved } as InternalAiCommand
+    }
+  }
+
+  if (normalized.type === 'dossier_update') {
+    const resolved = resolveDossierRef(normalized.id, dossiers)
+    if (resolved && resolved !== normalized.id) {
+      normalized = { ...normalized, id: resolved }
+    }
+  }
+
+  return normalized
+}
+
+interface DomainServiceLike {
   getStatus(): Promise<{ registeredDomainPath: string | null; isAvailable: boolean }>
 }
 
-export interface LocaleServiceLike {
+interface LocaleServiceLike {
   getLocale(): AppLocale
 }
 
@@ -380,14 +407,21 @@ export function createAiService(options: AiServiceOptions): AiService {
 
       // RGPD gate: remote calls send pseudonymized text to a third party. The
       // NER model is the position-oracle that makes pseudonymisation reliable;
-      // without it, detection silently degrades to regex-only. So when PII
-      // protection is enabled, refuse the remote call until the NER model has
-      // finished downloading, rather than leak under-redacted text.
-      if (piiEnabled && nerModelPath) {
+      // without it, detection silently degrades to regex-only. When PII
+      // protection is enabled this gate FAILS CLOSED — if the NER model is
+      // unavailable (not installed, or still downloading) we refuse the remote
+      // call rather than leak under-redacted text. Confidentiality is the
+      // product's guarantee, so a paused action is preferable to a silent
+      // regex-only downgrade.
+      if (piiEnabled) {
+        // `isNerModelReady` is the single source of truth — its default
+        // implementation already returns false when `nerModelPath` is unset.
         const nerReady = await isNerModelReady()
         if (!nerReady) {
           throw new AiRuntimeError(
-            'PII protection is still downloading. Remote AI is paused until it finishes, to avoid sending under-redacted text.',
+            nerModelPath
+              ? 'PII protection is still downloading. Remote AI is paused until it finishes, to avoid sending under-redacted text.'
+              : 'PII protection is enabled but its local model is not installed. Remote AI is paused to avoid sending under-redacted text — install the model, or disable PII protection in Settings.',
             IpcErrorCode.AI_RUNTIME_UNAVAILABLE
           )
         }
@@ -417,7 +451,7 @@ export function createAiService(options: AiServiceOptions): AiService {
           .list()
           .then((ts) =>
             ts.map((t) => ({
-              id: t.id,
+              id: t.uuid,
               name: t.name,
               description: t.description,
               macros: t.macros
@@ -436,17 +470,29 @@ export function createAiService(options: AiServiceOptions): AiService {
       // - PiiPseudonymizer context (contacts + dossierDetail.keyDates/keyReferences)
       // - text_generate fallback path
       // TODO: consider making this lazy once PII context can be deferred too.
-      const [contacts, documents, dossierDetail] = await Promise.all([
-        dossierId
-          ? contactService.list(dossierId).catch(() => [] as ContactRecord[])
-          : Promise.resolve([] as ContactRecord[]),
-        dossierId
-          ? documentService.listDocuments({ dossierId }).catch(() => [] as DocumentRecord[])
-          : Promise.resolve([] as DocumentRecord[]),
-        dossierId
-          ? dossierService.getDossier({ dossierId }).catch(() => null)
-          : Promise.resolve(null)
-      ])
+      const [contacts, documents, dossierDetail, personas, persistedPiiEntries] = await Promise.all(
+        [
+          dossierId
+            ? contactService.list(dossierId).catch(() => [] as ContactRecord[])
+            : Promise.resolve([] as ContactRecord[]),
+          dossierId
+            ? documentService.listDocuments({ dossierId }).catch(() => [] as DocumentRecord[])
+            : Promise.resolve([] as DocumentRecord[]),
+          dossierId
+            ? dossierService.getDossier({ dossierId }).catch(() => null)
+            : Promise.resolve(null),
+          piiEnabled ? readPiiPersonaMap(stateFilePath).catch(() => ({})) : Promise.resolve({}),
+          // Read-only view of the dossier's persisted PII mapping (written by
+          // the Cowork export): the assistant adopts the same fakes but never
+          // writes prose-derived entries back into the archive.
+          piiEnabled && dossierId
+            ? Promise.resolve()
+                .then(() => documentService.resolveRegisteredDossierRoot({ dossierId }))
+                .then((dossierPath) => (dossierPath ? readDossierPiiMapping(dossierPath) : []))
+                .catch(() => [] as MappingSnapshotEntry[])
+            : Promise.resolve([] as MappingSnapshotEntry[])
+        ]
+      )
 
       // ── PII pseudonymization (remote mode only) ───────────────────────────
       // piiPseudo is created here, in this service, for each command.
@@ -463,11 +509,15 @@ export function createAiService(options: AiServiceOptions): AiService {
             currentDate,
             locale: appLocale as 'fr' | 'en',
             nerModelPath,
+            personas,
             // Pre-seed with prior-turn mappings so the new turn keeps stable
             // fakes for already-known originals AND pickUniqueFake dodges
             // fakes taken by other originals — eliminating the cross-turn
             // collisions that produced ambiguous bare-fake decoding.
-            priorEntries: piiDecodeLedger
+            // Conversation ledger first: importPriorEntries is first-entry-wins,
+            // so mid-conversation decode stability beats the persisted Cowork
+            // mapping, and new conversations adopt the Cowork/persona fakes.
+            priorEntries: [...piiDecodeLedger, ...persistedPiiEntries]
           })
         : null
       // Two helpers sharing the same piiPseudo instance (and thus the same mapping):
@@ -514,13 +564,13 @@ export function createAiService(options: AiServiceOptions): AiService {
 
       const activePromptDossierId =
         piiPseudo && dossierId
-          ? (dossiers.find((d) => d.id === dossierId || d.uuid === dossierId)?.uuid ?? dossierId)
+          ? (dossiers.find((d) => d.slug === dossierId || d.uuid === dossierId)?.uuid ?? dossierId)
           : (dossierId ?? undefined)
       // id/uuid only: buildToolSystemPrompt resolves the active dossier from this
       // list but never renders dossier names — no PII reaches the prompt, so no
       // pseudonymization pass is needed here.
       const promptDossiers = dossiers.map((d: DossierSummary) => ({
-        id: piiPseudo ? (d.uuid ?? d.id) : d.id,
+        id: piiPseudo ? (d.uuid ?? d.slug) : d.slug,
         uuid: d.uuid
       }))
 
@@ -563,7 +613,7 @@ export function createAiService(options: AiServiceOptions): AiService {
         const directIntent = {
           type: 'document_generate' as const,
           dossierId: input.context.dossierId ?? '',
-          templateId: input.context.templateId ?? '',
+          templateUuid: input.context.templateUuid ?? '',
           tagOverrides
         }
         rememberPiiDecodeEntries()
@@ -640,8 +690,9 @@ export function createAiService(options: AiServiceOptions): AiService {
       logToolLoopEntries(aiAgentRuntime.getLastToolLoopEntries(), revertPiiText)
       const intentDebugTrace = aiAgentRuntime.getDebugTrace() ?? undefined
 
-      // Revert any anonymized values the LLM echoed back in the intent fields.
-      const revertedIntent = revertPiiJson(intent)
+      // Revert any anonymized values the LLM echoed back in the intent fields,
+      // then normalize dossier references to the filesystem slug expected by services.
+      const revertedIntent = normalizeIntentDossierReferences(revertPiiJson(intent), dossiers)
 
       console.log(`\n╔══ AI INTENT (${Date.now() - intentT0}ms) ${'═'.repeat(40)}`)
       console.log(`║ type       : ${revertedIntent.type}`)

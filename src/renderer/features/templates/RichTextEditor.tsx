@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import Color from '@tiptap/extension-color'
 import FontFamily from '@tiptap/extension-font-family'
 import TextAlign from '@tiptap/extension-text-align'
@@ -10,11 +10,23 @@ import { useTranslation } from 'react-i18next'
 
 import { cn } from '@renderer/lib/utils'
 import { Button } from '@renderer/components/ui'
-import { ensureTemplateHtml, extractTagPath, getTemplateEditorHtml } from '@shared/templateContent'
-import { buildTagPathLocalizer, templateRoutineCatalog } from '@shared/templateRoutines'
+import {
+  buildKnownTagIndex,
+  ensureTemplateHtml,
+  extractTagPath,
+  getTemplateEditorHtml,
+  isValidTagPath
+} from '@shared/templateContent'
+import {
+  buildTagPathLocalizer,
+  templateRoutineCatalog,
+  type TemplateRoutineEntry
+} from '@shared/templateRoutines'
 
 import { FontSizeExtension } from './FontSizeExtension'
 import { SmartTagExtension } from './SmartTagExtension'
+import { TagSuggestionExtension } from './TagSuggestionExtension'
+import { buildTagSuggestionItems } from './tagSuggestionItems'
 
 interface RichTextEditorProps {
   ariaLabel: string
@@ -31,6 +43,12 @@ interface RichTextEditorProps {
    * full brightness, no dimming, no border. Suitable for the save/review step.
    */
   documentPreview?: boolean
+  /**
+   * Tag catalog used to validate chips (unknown tags get a warning style) and
+   * to power the `{{` autocomplete popup. When omitted, all tags are treated
+   * as known and autocomplete is disabled.
+   */
+  tagSuggestions?: TemplateRoutineEntry[]
 }
 
 const FONT_FAMILY_OPTIONS = [
@@ -192,7 +210,7 @@ function ToolbarButton({
       title={label}
       aria-label={label}
       className={cn(
-        'h-8 w-8 p-0 border border-[#e5e3da] bg-[#f4f3ee] text-[#1a1a1a] hover:bg-[#e4e1d5] hover:text-[#1a1a1a]',
+        'h-8 w-8 p-0 border border-hairline bg-parchment text-ink hover:bg-parchment-dim hover:text-ink',
         isActive && 'border-aurora/45 bg-aurora/10 text-aurora-soft'
       )}
       onClick={onClick}
@@ -221,7 +239,7 @@ function ToolbarTextButton({
       title={label}
       aria-label={label}
       className={cn(
-        'h-8 px-2 border border-[#e5e3da] bg-[#f4f3ee] text-[#1a1a1a] hover:bg-[#e4e1d5] hover:text-[#1a1a1a] font-bold text-xs',
+        'h-8 px-2 border border-hairline bg-parchment text-ink hover:bg-parchment-dim hover:text-ink font-bold text-xs',
         isActive && 'border-aurora/45 bg-aurora/10 text-aurora-soft'
       )}
       onClick={onClick}
@@ -234,7 +252,7 @@ function ToolbarTextButton({
 // ── Toolbar separator ──────────────────────────────────────────────────────────
 
 function ToolbarSep(): React.JSX.Element {
-  return <span className="h-5 w-px bg-[#e4e1d5]" aria-hidden="true" />
+  return <span className="h-5 w-px bg-parchment-dim" aria-hidden="true" />
 }
 
 // ── RichTextEditor ────────────────────────────────────────────────────────────
@@ -246,7 +264,8 @@ export function RichTextEditor({
   tagInsertRef,
   textInsertRef,
   readOnly = false,
-  documentPreview = false
+  documentPreview = false,
+  tagSuggestions
 }: RichTextEditorProps): React.JSX.Element {
   const isReadOnly = readOnly || documentPreview
   const { t, i18n } = useTranslation()
@@ -256,6 +275,27 @@ export function RichTextEditor({
   const localizeTagPath = useMemo(
     () => buildTagPathLocalizer(templateRoutineCatalog, i18n.language),
     [i18n.language]
+  )
+
+  const knownTagIndex = useMemo(
+    () => (tagSuggestions ? buildKnownTagIndex(tagSuggestions) : null),
+    [tagSuggestions]
+  )
+  const isKnownTagPath = useCallback(
+    (path: string): boolean => (knownTagIndex ? isValidTagPath(path, knownTagIndex) : true),
+    [knownTagIndex]
+  )
+
+  const getSuggestionItems = useCallback(
+    (query: string) =>
+      buildTagSuggestionItems(
+        tagSuggestions ?? [],
+        query,
+        i18n.language,
+        localizeTagPath,
+        (group) => t(`templates.tagPanel.groups.${group}`)
+      ),
+    [tagSuggestions, i18n.language, localizeTagPath, t]
   )
 
   const editor = useEditor({
@@ -273,7 +313,15 @@ export function RichTextEditor({
       TextAlign.configure({
         types: ['heading', 'paragraph']
       }),
-      SmartTagExtension.configure({ localizeTagPath })
+      SmartTagExtension.configure({ localizeTagPath, isKnownTagPath }),
+      ...(tagSuggestions && !isReadOnly
+        ? [
+            TagSuggestionExtension.configure({
+              getItems: getSuggestionItems,
+              emptyLabel: t('templates.autocomplete.noResults')
+            })
+          ]
+        : [])
     ],
     content: normalizedContent,
     editorProps: {
@@ -313,17 +361,23 @@ export function RichTextEditor({
     editor.setEditable(!isReadOnly)
   }, [editor, isReadOnly])
 
-  // Re-render SmartTag chips when locale changes
+  // Re-render SmartTag chips when locale or the validation catalog changes,
+  // and keep the autocomplete reading the latest catalog.
   useEffect(() => {
     if (!editor) return
     editor.extensionManager.extensions.forEach((ext) => {
       if (ext.name === 'smartTag') {
         ext.options.localizeTagPath = localizeTagPath
+        ext.options.isKnownTagPath = isKnownTagPath
+      }
+      if (ext.name === 'tagSuggestion') {
+        ext.options.getItems = getSuggestionItems
+        ext.options.emptyLabel = t('templates.autocomplete.noResults')
       }
     })
     const html = editor.getHTML()
     editor.commands.setContent(html, { emitUpdate: false })
-  }, [editor, localizeTagPath])
+  }, [editor, localizeTagPath, isKnownTagPath, getSuggestionItems, t])
 
   useEffect(() => {
     return () => {
@@ -361,7 +415,7 @@ export function RichTextEditor({
 
   if (!editor) {
     return (
-      <div className="rounded-xl border border-[#e5e3da] bg-[#f4f3ee] px-4 py-6 text-sm text-[#1a1a1a]">
+      <div className="rounded-xl border border-hairline bg-parchment px-4 py-6 text-sm text-ink">
         {t('templates.loading')}
       </div>
     )
@@ -375,14 +429,14 @@ export function RichTextEditor({
           documentPreview
             ? 'border-0 bg-white'
             : isReadOnly
-              ? 'border border-[#e5e3da] bg-white opacity-80'
-              : 'border border-[#d1cfc6]'
+              ? 'border border-hairline bg-white opacity-80'
+              : 'border border-hairline-strong'
         )}
       >
         {/* Toolbar — dark */}
         <div
           className={cn(
-            'flex shrink-0 flex-wrap items-center gap-1.5 border-b border-[#e5e3da] bg-[#f4f3ee] px-3 py-2',
+            'flex shrink-0 flex-wrap items-center gap-1.5 border-b border-hairline bg-parchment px-3 py-2',
             isReadOnly && 'hidden'
           )}
         >
@@ -390,7 +444,7 @@ export function RichTextEditor({
           <select
             aria-label={t('templates.richText.fontFamily')}
             title={t('templates.richText.fontFamily')}
-            className="h-8 rounded-lg border border-[#e5e3da] bg-[#e4e1d5] px-2 py-0 text-xs text-[#1a1a1a] focus:outline-none"
+            className="h-8 rounded-lg border border-hairline bg-parchment-dim px-2 py-0 text-xs text-ink focus:outline-none"
             value={editor.getAttributes('textStyle').fontFamily ?? ''}
             onChange={(event) => {
               const nextValue = event.target.value
@@ -413,7 +467,7 @@ export function RichTextEditor({
           <select
             aria-label={t('templates.richText.fontSize')}
             title={t('templates.richText.fontSize')}
-            className="h-8 w-20 rounded-lg border border-[#e5e3da] bg-[#e4e1d5] px-2 py-0 text-xs text-[#1a1a1a] focus:outline-none"
+            className="h-8 w-20 rounded-lg border border-hairline bg-parchment-dim px-2 py-0 text-xs text-ink focus:outline-none"
             value={editor.getAttributes('textStyle').fontSize ?? ''}
             onChange={(event) => {
               const nextValue = event.target.value
@@ -434,7 +488,7 @@ export function RichTextEditor({
 
           {/* Color */}
           <label
-            className="flex h-8 items-center gap-1.5 rounded-lg border border-[#e5e3da] bg-[#e4e1d5] px-2 text-xs text-[#1a1a1a] cursor-pointer"
+            className="flex h-8 items-center gap-1.5 rounded-lg border border-hairline bg-parchment-dim px-2 text-xs text-ink cursor-pointer"
             title={t('templates.richText.color')}
           >
             <svg

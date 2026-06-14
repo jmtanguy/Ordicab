@@ -28,7 +28,7 @@ function ToggleSwitch({
       aria-checked={checked}
       aria-label={ariaLabel}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${checked ? 'bg-aurora' : 'bg-[#d1cfc6]'}`}
+      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${checked ? 'bg-aurora' : 'bg-hairline-strong'}`}
     >
       <span
         className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform ${checked ? 'translate-x-5' : 'translate-x-0'}`}
@@ -53,7 +53,7 @@ function Pill({
       className={`rounded-full border px-3 py-1 text-xs transition ${
         active
           ? 'border-aurora/30 bg-aurora/10 text-aurora'
-          : 'border-[#e5e3da] bg-white text-[#5c5c5a] hover:border-aurora/40 hover:text-[#1a1a1a]'
+          : 'border-hairline bg-white text-ink-muted hover:border-aurora/40 hover:text-ink'
       }`}
     >
       {children}
@@ -124,11 +124,11 @@ export function ReminderDialog({
   return (
     <DialogShell aria-label={t('reminders.section_title')} size="md" panelClassName="max-w-2xl">
       <div className="mb-4 flex shrink-0 items-center justify-between">
-        <h2 className="text-lg font-semibold text-[#1a1a1a]">{t('reminders.section_title')}</h2>
+        <h2 className="text-lg font-semibold text-ink">{t('reminders.section_title')}</h2>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-lg p-1.5 text-[#5c5c5a] transition hover:bg-[#e4e1d5] hover:text-[#1a1a1a]"
+          className="rounded-lg p-1.5 text-ink-muted transition hover:bg-parchment-dim hover:text-ink"
           aria-label={t('common.close')}
         >
           ✕
@@ -137,12 +137,10 @@ export function ReminderDialog({
 
       <div className="flex flex-col gap-4">
         {/* Master switch */}
-        <div className="flex items-center justify-between rounded-xl border border-[#d1cfc6] bg-[#f4f3ee] p-3">
+        <div className="flex items-center justify-between rounded-xl border border-hairline-strong bg-parchment p-3">
           <div className="flex flex-col gap-0.5">
-            <span className="text-sm font-semibold text-[#1a1a1a]">
-              {t('reminders.enabled_label')}
-            </span>
-            <span className="text-xs text-[#5c5c5a]">{t('reminders.enabled_description')}</span>
+            <span className="text-sm font-semibold text-ink">{t('reminders.enabled_label')}</span>
+            <span className="text-xs text-ink-muted">{t('reminders.enabled_description')}</span>
           </div>
           <ToggleSwitch
             checked={draft.enabled}
@@ -156,10 +154,10 @@ export function ReminderDialog({
           className={`space-y-2 ${draft.enabled ? '' : 'pointer-events-none opacity-50'}`}
           disabled={!draft.enabled}
         >
-          <legend className="text-xs font-semibold uppercase tracking-[0.12em] text-[#8a8a85]">
+          <legend className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-subtle">
             {t('reminders.lead_times_label')}
           </legend>
-          <p className="text-xs text-[#5c5c5a]">{t('reminders.lead_times_description')}</p>
+          <p className="text-xs text-ink-muted">{t('reminders.lead_times_description')}</p>
           <div className="flex flex-wrap gap-1.5">
             {REMINDER_LEAD_DAYS_VALUES.map((value) => (
               <Pill
@@ -178,10 +176,10 @@ export function ReminderDialog({
           className={`space-y-2 ${draft.enabled ? '' : 'pointer-events-none opacity-50'}`}
           disabled={!draft.enabled}
         >
-          <legend className="text-xs font-semibold uppercase tracking-[0.12em] text-[#8a8a85]">
+          <legend className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-subtle">
             {t('reminders.trigger_tags_label')}
           </legend>
-          <p className="text-xs text-[#5c5c5a]">
+          <p className="text-xs text-ink-muted">
             {draft.triggerTags.length === 0
               ? t('reminders.trigger_tags_all_hint')
               : t('reminders.trigger_tags_some_hint')}

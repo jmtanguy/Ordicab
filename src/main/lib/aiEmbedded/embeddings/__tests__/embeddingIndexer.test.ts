@@ -93,6 +93,7 @@ describe('indexDocumentEmbeddings', () => {
       embeddings: {
         model: 'Xenova/bge-m3',
         dim: 4,
+        pooling: 'cls',
         chunks: [
           {
             charStart: 0,
@@ -117,6 +118,7 @@ describe('indexDocumentEmbeddings', () => {
       embeddings: {
         model: 'Xenova/bge-m3',
         dim: 4,
+        pooling: 'cls',
         chunks: [
           {
             charStart: 0,

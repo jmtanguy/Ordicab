@@ -42,7 +42,7 @@ export interface UpdaterLike {
   quitAndInstall(isSilent?: boolean, isForceRunAfter?: boolean): void
 }
 
-export interface UpdaterNotifier {
+interface UpdaterNotifier {
   status(status: UpdaterStatus): void
   progress(progress: UpdaterProgressPayload): void
 }

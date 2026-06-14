@@ -41,11 +41,23 @@ export interface ResolvedInvoiceNumber {
 
 export function consumeNextInvoiceNumber(
   settings: InvoiceSettings,
-  issuedAt: Date
+  issuedAt: Date,
+  /**
+   * Floor enforced against the highest number already issued (for this document
+   * type / year). Makes numbering crash-safe — if a previous issuance saved its
+   * record but crashed before persisting the advanced counter, the next call
+   * still moves forward instead of reusing the number — and prevents a manually
+   * lowered `nextSequence` from colliding with an issued number.
+   */
+  minSequenceValue = 1
 ): ResolvedInvoiceNumber {
   const year = issuedAt.getFullYear()
   const resetByYear = settings.resetSequenceYearly && settings.currentSequenceYear !== year
-  const sequenceValue = resetByYear ? 1 : Math.max(1, settings.nextSequence)
+  const sequenceValue = Math.max(
+    1,
+    minSequenceValue,
+    resetByYear ? 1 : Math.max(1, settings.nextSequence)
+  )
   const number = formatInvoiceNumber(settings.numberPattern, {
     sequence: sequenceValue,
     sequencePadding: settings.sequencePadding,

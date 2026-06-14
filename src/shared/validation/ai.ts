@@ -29,15 +29,30 @@ export const aiSettingsSaveSchema = z.object({
   claudeCoworkEnabled: z.boolean().optional()
 })
 
+const piiPersonaSchema = z.object({
+  roleKey: z.string().min(1),
+  roleLabel: z.string().min(1),
+  // Every name token must survive the ≥4-char revert filter, enforced more
+  // precisely by isPersonaNameSafe — here we only guard the obvious cases.
+  firstName: z.string().min(4),
+  lastName: z.string().min(4),
+  gender: z.enum(['M', 'F', 'N']),
+  institution: z.string().optional()
+})
+
+export const piiPersonaSettingsSchema = z.object({
+  personas: z.array(piiPersonaSchema)
+})
+
 const documentMentionSchema = z.object({
   uuid: z.string().min(1),
   filename: z.string().min(1)
 })
 
-export const aiCommandContextSchema = z.object({
+const aiCommandContextSchema = z.object({
   dossierId: z.string().optional(),
-  contactId: z.string().optional(),
-  templateId: z.string().optional(),
+  contactUuid: z.string().optional(),
+  templateUuid: z.string().optional(),
   pendingTagPaths: z.array(z.string().min(1)).optional(),
   documentMentions: z.array(documentMentionSchema).optional()
 })
@@ -53,135 +68,3 @@ export const aiCommandInputSchema = z.object({
   model: z.string().optional(),
   history: z.array(aiChatHistoryEntrySchema).optional()
 })
-
-export const aiIntentSchema = z.discriminatedUnion('type', [
-  z.object({
-    type: z.literal('contact_lookup'),
-    query: z.string().optional(),
-    dossierId: z.string().optional()
-  }),
-  z.object({
-    type: z.literal('contact_get'),
-    contactId: z.string(),
-    dossierId: z.string().optional()
-  }),
-  z.object({
-    type: z.literal('contact_create'),
-    firstName: z.string().optional(),
-    lastName: z.string().optional(),
-    role: z.string().optional(),
-    email: z.string().optional(),
-    phone: z.string().optional(),
-    title: z.string().optional(),
-    institution: z.string().optional(),
-    addressLine: z.string().optional(),
-    addressLine2: z.string().optional(),
-    city: z.string().optional(),
-    zipCode: z.string().optional(),
-    country: z.string().optional(),
-    information: z.string().optional(),
-    customFields: z.record(z.string(), z.string()).optional()
-  }),
-  z.object({
-    type: z.literal('contact_update'),
-    contactId: z.string(),
-    firstName: z.string().optional(),
-    lastName: z.string().optional(),
-    role: z.string().optional(),
-    email: z.string().optional(),
-    phone: z.string().optional(),
-    title: z.string().optional(),
-    institution: z.string().optional(),
-    addressLine: z.string().optional(),
-    addressLine2: z.string().optional(),
-    city: z.string().optional(),
-    zipCode: z.string().optional(),
-    country: z.string().optional(),
-    information: z.string().optional(),
-    customFields: z.record(z.string(), z.string()).optional()
-  }),
-  z.object({ type: z.literal('contact_delete'), contactId: z.string() }),
-  z.object({ type: z.literal('template_select'), templateName: z.string() }),
-  z.object({ type: z.literal('template_list') }),
-  z.object({ type: z.literal('field_populate'), contactId: z.string(), templateId: z.string() }),
-  z.object({
-    type: z.literal('document_generate'),
-    dossierId: z.string(),
-    templateId: z.string(),
-    contactId: z.string().optional()
-  }),
-  z.object({ type: z.literal('document_list'), dossierId: z.string().optional() }),
-  z.object({
-    type: z.literal('document_analyze'),
-    documentId: z.string(),
-    dossierId: z.string().optional()
-  }),
-  z.object({ type: z.literal('dossier_list') }),
-  z.object({ type: z.literal('dossier_select'), dossierId: z.string() }),
-  z.object({
-    type: z.literal('dossier_create_key_date'),
-    dossierId: z.string(),
-    label: z.string(),
-    date: z.string(),
-    time: z.string().optional(),
-    duration: z.number().optional(),
-    tags: z.array(z.string()).optional(),
-    isClosed: z.boolean().optional(),
-    note: z.string().optional()
-  }),
-  z.object({
-    type: z.literal('dossier_update_key_date'),
-    dossierId: z.string(),
-    keyDateId: z.string(),
-    label: z.string(),
-    date: z.string(),
-    time: z.string().optional(),
-    duration: z.number().optional(),
-    tags: z.array(z.string()).optional(),
-    isClosed: z.boolean().optional(),
-    note: z.string().optional()
-  }),
-  z.object({
-    type: z.literal('dossier_delete_key_date'),
-    dossierId: z.string(),
-    keyDateId: z.string()
-  }),
-  z.object({
-    type: z.literal('dossier_create_key_reference'),
-    dossierId: z.string(),
-    label: z.string(),
-    value: z.string(),
-    note: z.string().optional()
-  }),
-  z.object({
-    type: z.literal('dossier_update_key_reference'),
-    dossierId: z.string(),
-    keyReferenceId: z.string(),
-    label: z.string(),
-    value: z.string(),
-    note: z.string().optional()
-  }),
-  z.object({
-    type: z.literal('dossier_delete_key_reference'),
-    dossierId: z.string(),
-    keyReferenceId: z.string()
-  }),
-  z.object({
-    type: z.literal('text_generate'),
-    textType: z.enum(['email', 'letter', 'analysis', 'summary', 'text']),
-    contactId: z.string().optional(),
-    language: z.string().optional(),
-    instructions: z.string()
-  }),
-  z.object({
-    type: z.literal('direct_response'),
-    message: z.string()
-  }),
-  z.object({
-    type: z.literal('clarification_request'),
-    question: z.string(),
-    options: z.array(z.string()),
-    optionIds: z.array(z.string()).optional()
-  }),
-  z.object({ type: z.literal('unknown'), message: z.string() })
-])

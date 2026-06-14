@@ -35,6 +35,7 @@ import { createEulaStore } from './lib/system/eulaStore'
 import { createPendingUpdateStore, createUpdaterService } from './updater'
 import { createMainWindow, createMainWindowLifecycle, type MainWindowLifecycle } from './window'
 import { buildContainer, registerAllHandlers, type AppContainer } from './container'
+import { createDocxToPdf } from './lib/printing/docx2pdfWindow'
 import { registerModelHandlers } from './handlers/modelHandler'
 
 const isDev = !app.isPackaged
@@ -165,6 +166,44 @@ app
     // closed. No tray, no background mode.
     app.on('window-all-closed', () => {
       app.quit()
+    })
+
+    // Defense-in-depth: enforce the Content-Security-Policy as a real response
+    // header. The <meta> CSP in index.html cannot cover the document response
+    // itself, workers loaded before parse, or `frame-ancestors`. This mirrors
+    // the meta policy and additionally blocks MIME sniffing. Scoped to the
+    // default session, which serves the renderer (file:// in prod, dev URL in
+    // dev); transient data:-URL print windows are not network requests and are
+    // unaffected.
+    const CSP_POLICY =
+      "default-src 'self'; script-src 'self' 'sha256-Z2/iFzh9VMlVkEOar1f/oSHWwQk3ve1qk/C2WdsC4Xk='; worker-src blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'"
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [CSP_POLICY],
+          'X-Content-Type-Options': ['nosniff']
+        }
+      })
+    })
+
+    // App-wide guard so EVERY webContents — the main window, the transient
+    // print/docx2pdf windows, and any future ones — denies child windows and
+    // off-app navigation by default. createMainWindow installs a more specific
+    // handler afterwards (it routes external URLs to the OS browser), which
+    // replaces this default for the main window only.
+    app.on('web-contents-created', (_event, contents) => {
+      contents.setWindowOpenHandler(() => ({ action: 'deny' }))
+      contents.on('will-navigate', (event, url) => {
+        const devRendererUrl = isDev ? process.env['ELECTRON_RENDERER_URL'] : undefined
+        const isLocalTarget =
+          url.startsWith('file://') ||
+          url.startsWith('data:') ||
+          (devRendererUrl ? url.startsWith(devRendererUrl) : false)
+        if (!isLocalTarget) {
+          event.preventDefault()
+        }
+      })
     })
 
     let mainWindowLifecycle: MainWindowLifecycle<BrowserWindow> | null = null
@@ -331,7 +370,20 @@ app
             } finally {
               if (!pdfWindow.isDestroyed()) pdfWindow.destroy()
             }
-          }
+          },
+          docxToPdf: createDocxToPdf({
+            preloadPath: join(__dirname, '../preload/docx2pdf.js'),
+            loadPage: async (window) => {
+              // Same dev/prod split as the main window: dev-server URL when
+              // electron-vite serves the renderer, packaged file otherwise.
+              const rendererUrl = isDev ? process.env['ELECTRON_RENDERER_URL'] : undefined
+              if (rendererUrl) {
+                await window.loadURL(`${rendererUrl}/docx2pdf.html`)
+              } else {
+                await window.loadFile(join(__dirname, '../renderer/docx2pdf.html'))
+              }
+            }
+          })
         })
 
         registerAllHandlers({

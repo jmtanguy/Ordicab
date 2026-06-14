@@ -10,7 +10,7 @@ export type FeeAgreementStatus = (typeof FEE_AGREEMENT_STATUS_VALUES)[number]
 export const DEFAULT_CABINET_SERVICE_GROUP = 'Standard'
 
 export interface CabinetServicePreset {
-  id: string
+  uuid: string
   name: string
   description?: string
   group?: string
@@ -46,13 +46,13 @@ import type { LegalAidType } from './dossier'
 
 export interface CabinetBillingCatalog {
   services: CabinetServicePreset[]
-  defaultServiceId?: string
+  defaultServiceUuid?: string
   invoiceSettings?: InvoiceSettings
   updatedAt: string
 }
 
 export interface CabinetServicePresetUpsertInput {
-  id?: string
+  uuid?: string
   name: string
   description?: string
   group?: string
@@ -71,15 +71,15 @@ export interface CabinetServicePresetUpsertInput {
 }
 
 export interface CabinetServicePresetDeleteInput {
-  id: string
+  uuid: string
 }
 
 export interface CabinetBillingDefaultInput {
-  serviceId?: string
+  serviceUuid?: string
 }
 
 export interface DossierFeeAgreement {
-  id: string
+  uuid: string
   createdAt: string
   updatedAt: string
   isActive: boolean
@@ -92,7 +92,7 @@ export interface DossierFeeAgreement {
   clientContactUuid?: string
   signatoryContactUuid?: string
   billingType: BillingType
-  sourceServicePresetId?: string
+  sourceServicePresetUuid?: string
   flatFeeHtCents?: number
   hourlyRateHtCents?: number
   estimatedHours?: number
@@ -127,7 +127,7 @@ export interface DossierFeeAgreement {
 
 export interface DossierFeeAgreementUpsertInput {
   dossierId: string
-  id?: string
+  uuid?: string
   setActive?: boolean
   generatedDocumentUuid?: string
   signedDocumentUuid?: string
@@ -137,7 +137,7 @@ export interface DossierFeeAgreementUpsertInput {
   clientContactUuid?: string
   signatoryContactUuid?: string
   billingType: BillingType
-  sourceServicePresetId?: string
+  sourceServicePresetUuid?: string
   flatFeeHtCents?: number
   hourlyRateHtCents?: number
   estimatedHours?: number
@@ -165,17 +165,17 @@ export interface DossierFeeAgreementUpsertInput {
 
 export interface DossierFeeAgreementDeleteInput {
   dossierId: string
-  feeAgreementId: string
+  feeAgreementUuid: string
 }
 
 export interface DossierFeeAgreementArchiveInput {
   dossierId: string
-  feeAgreementId: string
+  feeAgreementUuid: string
 }
 
 export interface DossierFeeAgreementSetActiveInput {
   dossierId: string
-  feeAgreementId: string
+  feeAgreementUuid: string
 }
 
 export const BILLING_ITEM_STATUS_VALUES = ['draft', 'billed', 'cancelled'] as const
@@ -197,12 +197,12 @@ export type SourceFeeAgreementBillingKind =
   (typeof SOURCE_FEE_AGREEMENT_BILLING_KIND_VALUES)[number]
 
 export interface DossierBillingItem {
-  id: string
+  uuid: string
   dossierId: string
   date: string
   label: string
   description?: string
-  sourceServicePresetId?: string
+  sourceServicePresetUuid?: string
   quantity: number
   quantityUnit: BillingItemQuantityUnit
   unitPriceHtCents: number
@@ -215,22 +215,22 @@ export interface DossierBillingItem {
   vatRateBasisPoints: number
   totalTtcCents: number
   status: BillingItemStatus
-  sourceKeyDateId?: string
-  sourceFeeAgreementId?: string
+  sourceKeyDateUuid?: string
+  sourceFeeAgreementUuid?: string
   sourceFeeAgreementBillingKind?: SourceFeeAgreementBillingKind
-  invoiceId?: string
+  invoiceUuid?: string
   invoiceNumber?: string
   createdAt: string
   updatedAt: string
 }
 
 export interface DossierBillingItemUpsertInput {
-  id?: string
+  uuid?: string
   dossierId: string
   date: string
   label: string
   description?: string
-  sourceServicePresetId?: string
+  sourceServicePresetUuid?: string
   quantity: number
   quantityUnit: BillingItemQuantityUnit
   unitPriceHtCents: number
@@ -239,12 +239,12 @@ export interface DossierBillingItemUpsertInput {
   discountAmountHtCents?: number
   vatRateBasisPoints: number
   status: BillingItemStatus
-  sourceKeyDateId?: string
-  sourceFeeAgreementId?: string
+  sourceKeyDateUuid?: string
+  sourceFeeAgreementUuid?: string
   sourceFeeAgreementBillingKind?: SourceFeeAgreementBillingKind
 }
 
 export interface DossierBillingItemDeleteInput {
   dossierId: string
-  billingItemId: string
+  billingItemUuid: string
 }

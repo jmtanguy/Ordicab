@@ -9,18 +9,18 @@ import type {
 import { dossierIdSchema } from './dossierId'
 
 export const keyReferenceSchema = z.object({
-  id: z.string().min(1),
+  uuid: z.string().min(1),
   dossierId: dossierIdSchema,
   label: z.string().min(1),
-  value: z.string().min(1),
+  value: z.string(),
   note: z.string().optional()
 })
 
-// `value` accepts empty so that the dossier-name reference can be reset to the
-// folder basename (see DOSSIER_NAME_REFERENCE_LABEL handling in the service).
-// For other labels the service enforces non-empty before persisting.
+// `value` accepts empty because required dossier-parameter references must exist
+// even before the user has filled every value. Free-form references still enforce
+// non-empty values in the service before persisting.
 export const dossierKeyReferenceUpsertInputSchema = z.object({
-  id: z.string().min(1).optional(),
+  uuid: z.string().min(1).optional(),
   dossierId: dossierIdSchema,
   label: z.string().min(1),
   value: z.string(),
@@ -29,7 +29,7 @@ export const dossierKeyReferenceUpsertInputSchema = z.object({
 
 export const dossierKeyReferenceDeleteInputSchema = z.object({
   dossierId: dossierIdSchema,
-  keyReferenceId: z.string().min(1)
+  keyReferenceUuid: z.string().min(1)
 })
 
 export type { DossierKeyReferenceDeleteInput, DossierKeyReferenceUpsertInput, KeyReference }

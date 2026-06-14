@@ -29,7 +29,8 @@ describe('schema contracts', () => {
   it('validates dossier summary/detail fields and rejects unsupported statuses', () => {
     expect(
       dossierSchema.parse({
-        id: 'dos-1',
+        slug: 'dos-1',
+        uuid: 'uuid-dos-1',
         name: 'LASTNAME-A',
         type: '',
         status: 'active',
@@ -38,11 +39,12 @@ describe('schema contracts', () => {
         nextUpcomingKeyDate: null,
         nextUpcomingKeyDateLabel: null
       })
-    ).toMatchObject({ id: 'dos-1', name: 'LASTNAME-A' })
+    ).toMatchObject({ slug: 'dos-1', name: 'LASTNAME-A' })
 
     expect(
       dossierDetailSchema.parse({
-        id: 'dos-1',
+        slug: 'dos-1',
+        uuid: 'uuid-dos-1',
         name: 'LASTNAME-A',
         registeredAt: '2026-03-11T11:00:00Z',
         type: '',
@@ -59,7 +61,8 @@ describe('schema contracts', () => {
 
     expect(
       dossierMetadataFileSchema.parse({
-        id: 'dos-1',
+        slug: 'dos-1',
+        uuid: 'uuid-dos-1',
         name: 'LASTNAME-A',
         registeredAt: '2026-03-11T11:00:00Z',
         type: '',
@@ -78,21 +81,21 @@ describe('schema contracts', () => {
 
     expect(() =>
       dossierRegistrationInputSchema.parse({
-        id: ''
+        slug: ''
       })
     ).toThrowError()
 
     expect(
       dossierEligibleFolderSchema.parse({
-        id: 'dos-1',
+        slug: 'dos-1',
         name: 'LASTNAME-A',
         path: '/tmp/domain/LASTNAME-A'
       })
-    ).toMatchObject({ id: 'dos-1' })
+    ).toMatchObject({ slug: 'dos-1' })
 
     expect(
       dossierUpdateInputSchema.parse({
-        id: 'dos-1',
+        slug: 'dos-1',
         status: 'completed',
         type: 'Civil litigation',
         information: '  Updated summary  '
@@ -102,7 +105,7 @@ describe('schema contracts', () => {
     expect(() => dossierStatusSchema.parse('registered')).toThrowError()
     expect(() =>
       dossierUpdateInputSchema.parse({
-        id: 'dos-1',
+        slug: 'dos-1',
         status: 'registered',
         type: ''
       })
@@ -249,21 +252,21 @@ describe('schema contracts', () => {
 
     expect(
       keyDateSchema.parse({
-        id: 'kd-1',
+        uuid: 'kd-1',
         dossierId: 'dos-1',
         label: 'Audience',
         date: '2026-05-02'
       })
-    ).toMatchObject({ id: 'kd-1' })
+    ).toMatchObject({ uuid: 'kd-1' })
 
     expect(
       keyReferenceSchema.parse({
-        id: 'kr-1',
+        uuid: 'kr-1',
         dossierId: 'dos-1',
         label: 'Tribunal',
         value: 'TJ Paris'
       })
-    ).toMatchObject({ id: 'kr-1' })
+    ).toMatchObject({ uuid: 'kr-1' })
 
     expect(
       dossierKeyDateUpsertInputSchema.parse({
@@ -276,9 +279,9 @@ describe('schema contracts', () => {
     expect(
       dossierKeyDateDeleteInputSchema.parse({
         dossierId: 'dos-1',
-        keyDateId: 'kd-1'
+        keyDateUuid: 'kd-1'
       })
-    ).toMatchObject({ keyDateId: 'kd-1' })
+    ).toMatchObject({ keyDateUuid: 'kd-1' })
 
     expect(
       dossierKeyReferenceUpsertInputSchema.parse({
@@ -291,9 +294,9 @@ describe('schema contracts', () => {
     expect(
       dossierKeyReferenceDeleteInputSchema.parse({
         dossierId: 'dos-1',
-        keyReferenceId: 'kr-1'
+        keyReferenceUuid: 'kr-1'
       })
-    ).toMatchObject({ keyReferenceId: 'kr-1' })
+    ).toMatchObject({ keyReferenceUuid: 'kr-1' })
   })
 
   it('enforces entity profile and document metadata payload shape', () => {
@@ -325,7 +328,7 @@ describe('schema contracts', () => {
     expect(
       documentMetadataUpdateSchema.parse({
         dossierId: 'dos-1',
-        documentId: 'doc-1',
+        documentPath: 'doc-1',
         description: '  Incoming note  ',
         tags: [' urgent ', 'urgent', 'client']
       })
@@ -345,14 +348,14 @@ describe('schema contracts', () => {
       documentRelocationInputSchema.parse({
         dossierId: 'dos-1',
         documentUuid: 'doc-uuid-1',
-        fromDocumentId: 'old/path/note.txt',
-        toDocumentId: 'new/path/note.txt'
+        fromDocumentPath: 'old/path/note.txt',
+        toDocumentPath: 'new/path/note.txt'
       })
     ).toMatchObject({
       dossierId: 'dos-1',
       documentUuid: 'doc-uuid-1',
-      fromDocumentId: 'old/path/note.txt',
-      toDocumentId: 'new/path/note.txt'
+      fromDocumentPath: 'old/path/note.txt',
+      toDocumentPath: 'new/path/note.txt'
     })
   })
 })

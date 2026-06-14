@@ -6,17 +6,33 @@ import type {
   DocumentChangeEvent,
   DocumentExtractedContent,
   DocumentExtractProgressEvent,
-  DocumentFileDeleteInput,
+  DocumentFileMoveInput,
   DocumentFileRenameInput,
   DocumentFolderCreateInput,
   DocumentFolderDeleteInput,
+  DocumentFolderDeleteResult,
+  DocumentFolderMoveInput,
   DocumentFolderRenameInput,
+  DocumentImportInput,
+  DocumentImportResult,
   DocumentMetadataUpdate,
+  DocumentMoveResult,
+  DocumentTrashEntry,
+  DocumentTrashInput,
+  DocumentTrashResult,
+  DocumentTrashRestoreInput,
+  EmailAttachmentSaveInput,
+  EmailAttachmentSaveResult,
+  PdfExtractPagesInput,
+  PdfMergeInput,
+  PdfOperationResult,
+  PdfSplitInput,
   DocumentPreview,
   DocumentPreviewInput,
   DocumentRecord,
   DocumentWatchStatus,
   DossierScopedQuery,
+  GlobalSearchResult,
   SemanticSearchResult
 } from '@shared/types'
 
@@ -28,7 +44,7 @@ export interface DocumentPreviewState {
   error: string | null
 }
 
-export interface DocumentContentProgress {
+interface DocumentContentProgress {
   phase: 'embedded' | 'ocr'
   page: number
   totalPages: number
@@ -41,10 +57,20 @@ export interface DocumentContentState {
   progress: DocumentContentProgress | null
 }
 
-export interface SemanticSearchState {
+interface SemanticSearchState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   query: string
   results: SemanticSearchResult | null
+  error: string | null
+}
+
+// Cross-dossier search lives outside the per-dossier maps: it is launched from
+// the home menu with no dossier open, so it is a single top-level slot rather
+// than a record keyed by dossierId.
+interface GlobalSearchState {
+  status: 'idle' | 'loading' | 'ready' | 'error'
+  query: string
+  results: GlobalSearchResult | null
   error: string | null
 }
 
@@ -57,6 +83,7 @@ interface DocumentStoreState {
   contentStatesByDossierId: Record<string, Record<string, DocumentContentState>>
   activePreviewDocumentIdByDossierId: Record<string, string | null>
   semanticSearchStatesByDossierId: Record<string, SemanticSearchState>
+  globalSearchState: GlobalSearchState | null
   activeDossierId: string | null
   isLoading: boolean
   isSavingMetadata: boolean
@@ -77,11 +104,25 @@ interface DocumentStoreActions {
   openFile: (input: DocumentPreviewInput) => Promise<void>
   runSemanticSearch: (input: { dossierId: string; query: string; topK?: number }) => Promise<void>
   clearSemanticSearch: (dossierId: string) => void
+  runGlobalSearch: (input: { query: string; topK?: number }) => Promise<void>
+  clearGlobalSearch: () => void
   createFolder: (input: DocumentFolderCreateInput) => Promise<boolean>
   renameFolder: (input: DocumentFolderRenameInput) => Promise<boolean>
-  deleteFolder: (input: DocumentFolderDeleteInput) => Promise<boolean>
+  deleteFolder: (input: DocumentFolderDeleteInput) => Promise<DocumentFolderDeleteResult | null>
   renameFile: (input: DocumentFileRenameInput) => Promise<boolean>
-  deleteFile: (input: DocumentFileDeleteInput) => Promise<boolean>
+  trashFiles: (input: DocumentTrashInput) => Promise<DocumentTrashResult | null>
+  restoreTrash: (input: DocumentTrashRestoreInput) => Promise<boolean>
+  listTrash: (input: DossierScopedQuery) => Promise<DocumentTrashEntry[] | null>
+  deleteTrashEntry: (input: DocumentTrashRestoreInput) => Promise<boolean>
+  moveFiles: (input: DocumentFileMoveInput) => Promise<DocumentMoveResult | null>
+  moveFolder: (input: DocumentFolderMoveInput) => Promise<boolean>
+  importFiles: (input: DocumentImportInput) => Promise<DocumentImportResult | null>
+  saveEmailAttachments: (
+    input: EmailAttachmentSaveInput
+  ) => Promise<EmailAttachmentSaveResult | null>
+  extractPdfPages: (input: PdfExtractPagesInput) => Promise<PdfOperationResult | null>
+  mergePdfs: (input: PdfMergeInput) => Promise<PdfOperationResult | null>
+  splitPdf: (input: PdfSplitInput) => Promise<PdfOperationResult | null>
   clearTreeError: () => void
 }
 
@@ -110,14 +151,14 @@ function mergeDocumentsWithOverrides(
 
   const remainingOverrides = { ...overrides }
   const mergedDocuments = documents.map((document) => {
-    const override = overrides[document.id]
+    const override = overrides[document.path]
 
     if (!override) {
       return document
     }
 
     if (metadataMatches(document, override)) {
-      delete remainingOverrides[document.id]
+      delete remainingOverrides[document.path]
       return document
     }
 
@@ -145,15 +186,18 @@ function reconcilePreviewState(
   nextActivePreviewDocumentIdByDossierId: Record<string, string | null>
 } {
   const currentById = new Map(
-    currentDocuments.map((document) => [document.id, document.modifiedAt])
+    currentDocuments.map((document) => [document.path, document.modifiedAt])
   )
-  const nextById = new Map(nextDocuments.map((document) => [document.id, document.modifiedAt]))
+  const nextById = new Map(nextDocuments.map((document) => [document.path, document.modifiedAt]))
   const currentPreviewStates = previewStatesByDossierId[dossierId] ?? {}
   const nextPreviewStates: Record<string, DocumentPreviewState> = {}
 
-  for (const [documentId, previewState] of Object.entries(currentPreviewStates)) {
-    if (currentById.get(documentId) && currentById.get(documentId) === nextById.get(documentId)) {
-      nextPreviewStates[documentId] = previewState
+  for (const [documentPath, previewState] of Object.entries(currentPreviewStates)) {
+    if (
+      currentById.get(documentPath) &&
+      currentById.get(documentPath) === nextById.get(documentPath)
+    ) {
+      nextPreviewStates[documentPath] = previewState
     }
   }
 
@@ -282,7 +326,7 @@ function ensureEventSubscriptions(): void {
     (event: DocumentExtractProgressEvent) => {
       useDocumentStore.setState((state) => {
         const byDocument = state.contentStatesByDossierId[event.dossierId]
-        const current = byDocument?.[event.documentId]
+        const current = byDocument?.[event.documentPath]
         if (!current || current.status !== 'loading') {
           return state
         }
@@ -292,7 +336,7 @@ function ensureEventSubscriptions(): void {
             ...state.contentStatesByDossierId,
             [event.dossierId]: {
               ...byDocument,
-              [event.documentId]: {
+              [event.documentPath]: {
                 ...current,
                 progress: {
                   phase: event.phase,
@@ -352,6 +396,7 @@ export const useDocumentStore = create<DocumentStore>()(
     contentStatesByDossierId: {},
     activePreviewDocumentIdByDossierId: {},
     semanticSearchStatesByDossierId: {},
+    globalSearchState: null,
     activeDossierId: null,
     isLoading: false,
     isSavingMetadata: false,
@@ -453,10 +498,11 @@ export const useDocumentStore = create<DocumentStore>()(
         return
       }
 
-      const cachedPreviewState = get().previewStatesByDossierId[input.dossierId]?.[input.documentId]
+      const cachedPreviewState =
+        get().previewStatesByDossierId[input.dossierId]?.[input.documentPath]
 
       set((state) => {
-        state.activePreviewDocumentIdByDossierId[input.dossierId] = input.documentId
+        state.activePreviewDocumentIdByDossierId[input.dossierId] = input.documentPath
       })
 
       if (cachedPreviewState?.status === 'ready') {
@@ -470,7 +516,7 @@ export const useDocumentStore = create<DocumentStore>()(
       set((state) => {
         state.previewStatesByDossierId[input.dossierId] = {
           ...(state.previewStatesByDossierId[input.dossierId] ?? {}),
-          [input.documentId]: {
+          [input.documentPath]: {
             status: 'loading',
             preview: null,
             error: null
@@ -483,7 +529,7 @@ export const useDocumentStore = create<DocumentStore>()(
       set((state) => {
         state.previewStatesByDossierId[input.dossierId] = {
           ...(state.previewStatesByDossierId[input.dossierId] ?? {}),
-          [input.documentId]: result.success
+          [input.documentPath]: result.success
             ? {
                 status: 'ready',
                 preview: result.data,
@@ -512,7 +558,8 @@ export const useDocumentStore = create<DocumentStore>()(
         return false
       }
 
-      const cachedContentState = get().contentStatesByDossierId[input.dossierId]?.[input.documentId]
+      const cachedContentState =
+        get().contentStatesByDossierId[input.dossierId]?.[input.documentPath]
 
       if (cachedContentState?.status === 'loading') {
         return false
@@ -526,7 +573,7 @@ export const useDocumentStore = create<DocumentStore>()(
         state.error = null
         state.contentStatesByDossierId[input.dossierId] = {
           ...(state.contentStatesByDossierId[input.dossierId] ?? {}),
-          [input.documentId]: {
+          [input.documentPath]: {
             status: 'loading',
             content: null,
             error: null,
@@ -540,7 +587,7 @@ export const useDocumentStore = create<DocumentStore>()(
       set((state) => {
         state.contentStatesByDossierId[input.dossierId] = {
           ...(state.contentStatesByDossierId[input.dossierId] ?? {}),
-          [input.documentId]: result.success
+          [input.documentPath]: result.success
             ? {
                 status: 'ready',
                 content: result.data,
@@ -561,7 +608,9 @@ export const useDocumentStore = create<DocumentStore>()(
         }
 
         const documents = state.documentsByDossierId[input.dossierId] ?? []
-        const documentIndex = documents.findIndex((document) => document.id === input.documentId)
+        const documentIndex = documents.findIndex(
+          (document) => document.path === input.documentPath
+        )
         const current = documentIndex >= 0 ? documents[documentIndex] : undefined
 
         if (current) {
@@ -620,7 +669,7 @@ export const useDocumentStore = create<DocumentStore>()(
         }
 
         const current = state.documentsByDossierId[input.dossierId] ?? []
-        const index = current.findIndex((entry) => entry.id === result.data.id)
+        const index = current.findIndex((entry) => entry.path === result.data.path)
 
         if (index >= 0) {
           current[index] = result.data
@@ -631,7 +680,7 @@ export const useDocumentStore = create<DocumentStore>()(
         state.documentsByDossierId[input.dossierId] = current
         state.metadataOverridesByDossierId[input.dossierId] = {
           ...(state.metadataOverridesByDossierId[input.dossierId] ?? {}),
-          [result.data.id]: result.data
+          [result.data.path]: result.data
         }
         state.error = null
       })
@@ -691,6 +740,50 @@ export const useDocumentStore = create<DocumentStore>()(
     clearSemanticSearch: (dossierId) => {
       set((state) => {
         delete state.semanticSearchStatesByDossierId[dossierId]
+      })
+    },
+
+    runGlobalSearch: async ({ query, topK }) => {
+      const trimmed = query.trim()
+      if (!trimmed) return
+
+      set((state) => {
+        state.globalSearchState = {
+          status: 'loading',
+          query: trimmed,
+          results: null,
+          error: null
+        }
+      })
+
+      const api = getOrdicabApi()
+      if (!api) {
+        set((state) => {
+          state.globalSearchState = {
+            status: 'error',
+            query: trimmed,
+            results: null,
+            error: IPC_NOT_AVAILABLE_ERROR
+          }
+        })
+        return
+      }
+
+      const result = await api.document.searchAll({ query: trimmed, topK })
+
+      set((state) => {
+        // Drop the outcome if a newer query has started since we began.
+        if (!state.globalSearchState || state.globalSearchState.query !== trimmed) return
+
+        state.globalSearchState = result.success
+          ? { status: 'ready', query: trimmed, results: result.data, error: null }
+          : { status: 'error', query: trimmed, results: null, error: result.error }
+      })
+    },
+
+    clearGlobalSearch: () => {
+      set((state) => {
+        state.globalSearchState = null
       })
     },
 
@@ -756,7 +849,7 @@ export const useDocumentStore = create<DocumentStore>()(
         set((state) => {
           state.treeError = IPC_NOT_AVAILABLE_ERROR
         })
-        return false
+        return null
       }
       set((state) => {
         state.isMutatingTree = true
@@ -769,10 +862,11 @@ export const useDocumentStore = create<DocumentStore>()(
           state.treeError = result.error
         }
       })
-      if (result.success) {
-        await loadFolders({ dossierId: input.dossierId })
+      if (!result.success) {
+        return null
       }
-      return result.success
+      await loadDocuments({ dossierId: input.dossierId })
+      return result.data
     },
 
     renameFile: async (input) => {
@@ -800,7 +894,45 @@ export const useDocumentStore = create<DocumentStore>()(
       return result.success
     },
 
-    deleteFile: async (input) => {
+    trashFiles: async (input) => {
+      const api = getOrdicabApi()
+      if (!api) {
+        set((state) => {
+          state.treeError = IPC_NOT_AVAILABLE_ERROR
+        })
+        return null
+      }
+      set((state) => {
+        state.isMutatingTree = true
+        state.treeError = null
+      })
+      const result = await api.document.trashFiles(input)
+      set((state) => {
+        state.isMutatingTree = false
+        if (!result.success) {
+          state.treeError = result.error
+          return
+        }
+        const trashedIds = new Set(input.documentPaths)
+        const documents = state.documentsByDossierId[input.dossierId]
+        if (documents) {
+          state.documentsByDossierId[input.dossierId] = documents.filter(
+            (doc) => !trashedIds.has(doc.path)
+          )
+        }
+        const activePreviewId = state.activePreviewDocumentIdByDossierId[input.dossierId]
+        if (activePreviewId && trashedIds.has(activePreviewId)) {
+          state.activePreviewDocumentIdByDossierId[input.dossierId] = null
+        }
+      })
+      if (!result.success) {
+        return null
+      }
+      await loadDocuments({ dossierId: input.dossierId })
+      return result.data
+    },
+
+    restoreTrash: async (input) => {
       const api = getOrdicabApi()
       if (!api) {
         set((state) => {
@@ -812,27 +944,195 @@ export const useDocumentStore = create<DocumentStore>()(
         state.isMutatingTree = true
         state.treeError = null
       })
-      const result = await api.document.deleteFile(input)
+      const result = await api.document.restoreTrash(input)
       set((state) => {
         state.isMutatingTree = false
         if (!result.success) {
           state.treeError = result.error
-          return
-        }
-        const documents = state.documentsByDossierId[input.dossierId]
-        if (documents) {
-          state.documentsByDossierId[input.dossierId] = documents.filter(
-            (doc) => doc.id !== input.documentId
-          )
-        }
-        if (state.activePreviewDocumentIdByDossierId[input.dossierId] === input.documentId) {
-          state.activePreviewDocumentIdByDossierId[input.dossierId] = null
         }
       })
       if (result.success) {
         await loadDocuments({ dossierId: input.dossierId })
       }
       return result.success
+    },
+
+    listTrash: async (input) => {
+      const api = getOrdicabApi()
+      if (!api) {
+        return null
+      }
+      const result = await api.document.listTrash(input)
+      return result.success ? result.data : null
+    },
+
+    deleteTrashEntry: async (input) => {
+      const api = getOrdicabApi()
+      if (!api) {
+        set((state) => {
+          state.treeError = IPC_NOT_AVAILABLE_ERROR
+        })
+        return false
+      }
+      const result = await api.document.deleteTrashEntry(input)
+      if (!result.success) {
+        set((state) => {
+          state.treeError = result.error
+        })
+      }
+      return result.success
+    },
+
+    moveFiles: async (input) => {
+      const api = getOrdicabApi()
+      if (!api) {
+        set((state) => {
+          state.treeError = IPC_NOT_AVAILABLE_ERROR
+        })
+        return null
+      }
+      set((state) => {
+        state.isMutatingTree = true
+        state.treeError = null
+      })
+      const result = await api.document.moveFiles(input)
+      set((state) => {
+        state.isMutatingTree = false
+        if (!result.success) {
+          state.treeError = result.error
+        }
+      })
+      if (!result.success) {
+        return null
+      }
+      await loadDocuments({ dossierId: input.dossierId })
+      return result.data
+    },
+
+    moveFolder: async (input) => {
+      const api = getOrdicabApi()
+      if (!api) {
+        set((state) => {
+          state.treeError = IPC_NOT_AVAILABLE_ERROR
+        })
+        return false
+      }
+      set((state) => {
+        state.isMutatingTree = true
+        state.treeError = null
+      })
+      const result = await api.document.moveFolder(input)
+      set((state) => {
+        state.isMutatingTree = false
+        if (!result.success) {
+          state.treeError = result.error
+        }
+      })
+      if (result.success) {
+        await loadDocuments({ dossierId: input.dossierId })
+      }
+      return result.success
+    },
+
+    saveEmailAttachments: async (input) => {
+      const api = getOrdicabApi()
+      if (!api) {
+        set((state) => {
+          state.treeError = IPC_NOT_AVAILABLE_ERROR
+        })
+        return null
+      }
+      const result = await api.document.saveEmailAttachments(input)
+      if (!result.success) {
+        set((state) => {
+          state.treeError = result.error
+        })
+        return null
+      }
+      return result.data
+    },
+
+    extractPdfPages: async (input) => {
+      const api = getOrdicabApi()
+      if (!api) {
+        set((state) => {
+          state.treeError = IPC_NOT_AVAILABLE_ERROR
+        })
+        return null
+      }
+      const result = await api.document.pdfExtractPages(input)
+      if (!result.success) {
+        set((state) => {
+          state.treeError = result.error
+        })
+        return null
+      }
+      await loadDocuments({ dossierId: input.dossierId })
+      return result.data
+    },
+
+    mergePdfs: async (input) => {
+      const api = getOrdicabApi()
+      if (!api) {
+        set((state) => {
+          state.treeError = IPC_NOT_AVAILABLE_ERROR
+        })
+        return null
+      }
+      const result = await api.document.pdfMerge(input)
+      if (!result.success) {
+        set((state) => {
+          state.treeError = result.error
+        })
+        return null
+      }
+      await loadDocuments({ dossierId: input.dossierId })
+      return result.data
+    },
+
+    splitPdf: async (input) => {
+      const api = getOrdicabApi()
+      if (!api) {
+        set((state) => {
+          state.treeError = IPC_NOT_AVAILABLE_ERROR
+        })
+        return null
+      }
+      const result = await api.document.pdfSplit(input)
+      if (!result.success) {
+        set((state) => {
+          state.treeError = result.error
+        })
+        return null
+      }
+      await loadDocuments({ dossierId: input.dossierId })
+      return result.data
+    },
+
+    importFiles: async (input) => {
+      const api = getOrdicabApi()
+      if (!api) {
+        set((state) => {
+          state.treeError = IPC_NOT_AVAILABLE_ERROR
+        })
+        return null
+      }
+      set((state) => {
+        state.isMutatingTree = true
+        state.treeError = null
+      })
+      const result = await api.document.importFiles(input)
+      set((state) => {
+        state.isMutatingTree = false
+        if (!result.success) {
+          state.treeError = result.error
+        }
+      })
+      if (!result.success) {
+        return null
+      }
+      await loadDocuments({ dossierId: input.dossierId })
+      return result.data
     }
   }))
 )

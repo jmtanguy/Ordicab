@@ -47,7 +47,7 @@ interface DossierServiceLike {
     date: string
     note?: string
   }) => Promise<unknown>
-  deleteKeyDate: (input: { dossierId: string; keyDateId: string }) => Promise<unknown>
+  deleteKeyDate: (input: { dossierId: string; keyDateUuid: string }) => Promise<unknown>
   upsertKeyReference: (input: {
     dossierId: string
     id?: string
@@ -55,7 +55,7 @@ interface DossierServiceLike {
     value: string
     note?: string
   }) => Promise<unknown>
-  deleteKeyReference: (input: { dossierId: string; keyReferenceId: string }) => Promise<unknown>
+  deleteKeyReference: (input: { dossierId: string; keyReferenceUuid: string }) => Promise<unknown>
   registerDossier: (input: DossierRegistrationInput) => Promise<unknown>
 }
 
@@ -171,7 +171,7 @@ interface DelegatedIntentResponse {
   nextStep: string
 }
 
-export class DelegatedAiActionProcessorError extends Error {
+class DelegatedAiActionProcessorError extends Error {
   constructor(
     readonly code: IpcErrorCode,
     message: string,
@@ -339,7 +339,7 @@ function summarizeExecutionResult(
   switch (action) {
     case 'contact.upsert':
       return {
-        id: result.id,
+        uuid: result.uuid,
         dossierId: result.dossierId,
         role: result.role,
         firstName: result.firstName,
@@ -376,7 +376,7 @@ function summarizeExecutionResult(
       // the follow-up `document.saveMetadata` intent.
       return {
         dossierId: result.dossierId,
-        documentId: result.documentId,
+        documentPath: result.documentPath,
         method: result.method,
         textLength: result.textLength,
         text: result.text,

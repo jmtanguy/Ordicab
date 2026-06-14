@@ -105,9 +105,9 @@ describe('templateHandler', () => {
         macros: ['client']
       }
     })
-    expect(created.success && created.data.id).toBeTruthy()
+    expect(created.success && created.data.uuid).toBeTruthy()
 
-    const createdId = created.success ? created.data.id : ''
+    const createdId = created.success ? created.data.uuid : ''
     const storedHtml = await readFile(
       join(domainPath, '.ordicab', 'templates', `${createdId}.html`),
       'utf8'
@@ -159,18 +159,18 @@ describe('templateHandler', () => {
       name: 'Courrier',
       content: 'Version 1'
     })) as IpcResult<TemplateRecord>
-    const createdId = created.success ? created.data.id : ''
+    const createdId = created.success ? created.data.uuid : ''
 
     await expect(
       harness.invoke(IPC_CHANNELS.template.update, {
-        id: createdId,
+        uuid: createdId,
         name: 'Courrier final',
         content: 'Version 2'
       })
     ).resolves.toEqual({
       success: true,
       data: expect.objectContaining({
-        id: createdId,
+        uuid: createdId,
         name: 'Courrier final',
         macros: []
       })
@@ -178,7 +178,7 @@ describe('templateHandler', () => {
 
     await expect(
       harness.invoke(IPC_CHANNELS.template.delete, {
-        id: createdId
+        uuid: createdId
       })
     ).resolves.toEqual({
       success: true,
@@ -225,14 +225,14 @@ describe('templateHandler', () => {
       name: 'Courrier',
       content: 'Version 1'
     })) as IpcResult<TemplateRecord>
-    const createdId = created.success ? created.data.id : ''
+    const createdId = created.success ? created.data.uuid : ''
 
     await expect(
-      harness.invoke(IPC_CHANNELS.template.importDocx, { id: createdId })
+      harness.invoke(IPC_CHANNELS.template.importDocx, { uuid: createdId })
     ).resolves.toEqual({
       success: true,
       data: expect.objectContaining({
-        id: createdId,
+        uuid: createdId,
         hasDocxSource: true
       })
     })
@@ -241,7 +241,7 @@ describe('templateHandler', () => {
     await expect(readFile(importedDocxPath)).resolves.toEqual(Buffer.from('docx-binary'))
 
     await expect(
-      harness.invoke(IPC_CHANNELS.template.openDocx, { id: createdId })
+      harness.invoke(IPC_CHANNELS.template.openDocx, { uuid: createdId })
     ).resolves.toEqual({
       success: true,
       data: null
@@ -249,22 +249,24 @@ describe('templateHandler', () => {
     expect(openPath).toHaveBeenCalledWith(importedDocxPath)
 
     await expect(
-      harness.invoke(IPC_CHANNELS.template.removeDocx, { id: createdId })
+      harness.invoke(IPC_CHANNELS.template.removeDocx, { uuid: createdId })
     ).resolves.toEqual({
       success: true,
       data: expect.objectContaining({
-        id: createdId,
+        uuid: createdId,
         hasDocxSource: false
       })
     })
 
     await expect(
-      harness.invoke(IPC_CHANNELS.template.importDocx, { id: createdId })
+      harness.invoke(IPC_CHANNELS.template.importDocx, { uuid: createdId })
     ).resolves.toMatchObject({
       success: true
     })
 
-    await expect(harness.invoke(IPC_CHANNELS.template.delete, { id: createdId })).resolves.toEqual({
+    await expect(
+      harness.invoke(IPC_CHANNELS.template.delete, { uuid: createdId })
+    ).resolves.toEqual({
       success: true,
       data: null
     })
@@ -305,12 +307,12 @@ describe('templateHandler', () => {
       name: 'Courrier',
       content: 'Version 1'
     })) as IpcResult<TemplateRecord>
-    const createdId = created.success ? created.data.id : ''
+    const createdId = created.success ? created.data.uuid : ''
 
-    await harness.invoke(IPC_CHANNELS.template.importDocx, { id: createdId })
+    await harness.invoke(IPC_CHANNELS.template.importDocx, { uuid: createdId })
 
     await expect(
-      harness.invoke(IPC_CHANNELS.template.openDocx, { id: createdId })
+      harness.invoke(IPC_CHANNELS.template.openDocx, { uuid: createdId })
     ).resolves.toEqual({
       success: false,
       error: 'No application is registered to open this file.',
@@ -351,10 +353,10 @@ describe('templateHandler', () => {
       content: 'Version 1',
       tags: ['email']
     })) as IpcResult<TemplateRecord>
-    const createdId = created.success ? created.data.id : ''
+    const createdId = created.success ? created.data.uuid : ''
 
     await expect(
-      harness.invoke(IPC_CHANNELS.template.importDocx, { id: createdId })
+      harness.invoke(IPC_CHANNELS.template.importDocx, { uuid: createdId })
     ).resolves.toEqual({
       success: false,
       error: 'Cancelled by user',
@@ -362,7 +364,7 @@ describe('templateHandler', () => {
     })
 
     await expect(
-      harness.invoke(IPC_CHANNELS.template.openDocx, { id: createdId })
+      harness.invoke(IPC_CHANNELS.template.openDocx, { uuid: createdId })
     ).resolves.toEqual({
       success: false,
       error: 'DOCX source was not found.',
@@ -370,11 +372,11 @@ describe('templateHandler', () => {
     })
 
     await expect(
-      harness.invoke(IPC_CHANNELS.template.removeDocx, { id: createdId })
+      harness.invoke(IPC_CHANNELS.template.removeDocx, { uuid: createdId })
     ).resolves.toEqual({
       success: true,
       data: expect.objectContaining({
-        id: createdId,
+        uuid: createdId,
         hasDocxSource: false
       })
     })
@@ -431,10 +433,10 @@ describe('templateHandler', () => {
 
     expect(created.success && 'content' in created.data).toBe(false)
 
-    const createdId = created.success ? created.data.id : ''
+    const createdId = created.success ? created.data.uuid : ''
 
     const updated = (await harness.invoke(IPC_CHANNELS.template.update, {
-      id: createdId,
+      uuid: createdId,
       name: 'Courrier v2',
       content: '<p>Bonjour {{client}}</p>'
     })) as IpcResult<TemplateRecord>
@@ -445,23 +447,9 @@ describe('templateHandler', () => {
     expect(listed.success && listed.data.every((r) => !('content' in r))).toBe(true)
   })
 
-  it('migrates legacy templates.json with inline content to separate .html files', async () => {
+  it('persists the category through the full IPC round-trip (create, lightweight move, list)', async () => {
     const domainPath = await createTempDir()
     await mkdir(join(domainPath, '.ordicab'), { recursive: true })
-
-    const legacyId = 'legacy-id-001'
-    const legacyContent = '<p>Ancien contenu {{dossier.name}}</p>'
-    const legacyTemplates = JSON.stringify([
-      {
-        id: legacyId,
-        name: 'Ancien modèle',
-        content: legacyContent,
-        macros: [],
-        hasDocxSource: false,
-        updatedAt: '2025-01-01T00:00:00.000Z'
-      }
-    ])
-    await writeFile(join(domainPath, '.ordicab', 'templates.json'), legacyTemplates, 'utf8')
 
     const harness = createIpcMainHarness()
     const domainService = {
@@ -471,42 +459,36 @@ describe('templateHandler', () => {
         dossierCount: 0
       }))
     }
-
-    const templateService = createTemplateService({ domainService })
     registerTemplateHandlers({
       ipcMain: harness.ipcMain,
-      templateService
+      templateService: createTemplateService({ domainService })
     })
 
-    // Migration is a one-shot boot routine — container.ts runs it on
-    // startup. Tests trigger it explicitly so the IPC list path stays a
-    // pure read.
-    await expect(templateService.migrateLegacyTemplatesIfNeeded()).resolves.toEqual({
-      migrated: true
-    })
+    const created = (await harness.invoke(IPC_CHANNELS.template.create, {
+      name: 'Courrier RDV',
+      content: '<p>BODY</p>',
+      tags: ['email'],
+      category: 'Correspondance'
+    })) as IpcResult<TemplateRecord>
+    expect(created.success && created.data.category).toBe('Correspondance')
+
+    const createdId = created.success ? created.data.uuid : ''
+
+    // Drag-and-drop style lightweight update: no content in the payload
+    const moved = (await harness.invoke(IPC_CHANNELS.template.update, {
+      uuid: createdId,
+      name: 'Courrier RDV',
+      category: 'Procédure'
+    })) as IpcResult<TemplateRecord>
+    expect(moved.success && moved.data.category).toBe('Procédure')
+
+    // Content untouched by the lightweight update
+    const content = (await harness.invoke(IPC_CHANNELS.template.getContent, {
+      uuid: createdId
+    })) as IpcResult<string>
+    expect(content.success && content.data).toContain('BODY')
 
     const listed = (await harness.invoke(IPC_CHANNELS.template.list)) as IpcResult<TemplateRecord[]>
-
-    expect(listed.success).toBe(true)
-    expect(listed.success && listed.data).toHaveLength(1)
-    expect(listed.success && 'content' in listed.data[0]!).toBe(false)
-
-    // Content offloaded to separate file
-    const htmlPath = join(domainPath, '.ordicab', 'templates', `${legacyId}.html`)
-    await expect(readFile(htmlPath, 'utf8')).resolves.toBe(legacyContent)
-
-    // templates.json no longer has content field
-    const stored = JSON.parse(
-      await readFile(join(domainPath, '.ordicab', 'templates.json'), 'utf8')
-    ) as Array<Record<string, unknown>>
-    expect(stored[0]).not.toHaveProperty('content')
-
-    // Macros extracted from legacy inline content during migration
-    expect(stored[0]!.macros).toEqual(['dossier.name'])
-
-    // Subsequent invocations are idempotent no-ops.
-    await expect(templateService.migrateLegacyTemplatesIfNeeded()).resolves.toEqual({
-      migrated: false
-    })
+    expect(listed.success && listed.data[0]?.category).toBe('Procédure')
   })
 })

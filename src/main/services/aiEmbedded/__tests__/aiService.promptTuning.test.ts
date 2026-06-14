@@ -50,11 +50,11 @@ const PROMPT_TUNING_SCENARIOS: PromptTuningScenario[] = [
   {
     name: 'generate an email for a known contact',
     command: 'Rédige un email poli à John Martin pour demander un rendez-vous la semaine prochaine',
-    context: { dossierId: 'dossier-testcase-a', contactId: 'contact-john-martin' },
+    context: { dossierId: 'dossier-testcase-a', contactUuid: 'contact-john-martin' },
     runtimeIntent: {
       type: 'text_generate',
       textType: 'email',
-      contactId: 'contact-john-martin',
+      contactUuid: 'contact-john-martin',
       language: 'fr',
       instructions: 'Demander un rendez-vous la semaine prochaine'
     },
@@ -65,7 +65,7 @@ const PROMPT_TUNING_SCENARIOS: PromptTuningScenario[] = [
     command: '15 avril 2026',
     context: {
       dossierId: 'dossier-testcase-a',
-      templateId: 'template-mise-en-demeure',
+      templateUuid: 'template-mise-en-demeure',
       pendingTagPaths: ['hearing.date']
     }
   }
@@ -92,7 +92,7 @@ const CONTACTS: ContactRecord[] = [
 
 const DOSSIERS: DossierSummary[] = [
   {
-    id: 'dossier-testcase-a',
+    slug: 'dossier-testcase-a',
     uuid: 'uuid-dossier-testcase-a',
     name: 'Succession TestCase-A',
     status: 'active',
@@ -103,7 +103,7 @@ const DOSSIERS: DossierSummary[] = [
     nextUpcomingKeyDateLabel: null
   },
   {
-    id: 'dossier-lastname-b',
+    slug: 'dossier-lastname-b',
     uuid: 'uuid-dossier-lastname-b',
     name: 'Contentieux LASTNAME-B',
     status: 'active',
@@ -116,7 +116,7 @@ const DOSSIERS: DossierSummary[] = [
 ]
 
 const DOSSIER_DETAIL: DossierDetail = {
-  id: 'dossier-testcase-a',
+  slug: 'dossier-testcase-a',
   uuid: 'uuid-dossier-testcase-a',
   name: 'Succession TestCase-A',
   status: 'active',
@@ -137,7 +137,8 @@ const DOSSIER_DETAIL: DossierDetail = {
 
 const DOCUMENTS: DocumentRecord[] = [
   {
-    id: 'document-note-strategie',
+    path: 'document-note-strategie',
+    uuid: 'uuid-note-strategie',
     dossierId: 'dossier-testcase-a',
     filename: 'note-strategie.docx',
     byteLength: 1024,
@@ -330,7 +331,7 @@ describe('aiService prompt tuning harness', () => {
       expect(result.intent).toEqual({
         type: 'document_generate',
         dossierId: 'dossier-testcase-a',
-        templateId: 'template-mise-en-demeure',
+        templateUuid: 'template-mise-en-demeure',
         tagOverrides: {
           'hearing.date': '15 avril 2026'
         }
@@ -382,6 +383,88 @@ describe('aiService prompt tuning harness', () => {
     }).toMatchSnapshot()
 
     vi.useRealTimers()
+  })
+
+  it('normalizes terminal intent dossierId UUIDs to dossier slugs before handlers run', async () => {
+    const stateFilePath = await writeStateFile()
+    const domainPath = await writeDomainRegistry([
+      {
+        id: 'Client Alpha',
+        uuid: 'uuid-dossier-testcase-a',
+        name: 'Succession TestCase-A'
+      }
+    ])
+    const runtimeProbe = makeRuntime({
+      type: 'document_metadata_batch',
+      dossierId: 'uuid-dossier-testcase-a'
+    })
+    const listDocuments = vi.fn().mockResolvedValue(DOCUMENTS)
+
+    const service = createAiService({
+      aiAgentRuntime: runtimeProbe.runtime,
+      intentDispatcher: makeDispatcher(),
+      contactService: {
+        list: vi.fn().mockResolvedValue(CONTACTS),
+        upsert: vi.fn(),
+        delete: vi.fn()
+      },
+      templateService: {
+        list: vi.fn().mockResolvedValue(TEMPLATES),
+        getContent: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
+        delete: vi.fn()
+      },
+      dossierService: {
+        listRegisteredDossiers: vi.fn().mockResolvedValue(DOSSIERS),
+        getDossier: vi.fn().mockResolvedValue(DOSSIER_DETAIL),
+        registerDossier: vi.fn().mockResolvedValue(undefined),
+        updateDossier: vi.fn().mockResolvedValue(undefined),
+        upsertKeyDate: vi.fn().mockResolvedValue(undefined),
+        deleteKeyDate: vi.fn().mockResolvedValue(undefined),
+        upsertKeyReference: vi.fn().mockResolvedValue(undefined),
+        deleteKeyReference: vi.fn().mockResolvedValue(undefined),
+        upsertBillingItem: vi.fn().mockResolvedValue(undefined),
+        deleteBillingItem: vi.fn().mockResolvedValue(undefined),
+        upsertNote: vi.fn().mockResolvedValue(undefined),
+        deleteNote: vi.fn().mockResolvedValue(undefined),
+        searchNotes: vi.fn().mockResolvedValue([])
+      },
+      invoiceService: {
+        list: vi.fn().mockResolvedValue([]),
+        get: vi.fn().mockResolvedValue(undefined)
+      },
+      documentService: {
+        listDocuments,
+        saveMetadata: vi.fn(),
+        relocateMetadata: vi.fn(),
+        resolveRegisteredDossierRoot: vi.fn(),
+        semanticSearch: vi.fn().mockResolvedValue({ dossierId: '', query: '', hits: [] })
+      },
+      domainService: {
+        getStatus: vi.fn().mockResolvedValue({
+          registeredDomainPath: domainPath,
+          isAvailable: true
+        })
+      },
+      localeService: {
+        getLocale: vi.fn().mockReturnValue('fr')
+      },
+      stateFilePath,
+      tessDataPath: '/tmp/tessdata'
+    })
+
+    const result = await service.executeCommand({
+      command: 'Indexe les documents',
+      context: { dossierId: 'dossier-testcase-a' }
+    })
+
+    expect(result.intent).toMatchObject({
+      type: 'document_metadata_batch',
+      dossierId: 'dossier-testcase-a'
+    })
+    expect(listDocuments).toHaveBeenCalledWith({ dossierId: 'dossier-testcase-a' })
+    expect(listDocuments).not.toHaveBeenCalledWith({ dossierId: 'uuid-dossier-testcase-a' })
   })
 
   it('documents contact_update as the correct tool for partial contact updates like email', async () => {
@@ -460,12 +543,14 @@ describe('aiService prompt tuning harness', () => {
     const runtimeCall = runtimeProbe.capturedCall
     expect(runtimeCall).not.toBeNull()
     expect(runtimeCall?.toolSystemPrompt).toContain(
-      'For contact creation, call `managed_fields_get` first, then `contact_create`'
+      'To create/update a contact: call `managed_fields_get` first, then `contact_create`'
     )
     expect(runtimeCall?.toolSystemPrompt).toContain(
-      'then `contact_update` with the exact `contactId`'
+      '`contact_update` (existing, exact `contactUuid`'
     )
-    expect(runtimeCall?.toolSystemPrompt).toContain('Managed fields are optional')
+    expect(runtimeCall?.toolSystemPrompt).toContain(
+      'Use `customFields` only for managed fields explicitly present'
+    )
 
     vi.useRealTimers()
   })
@@ -520,6 +605,7 @@ describe('aiService prompt tuning harness', () => {
 
     const service = createAiService({
       aiAgentRuntime: runtime,
+      isNerModelReady: async () => true,
       intentDispatcher: dispatcher,
       contactService: {
         list: vi.fn().mockResolvedValue(CONTACTS),
@@ -644,6 +730,7 @@ describe('aiService prompt tuning harness', () => {
 
     const service = createAiService({
       aiAgentRuntime: runtime,
+      isNerModelReady: async () => true,
       intentDispatcher: dispatcher,
       contactService: {
         list: vi.fn().mockResolvedValue(CONTACTS),
@@ -733,7 +820,7 @@ describe('aiService prompt tuning harness', () => {
         expect(fakeContactRef).not.toBe('merlin')
         const result = await payload.executeDataTool?.('contact_get', {
           dossierId: 'dossier-testcase-a',
-          contactId: fakeContactRef || 'contact-1'
+          contactUuid: fakeContactRef || 'contact-1'
         })
         return { type: 'direct_response', message: result ?? '' }
       }),
@@ -757,6 +844,7 @@ describe('aiService prompt tuning harness', () => {
 
     const service = createAiService({
       aiAgentRuntime: runtime,
+      isNerModelReady: async () => true,
       intentDispatcher: dispatcher,
       contactService: {
         list: vi.fn().mockResolvedValue([
@@ -1022,7 +1110,7 @@ describe('aiService prompt tuning harness', () => {
           query: 'John Martin',
           hits: [
             {
-              documentId: 'document-note-strategie',
+              documentUuid: 'document-note-strategie',
               filename: 'note-strategie.docx',
               snippet: 'John Martin conteste la décision.',
               score: 1.25,
@@ -1088,7 +1176,7 @@ describe('aiService prompt tuning harness', () => {
 
     const runtimeProbe = makeRuntime({
       type: 'document_analyze',
-      documentId: 'document-note-strategie',
+      documentUuid: 'document-note-strategie',
       dossierId: 'dossier-testcase-a'
     })
 

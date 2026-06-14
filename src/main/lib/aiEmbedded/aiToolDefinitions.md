@@ -30,6 +30,18 @@ Outils **intermédiaires** : leur résultat est réinjecté au LLM, la boucle co
 | `document_get`       | Métadonnées + statistiques de taille d'un document (**pas** le texte)    |
 | `document_search`    | Recherche hybride (exacte + sémantique) dans le texte extrait            |
 | `note_search`        | Recherche hybride dans les notes/pense-bête (filtrable kind/status)      |
+| `note_get`           | Lit une note complète par UUID                                           |
+| `legal_search_legifrance`  | Recherche obligatoire pour les textes juridiques français officiels (Légifrance) |
+| `legal_consult_legifrance` | Consulte le contenu Légifrance complet avant validation/citation          |
+| `legal_search_judilibre`   | Recherche obligatoire pour la jurisprudence française (Judilibre)         |
+| `legal_consult_judilibre`  | Consulte une décision Judilibre complète avant synthèse/citation          |
+| `legal_taxonomy_judilibre` | Résout les codes Judilibre (chambres, thèmes, juridictions…)              |
+| `legal_verify_references`  | Vérifie des références juridiques via Légifrance/Judilibre                |
+
+Pour les recherches juridiques, les descriptions des tools demandent explicitement au
+modèle d'utiliser Légifrance (`https://www.legifrance.gouv.fr`) et Judilibre
+(`https://www.courdecassation.fr/recherche-judilibre`) avant de répondre, puis
+d'inclure les liens publics `url` retournés par les résultats lorsque disponibles.
 
 #### Batchable action tools — `buildBatchableActionTools()` / `BATCHABLE_ACTION_TOOL_NAMES`
 
@@ -216,12 +228,12 @@ Table de dispatch `toolResultPseudonymizers` (dans `piiToolGateway.ts`) :
 - `managed_fields_get` → passthrough (libellés de config, pas de PII).
 - `template_list`, `document_list`, `document_get`, `document_search` → handlers dédiés
   qui pseudonymisent les **champs humainement lisibles** (nom, description, tags,
-  excerpt, query…) et **préservent les champs structurels** (`id`, `uuid`,
+  excerpt, query…) et **préservent les champs structurels** (`id`, `uuid`, références `*Uuid`,
   `relativePath`, `modifiedAt`, macros de template…) nécessaires aux appels suivants.
 - `document_analyze` → `rawContent` et `error` pseudonymisés ; `uuid` / `totalChars` /
   `charsReturned` intacts.
 - Action tools batchables → `pseudonymizeActionToolResultAsync` : seuls `feedback` et
-  les chaînes imbriquées de `entity` sont pseudonymisés ; `entity.id` / `entity.uuid`
+  les chaînes imbriquées de `entity` sont pseudonymisés ; `entity.id` / `entity.uuid` / `entity.*Uuid`
   restent verbatim.
 - Tout autre outil → `pseudonymizeAuto` (parcourt le JSON, pseudonymise les valeurs
   string, laisse les clés et les chaînes en forme d'UUID intactes).

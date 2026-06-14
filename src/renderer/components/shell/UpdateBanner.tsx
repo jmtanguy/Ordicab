@@ -45,14 +45,14 @@ export function UpdateBanner(): React.JSX.Element | null {
 
   return (
     <div className="fixed inset-0 z-60 flex items-center justify-center bg-[rgba(15,23,42,0.32)] px-4 backdrop-blur-sm">
-      <div className="pointer-events-auto w-full max-w-xl rounded-xl border border-[#e5e3da] bg-white p-4 shadow-[0_24px_60px_rgba(0,0,0,0.18)]">
+      <div className="pointer-events-auto w-full max-w-xl rounded-xl border border-hairline bg-white p-4 shadow-[0_24px_60px_rgba(0,0,0,0.18)]">
         {status.kind === 'available' ? (
           <div className="flex flex-col gap-3">
             <div>
-              <p className="text-sm font-semibold text-[#1a1a1a]">
+              <p className="text-sm font-semibold text-ink">
                 {t('updater.available_title', { version: status.version })}
               </p>
-              <p className="mt-1 text-xs text-[#5c5c5a]">{t('updater.available_body')}</p>
+              <p className="mt-1 text-xs text-ink-muted">{t('updater.available_body')}</p>
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={() => void dismiss()}>
@@ -67,7 +67,7 @@ export function UpdateBanner(): React.JSX.Element | null {
 
         {status.kind === 'downloading' ? (
           <div className="flex flex-col gap-3">
-            <p className="text-sm font-semibold text-[#1a1a1a]">
+            <p className="text-sm font-semibold text-ink">
               {t('updater.downloading_title', { version: status.version })}
             </p>
             <div className="h-2 overflow-hidden rounded-full bg-[#e9e8e0]">
@@ -76,7 +76,7 @@ export function UpdateBanner(): React.JSX.Element | null {
                 style={{ width: `${percent}%` }}
               />
             </div>
-            <p className="text-xs text-[#5c5c5a]">
+            <p className="text-xs text-ink-muted">
               {progress
                 ? t('updater.progress_body', {
                     percent: percent.toFixed(0),
@@ -92,10 +92,10 @@ export function UpdateBanner(): React.JSX.Element | null {
         {status.kind === 'downloaded' ? (
           <div className="flex flex-col gap-3">
             <div>
-              <p className="text-sm font-semibold text-[#1a1a1a]">
+              <p className="text-sm font-semibold text-ink">
                 {t('updater.ready_title', { version: status.version })}
               </p>
-              <p className="mt-1 text-xs text-[#5c5c5a]">{t('updater.ready_body')}</p>
+              <p className="mt-1 text-xs text-ink-muted">{t('updater.ready_body')}</p>
             </div>
             <div className="flex flex-wrap justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={() => void installOnQuit()}>
@@ -110,8 +110,8 @@ export function UpdateBanner(): React.JSX.Element | null {
 
         {status.kind === 'error' ? (
           <div className="flex flex-col gap-3">
-            <p className="text-sm font-semibold text-[#9c2f2f]">{t('updater.error_title')}</p>
-            <p className="text-xs text-[#9c2f2f]/85">{status.message}</p>
+            <p className="text-sm font-semibold text-destructive">{t('updater.error_title')}</p>
+            <p className="text-xs text-destructive/85">{status.message}</p>
             <div className="flex justify-end">
               <Button variant="ghost" size="sm" onClick={() => void dismiss()}>
                 {t('updater.dismiss_action')}

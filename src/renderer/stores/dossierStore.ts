@@ -16,7 +16,11 @@ import {
   type DossierNoteUpsertInput,
   type DossierSetupLegalAidInput,
   type DossierSetupLegalAidResult,
+  type DossierUpdateInput,
   type DossierUpdateLegalAidInput,
+  type GeneralKeyDate,
+  type GeneralKeyDateDeleteInput,
+  type GeneralKeyDateUpsertInput,
   IpcErrorCode,
   type DossierDetail,
   type DossierEligibleFolder,
@@ -47,6 +51,7 @@ interface DossierDetailNotice {
     | 'key-reference-deleted'
     | 'note-saved'
     | 'note-deleted'
+    | 'dossier-saved'
     | 'legal-aid-saved'
     | 'legal-aid-configured'
   dossierName: string
@@ -56,16 +61,24 @@ export type DossierStatusFilter = 'all' | DossierStatus
 export type DossierSortMode = 'alphabetical' | 'next-key-date' | 'last-opened'
 export type DossierViewMode = 'cards' | 'table'
 
+/**
+ * Sentinel `dossierId` used for « hors dossier » (general) events. Kept stable so
+ * the reminder scan's dedupe key stays consistent across reloads.
+ */
+export const GENERAL_EVENT_DOSSIER_ID = '__general__'
+
 export interface ChronologyEntry {
   dossierId: string
   dossierName: string
-  keyDate: KeyDate
+  keyDate: KeyDate | GeneralKeyDate
   /**
    * UUIDs of the billing items that source this key date. Empty when the date
    * has not been billed yet. Stored as an array (rather than a boolean) so the
    * UI can navigate from a chronology row to the underlying billing item(s).
    */
-  billingItemIds: string[]
+  billingItemUuids: string[]
+  /** True for « hors dossier » events not attached to any dossier. */
+  isGeneral?: boolean
 }
 
 const DOSSIER_SORT_MODE_STORAGE_KEY = 'dossiers-sort-mode'
@@ -100,6 +113,7 @@ interface DossierStoreActions {
   loadDetail: (id: string) => Promise<void>
   register: (id: string) => Promise<boolean>
   create: (name: string) => Promise<boolean>
+  updateDossier: (input: DossierUpdateInput) => Promise<boolean>
   upsertKeyDate: (input: DossierKeyDateUpsertInput) => Promise<boolean>
   deleteKeyDate: (input: DossierKeyDateDeleteInput) => Promise<boolean>
   upsertFeeAgreement: (input: DossierFeeAgreementUpsertInput) => Promise<boolean>
@@ -119,6 +133,27 @@ interface DossierStoreActions {
   setSortMode: (mode: DossierSortMode) => void
   setViewMode: (mode: DossierViewMode) => void
   loadChronology: () => Promise<void>
+  /**
+   * Met à jour une échéance de dossier depuis la chronologie d'accueil
+   * (glisser-déposer du calendrier) : pas de notice détail, mais rafraîchit la
+   * chronologie et resynchronise le détail si ce dossier est ouvert.
+   */
+  updateChronologyKeyDate: (input: DossierKeyDateUpsertInput) => Promise<boolean>
+  /** Supprime une échéance de dossier depuis la chronologie (pendant de {@link updateChronologyKeyDate}). */
+  deleteChronologyKeyDate: (input: DossierKeyDateDeleteInput) => Promise<boolean>
+  upsertGeneralKeyDate: (input: GeneralKeyDateUpsertInput) => Promise<boolean>
+  deleteGeneralKeyDate: (input: GeneralKeyDateDeleteInput) => Promise<boolean>
+  /**
+   * Enregistre un événement depuis le dialogue unifié : création, édition, ou
+   * déplacement (changement de dossier, y compris bascule dossier↔hors-dossier).
+   * `null` = « hors dossier ». Un déplacement n'a lieu que pour un événement
+   * existant dont le rattachement change ; sinon c'est un simple upsert.
+   */
+  saveChronologyEvent: (input: {
+    fromDossierId: string | null
+    toDossierId: string | null
+    fields: GeneralKeyDateUpsertInput
+  }) => Promise<boolean>
   clearNotice: () => void
   clearError: () => void
   clearDetailNotice: () => void
@@ -128,7 +163,7 @@ interface DossierStoreActions {
 type DossierStore = DossierStoreState & DossierStoreActions
 
 function isVisibleEligibleFolder(entry: DossierEligibleFolder): boolean {
-  return !entry.name.startsWith('.') && !entry.id.startsWith('.')
+  return !entry.name.startsWith('.') && !entry.slug.startsWith('.')
 }
 
 function compareAlphabetical(left: DossierSummary, right: DossierSummary): number {
@@ -228,12 +263,13 @@ function upsertDossierSummary(
   dossier: DossierSummary,
   mode: DossierSortMode
 ): DossierSummary[] {
-  return sortDossiers([dossier, ...dossiers.filter((entry) => entry.id !== dossier.id)], mode)
+  return sortDossiers([dossier, ...dossiers.filter((entry) => entry.slug !== dossier.slug)], mode)
 }
 
 function toSummary(dossier: DossierDetail): DossierSummary {
   return {
-    id: dossier.id,
+    slug: dossier.slug,
+    uuid: dossier.uuid,
     name: dossier.name,
     status: dossier.status,
     type: dossier.type,
@@ -289,7 +325,19 @@ export const useDossierStore = create<DossierStore>()(
         state.detailNotice = null
       })
 
-      const result = await request(api)
+      let result: IpcResult<DossierDetail>
+      try {
+        result = await request(api)
+      } catch (error) {
+        set((state) => {
+          state.isSavingDetail = false
+          state.detailError =
+            error instanceof Error ? error.message : 'Unable to save dossier detail.'
+          state.detailErrorCode = IpcErrorCode.UNKNOWN
+        })
+
+        return false
+      }
 
       if (!result.success) {
         set((state) => {
@@ -458,7 +506,7 @@ export const useDossierStore = create<DossierStore>()(
           state.notice = null
         })
 
-        const result = await api.dossier.register({ id })
+        const result = await api.dossier.register({ slug: id })
 
         if (!result.success) {
           set((state) => {
@@ -474,7 +522,7 @@ export const useDossierStore = create<DossierStore>()(
           state.isEligibleLoading = false
 
           state.dossiers = upsertDossierSummary(state.dossiers, result.data, state.sortMode)
-          state.eligibleFolders = state.eligibleFolders.filter((entry) => entry.id !== id)
+          state.eligibleFolders = state.eligibleFolders.filter((entry) => entry.slug !== id)
           state.notice = {
             kind: 'registered',
             dossierName: result.data.name
@@ -522,6 +570,19 @@ export const useDossierStore = create<DossierStore>()(
 
         return true
       },
+      updateDossier: (input) =>
+        saveDossierDetail((api) => {
+          if (typeof api.dossier.update !== 'function') {
+            return Promise.resolve({
+              success: false as const,
+              error:
+                "La mise à jour générale du dossier n'est pas disponible. Redémarrez l'application pour recharger le bridge Electron.",
+              code: IpcErrorCode.NOT_IMPLEMENTED
+            })
+          }
+
+          return api.dossier.update(input)
+        }, 'dossier-saved'),
       upsertKeyDate: (input) =>
         saveDossierDetail((api) => api.dossier.upsertKeyDate(input), 'key-date-saved'),
       deleteKeyDate: (input) =>
@@ -603,8 +664,8 @@ export const useDossierStore = create<DossierStore>()(
           state.notice = null
         })
 
-        const dossierName = get().dossiers.find((entry) => entry.id === id)?.name ?? id
-        const result = await api.dossier.unregister({ id })
+        const dossierName = get().dossiers.find((entry) => entry.slug === id)?.name ?? id
+        const result = await api.dossier.unregister({ slug: id })
 
         if (!result.success) {
           set((state) => {
@@ -619,8 +680,8 @@ export const useDossierStore = create<DossierStore>()(
         set((state) => {
           state.isLoading = false
 
-          state.dossiers = state.dossiers.filter((entry) => entry.id !== id)
-          if (state.activeDossier?.id === id) {
+          state.dossiers = state.dossiers.filter((entry) => entry.slug !== id)
+          if (state.activeDossier?.slug === id) {
             state.activeDossier = null
             state.detailNotice = null
             state.detailError = null
@@ -667,32 +728,48 @@ export const useDossierStore = create<DossierStore>()(
           state.isChronologyLoading = true
         })
 
-        const results = await Promise.all(
-          nonClosedDossiers.map(async (d) => {
-            const result = await api.dossier.get({ dossierId: d.id })
-            return { dossier: d, result }
-          })
-        )
+        const [results, generalResult] = await Promise.all([
+          Promise.all(
+            nonClosedDossiers.map(async (d) => {
+              const result = await api.dossier.get({ dossierId: d.slug })
+              return { dossier: d, result }
+            })
+          ),
+          api.dossier.listGeneralKeyDates()
+        ])
 
         const entries: ChronologyEntry[] = []
+
+        if (generalResult.success) {
+          for (const keyDate of generalResult.data) {
+            entries.push({
+              dossierId: GENERAL_EVENT_DOSSIER_ID,
+              dossierName: '',
+              keyDate,
+              billingItemUuids: [],
+              isGeneral: true
+            })
+          }
+        }
+
         for (const { dossier, result } of results) {
           if (!result.success) continue
           const billingItemIdsByKeyDate = new Map<string, string[]>()
           for (const item of result.data.billingItems) {
-            if (!item.sourceKeyDateId) continue
-            const existing = billingItemIdsByKeyDate.get(item.sourceKeyDateId)
+            if (!item.sourceKeyDateUuid) continue
+            const existing = billingItemIdsByKeyDate.get(item.sourceKeyDateUuid)
             if (existing) {
-              existing.push(item.id)
+              existing.push(item.uuid)
             } else {
-              billingItemIdsByKeyDate.set(item.sourceKeyDateId, [item.id])
+              billingItemIdsByKeyDate.set(item.sourceKeyDateUuid, [item.uuid])
             }
           }
           for (const keyDate of result.data.keyDates) {
             entries.push({
-              dossierId: dossier.id,
+              dossierId: dossier.slug,
               dossierName: result.data.name,
               keyDate,
-              billingItemIds: billingItemIdsByKeyDate.get(keyDate.id) ?? []
+              billingItemUuids: billingItemIdsByKeyDate.get(keyDate.uuid) ?? []
             })
           }
         }
@@ -709,6 +786,148 @@ export const useDossierStore = create<DossierStore>()(
           state.chronologyEntries = entries
           state.isChronologyLoading = false
         })
+      },
+      updateChronologyKeyDate: async (input) => {
+        const api = requireApi(set)
+        if (!api) return false
+
+        const result = await api.dossier.upsertKeyDate(input)
+
+        if (!result.success) {
+          set((state) => {
+            state.error = result.error
+            state.errorCode = result.code
+          })
+          return false
+        }
+
+        set((state) => {
+          if (state.activeDossier?.slug === input.dossierId) {
+            state.activeDossier = result.data
+            state.dossiers = upsertDossierSummary(
+              state.dossiers,
+              toSummary(result.data),
+              state.sortMode
+            )
+          }
+        })
+
+        await get().loadChronology()
+        return true
+      },
+      deleteChronologyKeyDate: async (input) => {
+        const api = requireApi(set)
+        if (!api) return false
+
+        const result = await api.dossier.deleteKeyDate(input)
+
+        if (!result.success) {
+          set((state) => {
+            state.error = result.error
+            state.errorCode = result.code
+          })
+          return false
+        }
+
+        set((state) => {
+          if (state.activeDossier?.slug === input.dossierId) {
+            state.activeDossier = result.data
+            state.dossiers = upsertDossierSummary(
+              state.dossiers,
+              toSummary(result.data),
+              state.sortMode
+            )
+          }
+        })
+
+        await get().loadChronology()
+        return true
+      },
+      upsertGeneralKeyDate: async (input) => {
+        const api = requireApi(set)
+        if (!api) return false
+
+        const result = await api.dossier.upsertGeneralKeyDate(input)
+
+        if (!result.success) {
+          set((state) => {
+            state.error = result.error
+            state.errorCode = result.code
+          })
+          return false
+        }
+
+        await get().loadChronology()
+        return true
+      },
+      deleteGeneralKeyDate: async (input) => {
+        const api = requireApi(set)
+        if (!api) return false
+
+        const result = await api.dossier.deleteGeneralKeyDate(input)
+
+        if (!result.success) {
+          set((state) => {
+            state.error = result.error
+            state.errorCode = result.code
+          })
+          return false
+        }
+
+        await get().loadChronology()
+        return true
+      },
+      saveChronologyEvent: async ({ fromDossierId, toDossierId, fields }) => {
+        const isMove = Boolean(fields.uuid) && fromDossierId !== toDossierId
+        if (!isMove) {
+          return toDossierId === null
+            ? get().upsertGeneralKeyDate(fields)
+            : get().updateChronologyKeyDate({ ...fields, dossierId: toDossierId })
+        }
+
+        const api = requireApi(set)
+        if (!api) return false
+
+        const result = await api.dossier.moveKeyDate({
+          keyDateUuid: fields.uuid as string,
+          fromDossierId,
+          toDossierId,
+          label: fields.label,
+          date: fields.date,
+          time: fields.time,
+          duration: fields.duration,
+          tags: fields.tags,
+          isClosed: fields.isClosed,
+          note: fields.note
+        })
+
+        if (!result.success) {
+          set((state) => {
+            state.error = result.error
+            state.errorCode = result.code
+          })
+          return false
+        }
+
+        // Le déplacement touche la source et la cible : resynchronise le dossier
+        // ouvert s'il est l'un des deux.
+        const activeSlug = get().activeDossier?.slug
+        if (activeSlug && (activeSlug === fromDossierId || activeSlug === toDossierId)) {
+          const detail = await api.dossier.get({ dossierId: activeSlug })
+          if (detail.success) {
+            set((state) => {
+              state.activeDossier = detail.data
+              state.dossiers = upsertDossierSummary(
+                state.dossiers,
+                toSummary(detail.data),
+                state.sortMode
+              )
+            })
+          }
+        }
+
+        await get().loadChronology()
+        return true
       },
       clearNotice: () => {
         set((state) => {

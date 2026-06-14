@@ -41,11 +41,10 @@ async function renderReference(props?: {
 }
 
 describe('DelegatedReference', () => {
-  it('renders all operations with domain context, shows placeholders when no context, copies prompt, and handles clipboard rejection', async () => {
-    // with context
+  it('renders the prompt binder with domain context, shows placeholders when no context, copies prompt, and handles clipboard rejection', async () => {
+    // with context: all operations are tabs, only the active fiche is visible
     await renderReference()
-    expect(screen.getByRole('heading', { name: 'AI Reference' })).toBeTruthy()
-    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual([
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent?.replace(/^\d+/, ''))).toEqual([
       'Dossier Bulk Setup',
       'Add or Update Contact',
       'Extract Events',
@@ -56,14 +55,22 @@ describe('DelegatedReference', () => {
       'Add or Update Template',
       'Generate Document'
     ])
+    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual([
+      'Dossier Bulk Setup'
+    ])
     expect(screen.getByText(/set up dossier 'Test Dossier'/i)).toBeTruthy()
+
+    // switching tab swaps the visible fiche
+    fireEvent.click(screen.getByRole('tab', { name: /update firm profile/i }))
     expect(screen.getByText(/entity profile for 'Test Entity'/i)).toBeTruthy()
+    expect(screen.queryByText(/set up dossier 'Test Dossier'/i)).toBeNull()
     cleanup()
 
     // no context -> placeholders
     await renderReference({ entityName: null, sampleDossierName: null })
     expect(screen.getByText('Configure a domain to see context-aware prompts.')).toBeTruthy()
     expect(screen.getAllByText(/\[your dossier name\]/).length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('tab', { name: /update firm profile/i }))
     expect(screen.getAllByText(/\[firm name\]/).length).toBeGreaterThan(0)
     cleanup()
 

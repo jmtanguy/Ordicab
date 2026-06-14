@@ -17,8 +17,8 @@ export function useInvoiceSettingsSummary(): string {
     } catch {
       preview = settings.numberPattern
     }
-    const tpl = settings.defaultTemplateId
-      ? (templates.find((t) => t.id === settings.defaultTemplateId)?.name ?? '—')
+    const tpl = settings.defaultTemplateUuid
+      ? (templates.find((t) => t.uuid === settings.defaultTemplateUuid)?.name ?? '—')
       : 'aucun'
     return `Prochain n° ${preview} · Modèle par défaut : ${tpl}`
   }, [settings, templates])

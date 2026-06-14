@@ -8,13 +8,13 @@ import type { KeyDate, KeyDateTag, ReminderPreferences } from '@shared/types'
 export interface ReminderScanEntry {
   dossierId: string
   dossierName: string
-  keyDate: Pick<KeyDate, 'id' | 'label' | 'date' | 'time' | 'tags' | 'isClosed'>
+  keyDate: Pick<KeyDate, 'uuid' | 'label' | 'date' | 'time' | 'tags' | 'isClosed'>
 }
 
 export interface DueReminder {
   dossierId: string
   dossierName: string
-  keyDateId: string
+  keyDateUuid: string
   label: string
   date: string
   /** Lead-time bucket (days before the event) that triggered this reminder. */
@@ -28,23 +28,30 @@ export interface DueReminder {
 /** Tags that mark a key date as no longer actionable — never remind on these. */
 const SUPPRESSING_TAGS: readonly KeyDateTag[] = ['cancelled', 'postponed']
 
-function toUtcMidnight(isoDate: string): number {
-  // Key dates are stored as YYYY-MM-DD. Anchor at midnight UTC so day-count
-  // arithmetic is DST-proof.
-  const parsed = new Date(`${isoDate}T00:00:00Z`)
+const MS_PER_DAY = 24 * 60 * 60 * 1000
+
+function toLocalIsoDay(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function toLocalNoon(isoDate: string): number {
+  // Key dates are stored as YYYY-MM-DD. Anchor at local noon so day-count
+  // arithmetic follows the user's calendar day and stays stable across DST.
+  const parsed = new Date(`${isoDate}T12:00:00`)
   return parsed.getTime()
 }
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000
-
 /**
  * Whole days between `now` and the event date. Positive = future, 0 = today,
- * negative = past. Uses the UTC day of `now` so a reminder at 23:00 local time
- * still counts "tomorrow" as 1 day away.
+ * negative = past. Uses the local day of `now`, matching the rest of the app's
+ * YYYY-MM-DD calendar-date convention.
  */
 export function daysUntilEvent(eventIsoDate: string, now: Date): number {
-  const today = toUtcMidnight(now.toISOString().slice(0, 10))
-  const event = toUtcMidnight(eventIsoDate)
+  const today = toLocalNoon(toLocalIsoDay(now))
+  const event = toLocalNoon(eventIsoDate)
   if (Number.isNaN(event)) return Number.NaN
   return Math.round((event - today) / MS_PER_DAY)
 }
@@ -62,7 +69,7 @@ export function scanDueReminders(
 ): DueReminder[] {
   if (!preferences.enabled || preferences.leadDays.length === 0) return []
 
-  const today = now.toISOString().slice(0, 10)
+  const today = toLocalIsoDay(now)
   const buckets = [...new Set(preferences.leadDays)].sort((a, b) => b - a)
   const due: DueReminder[] = []
 
@@ -89,12 +96,12 @@ export function scanDueReminders(
     due.push({
       dossierId: entry.dossierId,
       dossierName: entry.dossierName,
-      keyDateId: keyDate.id,
+      keyDateUuid: keyDate.uuid,
       label: keyDate.label,
       date: keyDate.date,
       leadDays: bucket,
       daysUntil,
-      dedupeKey: `${entry.dossierId}:${keyDate.id}:${bucket}:${today}`
+      dedupeKey: `${entry.dossierId}:${keyDate.uuid}:${bucket}:${today}`
     })
   }
 

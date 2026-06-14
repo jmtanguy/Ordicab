@@ -17,7 +17,7 @@ import type { TemplateService } from '../templateService'
 
 const AJ_TEMPLATES: TemplateRecord[] = [
   {
-    id: 'tpl-desig',
+    uuid: 'tpl-desig',
     name: 'Désignation',
     tags: ['aide-juridictionnelle', 'designation'],
     macros: [],
@@ -25,7 +25,7 @@ const AJ_TEMPLATES: TemplateRecord[] = [
     updatedAt: ''
   },
   {
-    id: 'tpl-attest',
+    uuid: 'tpl-attest',
     name: 'Attestation',
     tags: ['aide-juridictionnelle', 'attestation'],
     macros: [],
@@ -33,7 +33,7 @@ const AJ_TEMPLATES: TemplateRecord[] = [
     updatedAt: ''
   },
   {
-    id: 'tpl-conv',
+    uuid: 'tpl-conv',
     name: 'Convention complément',
     tags: ['aide-juridictionnelle', 'complement'],
     macros: [],
@@ -41,7 +41,7 @@ const AJ_TEMPLATES: TemplateRecord[] = [
     updatedAt: ''
   },
   {
-    id: 'tpl-fac-etat',
+    uuid: 'tpl-fac-etat',
     name: 'Facture État',
     tags: ['aide-juridictionnelle', 'facture', 'etat'],
     macros: [],
@@ -49,7 +49,7 @@ const AJ_TEMPLATES: TemplateRecord[] = [
     updatedAt: ''
   },
   {
-    id: 'tpl-fac-comp',
+    uuid: 'tpl-fac-comp',
     name: 'Facture complément',
     tags: ['aide-juridictionnelle', 'facture', 'complement'],
     macros: [],
@@ -60,7 +60,8 @@ const AJ_TEMPLATES: TemplateRecord[] = [
 
 function makeDossier(legalAidType: 'total' | 'partial'): DossierDetail {
   return {
-    id: 'dossier-1',
+    slug: 'dossier-1',
+    uuid: 'uuid-dossier-1',
     name: 'Dupont c/ Société X',
     type: 'social',
     status: 'active',
@@ -111,7 +112,7 @@ function makeHarness(legalAidType: 'total' | 'partial', templates = AJ_TEMPLATES
     },
     upsertFeeAgreement: async (input) => {
       const agreement = {
-        id: `fa-${++agreementSeq}`,
+        uuid: `fa-${++agreementSeq}`,
         createdAt: '',
         updatedAt: '',
         isActive: true,
@@ -133,7 +134,7 @@ function makeHarness(legalAidType: 'total' | 'partial', templates = AJ_TEMPLATES
       return state.dossier
     },
     upsertBillingItem: async (input) => {
-      const item = { ...input, id: `bi-${++itemSeq}` } as unknown as DossierBillingItem
+      const item = { ...input, uuid: `bi-${++itemSeq}` } as unknown as DossierBillingItem
       state.dossier = {
         ...state.dossier,
         billingItems: [...state.dossier.billingItems, item]
@@ -141,7 +142,7 @@ function makeHarness(legalAidType: 'total' | 'partial', templates = AJ_TEMPLATES
       return state.dossier
     },
     upsertKeyDate: async (input) => {
-      const keyDate = { ...input, id: `kd-${++keyDateSeq}` } as unknown as KeyDate
+      const keyDate = { ...input, uuid: `kd-${++keyDateSeq}` } as unknown as KeyDate
       state.dossier = {
         ...state.dossier,
         keyDates: [...state.dossier.keyDates, keyDate]
@@ -152,9 +153,9 @@ function makeHarness(legalAidType: 'total' | 'partial', templates = AJ_TEMPLATES
 
   const invoiceService = {
     create: async (input) => {
-      state.invoiceCreateCalls.push(input.templateId)
+      state.invoiceCreateCalls.push(input.templateUuid)
       return {
-        id: `inv-${++invoiceSeq}`,
+        uuid: `inv-${++invoiceSeq}`,
         number: `FAC-2026-000${invoiceSeq}`
       } as unknown as InvoiceRecord
     }
@@ -187,12 +188,12 @@ describe('ajOrchestrationService.setupLegalAid', () => {
     const { setup, state } = makeHarness('total')
     const result = await setup.setupLegalAid({ dossierId: 'dossier-1' })
 
-    expect(result.feeAgreementId).toBe('fa-1')
-    expect(result.billingItemIds).toHaveLength(1) // État only
-    expect(result.invoiceIds).toHaveLength(1)
+    expect(result.feeAgreementUuid).toBe('fa-1')
+    expect(result.billingItemUuids).toHaveLength(1) // État only
+    expect(result.invoiceUuids).toHaveLength(1)
     expect(state.invoiceCreateCalls).toEqual(['tpl-fac-etat'])
     expect(result.documentUuids.length).toBeGreaterThanOrEqual(2) // designation + attestation
-    expect(result.keyDateIds).toHaveLength(3)
+    expect(result.keyDateUuids).toHaveLength(3)
     expect(state.dossier.legalAid?.autoSetupDone).toBe(true)
     expect(result.warnings).toHaveLength(0)
   })
@@ -201,9 +202,9 @@ describe('ajOrchestrationService.setupLegalAid', () => {
     const { setup, state } = makeHarness('partial')
     const result = await setup.setupLegalAid({ dossierId: 'dossier-1' })
 
-    expect(result.billingItemIds).toHaveLength(2)
+    expect(result.billingItemUuids).toHaveLength(2)
     expect(state.invoiceCreateCalls).toEqual(['tpl-fac-etat', 'tpl-fac-comp'])
-    expect(result.invoiceIds).toHaveLength(2)
+    expect(result.invoiceUuids).toHaveLength(2)
     expect(result.warnings).toHaveLength(0)
   })
 
@@ -213,7 +214,7 @@ describe('ajOrchestrationService.setupLegalAid', () => {
     await expect(setup.setupLegalAid({ dossierId: 'dossier-1' })).rejects.toThrow()
     // With force, it runs again.
     const forced = await setup.setupLegalAid({ dossierId: 'dossier-1', force: true })
-    expect(forced.feeAgreementId).toBeTruthy()
+    expect(forced.feeAgreementUuid).toBeTruthy()
   })
 
   it('throws when legal aid is not granted', async () => {
@@ -226,7 +227,7 @@ describe('ajOrchestrationService.setupLegalAid', () => {
     const { setup, state } = makeHarness('total', [])
     const result = await setup.setupLegalAid({ dossierId: 'dossier-1' })
     expect(state.invoiceCreateCalls).toHaveLength(0)
-    expect(result.invoiceIds).toHaveLength(0)
+    expect(result.invoiceUuids).toHaveLength(0)
     expect(result.warnings.length).toBeGreaterThan(0)
   })
 })

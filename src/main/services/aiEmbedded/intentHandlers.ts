@@ -214,7 +214,7 @@ export async function handleDocumentBatch(
   const allDocs = await ctx.documentService
     .listDocuments({ dossierId: targetDossierId })
     .catch(() => [] as DocumentRecord[])
-  const explicitIds = intent.documentIds ?? []
+  const explicitIds = intent.documentUuids ?? []
   const targetIds =
     explicitIds.length > 0
       ? explicitIds
@@ -225,8 +225,8 @@ export async function handleDocumentBatch(
                 !(d.description && d.description.trim().length > 0) &&
                 (!Array.isArray(d.tags) || d.tags.length === 0)
             )
-            .map((d) => d.uuid ?? d.id)
-        : allDocs.map((d) => d.uuid ?? d.id)
+            .map((d) => d.uuid ?? d.path)
+        : allDocs.map((d) => d.uuid ?? d.path)
 
   if (targetIds.length === 0) {
     const feedback =
@@ -270,7 +270,7 @@ export async function handleDocumentBatch(
   })()
 
   const outcome = await processDocumentsBatch(
-    { dossierId: targetDossierId, documentIds: targetIds },
+    { dossierId: targetDossierId, documentUuids: targetIds },
     adapter,
     { documentService: ctx.documentService, runOneShot, locale: ctx.appLocale as 'fr' | 'en' }
   )
@@ -297,7 +297,7 @@ export async function handleDocumentAnalyze(
   const targetDossierId = intent.dossierId ?? ctx.dossierId ?? ''
   const resultJson = await ctx.actionToolExecutor.runDocumentAnalysis(
     targetDossierId,
-    intent.documentId,
+    intent.documentUuid,
     intent.charStart,
     intent.charEnd
   )
@@ -354,7 +354,7 @@ async function buildTextGenerationPrompt(
   dataToolHistory: DataToolHistoryEntry[]
 ): Promise<{ prompt: string; systemPrompt: string }> {
   const lang = intent.language ?? 'fr'
-  const contact = intent.contactId ? contacts.find((c) => c.id === intent.contactId) : null
+  const contact = intent.contactUuid ? contacts.find((c) => c.id === intent.contactUuid) : null
   const dossierName = dossier && 'name' in dossier ? dossier.name : (dossierId ?? '')
 
   const systemLines = [
@@ -373,18 +373,18 @@ async function buildTextGenerationPrompt(
 
   // Inject document_search excerpts collected during the agent loop so the
   // text generation LLM can ground its output in actual dossier content.
-  const searchExcerpts: Array<{ documentId: string; filename: string; excerpt: string }> = []
+  const searchExcerpts: Array<{ documentUuid: string; filename: string; excerpt: string }> = []
   for (const entry of dataToolHistory) {
     if (entry.toolName !== 'document_search') continue
     try {
       const parsed = JSON.parse(entry.result) as {
-        matches?: Array<{ documentId: string; filename: string; excerpt: string }>
+        matches?: Array<{ documentUuid: string; filename: string; excerpt: string }>
       }
       if (Array.isArray(parsed.matches)) {
         for (const m of parsed.matches) {
           if (!searchExcerpts.some((e) => e.excerpt === m.excerpt)) {
             searchExcerpts.push({
-              documentId: m.documentId,
+              documentUuid: m.documentUuid,
               filename: m.filename,
               excerpt: m.excerpt
             })

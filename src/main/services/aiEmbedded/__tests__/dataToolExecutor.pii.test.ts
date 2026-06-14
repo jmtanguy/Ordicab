@@ -9,7 +9,7 @@ describe('action tool result PII pseudonymization', () => {
   it('pseudonymizes nested entity strings while preserving structural handles', async () => {
     const raw = JSON.stringify({
       success: true,
-      contactId: 'contact-123',
+      contactUuid: 'contact-123',
       feedback: 'Contact Luc Merlin ajouté.',
       entity: {
         id: 'contact-123',
@@ -27,7 +27,7 @@ describe('action tool result PII pseudonymization', () => {
     const safe = await pseudonymizeActionToolResultAsync(raw, async (value) => `SAFE(${value})`)
     const parsed = JSON.parse(safe)
 
-    expect(parsed.contactId).toBe('contact-123')
+    expect(parsed.contactUuid).toBe('contact-123')
     expect(parsed.entity.id).toBe('contact-123')
     expect(parsed.entity.uuid).toBe('contact-uuid-123')
     expect(parsed.feedback).toBe('SAFE(Contact Luc Merlin ajouté.)')
@@ -65,13 +65,13 @@ describe('document tool result PII pseudonymization', () => {
 
   it('still pseudonymizes the wrapped document_list shape', async () => {
     const raw = JSON.stringify({
-      documents: [{ documentId: 'doc-1', filename: 'Courrier Merlin.pdf', tags: ['courrier'] }]
+      documents: [{ documentUuid: 'doc-1', filename: 'Courrier Merlin.pdf', tags: ['courrier'] }]
     })
 
     const safe = await pseudonymizeDocumentToolResultAsync(raw, async (value) => `SAFE(${value})`)
     const parsed = JSON.parse(safe)
 
-    expect(parsed.documents[0].documentId).toBe('doc-1')
+    expect(parsed.documents[0].documentUuid).toBe('doc-1')
     expect(parsed.documents[0].filename).toBe('SAFE(Courrier Merlin.pdf)')
     expect(parsed.documents[0].tags).toEqual(['SAFE(courrier)'])
   })

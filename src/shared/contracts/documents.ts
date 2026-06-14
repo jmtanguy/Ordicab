@@ -14,6 +14,12 @@ export interface GeneratedDraftResult {
   suggestedFilename: string
   unresolvedTags: string[]
   resolvedTags: Record<string, string>
+  /**
+   * Manual values memorized from the last generation of this template for this
+   * dossier. Only returned on the initial preview (no tagOverrides) so the
+   * wizard can pre-fill fields the context cannot resolve.
+   */
+  memorizedOverrides?: Record<string, string>
 }
 
 export interface DocxPreviewResult {
@@ -21,6 +27,8 @@ export interface DocxPreviewResult {
   resolvedTags: Record<string, string>
   suggestedFilename: string
   htmlPreview: string
+  /** See GeneratedDraftResult.memorizedOverrides. */
+  memorizedOverrides?: Record<string, string>
 }
 
 export interface ClaudeMdRegenerateInput {
@@ -40,12 +48,12 @@ export interface DocumentChangeEvent {
 
 export interface OrdicabDataChangedEvent {
   dossierId: string | null
-  type: 'contacts' | 'dossier' | 'entity' | 'cabinet-billing' | 'templates'
+  type: 'contacts' | 'dossier' | 'general-key-dates' | 'entity' | 'cabinet-billing' | 'templates'
   changedAt: string
 }
 
 export interface TemplateDocxSyncedEvent {
-  templateId: string
+  templateUuid: string
   html: string
 }
 
@@ -57,7 +65,7 @@ export interface DocumentWatchStatus {
 }
 
 export interface DocumentContentStatus {
-  documentId: string
+  documentPath: string
   status: import('../domain/document').DocumentTextExtractionStatus
 }
 
@@ -65,7 +73,7 @@ export type DocumentAvailabilityEvent = DocumentWatchStatus
 
 export interface DocumentExtractProgressEvent {
   dossierId: string
-  documentId: string
+  documentPath: string
   phase: 'embedded' | 'ocr'
   page: number
   totalPages: number
@@ -80,7 +88,7 @@ export interface SemanticSearchQuery {
 
 export interface SemanticSearchHit {
   /** Document relativePath — matches DocumentRecord.id and DocumentRecord.relativePath. */
-  documentId: string
+  documentPath: string
   /** Document filename for display. */
   filename: string
   /** Inclusive character offset into the extracted text. */
@@ -109,6 +117,25 @@ export interface SemanticSearchResult {
   hits: SemanticSearchHit[]
 }
 
+export interface GlobalSearchQuery {
+  query: string
+  /** Maximum hits to return per dossier before the global merge. Defaults to 10 on the service side. */
+  topK?: number
+}
+
+/** A {@link SemanticSearchHit} carrying the dossier it was found in, for cross-dossier search. */
+export interface GlobalSearchHit extends SemanticSearchHit {
+  /** Slug of the source dossier — usable as a dossierId for follow-up document calls. */
+  dossierId: string
+  /** Display name of the source dossier. */
+  dossierName: string
+}
+
+export interface GlobalSearchResult {
+  query: string
+  hits: GlobalSearchHit[]
+}
+
 export type DocumentPreviewSourceType =
   | 'pdf'
   | 'docx'
@@ -127,7 +154,7 @@ export type DocumentPreviewSourceType =
   | 'unknown'
 
 interface DocumentPreviewBase {
-  documentId: string
+  documentPath: string
   filename: string
   mimeType: string | null
   byteLength: number
@@ -155,6 +182,13 @@ export interface TextDocumentPreview extends DocumentPreviewBase {
   text: string
 }
 
+export interface EmailAttachmentSummary {
+  /** Position in the parsed attachment list — duplicate filenames are common, so addressing is index-based. */
+  index: number
+  filename: string
+  byteLength: number | null
+}
+
 export interface EmailDocumentPreview extends DocumentPreviewBase {
   kind: 'email'
   sourceType: 'eml' | 'msg'
@@ -164,7 +198,7 @@ export interface EmailDocumentPreview extends DocumentPreviewBase {
   to: string | null
   cc: string | null
   date: string | null
-  attachments: string[]
+  attachments: EmailAttachmentSummary[]
   text: string
 }
 

@@ -6,7 +6,7 @@ import { AI_DELEGATED_INSTRUCTIONS_FILES, type AiMode } from '@shared/types'
  * Delegated AI modes do not use the built-in runtime directly.
  * Instead, Ordicab writes tool-specific instruction files at the domain root.
  */
-export function getAiDelegatedInstructionsRelativePath(mode: AiMode): string | null {
+function getAiDelegatedInstructionsRelativePath(mode: AiMode): string | null {
   return AI_DELEGATED_INSTRUCTIONS_FILES[mode] ?? null
 }
 

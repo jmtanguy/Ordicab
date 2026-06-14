@@ -13,7 +13,7 @@
 
 export interface IndexedDocument {
   /** Stable identifier for the document (e.g. relative path inside the dossier). */
-  documentId: string
+  itemId: string
   /** Human-readable name (shown in the search UI). */
   displayName?: string
   /** Absolute path to the per-document content cache JSON. */
@@ -21,7 +21,7 @@ export interface IndexedDocument {
 }
 
 export interface SemanticSearchHit {
-  documentId: string
+  itemId: string
   displayName?: string
   charStart: number
   charEnd: number
@@ -43,15 +43,9 @@ export const MAX_HITS_PER_DOCUMENT = 2
 // sentence with surrounding sentences up to this many characters.
 export const SNIPPET_MAX_CHARS = 280
 
-// Score added per matched content word from the query found verbatim in the
-// candidate text. Used by the semantic path as a hybrid keyword-presence
-// signal so documents literally containing the query terms beat documents
-// that are only semantically adjacent.
-export const KEYWORD_BONUS_PER_WORD = 0.04
-
 // Stop words stripped from the query before keyword-presence scoring and
 // keyword search. Covers French and English (tests use English text).
-export const STOP_WORDS = new Set([
+const STOP_WORDS = new Set([
   // French
   'de',
   'du',
@@ -140,16 +134,6 @@ export function buildContentWordRegexes(query: string): RegExp[] {
       // Word-boundary match prevents "nom" hitting "notamment", etc.
       return new RegExp(`\\b(${escapeRegExp(w)}|${escapeRegExp(alt)})\\b`)
     })
-}
-
-export function computeKeywordBonus(chunkText: string, wordRegexes: readonly RegExp[]): number {
-  if (wordRegexes.length === 0) return 0
-  const lower = chunkText.toLocaleLowerCase()
-  let bonus = 0
-  for (const re of wordRegexes) {
-    if (re.test(lower)) bonus += KEYWORD_BONUS_PER_WORD
-  }
-  return bonus
 }
 
 export interface Sentence {
@@ -254,9 +238,9 @@ export function buildSnippetWithContext(sentences: Sentence[], pickedIdx: number
 export function limitHitsPerDocument(hits: SemanticSearchHit[], max: number): SemanticSearchHit[] {
   const countByDoc = new Map<string, number>()
   return hits.filter((hit) => {
-    const n = countByDoc.get(hit.documentId) ?? 0
+    const n = countByDoc.get(hit.itemId) ?? 0
     if (n >= max) return false
-    countByDoc.set(hit.documentId, n + 1)
+    countByDoc.set(hit.itemId, n + 1)
     return true
   })
 }
@@ -284,11 +268,11 @@ export function mergeHybridHits(
   keywordHits: SemanticSearchHit[],
   semanticHits: SemanticSearchHit[]
 ): MergedHit[] {
-  const seenSpans = new Set(keywordHits.map((h) => `${h.documentId}:${h.charStart}:${h.charEnd}`))
-  const seenDocs = new Set(keywordHits.map((h) => h.documentId))
+  const seenSpans = new Set(keywordHits.map((h) => `${h.itemId}:${h.charStart}:${h.charEnd}`))
+  const seenDocs = new Set(keywordHits.map((h) => h.itemId))
   const semanticKept = semanticHits.filter((h) => {
-    const spanKey = `${h.documentId}:${h.charStart}:${h.charEnd}`
-    return !seenSpans.has(spanKey) && !seenDocs.has(h.documentId)
+    const spanKey = `${h.itemId}:${h.charStart}:${h.charEnd}`
+    return !seenSpans.has(spanKey) && !seenDocs.has(h.itemId)
   })
   return [
     ...keywordHits.map((hit) => ({ hit, matchKind: 'keyword' as const })),

@@ -46,7 +46,7 @@ export function parseLocalDateToIso(value: string, locale: string): string | nul
   return null
 }
 
-export function formatIsoDateShort(iso: string, locale: string): string {
+function formatIsoDateShort(iso: string, locale: string): string {
   try {
     return new Intl.DateTimeFormat(locale, { dateStyle: 'short' }).format(
       new Date(`${iso}T12:00:00`)

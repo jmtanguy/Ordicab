@@ -151,6 +151,32 @@ describe('legalService', () => {
     expect(body.recherche.champs[0]?.typeChamp).toBe('NUM_ARTICLE')
   })
 
+  it('forces a CODE fond for an article citation with no named code', async () => {
+    // "article 1240" with no code still builds a NUM_ARTICLE body. Sending that
+    // against fond=ALL is the exact 500 trigger, so the fond must default to a
+    // CODE fond (CODE_DATE) even though no NOM_CODE facette can be added.
+    const credentials = createMemoryCredentials()
+    credentials.values.set(CLIENT_ID_KEY, 'client-id')
+    credentials.values.set(CLIENT_SECRET_KEY, 'client-secret')
+    const service = createLegalService({ credentialStore: credentials })
+
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token-1', expires_in: 3600 }))
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+
+    await service.searchLegifrance({ recherche: 'article 1240' })
+
+    const [, init] = mockFetch.mock.calls[1] ?? []
+    const body = JSON.parse((init as { body: string }).body) as {
+      fond: string
+      recherche: { champs: Array<{ typeChamp: string }> }
+    }
+
+    expect(body.fond).not.toBe('ALL')
+    expect(body.fond).toBe('CODE_DATE')
+    expect(body.recherche.champs[0]?.typeChamp).toBe('NUM_ARTICLE')
+  })
+
   it('uses UN_DES_MOTS relevance search for a free-text query', async () => {
     const credentials = createMemoryCredentials()
     credentials.values.set(CLIENT_ID_KEY, 'client-id')
@@ -178,6 +204,24 @@ describe('legalService', () => {
     expect(body.recherche.champs[0]?.typeChamp).toBe('ALL')
     expect(body.recherche.champs[0]?.criteres[0]?.valeur).toBe('jurisprudence sur le mariage')
     expect(body.recherche.champs[0]?.criteres[0]?.typeRecherche).toBe('UN_DES_MOTS')
+  })
+
+  it('does not retry fetch timeouts', async () => {
+    const credentials = createMemoryCredentials()
+    credentials.values.set(CLIENT_ID_KEY, 'client-id')
+    credentials.values.set(CLIENT_SECRET_KEY, 'client-secret')
+    const service = createLegalService({ credentialStore: credentials })
+    const timeout = new Error('The operation was aborted due to timeout')
+    timeout.name = 'TimeoutError'
+
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token-1', expires_in: 3600 }))
+      .mockRejectedValueOnce(timeout)
+
+    await expect(service.searchLegifrance({ recherche: 'responsabilité' })).rejects.toThrow(
+      'The operation was aborted due to timeout'
+    )
+    expect(mockFetch).toHaveBeenCalledTimes(2)
   })
 
   it('does not override explicit typeChamp / fond on a citation query', async () => {

@@ -10,11 +10,18 @@ declare module '@tiptap/core' {
   }
 }
 
-export const SmartTagExtension = Node.create<{ localizeTagPath: (path: string) => string }>({
+export const SmartTagExtension = Node.create<{
+  localizeTagPath: (path: string) => string
+  /** When provided, chips whose path is not recognized get a warning style. */
+  isKnownTagPath: (path: string) => boolean
+}>({
   name: 'smartTag',
 
   addOptions() {
-    return { localizeTagPath: (path: string) => path }
+    return {
+      localizeTagPath: (path: string) => path,
+      isKnownTagPath: () => true
+    }
   },
 
   inline: true,
@@ -41,11 +48,14 @@ export const SmartTagExtension = Node.create<{ localizeTagPath: (path: string) =
   renderHTML({ node, HTMLAttributes }) {
     const path = extractTagPath(String(node.attrs.path ?? ''))
     const displayPath = this.options.localizeTagPath(path)
+    const isKnown = this.options.isKnownTagPath(path)
 
     return [
       'span',
       mergeAttributes(HTMLAttributes, {
-        class: 'ord-template-tag-chip',
+        class: isKnown
+          ? 'ord-template-tag-chip'
+          : 'ord-template-tag-chip ord-template-tag-chip--unknown',
         contenteditable: 'false'
       }),
       buildTagToken(displayPath)

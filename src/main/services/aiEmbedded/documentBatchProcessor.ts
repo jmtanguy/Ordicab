@@ -44,13 +44,13 @@ export interface DocumentBatchProcessorDeps {
 export interface DocumentBatchOptions {
   dossierId: string
   /** Document UUIDs (or relative paths) to process. */
-  documentIds: string[]
+  documentUuids: string[]
   /** Max chars of document text included in the per-doc prompt. Default: 12 000. */
   textCharLimit?: number
 }
 
-export interface DocumentBatchItemOutcome {
-  documentId: string
+interface DocumentBatchItemOutcome {
+  documentUuid: string
   filename: string
   success: boolean
   summary: string
@@ -111,8 +111,8 @@ export async function processDocumentsBatch<TResult>(
     .catch(() => [] as DocumentRecord[])
 
   const targets: DocumentRecord[] = []
-  for (const id of options.documentIds) {
-    const doc = allDocs.find((d) => d.uuid === id || d.id === id)
+  for (const id of options.documentUuids) {
+    const doc = allDocs.find((d) => d.uuid === id || d.path === id)
     if (doc) targets.push(doc)
   }
 
@@ -120,11 +120,11 @@ export async function processDocumentsBatch<TResult>(
   const perDocument: DocumentBatchItemOutcome[] = []
 
   for (const doc of targets) {
-    const docId = doc.uuid ?? doc.id
+    const docId = doc.uuid ?? doc.path
     const loaded = await loadDocumentText(deps.documentService, options.dossierId, doc, charLimit)
     if ('error' in loaded) {
       perDocument.push({
-        documentId: docId,
+        documentUuid: docId,
         filename: doc.filename,
         success: false,
         summary: '',
@@ -139,7 +139,7 @@ export async function processDocumentsBatch<TResult>(
       raw = await deps.runOneShot(systemPrompt, userPrompt)
     } catch (err) {
       perDocument.push({
-        documentId: docId,
+        documentUuid: docId,
         filename: doc.filename,
         success: false,
         summary: '',
@@ -151,7 +151,7 @@ export async function processDocumentsBatch<TResult>(
     const parsed = adapter.parseResult(raw)
     if (!parsed) {
       perDocument.push({
-        documentId: docId,
+        documentUuid: docId,
         filename: doc.filename,
         success: false,
         summary: '',
@@ -163,14 +163,14 @@ export async function processDocumentsBatch<TResult>(
     try {
       const summary = await adapter.applyResult(doc, parsed)
       perDocument.push({
-        documentId: docId,
+        documentUuid: docId,
         filename: doc.filename,
         success: true,
         summary
       })
     } catch (err) {
       perDocument.push({
-        documentId: docId,
+        documentUuid: docId,
         filename: doc.filename,
         success: false,
         summary: '',

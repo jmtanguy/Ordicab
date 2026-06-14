@@ -47,7 +47,9 @@ import {
   ENTITY_TITLE_LONG,
   ENTITY_TITLE_SHORT,
   entityProfileSchema,
+  generationPrefillFileSchema,
   type DossierMetadataFile,
+  type GenerationPrefillFile,
   templateRecordSchema
 } from '@shared/validation'
 import { type DocumentService } from './documentService'
@@ -65,6 +67,7 @@ import {
   getDomainTemplateContentPath,
   getDomainTemplateDocxPath,
   getDomainTemplatesPath,
+  getDossierGenerationPrefillPath,
   getDossierMetadataPath
 } from '../../lib/ordicab/ordicabPaths'
 import { readContactsForDossierPath } from './contactService'
@@ -172,6 +175,8 @@ interface DraftBuildResult {
   unresolvedTags: string[]
   resolvedTags: Record<string, string>
   dossierPath: string
+  /** Bare template context used for the draft — needed by the prefill logic. */
+  context: TemplateContext
 }
 
 interface LoadedGenerationData {
@@ -208,8 +213,8 @@ async function resolveActiveDomainPath(domainService: DomainServiceLike): Promis
   return status.registeredDomainPath
 }
 
-async function loadTemplateContent(domainPath: string, templateId: string): Promise<string> {
-  const contentPath = getDomainTemplateContentPath(domainPath, templateId)
+async function loadTemplateContent(domainPath: string, templateUuid: string): Promise<string> {
+  const contentPath = getDomainTemplateContentPath(domainPath, templateUuid)
 
   if (!(await pathExists(contentPath))) {
     return ''
@@ -535,6 +540,93 @@ function stripKnownExtension(filename: string): string {
     .trim()
 }
 
+async function loadGenerationPrefill(dossierPath: string): Promise<GenerationPrefillFile> {
+  try {
+    const raw = await readFile(getDossierGenerationPrefillPath(dossierPath), 'utf8')
+    const parsed = generationPrefillFileSchema.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : {}
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Returns memorized values for a template, dropping entries the live context
+ * can now resolve — context data always wins over memorized input.
+ */
+async function loadMemorizedOverrides(
+  dossierPath: string,
+  templateUuid: string,
+  context: TemplateContext
+): Promise<Record<string, string> | undefined> {
+  const prefill = await loadGenerationPrefill(dossierPath)
+  const entry = prefill[templateUuid]
+  if (!entry) return undefined
+
+  const memorized: Record<string, string> = {}
+  for (const [path, value] of Object.entries(entry.tagOverrides)) {
+    if (!value) continue
+    const contextValue = resolvePath(context, normalizeTagPath(path))
+    if (contextValue === undefined || contextValue === null || contextValue === '') {
+      memorized[path] = value
+    }
+  }
+  return Object.keys(memorized).length > 0 ? memorized : undefined
+}
+
+/**
+ * Persists the manual overrides of a successful generation: only values the
+ * bare context could not resolve (i.e. genuinely typed by the user). Failure
+ * is non-fatal — memorization is a convenience, not part of the generation.
+ */
+async function persistGenerationPrefill(
+  dossierPath: string,
+  input: GenerateDocumentInput,
+  context: TemplateContext,
+  timestamp: Date
+): Promise<void> {
+  try {
+    const manualOverrides: Record<string, string> = {}
+    for (const [path, value] of Object.entries(input.tagOverrides ?? {})) {
+      if (!value) continue
+      const contextValue = resolvePath(context, normalizeTagPath(path))
+      if (contextValue === undefined || contextValue === null || contextValue === '') {
+        manualOverrides[path] = value
+      }
+    }
+
+    const prefill = await loadGenerationPrefill(dossierPath)
+    if (Object.keys(manualOverrides).length === 0) {
+      if (!prefill[input.templateUuid]) return
+      delete prefill[input.templateUuid]
+    } else {
+      prefill[input.templateUuid] = {
+        tagOverrides: manualOverrides,
+        primaryContactUuid: input.primaryContactUuid,
+        roleContactUuids: input.contactRoleOverrides,
+        updatedAt: timestamp.toISOString()
+      }
+    }
+    await atomicWrite(
+      getDossierGenerationPrefillPath(dossierPath),
+      `${JSON.stringify(prefill, null, 2)}\n`
+    )
+  } catch (error) {
+    console.warn('[generateService] Failed to persist generation prefill:', error)
+  }
+}
+
+function buildSuggestedFilename(
+  templateName: string,
+  dossierName: string,
+  timestamp: Date
+): string {
+  const templateSegment = sanitizeFilenameSegment(stripKnownExtension(templateName))
+  const dossierSegment = sanitizeFilenameSegment(dossierName)
+  const dateSegment = timestamp.toISOString().slice(0, 10)
+  return `${templateSegment} - ${dossierSegment} - ${dateSegment}`
+}
+
 async function resolveUniqueOutputPath(
   dir: string,
   baseName: string,
@@ -831,7 +923,7 @@ function createTemplateContext(
   entity: EntityProfile | null,
   timestamp: Date,
   contactRoleOverrides?: Record<string, string>,
-  primaryContactId?: string,
+  primaryContactUuid?: string,
   invoiceInput?: InvoiceTemplateInput
 ): TemplateContext {
   const managedFields = normalizeManagedFieldsConfig(entity?.managedFields)
@@ -858,8 +950,8 @@ function createTemplateContext(
         }
       : {}
   const primaryContact =
-    (primaryContactId
-      ? contacts.find((contact) => contact.uuid === primaryContactId)
+    (primaryContactUuid
+      ? contacts.find((contact) => contact.uuid === primaryContactUuid)
       : undefined) ??
     contacts[0] ??
     undefined
@@ -876,8 +968,8 @@ function createTemplateContext(
 
   // Apply manual overrides: map role-key → contact by ID
   if (contactRoleOverrides) {
-    for (const [roleKey, contactId] of Object.entries(contactRoleOverrides)) {
-      const matched = contacts.find((c) => c.uuid === contactId)
+    for (const [roleKey, contactUuid] of Object.entries(contactRoleOverrides)) {
+      const matched = contacts.find((c) => c.uuid === contactUuid)
 
       if (matched) {
         contactByRole[roleKey] = buildTemplateContactRecord(matched)
@@ -914,7 +1006,7 @@ function createTemplateContext(
         .filter(
           (item) =>
             item.status === 'billed' &&
-            item.sourceFeeAgreementId === feeAgreement.id &&
+            item.sourceFeeAgreementUuid === feeAgreement.uuid &&
             item.sourceFeeAgreementBillingKind === 'retainer'
         )
         .reduce((acc, item) => acc + item.totalTtcCents, 0)
@@ -924,8 +1016,8 @@ function createTemplateContext(
         .filter(
           (item) =>
             item.status === 'draft' &&
-            (item.sourceFeeAgreementId === feeAgreement.id ||
-              item.sourceFeeAgreementId === undefined)
+            (item.sourceFeeAgreementUuid === feeAgreement.uuid ||
+              item.sourceFeeAgreementUuid === undefined)
         )
         .reduce((acc, item) => acc + item.totalTtcCents, 0)
     : 0
@@ -939,7 +1031,7 @@ function createTemplateContext(
         matterLabel: feeAgreement.matterLabel,
         scopeDescription: feeAgreement.scopeDescription,
         billingType: feeAgreement.billingType,
-        sourceServicePresetId: feeAgreement.sourceServicePresetId,
+        sourceServicePresetUuid: feeAgreement.sourceServicePresetUuid,
         flatFeeHt: formatCurrencyCents(feeAgreement.flatFeeHtCents),
         flatFeeTtc: formatCurrencyCents(
           applyVatRate(feeAgreement.flatFeeHtCents, feeAgreement.vatRateBasisPoints)
@@ -1011,7 +1103,7 @@ function createTemplateContext(
       keyDate: keyDateValues
     },
     // Spread primary contact first for backward-compat (contact.displayName still works).
-    // primaryContactId overrides which contact is used for flat tags like {{contact.displayName}}.
+    // primaryContactUuid overrides which contact is used for flat tags like {{contact.displayName}}.
     // Role-keyed map is spread last so contact.<role>.<field> paths resolve correctly.
     contact: {
       ...buildTemplateContactRecord(primaryContact),
@@ -1052,7 +1144,7 @@ function buildDraftFromLoadedData(
   timestamp: Date,
   templateContent: string
 ): DraftBuildResult {
-  const template = loaded.templates.find((entry) => entry.id === input.templateId)
+  const template = loaded.templates.find((entry) => entry.uuid === input.templateUuid)
 
   if (!template) {
     throw new GenerateServiceError(IpcErrorCode.NOT_FOUND, 'Template was not found.')
@@ -1064,21 +1156,20 @@ function buildDraftFromLoadedData(
     loaded.entity,
     timestamp,
     'contactRoleOverrides' in input ? input.contactRoleOverrides : undefined,
-    'primaryContactId' in input ? input.primaryContactId : undefined,
+    'primaryContactUuid' in input ? input.primaryContactUuid : undefined,
     'invoiceContext' in input ? input.invoiceContext : undefined
   )
   const tagOverrides = 'tagOverrides' in input ? input.tagOverrides : undefined
   const resolved = resolveTemplateHtml(templateContent, context, tagOverrides)
-  const suggestedFilename = `${sanitizeFilenameSegment(template.name)}-${timestamp
-    .toISOString()
-    .slice(0, 10)}`
+  const suggestedFilename = buildSuggestedFilename(template.name, loaded.dossier.name, timestamp)
 
   return {
     draftHtml: resolved.draftHtml,
     suggestedFilename,
     unresolvedTags: resolved.unresolvedTags,
     resolvedTags: resolved.resolvedTags,
-    dossierPath: loaded.dossierPath
+    dossierPath: loaded.dossierPath,
+    context
   }
 }
 
@@ -1118,10 +1209,10 @@ async function saveDocumentMetadataIfProvided(
 ): Promise<string | undefined> {
   if (!input.description && (!input.tags || input.tags.length === 0)) return undefined
   if (!documentService.saveMetadata) return undefined
-  const documentId = relative(dossierPath, outputPath)
+  const documentPath = relative(dossierPath, outputPath)
   const record = await documentService.saveMetadata({
     dossierId: input.dossierId,
-    documentId,
+    documentPath,
     description: input.description ?? '',
     tags: input.tags ?? []
   })
@@ -1134,7 +1225,7 @@ export function createGenerateService(options: GenerateServiceOptions): Generate
   return {
     previewDocxDocument: async (input): Promise<DocxPreviewResult> => {
       const loaded = await loadGenerationData(options, input)
-      const template = loaded.templates.find((entry) => entry.id === input.templateId)
+      const template = loaded.templates.find((entry) => entry.uuid === input.templateUuid)
 
       if (!template) {
         throw new GenerateServiceError(IpcErrorCode.NOT_FOUND, 'Template was not found.')
@@ -1147,7 +1238,7 @@ export function createGenerateService(options: GenerateServiceOptions): Generate
         )
       }
 
-      const docxSourcePath = getDomainTemplateDocxPath(loaded.domainPath, template.id)
+      const docxSourcePath = getDomainTemplateDocxPath(loaded.domainPath, template.uuid)
       const tagPaths = await extractDocxTagPaths(docxSourcePath)
       const timestamp = now()
       const context = createTemplateContext(
@@ -1156,7 +1247,7 @@ export function createGenerateService(options: GenerateServiceOptions): Generate
         loaded.entity,
         timestamp,
         input.contactRoleOverrides,
-        input.primaryContactId,
+        input.primaryContactUuid,
         input.invoiceContext
       )
 
@@ -1179,7 +1270,11 @@ export function createGenerateService(options: GenerateServiceOptions): Generate
         }
       }
 
-      const suggestedFilename = `${sanitizeFilenameSegment(stripKnownExtension(template.name))}-${timestamp.toISOString().slice(0, 10)}`
+      const suggestedFilename = buildSuggestedFilename(
+        template.name,
+        loaded.dossier.name,
+        timestamp
+      )
 
       // Convert the .docx source to HTML for preview — always reflects the current binary,
       // then resolve tags with the same context + overrides used for generation.
@@ -1193,43 +1288,89 @@ export function createGenerateService(options: GenerateServiceOptions): Generate
         // HTML preview is best-effort — generation still works without it
       }
 
-      return { tagPaths, resolvedTags, suggestedFilename, htmlPreview }
+      const memorizedOverrides = input.tagOverrides
+        ? undefined
+        : await loadMemorizedOverrides(loaded.dossierPath, template.uuid, context)
+
+      return { tagPaths, resolvedTags, suggestedFilename, htmlPreview, memorizedOverrides }
     },
 
     previewDocument: async (input): Promise<GeneratedDraftResult> => {
       const loaded = await loadGenerationData(options, input)
-      const templateContent = await loadTemplateContent(loaded.domainPath, input.templateId)
+      const templateContent = await loadTemplateContent(loaded.domainPath, input.templateUuid)
       const draft = buildDraftFromLoadedData(loaded, input, now(), templateContent)
+      const memorizedOverrides = input.tagOverrides
+        ? undefined
+        : await loadMemorizedOverrides(loaded.dossierPath, input.templateUuid, draft.context)
 
       return {
         draftHtml: draft.draftHtml,
         suggestedFilename: draft.suggestedFilename,
         unresolvedTags: draft.unresolvedTags,
-        resolvedTags: draft.resolvedTags
+        resolvedTags: draft.resolvedTags,
+        memorizedOverrides
       }
     },
     saveGeneratedDocument: async (input): Promise<GeneratedDocumentResult> => {
+      let result: GeneratedDocumentResult
+
       if (input.outputPath) {
         // Custom path — write directly without auto-increment
         const buffer = await toDocxBuffer(input.html)
         await atomicWrite(input.outputPath, buffer)
-        return { outputPath: input.outputPath }
+        result = { outputPath: input.outputPath }
+      } else {
+        const dossierPath = await options.documentService.resolveRegisteredDossierRoot({
+          dossierId: input.dossierId
+        })
+
+        result = await writeGeneratedDocument({
+          html: input.html,
+          dossierPath,
+          filename: input.filename,
+          format: input.format
+        })
       }
 
-      const dossierPath = await options.documentService.resolveRegisteredDossierRoot({
-        dossierId: input.dossierId
-      })
+      // Memorize manual values when the renderer provided the generation context.
+      if (input.templateUuid && input.tagOverrides) {
+        try {
+          const loaded = await loadGenerationData(options, {
+            dossierId: input.dossierId,
+            templateUuid: input.templateUuid
+          })
+          const timestamp = now()
+          const context = createTemplateContext(
+            loaded.dossier,
+            loaded.contacts,
+            loaded.entity,
+            timestamp,
+            input.contactRoleOverrides,
+            input.primaryContactUuid,
+            undefined
+          )
+          await persistGenerationPrefill(
+            loaded.dossierPath,
+            {
+              dossierId: input.dossierId,
+              templateUuid: input.templateUuid,
+              tagOverrides: input.tagOverrides,
+              primaryContactUuid: input.primaryContactUuid,
+              contactRoleOverrides: input.contactRoleOverrides
+            },
+            context,
+            timestamp
+          )
+        } catch (error) {
+          console.warn('[generateService] Failed to memorize manual values on save:', error)
+        }
+      }
 
-      return writeGeneratedDocument({
-        html: input.html,
-        dossierPath,
-        filename: input.filename,
-        format: input.format
-      })
+      return result
     },
     generateDocument: async (input): Promise<GeneratedDocumentResult> => {
       const loaded = await loadGenerationData(options, input)
-      const template = loaded.templates.find((entry) => entry.id === input.templateId)
+      const template = loaded.templates.find((entry) => entry.uuid === input.templateUuid)
 
       if (!template) {
         throw new GenerateServiceError(IpcErrorCode.NOT_FOUND, 'Template was not found.')
@@ -1237,8 +1378,8 @@ export function createGenerateService(options: GenerateServiceOptions): Generate
 
       if (template.hasDocxSource) {
         const timestamp = now()
-        const docxSourcePath = getDomainTemplateDocxPath(loaded.domainPath, template.id)
-        const templateContent = await loadTemplateContent(loaded.domainPath, template.id)
+        const docxSourcePath = getDomainTemplateDocxPath(loaded.domainPath, template.uuid)
+        const templateContent = await loadTemplateContent(loaded.domainPath, template.uuid)
 
         let outputPath: string
         if (input.outputPath) {
@@ -1246,7 +1387,7 @@ export function createGenerateService(options: GenerateServiceOptions): Generate
         } else {
           const baseName = input.filename
             ? sanitizeFilenameSegment(stripKnownExtension(input.filename))
-            : `${sanitizeFilenameSegment(stripKnownExtension(template.name))}-${timestamp.toISOString().slice(0, 10)}`
+            : buildSuggestedFilename(template.name, loaded.dossier.name, timestamp)
           outputPath = await resolveUniqueOutputPath(loaded.dossierPath, baseName, 'docx')
         }
 
@@ -1257,7 +1398,7 @@ export function createGenerateService(options: GenerateServiceOptions): Generate
           loaded.entity,
           timestamp,
           input.contactRoleOverrides,
-          input.primaryContactId,
+          input.primaryContactUuid,
           input.invoiceContext
         )
 
@@ -1287,6 +1428,7 @@ export function createGenerateService(options: GenerateServiceOptions): Generate
         }
 
         await generateDocxFromBinary(docxSourcePath, context, outputPath, input.tagOverrides)
+        await persistGenerationPrefill(loaded.dossierPath, input, baseContext, timestamp)
 
         const result: GeneratedDocumentResult = { outputPath }
         const savedUuid = await saveDocumentMetadataIfProvided(
@@ -1299,8 +1441,9 @@ export function createGenerateService(options: GenerateServiceOptions): Generate
         return result
       }
 
-      const templateContent = await loadTemplateContent(loaded.domainPath, template.id)
-      const draft = buildDraftFromLoadedData(loaded, input, now(), templateContent)
+      const templateContent = await loadTemplateContent(loaded.domainPath, template.uuid)
+      const timestamp = now()
+      const draft = buildDraftFromLoadedData(loaded, input, timestamp, templateContent)
 
       if (draft.unresolvedTags.length > 0) {
         throw new GenerateServiceError(
@@ -1316,6 +1459,7 @@ export function createGenerateService(options: GenerateServiceOptions): Generate
         filename: draft.suggestedFilename,
         format: 'docx'
       })
+      await persistGenerationPrefill(draft.dossierPath, input, draft.context, timestamp)
       const savedUuid = await saveDocumentMetadataIfProvided(
         options.documentService,
         input,

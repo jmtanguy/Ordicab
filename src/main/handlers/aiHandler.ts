@@ -12,7 +12,18 @@ import {
 } from '@shared/types'
 
 import type { AppStateStore } from '../lib/system/appStateStore'
-import { aiCommandInputSchema, aiSettingsSaveSchema } from '@shared/validation/ai'
+import {
+  isPersonaNameSafe,
+  mergePersonasWithDefaults,
+  type PiiPersona,
+  type PiiPersonaSettings
+} from '@shared/types/piiPersonas'
+import { PII_PERSONAS_STATE_NAMESPACE } from '../lib/aiEmbedded/pii/personaRegistry'
+import {
+  aiCommandInputSchema,
+  aiSettingsSaveSchema,
+  piiPersonaSettingsSchema
+} from '@shared/validation/ai'
 import {
   normalizeOpenAiCompatibleBaseUrl,
   REMOTE_PROVIDER_KIND_VALUES,
@@ -246,6 +257,50 @@ export function registerAiHandlers(options: {
         return { success: true, data: null }
       } catch (error) {
         return mapAiError(error, 'Unable to save AI settings.')
+      }
+    }
+  )
+
+  ipcMain.handle(IPC_CHANNELS.ai.personasGet, async (): Promise<IpcResult<PiiPersonaSettings>> => {
+    try {
+      const state = await appState.read()
+      const stored = state[PII_PERSONAS_STATE_NAMESPACE] as { personas?: PiiPersona[] } | undefined
+      return {
+        success: true,
+        data: { personas: mergePersonasWithDefaults(stored?.personas) }
+      }
+    } catch (error) {
+      return mapAiError(error, 'Unable to load PII personas.')
+    }
+  })
+
+  ipcMain.handle(
+    IPC_CHANNELS.ai.personasSave,
+    async (_event, input: unknown): Promise<IpcResult<PiiPersonaSettings>> => {
+      try {
+        const parsed = piiPersonaSettingsSchema.parse(input)
+        const unsafe = parsed.personas.filter((persona) => !isPersonaNameSafe(persona))
+        if (unsafe.length > 0) {
+          return {
+            success: false,
+            error: `Persona names must use tokens of at least 4 characters: ${unsafe
+              .map((persona) => persona.roleLabel)
+              .join(', ')}.`,
+            code: IpcErrorCode.VALIDATION_FAILED
+          }
+        }
+
+        await appState.update((state) => ({
+          ...state,
+          [PII_PERSONAS_STATE_NAMESPACE]: { personas: parsed.personas }
+        }))
+
+        return {
+          success: true,
+          data: { personas: mergePersonasWithDefaults(parsed.personas) }
+        }
+      } catch (error) {
+        return mapAiError(error, 'Unable to save PII personas.')
       }
     }
   )

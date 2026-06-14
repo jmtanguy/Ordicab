@@ -143,18 +143,18 @@ function ManagedFieldsTable({
 }): React.JSX.Element {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#e5e3da]">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-hairline">
         <div
           className="min-h-0 flex-1 overflow-y-auto pr-2"
           style={{ scrollbarGutter: 'stable both-edges' }}
         >
           <table className="w-full border-collapse text-sm">
-            <thead className="sticky top-0 z-10 text-left text-[11px] uppercase tracking-[0.14em] text-[#5c5c5a]">
+            <thead className="sticky top-0 z-10 text-left text-[11px] uppercase tracking-[0.14em] text-ink-muted">
               <tr>
-                <th className="bg-[#f4f3ee] px-3 py-2 text-sm font-medium normal-case tracking-normal text-[#1a1a1a] backdrop-blur-sm">
+                <th className="bg-parchment px-3 py-2 text-sm font-medium normal-case tracking-normal text-ink backdrop-blur-sm">
                   {title}
                 </th>
-                <th className="bg-[#f4f3ee] px-3 py-2 text-right backdrop-blur-sm">
+                <th className="bg-parchment px-3 py-2 text-right backdrop-blur-sm">
                   <Button type="button" variant="ghost" size="sm" onClick={onAdd}>
                     {addLabel}
                   </Button>
@@ -163,8 +163,8 @@ function ManagedFieldsTable({
             </thead>
             <tbody>
               {definitions.length === 0 ? (
-                <tr className="border-t border-[#e5e3da]">
-                  <td colSpan={2} className="px-3 py-3 text-sm text-[#5c5c5a]">
+                <tr className="border-t border-hairline">
+                  <td colSpan={2} className="px-3 py-3 text-sm text-ink-muted">
                     {emptyLabel}
                   </td>
                 </tr>
@@ -172,7 +172,7 @@ function ManagedFieldsTable({
                 definitions.map((definition, index) => (
                   <tr
                     key={`managed-field-row-${index}`}
-                    className="border-t border-[#e5e3da] align-top"
+                    className="border-t border-hairline align-top"
                   >
                     <td className="px-3 py-2">
                       <Input
@@ -224,18 +224,18 @@ function ManagedRolesTable({
 }): React.JSX.Element {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#e5e3da]">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-hairline">
         <div
           className="min-h-0 flex-1 overflow-y-auto pr-2"
           style={{ scrollbarGutter: 'stable both-edges' }}
         >
           <table className="w-full border-collapse text-sm">
-            <thead className="sticky top-0 z-10 text-left text-[11px] uppercase tracking-[0.14em] text-[#5c5c5a]">
+            <thead className="sticky top-0 z-10 text-left text-[11px] uppercase tracking-[0.14em] text-ink-muted">
               <tr>
-                <th className="bg-[#f4f3ee] px-3 py-2 text-sm font-medium normal-case tracking-normal text-[#1a1a1a] backdrop-blur-sm">
+                <th className="bg-parchment px-3 py-2 text-sm font-medium normal-case tracking-normal text-ink backdrop-blur-sm">
                   {title}
                 </th>
-                <th className="bg-[#f4f3ee] px-3 py-2 text-right backdrop-blur-sm">
+                <th className="bg-parchment px-3 py-2 text-right backdrop-blur-sm">
                   <Button type="button" variant="ghost" size="sm" onClick={onAdd}>
                     {addLabel}
                   </Button>
@@ -244,8 +244,8 @@ function ManagedRolesTable({
             </thead>
             <tbody>
               {roles.length === 0 ? (
-                <tr className="border-t border-[#e5e3da]">
-                  <td colSpan={2} className="px-3 py-3 text-sm text-[#5c5c5a]">
+                <tr className="border-t border-hairline">
+                  <td colSpan={2} className="px-3 py-3 text-sm text-ink-muted">
                     {emptyLabel}
                   </td>
                 </tr>
@@ -253,7 +253,7 @@ function ManagedRolesTable({
                 roles.map((role, index) => (
                   <tr
                     key={`managed-role-row-${index}`}
-                    className="border-t border-[#e5e3da] align-top"
+                    className="border-t border-hairline align-top"
                   >
                     <td className="px-3 py-2">
                       <Input
@@ -294,10 +294,10 @@ function ProfileRow({
   if (!value) return null
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8a8a85]">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-subtle">
         {label}
       </span>
-      <span className="whitespace-pre-wrap text-sm text-[#1a1a1a]">{value}</span>
+      <span className="whitespace-pre-wrap text-sm text-ink">{value}</span>
     </div>
   )
 }
@@ -313,7 +313,7 @@ function EntityDialogPanel({
 }): React.JSX.Element {
   return (
     <section className={`flex min-h-0 flex-col gap-3 ${className}`}>
-      <h3 className="text-sm font-semibold text-[#1a1a1a]">{title}</h3>
+      <h3 className="text-sm font-semibold text-ink">{title}</h3>
       {children}
     </section>
   )
@@ -388,11 +388,11 @@ export function EntityDialog({
       aria-label={t('entity.section_title')}
     >
       <div className="mb-3 flex shrink-0 items-center justify-between">
-        <h2 className="text-lg font-semibold text-[#1a1a1a]">{t('entity.section_title')}</h2>
+        <h2 className="text-lg font-semibold text-ink">{t('entity.section_title')}</h2>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-lg p-1.5 text-[#5c5c5a] transition hover:bg-[#e4e1d5] hover:text-[#1a1a1a]"
+          className="rounded-lg p-1.5 text-ink-muted transition hover:bg-parchment-dim hover:text-ink"
           aria-label={t('common.close')}
         >
           ✕
@@ -521,7 +521,7 @@ export function EntityDialog({
             </section>
 
             <section className="space-y-2">
-              <h4 className="text-sm font-semibold text-[#1a1a1a]">
+              <h4 className="text-sm font-semibold text-ink">
                 {t('entity.form.headquartersSection')}
               </h4>
               <Input
@@ -569,7 +569,7 @@ export function EntityDialog({
             </section>
 
             <section className="space-y-2">
-              <h4 className="text-sm font-semibold text-[#1a1a1a]">
+              <h4 className="text-sm font-semibold text-ink">
                 {t('entity.form.legalIdentitySection')}
               </h4>
               <div className="grid gap-2 md:grid-cols-2">
@@ -634,9 +634,7 @@ export function EntityDialog({
             </section>
 
             <section className="space-y-2">
-              <h4 className="text-sm font-semibold text-[#1a1a1a]">
-                {t('entity.form.bankingSection')}
-              </h4>
+              <h4 className="text-sm font-semibold text-ink">{t('entity.form.bankingSection')}</h4>
               <Input
                 id="entity-iban"
                 type="text"
@@ -687,8 +685,8 @@ export function EntityDialog({
                     onClick={() => setActiveManagedFieldsTab(tab)}
                     className={`shrink-0 rounded-full border px-2.5 py-1.5 text-[11px] font-medium transition ${
                       active
-                        ? 'border-aurora/45 bg-aurora/15 text-[#1a1a1a]'
-                        : 'border-[#e5e3da] bg-white text-[#1a1a1a] hover:border-aurora/25'
+                        ? 'border-aurora/45 bg-aurora/15 text-ink'
+                        : 'border-hairline bg-white text-ink hover:border-aurora/25'
                     }`}
                   >
                     {label}
@@ -832,7 +830,7 @@ export function EntityDialog({
           </EntityDialogPanel>
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-[#e5e3da] pt-3">
+        <div className="flex justify-end gap-2 border-t border-hairline pt-3">
           <Button type="button" variant="ghost" onClick={onClose}>
             {t('templates.editor.cancelButton')}
           </Button>
@@ -866,8 +864,8 @@ export function EntityPanel(): React.JSX.Element {
     <Card className="space-y-5">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-2">
-          <h3 className="text-base font-semibold text-[#1a1a1a]">{t('entity.section_title')}</h3>
-          <p className="text-sm text-[#1a1a1a]">{t('entity.section_summary')}</p>
+          <h3 className="text-base font-semibold text-ink">{t('entity.section_title')}</h3>
+          <p className="text-sm text-ink">{t('entity.section_summary')}</p>
         </div>
         <Button type="button" variant="ghost" size="sm" onClick={() => setDialogOpen(true)}>
           {t('entity.editButton')}
@@ -919,7 +917,7 @@ export function EntityPanel(): React.JSX.Element {
           ) : null}
         </div>
       ) : (
-        <p className="text-sm text-[#5c5c5a]">{t('entity.emptyHint')}</p>
+        <p className="text-sm text-ink-muted">{t('entity.emptyHint')}</p>
       )}
 
       <EntityDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />

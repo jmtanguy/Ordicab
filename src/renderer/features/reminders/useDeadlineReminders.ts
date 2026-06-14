@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { useDossierStore, useReminderStore } from '@renderer/stores'
+import { GENERAL_EVENT_DOSSIER_ID } from '@renderer/stores/dossierStore'
 
 import { scanDueReminders, type DueReminder, type ReminderScanEntry } from './reminderScan'
 
@@ -56,13 +57,18 @@ export function useDeadlineReminders(): void {
 
     if (fresh.length <= MAX_INDIVIDUAL_NOTIFICATIONS) {
       for (const reminder of fresh) {
+        const isGeneral = reminder.dossierId === GENERAL_EVENT_DOSSIER_ID
         void notify({
-          title: t('reminders.notification_title', {
-            dossier: reminder.dossierName,
-            defaultValue: 'Échéance — {{dossier}}'
-          }),
+          title: isGeneral
+            ? t('reminders.notification_title_general', {
+                defaultValue: 'Échéance — Hors dossier'
+              })
+            : t('reminders.notification_title', {
+                dossier: reminder.dossierName,
+                defaultValue: 'Échéance — {{dossier}}'
+              }),
           body: `${reminder.label} · ${leadDaysLabel(reminder, t)}`,
-          dossierId: reminder.dossierId
+          dossierId: isGeneral ? undefined : reminder.dossierId
         })
       }
       return

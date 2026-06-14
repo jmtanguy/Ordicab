@@ -5,7 +5,7 @@
  *
  * `createMainWindow`
  *   Instantiates the BrowserWindow with hardened security settings
- *   (contextIsolation: true, nodeIntegration: false) and points it at the
+ *   (contextIsolation: true, nodeIntegration: false, sandbox: true) and points it at the
  *   renderer — either the Vite dev server URL in development, or the built
  *   index.html in production. Also intercepts any window.open / anchor[target]
  *   calls and forwards them to the OS browser instead of opening a new
@@ -27,16 +27,16 @@ export interface BrowserWindowLike {
   focus(): void
 }
 
-export interface NavigationEventLike {
+interface NavigationEventLike {
   preventDefault(): void
 }
 
-export interface WebContentsLike {
+interface WebContentsLike {
   setWindowOpenHandler(handler: (details: { url: string }) => { action: 'deny' }): void
   on(event: 'will-navigate', listener: (event: NavigationEventLike, url: string) => void): void
 }
 
-export interface SessionLike {
+interface SessionLike {
   setPermissionRequestHandler(
     // Electron's signature: (webContents, permission, callback, details).
     // The first parameter is typed loosely so we don't pull in Electron types
@@ -58,11 +58,11 @@ export interface BrowserWindowRuntimeLike extends BrowserWindowLike {
   loadFile(path: string): void
 }
 
-export interface BrowserWindowConstructorLike<TWindow extends BrowserWindowRuntimeLike> {
+interface BrowserWindowConstructorLike<TWindow extends BrowserWindowRuntimeLike> {
   new (options: BrowserWindowOptions): TWindow
 }
 
-export interface BrowserWindowOptions {
+interface BrowserWindowOptions {
   width: number
   height: number
   minWidth: number
@@ -75,6 +75,8 @@ export interface BrowserWindowOptions {
     preload: string
     contextIsolation: true
     nodeIntegration: false
+    sandbox: true
+    webSecurity: true
   }
 }
 
@@ -118,7 +120,12 @@ export function createMainWindow<TWindow extends BrowserWindowRuntimeLike>(
     webPreferences: {
       preload: options.preloadPath,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // OS-level process isolation for the most-exposed window (it renders
+      // untrusted DOCX/PDF/email previews and AI/legal content). The preloads
+      // only use `electron` + shared constants, so they run fine sandboxed.
+      sandbox: true,
+      webSecurity: true
     }
   }
 

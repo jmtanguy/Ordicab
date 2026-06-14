@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { normalizeManagedFieldsConfig } from '@shared/managedFields'
+import { buildTagPathLocalizer, templateRoutineCatalog } from '@shared/templateRoutines'
 
 import { Button } from '@renderer/components/ui'
 import { cn } from '@renderer/lib/utils'
@@ -17,7 +18,12 @@ import { ListContainer, PillSelect, SearchField, SectionHeader } from '../dossie
 import { RichTextEditor } from './RichTextEditor'
 import { type ComboOption } from './generateDocument/ComboField'
 import { TagFillingStep } from './generateDocument/TagFillingStep'
-import { hydrateAutoSelectedContactTags } from './generateDocument/tagFillingHelpers'
+import {
+  computeTagProvenance,
+  hydrateAutoSelectedContactTags,
+  mergeMemorizedOverrides,
+  type TagProvenance
+} from './generateDocument/tagFillingHelpers'
 import { buildKeyDateOptions, getFilenameFromPath } from './generateDocument/tagValueHelpers'
 
 // ── Panel ─────────────────────────────────────────────────────────────────────
@@ -30,6 +36,66 @@ interface ReviewDraftState {
 }
 
 type TemplateSortOrder = 'name-asc' | 'name-desc'
+
+type WizardStep = 'setup' | 'tags' | 'save'
+
+const WIZARD_STEPS: WizardStep[] = ['setup', 'tags', 'save']
+
+function WizardStepper({
+  current,
+  onNavigate
+}: {
+  current: WizardStep
+  onNavigate: (step: WizardStep) => void
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const currentIndex = WIZARD_STEPS.indexOf(current)
+  return (
+    <ol className="flex flex-wrap items-center gap-1 text-xs">
+      {WIZARD_STEPS.map((step, index) => {
+        const isCurrent = index === currentIndex
+        const isPast = index < currentIndex
+        const label = `${index + 1}. ${t(`generate.steps.${step}`)}`
+        return (
+          <li key={step} className="flex items-center gap-1">
+            {index > 0 ? <span className="text-ink-subtle">→</span> : null}
+            {isPast ? (
+              <button
+                type="button"
+                onClick={() => onNavigate(step)}
+                className="rounded-full px-2.5 py-1 text-ink-muted underline-offset-2 transition hover:text-ink hover:underline"
+              >
+                {label}
+              </button>
+            ) : (
+              <span
+                className={cn(
+                  'rounded-full px-2.5 py-1',
+                  isCurrent ? 'bg-aurora/10 font-semibold text-aurora' : 'text-ink-subtle'
+                )}
+              >
+                {label}
+              </span>
+            )}
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
+function TemplateSourceBadge({ hasDocxSource }: { hasDocxSource: boolean }): React.JSX.Element {
+  const { t } = useTranslation()
+  return hasDocxSource ? (
+    <span className="shrink-0 rounded-full border border-success-border bg-success-tint px-2 py-0.5 text-[11px] font-semibold tracking-[0.12em] text-success-deep">
+      {t('templates.list.docxBadge')}
+    </span>
+  ) : (
+    <span className="shrink-0 rounded-full border border-[#d8d3c4] bg-[#f4f1e8] px-2 py-0.5 text-[11px] font-semibold tracking-[0.12em] text-[#6b5d3a]">
+      {t('templates.list.textBadge')}
+    </span>
+  )
+}
 
 interface GenerateDocumentPanelProps {
   /**
@@ -62,7 +128,8 @@ export function GenerateDocumentPanel({
 
   const selectedDossierId = dossierId
 
-  const [step, setStep] = useState<'setup' | 'tags' | 'save'>('setup')
+  const [step, setStep] = useState<WizardStep>('setup')
+  const [focusTagPath, setFocusTagPath] = useState<string | null>(null)
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -78,12 +145,17 @@ export function GenerateDocumentPanel({
   // Tags step state
   const [tagPaths, setTagPaths] = useState<string[]>([])
   const [tagValues, setTagValues] = useState<Record<string, string>>({})
-  const [primaryContactId, setPrimaryContactId] = useState('')
-  const [roleContactIds, setRoleContactIds] = useState<Record<string, string>>({})
+  const [tagProvenance, setTagProvenance] = useState<Record<string, TagProvenance>>({})
+  const [primaryContactUuid, setPrimaryContactId] = useState('')
+  const [roleContactUuids, setRoleContactIds] = useState<Record<string, string>>({})
   const [keyDateOptions, setKeyDateOptions] = useState<ComboOption[]>([])
   const managedFieldsConfig = useMemo(
     () => normalizeManagedFieldsConfig(profile?.managedFields),
     [profile?.managedFields]
+  )
+  const localizeTagPath = useMemo(
+    () => buildTagPathLocalizer(templateRoutineCatalog, i18n.language),
+    [i18n.language]
   )
 
   useEffect(() => {
@@ -109,7 +181,7 @@ export function GenerateDocumentPanel({
 
         const detail = useDossierStore.getState().activeDossier
 
-        if (detail?.id !== selectedDossierId) {
+        if (detail?.slug !== selectedDossierId) {
           return
         }
 
@@ -128,13 +200,13 @@ export function GenerateDocumentPanel({
   }, [selectedDossierId, loadContacts, loadDetail, i18n.resolvedLanguage])
 
   const dossierContacts = selectedDossierId ? (contactsByDossierId[selectedDossierId] ?? []) : []
-  const selectedTemplate = templates.find((tmpl) => tmpl.id === selectedTemplateId)
+  const selectedTemplate = templates.find((tmpl) => tmpl.uuid === selectedTemplateId)
   const selectedTemplateUsesDocxSource = selectedTemplate?.hasDocxSource === true
 
   const canSubmitSetup =
     selectedDossierId.trim().length > 0 &&
     selectedTemplateId.trim().length > 0 &&
-    templates.some((tmpl) => tmpl.id === selectedTemplateId) &&
+    templates.some((tmpl) => tmpl.uuid === selectedTemplateId) &&
     !isSubmitting
 
   const canSave = reviewDraft !== null && reviewDraft.filename.trim().length > 0 && !isSubmitting
@@ -154,7 +226,7 @@ export function GenerateDocumentPanel({
       const loadedContacts = useContactStore.getState().contactsByDossierId[selectedDossierId] ?? []
       const loadedDossier = (() => {
         const detail = useDossierStore.getState().activeDossier
-        return detail?.id === selectedDossierId ? detail : null
+        return detail?.slug === selectedDossierId ? detail : null
       })()
 
       setKeyDateOptions(buildKeyDateOptions(loadedDossier, i18n.resolvedLanguage ?? 'fr'))
@@ -163,7 +235,7 @@ export function GenerateDocumentPanel({
       if (selectedTemplateUsesDocxSource) {
         const result = await previewDocxDocument({
           dossierId: selectedDossierId,
-          templateId: selectedTemplateId
+          templateUuid: selectedTemplateId
         })
 
         if (!result.success) {
@@ -205,15 +277,16 @@ export function GenerateDocumentPanel({
         }
         setRoleContactIds(initRoleIds)
 
-        setTagValues(
-          hydrateAutoSelectedContactTags(
-            initial,
-            initPrimaryId,
-            initRoleIds,
-            loadedContacts,
-            managedFieldsConfig
-          )
+        const hydrated = hydrateAutoSelectedContactTags(
+          initial,
+          initPrimaryId,
+          initRoleIds,
+          loadedContacts,
+          managedFieldsConfig
         )
+        const memorized = result.data.memorizedOverrides
+        setTagValues(mergeMemorizedOverrides(hydrated, memorized))
+        setTagProvenance(computeTagProvenance(paths, result.data.resolvedTags, hydrated, memorized))
         setStep('tags')
         return
       }
@@ -221,7 +294,7 @@ export function GenerateDocumentPanel({
       // Dry-run preview to get pre-filled tag values from dossier data
       const result = await previewDocument({
         dossierId: selectedDossierId,
-        templateId: selectedTemplateId
+        templateUuid: selectedTemplateId
       })
 
       if (!result.success) {
@@ -263,15 +336,16 @@ export function GenerateDocumentPanel({
       }
       setRoleContactIds(initRoleIds)
 
-      setTagValues(
-        hydrateAutoSelectedContactTags(
-          initial,
-          initPrimaryId,
-          initRoleIds,
-          loadedContacts,
-          managedFieldsConfig
-        )
+      const hydrated = hydrateAutoSelectedContactTags(
+        initial,
+        initPrimaryId,
+        initRoleIds,
+        loadedContacts,
+        managedFieldsConfig
       )
+      const memorized = result.data.memorizedOverrides
+      setTagValues(mergeMemorizedOverrides(hydrated, memorized))
+      setTagProvenance(computeTagProvenance(paths, result.data.resolvedTags, hydrated, memorized))
       setStep('tags')
     } finally {
       setIsSubmitting(false)
@@ -287,13 +361,13 @@ export function GenerateDocumentPanel({
         // For docx templates, reload tag resolution from the .docx source directly —
         // the HTML snapshot may be stale and is not the source of truth.
         const contactRoleOverrides = Object.fromEntries(
-          Object.entries(roleContactIds).filter(([, id]) => id)
+          Object.entries(roleContactUuids).filter(([, id]) => id)
         )
         const result = await previewDocxDocument({
           dossierId: selectedDossierId,
-          templateId: selectedTemplateId,
+          templateUuid: selectedTemplateId,
           tagOverrides: tagValues,
-          primaryContactId: primaryContactId || undefined,
+          primaryContactUuid: primaryContactUuid || undefined,
           contactRoleOverrides: Object.keys(contactRoleOverrides).length
             ? contactRoleOverrides
             : undefined
@@ -318,13 +392,13 @@ export function GenerateDocumentPanel({
       }
 
       const contactRoleOverrides = Object.fromEntries(
-        Object.entries(roleContactIds).filter(([, id]) => id)
+        Object.entries(roleContactUuids).filter(([, id]) => id)
       )
       const result = await previewDocument({
         dossierId: selectedDossierId,
-        templateId: selectedTemplateId,
+        templateUuid: selectedTemplateId,
         tagOverrides: tagValues,
-        primaryContactId: primaryContactId || undefined,
+        primaryContactUuid: primaryContactUuid || undefined,
         contactRoleOverrides: Object.keys(contactRoleOverrides).length
           ? contactRoleOverrides
           : undefined
@@ -366,13 +440,13 @@ export function GenerateDocumentPanel({
       if (selectedTemplateUsesDocxSource) {
         // Use docxtemplater path — preserves Word formatting
         const contactRoleOverrides = Object.fromEntries(
-          Object.entries(roleContactIds).filter(([, id]) => id)
+          Object.entries(roleContactUuids).filter(([, id]) => id)
         )
         const result = await generateDocument({
           dossierId: selectedDossierId,
-          templateId: selectedTemplateId,
+          templateUuid: selectedTemplateId,
           tagOverrides: tagValues,
-          primaryContactId: primaryContactId || undefined,
+          primaryContactUuid: primaryContactUuid || undefined,
           contactRoleOverrides: Object.keys(contactRoleOverrides).length
             ? contactRoleOverrides
             : undefined,
@@ -390,13 +464,23 @@ export function GenerateDocumentPanel({
           outputPath: result.data.outputPath
         })
       } else {
-        // HTML → DOCX conversion path
+        // HTML → DOCX conversion path — generation context included so manual
+        // values are memorized for the next run of this template.
+        const contactRoleOverrides = Object.fromEntries(
+          Object.entries(roleContactUuids).filter(([, id]) => id)
+        )
         const result = await saveGeneratedDocument({
           dossierId: selectedDossierId,
           filename: reviewDraft.filename,
           format: 'docx',
           html: reviewDraft.html,
-          outputPath: docxCustomOutputPath ?? undefined
+          outputPath: docxCustomOutputPath ?? undefined,
+          templateUuid: selectedTemplateId,
+          tagOverrides: tagValues,
+          primaryContactUuid: primaryContactUuid || undefined,
+          contactRoleOverrides: Object.keys(contactRoleOverrides).length
+            ? contactRoleOverrides
+            : undefined
         })
 
         if (!result.success) {
@@ -433,6 +517,26 @@ export function GenerateDocumentPanel({
     )
   }, [templates, templateFilter, templateSort])
 
+  // Mirror the library grouping: named categories first (alphabetical), rest last.
+  const groupedTemplates = useMemo(() => {
+    const map = new Map<string, typeof filteredSortedTemplates>()
+    for (const tmpl of filteredSortedTemplates) {
+      const key = tmpl.category ?? ''
+      const list = map.get(key) ?? []
+      list.push(tmpl)
+      map.set(key, list)
+    }
+    const categories = [...map.keys()]
+      .filter((key) => key !== '')
+      .sort((a, b) => a.localeCompare(b))
+    return [
+      ...categories.map((category) => ({ key: category, items: map.get(category) ?? [] })),
+      ...(map.has('') ? [{ key: '', items: map.get('') ?? [] }] : [])
+    ]
+  }, [filteredSortedTemplates])
+
+  const pickerHasCategories = groupedTemplates.some((section) => section.key !== '')
+
   const templateCountLabel =
     templates.length === 0
       ? null
@@ -455,25 +559,24 @@ export function GenerateDocumentPanel({
           badge={t('generate.title')}
           count={step === 'setup' ? templateCountLabel : undefined}
           actions={
-            <div className="flex flex-wrap gap-2">
-              {step === 'tags' ? (
-                <Button type="button" variant="ghost" size="sm" onClick={() => setStep('setup')}>
-                  {t('generate.backToSetup')}
-                </Button>
-              ) : null}
-              {step === 'save' ? (
-                <Button type="button" variant="ghost" size="sm" onClick={() => setStep('tags')}>
-                  {t('generate.backToTags')}
-                </Button>
-              ) : null}
-              {onBack ? (
-                <Button type="button" variant="ghost" size="sm" onClick={onBack}>
-                  {t('templates.workspace.backToLibrary')}
-                </Button>
-              ) : null}
-            </div>
+            onBack ? (
+              <Button type="button" variant="ghost" size="sm" onClick={onBack}>
+                {t('templates.workspace.backToLibrary')}
+              </Button>
+            ) : undefined
           }
         />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <WizardStepper current={step} onNavigate={setStep} />
+          {step !== 'setup' && selectedTemplate ? (
+            <div className="flex min-w-0 items-center gap-2">
+              <TemplateSourceBadge hasDocxSource={selectedTemplate.hasDocxSource} />
+              <span className="min-w-0 truncate text-sm font-semibold text-ink">
+                {selectedTemplate.name}
+              </span>
+            </div>
+          ) : null}
+        </div>
         {step === 'setup' && templates.length > 0 ? (
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <SearchField
@@ -495,10 +598,10 @@ export function GenerateDocumentPanel({
           </div>
         ) : null}
         {step === 'tags' ? (
-          <p className="text-sm text-[#5c5c5a]">{t('generate.tagsDescription')}</p>
+          <p className="text-sm text-ink-muted">{t('generate.tagsDescription')}</p>
         ) : null}
-        {step === 'save' && selectedTemplateUsesDocxSource ? (
-          <p className="text-sm text-[#5c5c5a]">{t('generate.reviewDescription')}</p>
+        {step === 'save' ? (
+          <p className="text-sm text-ink-muted">{t('generate.reviewDescription')}</p>
         ) : null}
       </div>
 
@@ -506,17 +609,19 @@ export function GenerateDocumentPanel({
       {success ? (
         <div
           role="status"
-          className="flex shrink-0 items-start justify-between gap-4 rounded-xl border border-[#cfe0c5] bg-[#f1f7ec] px-4 py-3 text-sm text-[#3c6132] mb-5"
+          className="flex shrink-0 items-start justify-between gap-4 rounded-xl border border-success-border bg-success-tint px-4 py-3 text-sm text-success-deep mb-5"
         >
           <div>
             <p>{t('generate.toast.success', { filename: success.filename })}</p>
-            <p className="mt-1 break-all font-mono text-xs text-[#3c6132]">{success.outputPath}</p>
+            <p className="mt-1 break-all font-mono text-xs text-success-deep">
+              {success.outputPath}
+            </p>
           </div>
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="shrink-0 border border-[#cfe0c5] text-[#3c6132] hover:bg-[#f1f7ec]"
+            className="shrink-0 border border-success-border text-success-deep hover:bg-success-tint"
             onClick={() => void openGeneratedFile(success.outputPath)}
           >
             {t('generate.openFile')}
@@ -526,7 +631,7 @@ export function GenerateDocumentPanel({
 
       {/* Error */}
       {error ? (
-        <div className="shrink-0 rounded-xl border border-[#e8c7c7] bg-[#fbf0f0] px-4 py-3 text-sm text-[#9c2f2f]">
+        <div className="shrink-0 rounded-xl border border-destructive-border bg-destructive-tint px-4 py-3 text-sm text-destructive">
           {error}
         </div>
       ) : null}
@@ -538,63 +643,64 @@ export function GenerateDocumentPanel({
           <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
             <div className="min-h-0 flex-1">
               {filteredSortedTemplates.length === 0 ? (
-                <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-[#e5e3da] bg-white py-8 text-sm text-[#5c5c5a]">
+                <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-hairline bg-white py-8 text-sm text-ink-muted">
                   {t('templates.emptyState')}
                 </div>
               ) : (
                 <ListContainer className="min-h-0 h-full">
                   <ul className="h-full divide-y divide-deep-space overflow-y-auto">
-                    {filteredSortedTemplates.map((template) => {
-                      const isSelected = template.id === selectedTemplateId
-                      return (
-                        <li key={template.id}>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedTemplateId(template.id)}
-                            className={cn(
-                              'w-full px-4 py-3 text-left transition-colors duration-150 hover:bg-[#fbf9f4]',
-                              isSelected
-                                ? 'bg-aurora/5 shadow-[inset_0_0_0_1px_rgba(15,122,138,0.25)]'
-                                : 'bg-white'
-                            )}
-                          >
-                            <div className="flex min-w-0 items-baseline gap-2">
-                              {template.hasDocxSource ? (
-                                <span className="shrink-0 rounded-full border border-[#cfe0c5] bg-[#f1f7ec] px-2 py-0.5 text-[11px] font-semibold tracking-[0.12em] text-[#3c6132]">
-                                  {t('templates.list.docxBadge')}
-                                </span>
-                              ) : (
-                                <span className="shrink-0 rounded-full border border-[#d8d3c4] bg-[#f4f1e8] px-2 py-0.5 text-[11px] font-semibold tracking-[0.12em] text-[#6b5d3a]">
-                                  {t('templates.list.textBadge')}
-                                </span>
-                              )}
-                              <span className="truncate text-sm font-semibold text-[#1a1a1a]">
-                                {template.name}
-                              </span>
-                              {template.description ? (
-                                <span className="min-w-0 truncate text-xs text-[#5c5c5a]">
-                                  {template.description}
-                                </span>
-                              ) : null}
-                            </div>
-                          </button>
-                        </li>
-                      )
-                    })}
+                    {groupedTemplates.map((section) => (
+                      <Fragment key={section.key || '__uncategorized__'}>
+                        {pickerHasCategories ? (
+                          <li className="bg-parchment px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted">
+                            {section.key || t('templates.list.uncategorized')}
+                          </li>
+                        ) : null}
+                        {section.items.map((template) => {
+                          const isSelected = template.uuid === selectedTemplateId
+                          return (
+                            <li key={template.uuid}>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedTemplateId(template.uuid)}
+                                className={cn(
+                                  'w-full px-4 py-3 text-left transition-colors duration-150 hover:bg-parchment-bright',
+                                  isSelected
+                                    ? 'bg-aurora/5 shadow-[inset_0_0_0_1px_rgba(15,122,138,0.25)]'
+                                    : 'bg-white'
+                                )}
+                              >
+                                <div className="flex min-w-0 items-baseline gap-2">
+                                  <TemplateSourceBadge hasDocxSource={template.hasDocxSource} />
+                                  <span className="truncate text-sm font-semibold text-ink">
+                                    {template.name}
+                                  </span>
+                                  {template.description ? (
+                                    <span className="min-w-0 truncate text-xs text-ink-muted">
+                                      {template.description}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </button>
+                            </li>
+                          )
+                        })}
+                      </Fragment>
+                    ))}
                   </ul>
                 </ListContainer>
               )}
             </div>
           </div>
 
-          <div className="flex shrink-0 justify-end gap-2 border-t border-[#e5e3da] pt-3">
+          <div className="flex shrink-0 justify-end gap-2 border-t border-hairline pt-3">
             {onBack ? (
               <Button type="button" variant="ghost" onClick={onBack}>
                 {t('templates.editor.cancelButton')}
               </Button>
             ) : null}
             <Button onClick={() => void handleSetupNext()} disabled={!canSubmitSetup}>
-              {isSubmitting ? t('generate.buttonLoading') : t('generate.nextButton')}
+              {isSubmitting ? t('generate.buttonLoading') : t('generate.continueButton')}
             </Button>
           </div>
         </div>
@@ -607,24 +713,23 @@ export function GenerateDocumentPanel({
             tagPaths={tagPaths}
             tagValues={tagValues}
             onTagValuesChange={setTagValues}
-            primaryContactId={primaryContactId}
+            primaryContactUuid={primaryContactUuid}
             onPrimaryContactChange={setPrimaryContactId}
-            roleContactIds={roleContactIds}
+            roleContactUuids={roleContactUuids}
             onRoleContactIdsChange={setRoleContactIds}
             dossierContacts={dossierContacts}
             keyDateOptions={keyDateOptions}
             managedFieldsConfig={managedFieldsConfig}
+            tagProvenance={tagProvenance}
+            focusPath={focusTagPath}
+            onFocusHandled={() => setFocusTagPath(null)}
           />
-          <div className="flex shrink-0 justify-end gap-2 border-t border-[#e5e3da] pt-4">
+          <div className="flex shrink-0 justify-end gap-2 border-t border-hairline pt-4">
             <Button type="button" variant="ghost" onClick={() => setStep('setup')}>
-              {t('templates.editor.cancelButton')}
+              {t('generate.backButton')}
             </Button>
             <Button onClick={() => void handleTagsNext()} disabled={isSubmitting}>
-              {isSubmitting
-                ? t('generate.buttonLoading')
-                : selectedTemplateUsesDocxSource
-                  ? t('generate.reviewButton')
-                  : t('generate.generateTextButton')}
+              {isSubmitting ? t('generate.buttonLoading') : t('generate.continueButton')}
             </Button>
           </div>
         </div>
@@ -633,89 +738,89 @@ export function GenerateDocumentPanel({
       {/* Save step — unified for both rich-text and Word templates */}
       {step === 'save' && reviewDraft ? (
         <div className="flex min-h-0 flex-1 flex-col gap-4">
-          {/* Top controls: filename + path (DOCX templates only) */}
+          {/* Top controls: filename + output path — both template types save into the dossier */}
           <div className="shrink-0 space-y-4">
-            {selectedTemplateUsesDocxSource ? (
-              <>
-                <label
-                  className="flex flex-col gap-2 text-sm text-[#1a1a1a]"
-                  htmlFor="save-filename"
-                >
-                  <span>{t('generate.filenameLabel')}</span>
-                  <input
-                    id="save-filename"
-                    type="text"
-                    value={reviewDraft.filename}
-                    onChange={(event) =>
-                      setReviewDraft((current) =>
-                        current ? { ...current, filename: event.target.value } : current
-                      )
-                    }
-                    className="w-full rounded-2xl border border-[#e5e3da] bg-white px-4 py-3 text-sm text-[#1a1a1a] outline-none transition focus:border-aurora focus:ring-2 focus:ring-aurora/35"
-                  />
-                </label>
+            <label className="flex flex-col gap-2 text-sm text-ink" htmlFor="save-filename">
+              <span>{t('generate.filenameLabel')}</span>
+              <input
+                id="save-filename"
+                type="text"
+                value={reviewDraft.filename}
+                onChange={(event) =>
+                  setReviewDraft((current) =>
+                    current ? { ...current, filename: event.target.value } : current
+                  )
+                }
+                className="w-full rounded-2xl border border-hairline bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-aurora focus:ring-2 focus:ring-aurora/35"
+              />
+            </label>
 
-                {/* Output path */}
-                <section className="rounded-2xl border border-[#e5e3da] bg-white p-4 space-y-3">
-                  <p className="text-sm font-medium text-[#1a1a1a]">
-                    {t('generate.docxSave.outputPathTitle')}
-                  </p>
+            {/* Output path */}
+            <section className="rounded-2xl border border-hairline bg-white p-4 space-y-3">
+              <p className="text-sm font-medium text-ink">
+                {t('generate.docxSave.outputPathTitle')}
+              </p>
 
-                  <label className="flex cursor-pointer items-center gap-3 text-sm text-[#1a1a1a]">
-                    <input
-                      type="radio"
-                      name="save-output-path"
-                      checked={docxCustomOutputPath === null}
-                      onChange={() => setDocxCustomOutputPath(null)}
-                      className="accent-aurora"
-                    />
-                    {t('generate.docxSave.saveToDossier')}
-                  </label>
+              <label className="flex cursor-pointer items-center gap-3 text-sm text-ink">
+                <input
+                  type="radio"
+                  name="save-output-path"
+                  checked={docxCustomOutputPath === null}
+                  onChange={() => setDocxCustomOutputPath(null)}
+                  className="accent-aurora"
+                />
+                {t('generate.docxSave.saveToDossier')}
+              </label>
 
-                  <label className="flex cursor-pointer items-center gap-3 text-sm text-[#1a1a1a]">
-                    <input
-                      type="radio"
-                      name="save-output-path"
-                      checked={docxCustomOutputPath !== null}
-                      onChange={() => void handleSaveSelectOutputPath()}
-                      className="accent-aurora"
-                    />
-                    {t('generate.docxSave.saveToCustomPath')}
-                  </label>
+              <label className="flex cursor-pointer items-center gap-3 text-sm text-ink">
+                <input
+                  type="radio"
+                  name="save-output-path"
+                  checked={docxCustomOutputPath !== null}
+                  onChange={() => void handleSaveSelectOutputPath()}
+                  className="accent-aurora"
+                />
+                {t('generate.docxSave.saveToCustomPath')}
+              </label>
 
-                  {docxCustomOutputPath !== null ? (
-                    <div className="flex items-center gap-3 pl-6">
-                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-[#1a1a1a]">
-                        {docxCustomOutputPath}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => void handleSaveSelectOutputPath()}
-                      >
-                        {t('generate.docxSave.browsePath')}
-                      </Button>
-                    </div>
-                  ) : null}
-                </section>
-              </>
-            ) : null}
+              {docxCustomOutputPath !== null ? (
+                <div className="flex items-center gap-3 pl-6">
+                  <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink">
+                    {docxCustomOutputPath}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void handleSaveSelectOutputPath()}
+                  >
+                    {t('generate.docxSave.browsePath')}
+                  </Button>
+                </div>
+              ) : null}
+            </section>
 
-            {/* Unresolved tags warning */}
+            {/* Unresolved tags warning — click a tag to jump back to its field */}
             {reviewDraft.unresolvedTags.length > 0 ? (
-              <div className="rounded-2xl border border-[#e8d5a3] bg-[#fbf5e3] px-4 py-3">
-                <p className="text-sm font-medium text-[#7a5a00]">
+              <div className="rounded-2xl border border-warning-border bg-warning-tint px-4 py-3">
+                <p className="text-sm font-medium text-warning-deep">
                   {t('generate.unresolvedTitle')}
                 </p>
-                <p className="mt-1 text-sm text-[#7a5a00]">{t('generate.unresolvedTagHint')}</p>
+                <p className="mt-1 text-sm text-warning-deep">{t('generate.unresolvedTagHint')}</p>
                 <ul className="mt-3 flex flex-wrap gap-2">
                   {reviewDraft.unresolvedTags.map((tagPath) => (
-                    <li
-                      key={tagPath}
-                      className="rounded-full border border-[#e8d5a3] bg-[#fbf5e3] px-3 py-1 text-xs text-[#7a5a00]"
-                    >
-                      {tagPath}
+                    <li key={tagPath}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFocusTagPath(tagPath)
+                          setStep('tags')
+                        }}
+                        title={tagPath}
+                        className="rounded-full border border-warning-border bg-warning-tint px-3 py-1 text-xs text-warning-deep underline-offset-2 transition hover:bg-warning-tint/70 hover:underline"
+                      >
+                        {localizeTagPath(tagPath)}
+                      </button>
                     </li>
                   ))}
                 </ul>
@@ -724,7 +829,7 @@ export function GenerateDocumentPanel({
           </div>
 
           {/* Read-only preview */}
-          <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-[#e5e3da]">
+          <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-hairline">
             <RichTextEditor
               ariaLabel={t('generate.reviewEditorLabel')}
               value={reviewDraft.html}
@@ -733,78 +838,34 @@ export function GenerateDocumentPanel({
             />
           </div>
 
-          {/* Actions */}
-          <div className="flex shrink-0 items-center justify-between border-t border-[#e5e3da] pt-4">
-            {selectedTemplateUsesDocxSource ? (
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  const html = reviewDraft.html
-                  const plain = (() => {
-                    const div = document.createElement('div')
-                    div.innerHTML = html
-                    return div.innerText
-                  })()
-                  const showTick = (): void => {
-                    setCopied(true)
-                    setTimeout(() => setCopied(false), 2000)
-                  }
-                  void copyToClipboard({ text: plain, html }).then(showTick).catch(showTick)
-                }}
-              >
-                {copied ? t('generate.copiedButton') : t('generate.copyButton')}
-              </Button>
-            ) : (
-              <span />
-            )}
+          {/* Actions — save into the dossier for both template types, copy as secondary */}
+          <div className="flex shrink-0 items-center justify-between border-t border-hairline pt-4">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                const html = reviewDraft.html
+                const plain = (() => {
+                  const div = document.createElement('div')
+                  div.innerHTML = html
+                  return div.innerText
+                })()
+                const showTick = (): void => {
+                  setCopied(true)
+                  setTimeout(() => setCopied(false), 2000)
+                }
+                void copyToClipboard({ text: plain, html }).then(showTick).catch(showTick)
+              }}
+            >
+              {copied ? t('generate.copiedButton') : t('generate.copyButton')}
+            </Button>
             <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  if (selectedTemplateUsesDocxSource) {
-                    setStep('tags')
-                  } else {
-                    setReviewDraft(null)
-                    setDocxFilename('')
-                    setDocxCustomOutputPath(null)
-                    setStep('setup')
-                  }
-                }}
-              >
-                {selectedTemplateUsesDocxSource
-                  ? t('templates.editor.cancelButton')
-                  : t('generate.closeButton')}
+              <Button type="button" variant="ghost" onClick={() => setStep('tags')}>
+                {t('generate.backButton')}
               </Button>
-              {selectedTemplateUsesDocxSource ? (
-                <Button onClick={() => void handleSave()} disabled={!canSave}>
-                  {isSubmitting ? t('generate.saveLoading') : t('generate.saveButton')}
-                </Button>
-              ) : (
-                <Button
-                  onClick={() => {
-                    const html = reviewDraft.html
-                    const plain = (() => {
-                      const div = document.createElement('div')
-                      div.innerHTML = html
-                      return div.innerText
-                    })()
-                    const showTick = (): void => {
-                      setCopied(true)
-                      setTimeout(() => setCopied(false), 1500)
-                    }
-                    void copyToClipboard({ text: plain, html }).then(showTick).catch(showTick)
-                  }}
-                >
-                  <span className="relative inline-flex items-center justify-center">
-                    <span className={copied ? 'invisible' : ''}>{t('generate.copyButton')}</span>
-                    {copied ? (
-                      <span className="absolute inset-0 flex items-center justify-center">✓</span>
-                    ) : null}
-                  </span>
-                </Button>
-              )}
+              <Button onClick={() => void handleSave()} disabled={!canSave}>
+                {isSubmitting ? t('generate.saveLoading') : t('generate.saveButton')}
+              </Button>
             </div>
           </div>
         </div>

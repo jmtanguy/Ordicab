@@ -74,7 +74,7 @@ export function createDocumentSummaryBatchAdapter(deps: {
       const existingTags = Array.isArray(doc.tags) ? doc.tags : []
       await deps.documentService.saveMetadata({
         dossierId: deps.dossierId,
-        documentId: doc.id,
+        documentPath: doc.path,
         description: result.summary,
         tags: existingTags
       })

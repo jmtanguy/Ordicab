@@ -31,12 +31,12 @@ export function DocumentMetadataPanel({
   return (
     <>
       <div>
-        <h3 className="text-lg font-semibold text-[#1a1a1a]">
+        <h3 className="text-lg font-semibold text-ink">
           {hasSavedMetadata
             ? t('documents.metadata_edit_title')
             : t('documents.metadata_add_title')}
         </h3>
-        <p className="mt-1 text-sm text-[#1a1a1a]">{document.filename}</p>
+        <p className="mt-1 text-sm text-ink">{document.filename}</p>
       </div>
 
       {feedback === 'error' ? (
@@ -57,7 +57,7 @@ export function DocumentMetadataPanel({
 
           const saved = await onSave({
             dossierId: document.dossierId,
-            documentId: document.id,
+            documentPath: document.path,
             description: draft.description,
             tags: draft.tags
           })
@@ -98,7 +98,7 @@ export function DocumentMetadataPanel({
               }}
               placeholder={t('documents.metadata_tags_placeholder')}
             />
-            <p className="text-xs text-[#8a8a85]">{t('documents.metadata_tags_hint')}</p>
+            <p className="text-xs text-ink-subtle">{t('documents.metadata_tags_hint')}</p>
           </Field>
         </div>
 

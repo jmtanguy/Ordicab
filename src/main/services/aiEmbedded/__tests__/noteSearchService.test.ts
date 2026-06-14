@@ -15,7 +15,7 @@ import { buildNoteText, indexNoteEmbeddings, searchNotes } from '../noteSearchSe
 
 function makeNote(overrides: Partial<DossierNote> = {}): DossierNote {
   return {
-    id: 'note-1',
+    uuid: 'note-1',
     dossierId: 'dossier-1',
     title: 'Vérifier la prescription',
     content: 'Le délai de prescription pourrait être expiré.',
@@ -64,7 +64,7 @@ describe('indexNoteEmbeddings', () => {
 
     await indexNoteEmbeddings({ dossierPath, note, embedder: fakeEmbedder })
 
-    const cachePath = getDossierNoteEmbeddingCachePath(dossierPath, note.id)
+    const cachePath = getDossierNoteEmbeddingCachePath(dossierPath, note.uuid)
     const cache = JSON.parse(await readFile(cachePath, 'utf8')) as {
       text: string
       embeddings?: { dim: number; chunks: unknown[] }
@@ -89,7 +89,7 @@ describe('searchNotes', () => {
     })
 
     expect(hits.length).toBeGreaterThanOrEqual(1)
-    expect(hits[0]).toMatchObject({ noteId: 'note-1', matchKind: 'keyword' })
+    expect(hits[0]).toMatchObject({ noteUuid: 'note-1', matchKind: 'keyword' })
   })
 
   it('returns nothing for an empty query or empty note set', async () => {

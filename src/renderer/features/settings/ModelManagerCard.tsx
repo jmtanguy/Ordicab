@@ -19,10 +19,10 @@ function ReadinessBadge({ state }: { state: ModelReadiness }): React.JSX.Element
     state === 'ready'
       ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
       : state === 'error'
-        ? 'border-[#e8c7c7] bg-[#fbf0f0] text-[#9c2f2f]'
+        ? 'border-destructive-border bg-destructive-tint text-destructive'
         : state === 'downloading'
           ? 'border-sky-300 bg-sky-50 text-sky-700'
-          : 'border-[#e5e3da] bg-white text-[#5c5c5a]'
+          : 'border-hairline bg-white text-ink-muted'
   return (
     <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${tone}`}>{label}</span>
   )
@@ -38,10 +38,10 @@ function ModelRow({
   state: ModelReadiness
 }): React.JSX.Element {
   return (
-    <div className="flex items-start justify-between gap-3 rounded-lg border border-[#e5e3da] bg-white px-3 py-2">
+    <div className="flex items-start justify-between gap-3 rounded-lg border border-hairline bg-white px-3 py-2">
       <div className="min-w-0 space-y-0.5">
-        <p className="text-sm font-medium text-[#1a1a1a]">{label}</p>
-        <p className="text-xs text-[#8a8a85]">{help}</p>
+        <p className="text-sm font-medium text-ink">{label}</p>
+        <p className="text-xs text-ink-subtle">{help}</p>
       </div>
       <ReadinessBadge state={state} />
     </div>
@@ -95,8 +95,8 @@ export function ModelManagerCard(): React.JSX.Element {
   return (
     <Card className="space-y-4">
       <div className="space-y-1">
-        <h3 className="text-base font-semibold text-[#1a1a1a]">{t('models.section_title')}</h3>
-        <p className="text-sm text-[#1a1a1a]">{t('models.section_summary')}</p>
+        <h3 className="text-base font-semibold text-ink">{t('models.section_title')}</h3>
+        <p className="text-sm text-ink">{t('models.section_summary')}</p>
       </div>
 
       <div className="space-y-2">
@@ -112,8 +112,8 @@ export function ModelManagerCard(): React.JSX.Element {
         />
       </div>
 
-      {progressText ? <p className="text-xs text-[#5c5c5a]">{progressText}</p> : null}
-      {status?.error ? <p className="text-xs text-[#9c2f2f]">{status.error}</p> : null}
+      {progressText ? <p className="text-xs text-ink-muted">{progressText}</p> : null}
+      {status?.error ? <p className="text-xs text-destructive">{status.error}</p> : null}
 
       {!allReady ? (
         <div className="flex items-center gap-3">

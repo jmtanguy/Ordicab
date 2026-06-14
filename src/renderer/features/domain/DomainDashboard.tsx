@@ -22,7 +22,8 @@ import type {
   DossierKeyReferenceUpsertInput,
   DossierNoteDeleteInput,
   DossierNoteUpsertInput,
-  DomainStatusSnapshot
+  DomainStatusSnapshot,
+  KeyDate
 } from '@shared/types'
 
 import { useToast } from '@renderer/contexts/ToastContext'
@@ -41,6 +42,7 @@ import { SettingsPanel } from './SettingsPanel'
 import { CabinetPanel } from './CabinetPanel'
 import { InvoicesDashboard } from '@renderer/features/invoices/InvoicesDashboard'
 import { LegalSearchPanel } from '@renderer/features/legal-search/LegalSearchPanel'
+import { GlobalSearchPanel } from '@renderer/features/documents/GlobalSearchPanel'
 
 interface DomainDashboardProps {
   activeDestination: SidebarDestination
@@ -88,13 +90,14 @@ interface DomainDashboardProps {
   onUpsertDossierNote: (input: DossierNoteUpsertInput) => Promise<boolean>
   onDeleteDossierNote: (input: DossierNoteDeleteInput) => Promise<boolean>
   onSaveDocumentMetadata: (input: DocumentMetadataUpdate) => Promise<boolean>
-  onOpenDocumentPreview: (input: { dossierId: string; documentId: string }) => Promise<void>
-  onOpenDocumentFile: (input: { dossierId: string; documentId: string }) => Promise<void>
-  onExtractDocumentContent: (input: { dossierId: string; documentId: string }) => Promise<boolean>
+  onOpenDocumentPreview: (input: { dossierId: string; documentPath: string }) => Promise<void>
+  onOpenDocumentFile: (input: { dossierId: string; documentPath: string }) => Promise<void>
+  onExtractDocumentContent: (input: { dossierId: string; documentPath: string }) => Promise<boolean>
   onClearDocumentContentCache?: (input: { dossierId: string }) => Promise<boolean>
   onCloseDocumentPreview: () => void
   onClearDossierNotice: () => void
   onOpenDossier: (id: string) => Promise<void>
+  onConvertKeyDateToBilling: (dossierId: string, keyDate: KeyDate) => void
 }
 
 export function DomainDashboard({
@@ -146,7 +149,8 @@ export function DomainDashboard({
   onOpenDocumentFile,
   onExtractDocumentContent,
   onClearDossierNotice,
-  onOpenDossier
+  onOpenDossier,
+  onConvertKeyDateToBilling
 }: DomainDashboardProps): React.JSX.Element {
   const { t } = useTranslation()
   const { showToast } = useToast()
@@ -236,6 +240,15 @@ export function DomainDashboard({
     return <LegalSearchPanel key="legal-global" />
   }
 
+  if (activeDestination === 'global-search') {
+    return <GlobalSearchPanel />
+  }
+
   // 'dossiers' destination, no dossier opened: show chronology.
-  return <HomeChronologyPanel onOpenDossier={onOpenDossier} />
+  return (
+    <HomeChronologyPanel
+      onOpenDossier={onOpenDossier}
+      onConvertKeyDateToBilling={onConvertKeyDateToBilling}
+    />
+  )
 }

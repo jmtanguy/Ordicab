@@ -22,13 +22,13 @@ function ModelLine({
   return (
     <div className="space-y-1.5">
       <div className="flex items-baseline justify-between gap-3">
-        <p className="text-sm font-medium text-[#1a1a1a]">{label}</p>
-        <span className="shrink-0 text-xs text-[#5c5c5a]">{t(`models.status_${state}`)}</span>
+        <p className="text-sm font-medium text-ink">{label}</p>
+        <span className="shrink-0 text-xs text-ink-muted">{t(`models.status_${state}`)}</span>
       </div>
-      <p className="text-xs leading-relaxed text-[#8a8a85]">{why}</p>
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#e5e3da]">
+      <p className="text-xs leading-relaxed text-ink-subtle">{why}</p>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-hairline">
         <div
-          className={`h-full rounded-full transition-all ${state === 'error' ? 'bg-[#9c2f2f]' : 'bg-aurora'}`}
+          className={`h-full rounded-full transition-all ${state === 'error' ? 'bg-destructive' : 'bg-aurora'}`}
           style={{
             width: `${state === 'ready' ? 100 : (pct ?? (state === 'downloading' ? 6 : 0))}%`
           }}
@@ -81,8 +81,8 @@ export function ModelDownloadDialog(): React.JSX.Element | null {
   return (
     <DialogShell size="lg" panelClassName="space-y-5">
       <div className="space-y-2">
-        <h2 className="text-lg font-semibold text-[#1a1a1a]">{t('models.dialog_title')}</h2>
-        <p className="text-sm leading-relaxed text-[#1a1a1a]">{t('models.dialog_intro')}</p>
+        <h2 className="text-lg font-semibold text-ink">{t('models.dialog_title')}</h2>
+        <p className="text-sm leading-relaxed text-ink">{t('models.dialog_intro')}</p>
         <p className="text-sm font-medium leading-relaxed text-aurora">{t('models.dialog_once')}</p>
       </div>
 
@@ -103,10 +103,10 @@ export function ModelDownloadDialog(): React.JSX.Element | null {
         />
       </div>
 
-      {status.error ? <p className="text-xs text-[#9c2f2f]">{status.error}</p> : null}
+      {status.error ? <p className="text-xs text-destructive">{status.error}</p> : null}
 
       <div className="flex items-center justify-between gap-3">
-        <span className="text-xs text-[#5c5c5a]">
+        <span className="text-xs text-ink-muted">
           {t('models.dialog_overall', { done: readyCount, total: 2 })}
         </span>
         <Button type="button" variant="ghost" size="sm" onClick={() => setDismissed(true)}>

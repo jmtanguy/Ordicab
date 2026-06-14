@@ -31,12 +31,32 @@ export default defineConfig({
   preload: {
     resolve: {
       alias
+    },
+    build: {
+      rollupOptions: {
+        // docx2pdf is the preload of the hidden DOCX→PDF conversion window
+        // (see src/main/lib/printing/docx2pdfWindow.ts).
+        input: {
+          index: resolve('src/preload/index.ts'),
+          docx2pdf: resolve('src/preload/docx2pdf.ts')
+        }
+      }
     }
   },
   renderer: {
     resolve: {
       alias
     },
-    plugins: [react(), tailwindcss()]
+    plugins: [react(), tailwindcss()],
+    build: {
+      rollupOptions: {
+        // docx2pdf.html is the hidden conversion page that renders a DOCX via
+        // docx-preview before main captures it with printToPDF.
+        input: {
+          index: resolve('src/renderer/index.html'),
+          docx2pdf: resolve('src/renderer/docx2pdf.html')
+        }
+      }
+    }
   }
 })

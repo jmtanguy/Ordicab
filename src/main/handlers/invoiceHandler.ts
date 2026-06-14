@@ -9,6 +9,8 @@ import {
   type InvoiceCreateInput,
   type InvoiceExportCsvInput,
   type InvoiceExportCsvResult,
+  type InvoiceExportFecInput,
+  type InvoiceExportFecResult,
   type InvoiceMarkPaidInput,
   type InvoicePaymentDeleteInput,
   type InvoicePaymentInput,
@@ -24,12 +26,15 @@ import {
   invoiceCreateCreditNoteInputSchema,
   invoiceCreateInputSchema,
   invoiceExportCsvInputSchema,
+  invoiceExportFecInputSchema,
   invoiceMarkPaidInputSchema,
   invoicePaymentDeleteInputSchema,
   invoicePaymentInputSchema,
   invoicePaymentUpdateInputSchema,
   invoiceSettingsUpdateInputSchema
 } from '@shared/validation'
+
+import { z } from 'zod'
 
 import { InvoiceServiceError, type InvoiceService } from '../services/domain/invoiceService'
 import { type IpcMainLike, mapIpcError } from './ipc'
@@ -40,11 +45,56 @@ const mapError = (error: unknown, fallback: string): IpcError =>
     errorClasses: [InvoiceServiceError]
   })
 
+// Invoice ids flow into `${uuid}.json` / document paths on disk. Validate them
+// as real UUIDs at the IPC boundary so a crafted id (e.g. `../../…`) can never
+// reach a path join — every other invoice input is already a UUID-checked DTO.
+const invoiceUuidSchema = z.string().uuid()
+
 export function registerInvoiceHandlers(options: {
   invoiceService: InvoiceService
   ipcMain: IpcMainLike
   openPath?: (path: string) => Promise<string>
+  /** Native "save as" dialog used to let the user choose the export destination. */
+  showSaveDialog?: (options: {
+    title?: string
+    defaultPath?: string
+    filters?: Array<{ name: string; extensions: string[] }>
+  }) => Promise<{ canceled: boolean; filePath?: string }>
 }): void {
+  // Shared "pick a destination, then write there" flow for the CSV / FEC
+  // exports: validates the input, pops the native save dialog and hands the
+  // chosen path to the service. A cancelled dialog resolves to
+  // `{ canceled: true }` (no error). The two export inputs are structurally
+  // identical (date range + includeCancelled).
+  type ExportInput = { dateFrom?: string; dateTo?: string; includeCancelled?: boolean }
+  type ExportResult = { canceled: boolean; outputPath?: string; invoiceCount?: number }
+  const exportWithSaveDialog = async (
+    parse: () => ExportInput,
+    suggestedName: string,
+    filters: Array<{ name: string; extensions: string[] }>,
+    write: (parsed: ExportInput, outputPath: string) => Promise<ExportResult>,
+    fallback: string
+  ): Promise<IpcResult<ExportResult>> => {
+    try {
+      const parsed = parse()
+      if (!options.showSaveDialog) {
+        return {
+          success: false,
+          error: 'Export is unavailable in this environment.',
+          code: IpcErrorCode.NOT_IMPLEMENTED
+        }
+      }
+      const picked = await options.showSaveDialog({ defaultPath: suggestedName, filters })
+      if (picked.canceled || !picked.filePath) {
+        return { success: true, data: { canceled: true } }
+      }
+      return { success: true, data: await write(parsed, picked.filePath) }
+    } catch (error) {
+      return mapError(error, fallback)
+    }
+  }
+
+  const todayStamp = (): string => new Date().toISOString().slice(0, 10)
   options.ipcMain.handle(
     IPC_CHANNELS.invoice.list,
     async (): Promise<IpcResult<InvoiceRecord[]>> => {
@@ -60,14 +110,15 @@ export function registerInvoiceHandlers(options: {
     IPC_CHANNELS.invoice.get,
     async (_event, input: unknown): Promise<IpcResult<InvoiceRecord>> => {
       try {
-        if (typeof input !== 'string' || input.length === 0) {
+        const parsed = invoiceUuidSchema.safeParse(input)
+        if (!parsed.success) {
           return {
             success: false,
-            error: 'Missing invoice id.',
+            error: 'Missing or invalid invoice id.',
             code: IpcErrorCode.VALIDATION_FAILED
           }
         }
-        return { success: true, data: await options.invoiceService.get(input) }
+        return { success: true, data: await options.invoiceService.get(parsed.data) }
       } catch (error) {
         return mapError(error, 'Unable to load invoice.')
       }
@@ -178,11 +229,13 @@ export function registerInvoiceHandlers(options: {
     IPC_CHANNELS.invoice.openDocument,
     async (_event, input: unknown): Promise<IpcResult<{ integrity: InvoiceArtifactIntegrity }>> => {
       try {
-        const value = input as { invoiceId?: unknown } | null | undefined
-        if (!value || typeof value.invoiceId !== 'string' || value.invoiceId.length === 0) {
+        const parsed = invoiceUuidSchema.safeParse(
+          (input as { invoiceUuid?: unknown } | null | undefined)?.invoiceUuid
+        )
+        if (!parsed.success) {
           return {
             success: false,
-            error: 'Missing invoice id.',
+            error: 'Missing or invalid invoice id.',
             code: IpcErrorCode.VALIDATION_FAILED
           }
         }
@@ -194,7 +247,7 @@ export function registerInvoiceHandlers(options: {
           }
         }
         const { absolutePath, integrity } =
-          await options.invoiceService.resolveDocumentAbsolutePath(value.invoiceId)
+          await options.invoiceService.resolveDocumentAbsolutePath(parsed.data)
         const message = await options.openPath(absolutePath)
         if (message) {
           return { success: false, error: message, code: IpcErrorCode.FILE_SYSTEM_ERROR }
@@ -210,11 +263,13 @@ export function registerInvoiceHandlers(options: {
     IPC_CHANNELS.invoice.openPdf,
     async (_event, input: unknown): Promise<IpcResult<{ integrity: InvoiceArtifactIntegrity }>> => {
       try {
-        const value = input as { invoiceId?: unknown } | null | undefined
-        if (!value || typeof value.invoiceId !== 'string' || value.invoiceId.length === 0) {
+        const parsed = invoiceUuidSchema.safeParse(
+          (input as { invoiceUuid?: unknown } | null | undefined)?.invoiceUuid
+        )
+        if (!parsed.success) {
           return {
             success: false,
-            error: 'Missing invoice id.',
+            error: 'Missing or invalid invoice id.',
             code: IpcErrorCode.VALIDATION_FAILED
           }
         }
@@ -226,7 +281,7 @@ export function registerInvoiceHandlers(options: {
           }
         }
         const { absolutePath, integrity } = await options.invoiceService.resolvePdfAbsolutePath(
-          value.invoiceId
+          parsed.data
         )
         const message = await options.openPath(absolutePath)
         if (message) {
@@ -242,12 +297,26 @@ export function registerInvoiceHandlers(options: {
   options.ipcMain.handle(
     IPC_CHANNELS.invoice.exportCsv,
     async (_event, input: unknown): Promise<IpcResult<InvoiceExportCsvResult>> => {
-      try {
-        const parsed = invoiceExportCsvInputSchema.parse(input) as InvoiceExportCsvInput
-        return { success: true, data: await options.invoiceService.exportCsv(parsed) }
-      } catch (error) {
-        return mapError(error, 'Unable to export invoices.')
-      }
+      return exportWithSaveDialog(
+        () => invoiceExportCsvInputSchema.parse(input) as InvoiceExportCsvInput,
+        `export-facturation-${todayStamp()}.csv`,
+        [{ name: 'CSV', extensions: ['csv'] }],
+        (parsed, outputPath) => options.invoiceService.exportCsv(parsed, outputPath),
+        'Unable to export invoices.'
+      )
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.invoice.exportFec,
+    async (_event, input: unknown): Promise<IpcResult<InvoiceExportFecResult>> => {
+      return exportWithSaveDialog(
+        () => invoiceExportFecInputSchema.parse(input) as InvoiceExportFecInput,
+        `export-fec-${todayStamp()}.txt`,
+        [{ name: 'FEC', extensions: ['txt'] }],
+        (parsed, outputPath) => options.invoiceService.exportFec(parsed, outputPath),
+        'Unable to export the FEC file.'
+      )
     }
   )
 

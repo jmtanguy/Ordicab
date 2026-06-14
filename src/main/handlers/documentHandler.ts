@@ -5,24 +5,42 @@ import {
   type DocumentExtractedContent,
   type DocumentExtractProgressEvent,
   type DocumentMetadataUpdate,
+  type DocumentFolderDeleteResult,
+  type DocumentImportResult,
+  type DocumentMoveResult,
+  type DocumentTrashEntry,
+  type DocumentTrashResult,
+  type DocumentTrashRestoreResult,
+  type EmailAttachmentSaveResult,
+  type PdfOperationResult,
   type DocumentPreview,
   type DocumentRecord,
   type DocumentTextExtractionStatus,
   type DocumentWatchStatus,
   type DossierScopedQuery,
+  type GlobalSearchResult,
   type IpcResult,
   type SemanticSearchResult
 } from '@shared/types'
 
 import {
   dossierScopedQuerySchema,
-  documentFileDeleteInputSchema,
+  documentFileMoveInputSchema,
   documentFileRenameInputSchema,
   documentFolderCreateInputSchema,
   documentFolderDeleteInputSchema,
+  documentFolderMoveInputSchema,
   documentFolderRenameInputSchema,
+  documentImportInputSchema,
+  documentTrashInputSchema,
+  documentTrashRestoreInputSchema,
+  emailAttachmentSaveInputSchema,
+  pdfExtractPagesInputSchema,
+  pdfMergeInputSchema,
+  pdfSplitInputSchema,
   documentMetadataUpdateSchema,
   documentPreviewInputSchema,
+  globalSearchQuerySchema,
   semanticSearchQuerySchema
 } from '@shared/validation'
 
@@ -85,6 +103,8 @@ export function registerDocumentHandlers(options: {
           }
         })
 
+        void options.documentService.purgeExpiredTrash(parsed).catch(() => undefined)
+
         return {
           success: true,
           data: status
@@ -115,13 +135,13 @@ export function registerDocumentHandlers(options: {
     async (
       _event,
       input: unknown
-    ): Promise<IpcResult<{ documentId: string; status: DocumentTextExtractionStatus }>> => {
+    ): Promise<IpcResult<{ documentPath: string; status: DocumentTextExtractionStatus }>> => {
       try {
         const parsed = documentPreviewInputSchema.parse(input)
         return {
           success: true,
           data: {
-            documentId: parsed.documentId,
+            documentPath: parsed.documentPath,
             status: await options.documentService.getContentStatus(parsed)
           }
         }
@@ -155,7 +175,7 @@ export function registerDocumentHandlers(options: {
             if (event.sender.isDestroyed()) return
             const payload: DocumentExtractProgressEvent = {
               dossierId: parsed.dossierId,
-              documentId: parsed.documentId,
+              documentPath: parsed.documentPath,
               phase: progress.phase,
               page: progress.page,
               totalPages: progress.totalPages
@@ -165,7 +185,7 @@ export function registerDocumentHandlers(options: {
         }
       } catch (error) {
         // DEBUG: log full stack trace to identify the failing document
-        console.error('[extractContent] Failed for document:', parsed.documentId, '\n', error)
+        console.error('[extractContent] Failed for document:', parsed.documentPath, '\n', error)
         return {
           success: false,
           error: error instanceof Error ? error.message : String(error),
@@ -220,6 +240,19 @@ export function registerDocumentHandlers(options: {
   )
 
   options.ipcMain.handle(
+    IPC_CHANNELS.document.searchAll,
+    async (_event, input: unknown): Promise<IpcResult<GlobalSearchResult>> => {
+      try {
+        const parsed = globalSearchQuerySchema.parse(input)
+        const data = await options.documentService.searchAllDossiers(parsed)
+        return { success: true, data }
+      } catch (error) {
+        return mapDocumentError(error, 'Unable to run cross-dossier search.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
     IPC_CHANNELS.document.listFolders,
     async (_event, input: unknown): Promise<IpcResult<string[]>> => {
       try {
@@ -262,11 +295,13 @@ export function registerDocumentHandlers(options: {
 
   options.ipcMain.handle(
     IPC_CHANNELS.document.deleteFolder,
-    async (_event, input: unknown): Promise<IpcResult<null>> => {
+    async (_event, input: unknown): Promise<IpcResult<DocumentFolderDeleteResult>> => {
       try {
         const parsed = documentFolderDeleteInputSchema.parse(input)
-        await options.documentService.deleteFolder(parsed)
-        return { success: true, data: null }
+        return {
+          success: true,
+          data: await options.documentService.deleteFolder(parsed)
+        }
       } catch (error) {
         return mapDocumentError(error, 'Unable to delete folder.')
       }
@@ -289,14 +324,162 @@ export function registerDocumentHandlers(options: {
   )
 
   options.ipcMain.handle(
-    IPC_CHANNELS.document.deleteFile,
+    IPC_CHANNELS.document.trashFiles,
+    async (_event, input: unknown): Promise<IpcResult<DocumentTrashResult>> => {
+      try {
+        const parsed = documentTrashInputSchema.parse(input)
+        return {
+          success: true,
+          data: await options.documentService.trashFiles(parsed)
+        }
+      } catch (error) {
+        return mapDocumentError(error, 'Unable to move documents to the trash.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.document.restoreTrash,
+    async (_event, input: unknown): Promise<IpcResult<DocumentTrashRestoreResult>> => {
+      try {
+        const parsed = documentTrashRestoreInputSchema.parse(input)
+        return {
+          success: true,
+          data: await options.documentService.restoreTrash(parsed)
+        }
+      } catch (error) {
+        return mapDocumentError(error, 'Unable to restore documents from the trash.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.document.moveFiles,
+    async (_event, input: unknown): Promise<IpcResult<DocumentMoveResult>> => {
+      try {
+        const parsed = documentFileMoveInputSchema.parse(input)
+        return {
+          success: true,
+          data: await options.documentService.moveFiles(parsed)
+        }
+      } catch (error) {
+        return mapDocumentError(error, 'Unable to move documents.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.document.moveFolder,
+    async (_event, input: unknown): Promise<IpcResult<{ path: string }>> => {
+      try {
+        const parsed = documentFolderMoveInputSchema.parse(input)
+        const path = await options.documentService.moveFolder(parsed)
+        return { success: true, data: { path } }
+      } catch (error) {
+        return mapDocumentError(error, 'Unable to move folder.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.document.importFiles,
+    async (_event, input: unknown): Promise<IpcResult<DocumentImportResult>> => {
+      try {
+        const parsed = documentImportInputSchema.parse(input)
+        return {
+          success: true,
+          data: await options.documentService.importFiles(parsed)
+        }
+      } catch (error) {
+        return mapDocumentError(error, 'Unable to import files into the dossier.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.document.saveEmailAttachments,
+    async (_event, input: unknown): Promise<IpcResult<EmailAttachmentSaveResult>> => {
+      try {
+        const parsed = emailAttachmentSaveInputSchema.parse(input)
+        return {
+          success: true,
+          data: await options.documentService.saveEmailAttachments(parsed)
+        }
+      } catch (error) {
+        return mapDocumentError(error, 'Unable to save email attachments.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.document.listTrash,
+    async (_event, input: unknown): Promise<IpcResult<DocumentTrashEntry[]>> => {
+      try {
+        const parsed = dossierScopedQuerySchema.parse(input) as DossierScopedQuery
+        return {
+          success: true,
+          data: await options.documentService.listTrash(parsed)
+        }
+      } catch (error) {
+        return mapDocumentError(error, 'Unable to list the dossier trash.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.document.deleteTrashEntry,
     async (_event, input: unknown): Promise<IpcResult<null>> => {
       try {
-        const parsed = documentFileDeleteInputSchema.parse(input)
-        await options.documentService.deleteFile(parsed)
+        const parsed = documentTrashRestoreInputSchema.parse(input)
+        await options.documentService.deleteTrashEntry(parsed)
         return { success: true, data: null }
       } catch (error) {
-        return mapDocumentError(error, 'Unable to delete document.')
+        return mapDocumentError(error, 'Unable to delete the trash entry.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.document.pdfExtractPages,
+    async (_event, input: unknown): Promise<IpcResult<PdfOperationResult>> => {
+      try {
+        const parsed = pdfExtractPagesInputSchema.parse(input)
+        return {
+          success: true,
+          data: await options.documentService.extractPdfPages(parsed)
+        }
+      } catch (error) {
+        return mapDocumentError(error, 'Unable to extract PDF pages.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.document.pdfMerge,
+    async (_event, input: unknown): Promise<IpcResult<PdfOperationResult>> => {
+      try {
+        const parsed = pdfMergeInputSchema.parse(input)
+        return {
+          success: true,
+          data: await options.documentService.mergePdfs(parsed)
+        }
+      } catch (error) {
+        return mapDocumentError(error, 'Unable to merge PDF documents.')
+      }
+    }
+  )
+
+  options.ipcMain.handle(
+    IPC_CHANNELS.document.pdfSplit,
+    async (_event, input: unknown): Promise<IpcResult<PdfOperationResult>> => {
+      try {
+        const parsed = pdfSplitInputSchema.parse(input)
+        return {
+          success: true,
+          data: await options.documentService.splitPdf(parsed)
+        }
+      } catch (error) {
+        return mapDocumentError(error, 'Unable to split the PDF document.')
       }
     }
   )
@@ -309,7 +492,7 @@ export function registerDocumentHandlers(options: {
         const dossierPath = await options.documentService.resolveRegisteredDossierRoot({
           dossierId: parsed.dossierId
         })
-        const relativePath = parsed.documentId
+        const relativePath = parsed.documentPath
         const { join, resolve, sep } = await import('node:path')
         const filePath = join(dossierPath, relativePath)
         const resolvedDossier = resolve(dossierPath)

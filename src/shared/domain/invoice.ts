@@ -28,7 +28,7 @@ export const INVOICE_PAYMENT_METHOD_VALUES = ['transfer', 'card', 'cash', 'check
 export type InvoicePaymentMethod = (typeof INVOICE_PAYMENT_METHOD_VALUES)[number]
 
 export interface InvoiceLine {
-  billingItemId: string
+  billingItemUuid: string
   date: string
   label: string
   description?: string
@@ -59,13 +59,13 @@ export interface InvoicePartySnapshot {
 }
 
 export interface InvoiceOriginalRef {
-  id: string
+  uuid: string
   number: string
   issuedAt: string
 }
 
 export interface InvoicePayment {
-  id: string
+  uuid: string
   paidAt: string
   amountCents: number
   method: InvoicePaymentMethod
@@ -76,7 +76,7 @@ export interface InvoicePayment {
 }
 
 export interface InvoiceRecord {
-  id: string
+  uuid: string
   documentType: InvoiceDocumentType
   number: string
   sequenceYear: number
@@ -89,7 +89,7 @@ export interface InvoiceRecord {
   clientLabel?: string
   clientSnapshot?: InvoicePartySnapshot
   issuerSnapshot?: InvoicePartySnapshot
-  templateId: string
+  templateUuid: string
   generatedDocumentUuid?: string
   generatedDocumentName?: string
   /** Path of the generated invoice document, relative to the domain root. */
@@ -122,11 +122,6 @@ export interface InvoiceRecord {
   paidAt?: string
   cancelledAt?: string
   createdAt: string
-  updatedAt: string
-}
-
-export interface InvoiceRegistry {
-  invoices: InvoiceRecord[]
   updatedAt: string
 }
 
@@ -175,9 +170,9 @@ export interface InvoiceSettings {
   stateRetributionNumberPattern: string
   stateRetributionNextSequence: number
   stateRetributionCurrentSequenceYear: number
-  defaultTemplateId?: string
-  defaultCreditNoteTemplateId?: string
-  defaultCorrectiveInvoiceTemplateId?: string
+  defaultTemplateUuid?: string
+  defaultCreditNoteTemplateUuid?: string
+  defaultCorrectiveInvoiceTemplateUuid?: string
   /**
    * Legal footer printed on every invoice. Invoice-specific — has no entity equivalent.
    * Issuer identity (name, SIREN, VAT, IBAN, address) lives on the Cabinet entity profile
@@ -185,6 +180,15 @@ export interface InvoiceSettings {
    */
   legalFooter?: string
   defaultPaymentTerms?: string
+  /** Délai de paiement standard en jours — l'échéance est calculée à émission + N jours. */
+  defaultDueDays: number
+}
+
+/** Computes the due date (ISO YYYY-MM-DD) from an issue date and a payment delay in days. */
+export function computeDueDateIso(issuedAtIso: string, dueDays: number): string {
+  const date = new Date(`${issuedAtIso.slice(0, 10)}T12:00:00`)
+  date.setDate(date.getDate() + dueDays)
+  return date.toISOString().slice(0, 10)
 }
 
 export const DEFAULT_INVOICE_SETTINGS: InvoiceSettings = {
@@ -201,42 +205,45 @@ export const DEFAULT_INVOICE_SETTINGS: InvoiceSettings = {
   correctiveInvoiceCurrentSequenceYear: new Date().getFullYear(),
   stateRetributionNumberPattern: 'RET-{YYYY}-{SEQ}',
   stateRetributionNextSequence: 1,
-  stateRetributionCurrentSequenceYear: new Date().getFullYear()
+  stateRetributionCurrentSequenceYear: new Date().getFullYear(),
+  defaultDueDays: 30
 }
 
 export interface InvoiceCreateInput {
   dossierId: string
-  billingItemIds: string[]
-  templateId: string
+  billingItemUuids: string[]
+  templateUuid: string
   issuedAt?: string
+  /** Échéance choisie dans le dialogue ; à défaut, émission + defaultDueDays. */
+  dueAt?: string
   notes?: string
   rememberTemplateAsDefault?: boolean
   /** Tag overrides collected from the invoice dialog tag-filling step. */
   tagOverrides?: Record<string, string>
   /** Primary contact selected by the user in the invoice dialog. */
-  primaryContactId?: string
+  primaryContactUuid?: string
   /** Map a contact role tag-key (e.g. "client") to a contact uuid. */
   contactRoleOverrides?: Record<string, string>
 }
 
 export interface InvoiceCancelInput {
-  invoiceId: string
+  invoiceUuid: string
 }
 
 export interface InvoiceMarkPaidInput {
-  invoiceId: string
+  invoiceUuid: string
   paidAt?: string
 }
 
 export interface InvoiceCreditLineInput {
-  billingItemId: string
+  billingItemUuid: string
   quantity?: number
   totalHtCents?: number
 }
 
 export interface InvoiceCreateCreditNoteInput {
-  originalInvoiceId: string
-  templateId: string
+  originalInvoiceUuid: string
+  templateUuid: string
   issuedAt?: string
   dueAt?: string
   reason: string
@@ -245,13 +252,13 @@ export interface InvoiceCreateCreditNoteInput {
 }
 
 export interface InvoiceCreateCorrectiveInput extends InvoiceCreateInput {
-  originalInvoiceId: string
+  originalInvoiceUuid: string
   correctionReason: string
   dueAt?: string
 }
 
 export interface InvoicePaymentInput {
-  invoiceId: string
+  invoiceUuid: string
   paidAt?: string
   amountCents: number
   method?: InvoicePaymentMethod
@@ -260,12 +267,12 @@ export interface InvoicePaymentInput {
 }
 
 export interface InvoicePaymentUpdateInput extends InvoicePaymentInput {
-  paymentId: string
+  paymentUuid: string
 }
 
 export interface InvoicePaymentDeleteInput {
-  invoiceId: string
-  paymentId: string
+  invoiceUuid: string
+  paymentUuid: string
 }
 
 export interface InvoiceExportCsvInput {
@@ -275,9 +282,25 @@ export interface InvoiceExportCsvInput {
 }
 
 export interface InvoiceExportCsvResult {
-  outputPath: string
-  relativePath: string
-  invoiceCount: number
+  /** True when the user dismissed the destination picker — no file was written. */
+  canceled: boolean
+  /** Absolute path of the written file (the user-chosen location). */
+  outputPath?: string
+  invoiceCount?: number
+}
+
+export interface InvoiceExportFecInput {
+  dateFrom?: string
+  dateTo?: string
+  includeCancelled?: boolean
+}
+
+export interface InvoiceExportFecResult {
+  /** True when the user dismissed the destination picker — no file was written. */
+  canceled: boolean
+  /** Absolute path of the written file (the user-chosen location). */
+  outputPath?: string
+  invoiceCount?: number
 }
 
 export interface InvoiceSettingsUpdateInput {
@@ -289,9 +312,10 @@ export interface InvoiceSettingsUpdateInput {
   creditNoteNextSequence?: number
   correctiveInvoiceNumberPattern?: string
   correctiveInvoiceNextSequence?: number
-  defaultTemplateId?: string | null
-  defaultCreditNoteTemplateId?: string | null
-  defaultCorrectiveInvoiceTemplateId?: string | null
+  defaultTemplateUuid?: string | null
+  defaultCreditNoteTemplateUuid?: string | null
+  defaultCorrectiveInvoiceTemplateUuid?: string | null
   legalFooter?: string | null
   defaultPaymentTerms?: string | null
+  defaultDueDays?: number
 }

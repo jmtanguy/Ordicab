@@ -48,7 +48,7 @@ describe('piiToolGateway', () => {
 
     it('routes document_list through the document-tool pseudonymizer', async () => {
       const docResult = JSON.stringify({
-        documents: [{ documentId: 'doc-1', filename: 'plaidoirie.pdf', tags: ['urgent'] }]
+        documents: [{ documentUuid: 'doc-1', filename: 'plaidoirie.pdf', tags: ['urgent'] }]
       })
       const dataExec = { execute: vi.fn(async () => docResult) }
       const actionExec = { execute: vi.fn(async () => '{}') }
@@ -56,12 +56,12 @@ describe('piiToolGateway', () => {
 
       const result = await gateway.executeDataTool('document_list', {})
       const parsed = JSON.parse(result) as {
-        documents: Array<{ documentId: string; filename: string }>
+        documents: Array<{ documentUuid: string; filename: string }>
       }
       const [first] = parsed.documents
 
       // Structural id round-trips verbatim, free-text fields are pseudonymized.
-      expect(first?.documentId).toBe('doc-1')
+      expect(first?.documentUuid).toBe('doc-1')
       expect(first?.filename).toBe('PS(plaidoirie.pdf)')
     })
 
@@ -87,14 +87,14 @@ describe('piiToolGateway', () => {
       const gateway = createPiiToolGateway(fakeHelpers(), dataExec, actionExec)
 
       await gateway.executeActionTool('contact_update', {
-        contactId: 'c1',
+        contactUuid: 'c1',
         firstName: 'Alicia',
         city: '75001 Paris',
         zipCode: ''
       })
 
       expect(actionExec.execute).toHaveBeenCalledWith('contact_update', {
-        contactId: 'c1',
+        contactUuid: 'c1',
         firstName: 'Alice',
         city: 'Paris',
         zipCode: '75001'
@@ -106,7 +106,7 @@ describe('piiToolGateway', () => {
         execute: vi.fn(async () =>
           JSON.stringify({
             success: true,
-            contactId: 'contact-uuid-123',
+            contactUuid: 'contact-uuid-123',
             feedback: 'Contact créé.'
           })
         )
@@ -117,12 +117,12 @@ describe('piiToolGateway', () => {
       const result = await gateway.executeActionTool('contact_create', { firstName: 'Bob' })
       const parsed = JSON.parse(result) as {
         success: boolean
-        contactId: string
+        contactUuid: string
         feedback: string
       }
 
       expect(parsed.success).toBe(true)
-      expect(parsed.contactId).toBe('contact-uuid-123')
+      expect(parsed.contactUuid).toBe('contact-uuid-123')
       expect(parsed.feedback).toBe('PS(Contact créé.)')
     })
   })

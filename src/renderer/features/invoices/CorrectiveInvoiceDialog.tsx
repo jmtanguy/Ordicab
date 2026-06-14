@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 
 import type { InvoiceRecord } from '@shared/types'
 import { Button, DialogShell, Field, Input, Select, Textarea } from '@renderer/components/ui'
+import { formatEurosFromCents } from '@renderer/lib/billingFormatters'
 import { useDossierStore } from '@renderer/stores/dossierStore'
 import { useInvoiceStore } from '@renderer/stores/invoiceStore'
 import { useTemplateStore } from '@renderer/stores/templateStore'
@@ -11,12 +12,8 @@ import { useTemplateStore } from '@renderer/stores/templateStore'
 interface CorrectiveInvoiceDialogProps {
   invoice: InvoiceRecord
   onClose: () => void
-  onCreated: (invoiceId: string) => void
+  onCreated: (invoiceUuid: string) => void
   onOpenDossier?: (dossierId: string) => void | Promise<void>
-}
-
-function formatCents(cents: number): string {
-  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(cents / 100)
 }
 
 function formatDateIso(iso: string): string {
@@ -55,7 +52,7 @@ export function CorrectiveInvoiceDialog({
     [templates]
   )
 
-  const [templateId, setTemplateId] = useState<string>('')
+  const [templateUuid, setTemplateId] = useState<string>('')
   const [correctionReason, setCorrectionReason] = useState('')
   const [notes, setNotes] = useState('')
   const [issuedAt, setIssuedAt] = useState<string>(new Date().toISOString().slice(0, 10))
@@ -70,18 +67,18 @@ export function CorrectiveInvoiceDialog({
   }, [loadTemplates, loadSettings, loadDetail, invoice.dossierId])
 
   useEffect(() => {
-    if (templateId && templatesForKind.some((t) => t.id === templateId)) return
-    const defaultId = settings?.defaultCorrectiveInvoiceTemplateId
-    if (defaultId && templatesForKind.some((t) => t.id === defaultId)) {
+    if (templateUuid && templatesForKind.some((t) => t.uuid === templateUuid)) return
+    const defaultId = settings?.defaultCorrectiveInvoiceTemplateUuid
+    if (defaultId && templatesForKind.some((t) => t.uuid === defaultId)) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setTemplateId(defaultId)
     } else if (templatesForKind[0]) {
-      setTemplateId(templatesForKind[0].id)
+      setTemplateId(templatesForKind[0].uuid)
     }
-  }, [templateId, templatesForKind, settings?.defaultCorrectiveInvoiceTemplateId])
+  }, [templateUuid, templatesForKind, settings?.defaultCorrectiveInvoiceTemplateUuid])
 
   const draftItems = useMemo(() => {
-    if (!activeDossier || activeDossier.id !== invoice.dossierId) return []
+    if (!activeDossier || activeDossier.slug !== invoice.dossierId) return []
     return activeDossier.billingItems.filter((item) => item.status === 'draft')
   }, [activeDossier, invoice.dossierId])
 
@@ -91,12 +88,12 @@ export function CorrectiveInvoiceDialog({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedIds((prev) => {
       if (Object.keys(prev).length > 0) return prev
-      return Object.fromEntries(draftItems.map((item) => [item.id, true]))
+      return Object.fromEntries(draftItems.map((item) => [item.uuid, true]))
     })
   }, [draftItems])
 
   const selectedItems = useMemo(
-    () => draftItems.filter((item) => selectedIds[item.id]),
+    () => draftItems.filter((item) => selectedIds[item.uuid]),
     [draftItems, selectedIds]
   )
 
@@ -107,7 +104,7 @@ export function CorrectiveInvoiceDialog({
   }, [selectedItems])
 
   async function submit(): Promise<void> {
-    if (!templateId) {
+    if (!templateUuid) {
       setLocalError('Sélectionnez un modèle.')
       return
     }
@@ -123,16 +120,16 @@ export function CorrectiveInvoiceDialog({
     setIsSubmitting(true)
     const created = await createCorrectiveInvoice({
       dossierId: invoice.dossierId,
-      originalInvoiceId: invoice.id,
-      billingItemIds: selectedItems.map((item) => item.id),
-      templateId,
+      originalInvoiceUuid: invoice.uuid,
+      billingItemUuids: selectedItems.map((item) => item.uuid),
+      templateUuid,
       issuedAt,
       correctionReason: correctionReason.trim(),
       notes: notes.trim() || undefined
     })
     setIsSubmitting(false)
     if (created) {
-      onCreated(created.id)
+      onCreated(created.uuid)
       onClose()
     }
   }
@@ -145,12 +142,12 @@ export function CorrectiveInvoiceDialog({
       <div className="flex max-h-[85vh] flex-col gap-4">
         <header className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-[#1a1a1a]">
+            <h2 className="text-lg font-semibold text-ink">
               {t('invoices.corrective_dialog_title', {
                 defaultValue: 'Émettre une facture rectificative'
               })}
             </h2>
-            <p className="text-xs text-[#8a8a85]">
+            <p className="text-xs text-ink-subtle">
               {t('invoices.corrective_dialog_subtitle', {
                 number: invoice.number,
                 date: formatDateIso(invoice.issuedAt),
@@ -161,7 +158,7 @@ export function CorrectiveInvoiceDialog({
           <button
             type="button"
             onClick={onClose}
-            className="text-sm text-[#8a8a85] hover:text-[#1a1a1a]"
+            className="text-sm text-ink-subtle hover:text-ink"
             aria-label="Fermer"
           >
             ✕
@@ -186,7 +183,7 @@ export function CorrectiveInvoiceDialog({
             <div className="grid grid-cols-2 gap-3">
               <Field label="Modèle">
                 <Select
-                  value={templateId}
+                  value={templateUuid}
                   onChange={(e) => setTemplateId(e.target.value)}
                   disabled={templatesForKind.length === 0}
                 >
@@ -198,7 +195,7 @@ export function CorrectiveInvoiceDialog({
                     </option>
                   ) : (
                     templatesForKind.map((tpl) => (
-                      <option key={tpl.id} value={tpl.id}>
+                      <option key={tpl.uuid} value={tpl.uuid}>
                         {tpl.name}
                       </option>
                     ))
@@ -232,12 +229,12 @@ export function CorrectiveInvoiceDialog({
               />
             </Field>
 
-            <fieldset className="rounded-2xl border border-[#e5e3da] bg-white p-3">
-              <legend className="px-1 text-xs font-medium uppercase tracking-[0.12em] text-[#8a8a85]">
+            <fieldset className="rounded-2xl border border-hairline bg-white p-3">
+              <legend className="px-1 text-xs font-medium uppercase tracking-[0.12em] text-ink-subtle">
                 {t('invoices.corrective_items_legend', { defaultValue: 'Prestations à facturer' })}
               </legend>
               {noDrafts ? (
-                <div className="space-y-2 py-2 text-sm text-[#5c5c5a]">
+                <div className="space-y-2 py-2 text-sm text-ink-muted">
                   <p>
                     {t('invoices.corrective_no_drafts', {
                       defaultValue:
@@ -261,11 +258,11 @@ export function CorrectiveInvoiceDialog({
                 </div>
               ) : (
                 <>
-                  <ul className="max-h-56 space-y-1 overflow-y-auto rounded-md border border-[#efece4] bg-[#fbf9f4] p-2 text-sm">
+                  <ul className="max-h-56 space-y-1 overflow-y-auto rounded-md border border-[#efece4] bg-parchment-bright p-2 text-sm">
                     {draftItems.map((item) => {
-                      const checked = Boolean(selectedIds[item.id])
+                      const checked = Boolean(selectedIds[item.uuid])
                       return (
-                        <li key={item.id}>
+                        <li key={item.uuid}>
                           <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-white">
                             <input
                               type="checkbox"
@@ -273,17 +270,17 @@ export function CorrectiveInvoiceDialog({
                               onChange={(e) =>
                                 setSelectedIds((prev) => ({
                                   ...prev,
-                                  [item.id]: e.target.checked
+                                  [item.uuid]: e.target.checked
                                 }))
                               }
                               className="h-4 w-4 accent-aurora"
                             />
-                            <span className="w-24 shrink-0 text-xs tabular-nums text-[#8a8a85]">
+                            <span className="w-24 shrink-0 text-xs tabular-nums text-ink-subtle">
                               {formatDateIso(item.date)}
                             </span>
                             <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                            <span className="tabular-nums text-[#5c5c5a]">
-                              {formatCents(item.totalTtcCents)}
+                            <span className="tabular-nums text-ink-muted">
+                              {formatEurosFromCents(item.totalTtcCents)}
                             </span>
                           </label>
                         </li>
@@ -292,7 +289,7 @@ export function CorrectiveInvoiceDialog({
                   </ul>
                   <div className="mt-3 flex justify-between border-t border-[#efece4] pt-2 text-sm font-semibold">
                     <span>{t('invoices.corrective_total_ttc', { defaultValue: 'Total TTC' })}</span>
-                    <span className="tabular-nums">{formatCents(totals.ttc)}</span>
+                    <span className="tabular-nums">{formatEurosFromCents(totals.ttc)}</span>
                   </div>
                 </>
               )}
@@ -314,13 +311,13 @@ export function CorrectiveInvoiceDialog({
             </p>
           )}
 
-          <footer className="flex justify-end gap-2 border-t border-[#e5e3da] pt-3">
+          <footer className="flex justify-end gap-2 border-t border-hairline pt-3">
             <Button type="button" variant="ghost" onClick={onClose} disabled={isSubmitting}>
               {t('common.cancel', { defaultValue: 'Annuler' })}
             </Button>
             <Button
               type="submit"
-              disabled={isSubmitting || !templateId || noDrafts || selectedItems.length === 0}
+              disabled={isSubmitting || !templateUuid || noDrafts || selectedItems.length === 0}
             >
               {isSubmitting ? 'Génération…' : 'Émettre la facture rectificative'}
             </Button>

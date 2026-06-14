@@ -16,6 +16,8 @@ import { IpcErrorCode } from '@shared/types'
 import { generateText as sdkGenerateText, stepCountIs, streamText as sdkStreamText } from 'ai'
 import type { AssistantModelMessage, LanguageModel, ModelMessage, ToolModelMessage } from 'ai'
 
+import { stripReasoningBlocks } from './modelTextSanitizers'
+
 import {
   STALE_TOOL_NAMES_AFTER_ACTION,
   TERMINAL_ACTION_TOOL_NAMES,
@@ -29,13 +31,13 @@ export type AiChatHistoryEntry =
   | { role: 'assistant'; content: string; toolCalls?: AiHistoryToolCall[] }
   | { role: 'tool'; content: string; toolCallId: string; name?: string }
 
-export interface AiHistoryToolCall {
+interface AiHistoryToolCall {
   id: string
   type: 'function'
   function: { name: string; arguments: string }
 }
 
-export interface AiAgentRuntimePayload {
+interface AiAgentRuntimePayload {
   command: string
   context: AiCommandContext
   locale?: 'fr' | 'en'
@@ -258,12 +260,6 @@ function serializeUnknownError(error: unknown): string {
   } catch {
     return String(error)
   }
-}
-
-// Some models prepend hidden reasoning in <think> blocks. We strip it before
-// trying to parse text as JSON or as a narrated tool request.
-function stripReasoningBlocks(raw: string): string {
-  return raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
 }
 
 function stripJsonFences(raw: string): string {
@@ -608,8 +604,8 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
           const locale = resolveRuntimeLocale(payload.locale)
           const redirect =
             locale === 'en'
-              ? `BLOCKED: too many document_analyze calls this turn (${documentAnalyzeCallCount}). Stop fan-out. For content questions across many documents call document_search ONCE with a query. For per-document tagging/summary call document_metadata_batch or document_summary_batch ONCE (omit documentIds to target every document). Do not retry document_analyze.`
-              : `BLOQUE: trop d'appels document_analyze sur ce tour (${documentAnalyzeCallCount}). Arrete le fan-out. Pour une question de contenu sur plusieurs documents, appelle document_search UNE fois avec une requete. Pour etiqueter/resumer chaque document, appelle document_metadata_batch ou document_summary_batch UNE fois (omets documentIds pour cibler tous les documents). Ne relance pas document_analyze.`
+              ? `BLOCKED: too many document_analyze calls this turn (${documentAnalyzeCallCount}). Stop fan-out. For content questions across many documents call document_search ONCE with a query. For per-document tagging/summary call document_metadata_batch or document_summary_batch ONCE (omit documentUuids to target every document). Do not retry document_analyze.`
+              : `BLOQUE: trop d'appels document_analyze sur ce tour (${documentAnalyzeCallCount}). Arrete le fan-out. Pour une question de contenu sur plusieurs documents, appelle document_search UNE fois avec une requete. Pour etiqueter/resumer chaque document, appelle document_metadata_batch ou document_summary_batch UNE fois (omets documentUuids pour cibler tous les documents). Ne relance pas document_analyze.`
           appendDebugTrace(
             `[guardrail] document_analyze blocked (count=${documentAnalyzeCallCount}, max=${DOCUMENT_ANALYZE_MAX_PER_TURN})`
           )
@@ -758,6 +754,30 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
         }
       }
     })
+
+    // Token telemetry — measure the real cost of each command. The fixed overhead
+    // (system prompt + 53 tool schemas) is re-sent on every step of the loop, so
+    // `totalUsage` (aggregated across all steps) is what actually drives cost.
+    // cacheRead confirms whether prefix caching bills lower — on Infomaniak (primary
+    // provider, open-weight models) a cache discount is NOT guaranteed.
+    const usage = result.totalUsage
+    const cacheReadTokens = usage.inputTokenDetails?.cacheReadTokens ?? usage.cachedInputTokens
+    const cacheWriteTokens = usage.inputTokenDetails?.cacheWriteTokens
+    const usageSummary = {
+      model: payload.model?.trim() || 'default',
+      steps: result.steps.length,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      totalTokens: usage.totalTokens,
+      cacheReadTokens,
+      cacheWriteTokens
+    }
+    appendDebugTrace(
+      `[usage] steps=${usageSummary.steps} input=${usageSummary.inputTokens ?? '?'} ` +
+        `output=${usageSummary.outputTokens ?? '?'} total=${usageSummary.totalTokens ?? '?'} ` +
+        `cacheRead=${cacheReadTokens ?? 'n/a'} cacheWrite=${cacheWriteTokens ?? 'n/a'}`
+    )
+    console.info('[ai-usage]', usageSummary)
 
     for (const step of result.steps) {
       for (const toolCall of step.toolCalls) {
@@ -966,6 +986,13 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
         model: sdkModel,
         system: systemPrompt,
         messages: [{ role: 'user', content: prompt }]
+      })
+      const oneShotUsage = result.totalUsage
+      console.info('[ai-usage]', {
+        kind: 'oneShot',
+        inputTokens: oneShotUsage.inputTokens,
+        outputTokens: oneShotUsage.outputTokens,
+        totalTokens: oneShotUsage.totalTokens
       })
       return result.text
     },

@@ -14,6 +14,8 @@ import { wrapLanguageModel } from 'ai'
 import type { LanguageModel, LanguageModelMiddleware } from 'ai'
 import type { LanguageModelV3GenerateResult } from '@ai-sdk/provider'
 
+import { stripReasoningBlocks } from './modelTextSanitizers'
+
 export interface OpenAiCompatibleSdkProviderOptions {
   baseUrl: string
   apiKey: string
@@ -41,10 +43,6 @@ export function createOpenAiCompatibleSdkModel(
     model: openai.chat(opts.model),
     middleware: openAiCompatibleSdkMiddleware
   })
-}
-
-function stripReasoningBlocks(text: string): string {
-  return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
 }
 
 // Some OpenAI-compatible gateways/models emit tool calls as text instead of proper

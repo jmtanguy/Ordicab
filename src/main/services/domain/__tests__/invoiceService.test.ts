@@ -28,7 +28,11 @@ function createEntityServiceMock(profile: EntityProfile | null): EntityService {
     update: async () => profile ?? ({ firmName: '' } as EntityProfile),
     importDefaultTemplate: async () => profile ?? ({ firmName: '' } as EntityProfile),
     getDefaultTemplatePath: async () => '',
-    removeDefaultTemplate: async () => profile ?? ({ firmName: '' } as EntityProfile)
+    removeDefaultTemplate: async () => profile ?? ({ firmName: '' } as EntityProfile),
+    importStamp: async () => profile ?? ({ firmName: '' } as EntityProfile),
+    removeStamp: async () => profile ?? ({ firmName: '' } as EntityProfile),
+    getStampImagePath: async () => null,
+    getStampDataUrl: async () => null
   }
 }
 
@@ -58,16 +62,16 @@ interface MockState {
   generateCalls: GenerateDocumentInput[]
   registryMarkCalls: Array<{
     dossierId: string
-    billingItemIds: string[]
-    invoiceId: string
+    billingItemUuids: string[]
+    invoiceUuid: string
     invoiceNumber: string
   }>
-  registryUnmarkCalls: Array<{ dossierId: string; invoiceId: string }>
+  registryUnmarkCalls: Array<{ dossierId: string; invoiceUuid: string }>
 }
 
 function makeBillingItem(overrides: Partial<DossierBillingItem> = {}): DossierBillingItem {
   return {
-    id: overrides.id ?? '11111111-1111-4111-8111-111111111111',
+    uuid: overrides.uuid ?? '11111111-1111-4111-8111-111111111111',
     dossierId: overrides.dossierId ?? 'dossier-1',
     date: '2026-05-01',
     label: 'Prestation A',
@@ -123,16 +127,20 @@ function buildMocks(
   const dossierRegistryService: DossierRegistryService = {
     listEligibleFolders: async () => [],
     listRegisteredDossiers: async () =>
-      [{ id: state.dossier.id, name: state.dossier.name }] as unknown as DossierSummary[],
+      [{ id: state.dossier.slug, name: state.dossier.name }] as unknown as DossierSummary[],
     getDossier: async () => state.dossier,
     openDossier: async () => state.dossier,
-    registerDossier: async () => ({ id: state.dossier.id }) as unknown as DossierSummary,
-    createDossier: async () => ({ id: state.dossier.id }) as unknown as DossierSummary,
+    registerDossier: async () => ({ id: state.dossier.slug }) as unknown as DossierSummary,
+    createDossier: async () => ({ id: state.dossier.slug }) as unknown as DossierSummary,
     unregisterDossier: async () => null,
     updateDossier: async () => state.dossier,
     updateLegalAid: async () => state.dossier,
     upsertKeyDate: async () => state.dossier,
     deleteKeyDate: async () => state.dossier,
+    moveKeyDate: async () => null,
+    listGeneralKeyDates: async () => [],
+    upsertGeneralKeyDate: async () => [],
+    deleteGeneralKeyDate: async () => [],
     upsertFeeAgreement: async () => state.dossier,
     deleteFeeAgreement: async () => state.dossier,
     archiveFeeAgreement: async () => state.dossier,
@@ -147,11 +155,11 @@ function buildMocks(
       state.dossier = {
         ...state.dossier,
         billingItems: state.dossier.billingItems.map((item) =>
-          input.billingItemIds.includes(item.id)
+          input.billingItemUuids.includes(item.uuid)
             ? {
                 ...item,
                 status: 'billed' as const,
-                invoiceId: input.invoiceId,
+                invoiceUuid: input.invoiceUuid,
                 invoiceNumber: input.invoiceNumber
               }
             : item
@@ -164,8 +172,13 @@ function buildMocks(
       state.dossier = {
         ...state.dossier,
         billingItems: state.dossier.billingItems.map((item) =>
-          item.invoiceId === input.invoiceId
-            ? { ...item, status: 'draft' as const, invoiceId: undefined, invoiceNumber: undefined }
+          item.invoiceUuid === input.invoiceUuid
+            ? {
+                ...item,
+                status: 'draft' as const,
+                invoiceUuid: undefined,
+                invoiceNumber: undefined
+              }
             : item
         )
       }
@@ -239,20 +252,20 @@ describe('invoiceService', () => {
   })
 
   describe('create()', () => {
-    const billingItemId = '11111111-1111-4111-8111-111111111111'
+    const billingItemUuid = '11111111-1111-4111-8111-111111111111'
 
     function createInput(): InvoiceCreateInput {
       return {
         dossierId: 'dossier-1',
-        billingItemIds: [billingItemId],
-        templateId: 'tpl-1',
+        billingItemUuids: [billingItemUuid],
+        templateUuid: 'tpl-1',
         issuedAt: '2026-05-23'
       }
     }
 
     it('creates an invoice, marks items as billed, increments sequence', async () => {
       const { state, invoiceService } = buildMocks(domainPath, [
-        makeBillingItem({ id: billingItemId })
+        makeBillingItem({ uuid: billingItemUuid })
       ])
       const invoice = await invoiceService.create(createInput())
 
@@ -266,9 +279,9 @@ describe('invoiceService', () => {
       expect(state.generateCalls).toHaveLength(1)
       expect(state.generateCalls[0]?.invoiceContext?.number).toBe('FAC-2026-0001')
       expect(state.generateCalls[0]?.outputPath).toBe(
-        join(domainPath, '.ordicab', 'invoices', 'FAC-2026-0001.docx')
+        join(domainPath, '.ordicab', 'invoice-documents', 'FAC-2026-0001.docx')
       )
-      expect(invoice.generatedDocumentPath).toBe('.ordicab/invoices/FAC-2026-0001.docx')
+      expect(invoice.generatedDocumentPath).toBe('.ordicab/invoice-documents/FAC-2026-0001.docx')
 
       // Issuer identity is sourced from the Cabinet entity profile, not invoice settings.
       expect(invoice.issuerSnapshot?.name).toBe('Cabinet Test')
@@ -289,7 +302,7 @@ describe('invoiceService', () => {
 
     it('rejects when a billing item is already billed', async () => {
       const { invoiceService } = buildMocks(domainPath, [
-        makeBillingItem({ id: billingItemId, status: 'billed' })
+        makeBillingItem({ uuid: billingItemUuid, status: 'billed' })
       ])
       await expect(invoiceService.create(createInput())).rejects.toMatchObject({
         message: expect.stringContaining('already')
@@ -297,11 +310,13 @@ describe('invoiceService', () => {
     })
 
     it('rejects when a billing item is unknown', async () => {
-      const { invoiceService } = buildMocks(domainPath, [makeBillingItem({ id: billingItemId })])
+      const { invoiceService } = buildMocks(domainPath, [
+        makeBillingItem({ uuid: billingItemUuid })
+      ])
       await expect(
         invoiceService.create({
           ...createInput(),
-          billingItemIds: ['22222222-2222-4222-8222-222222222222']
+          billingItemUuids: ['22222222-2222-4222-8222-222222222222']
         })
       ).rejects.toMatchObject({
         message: expect.stringContaining('not found')
@@ -310,9 +325,9 @@ describe('invoiceService', () => {
 
     it('serializes concurrent creates so each gets a distinct number', async () => {
       const { state, invoiceService } = buildMocks(domainPath, [
-        makeBillingItem({ id: billingItemId }),
+        makeBillingItem({ uuid: billingItemUuid }),
         makeBillingItem({
-          id: '22222222-2222-4222-8222-222222222222',
+          uuid: '22222222-2222-4222-8222-222222222222',
           label: 'Prestation B'
         })
       ])
@@ -320,7 +335,7 @@ describe('invoiceService', () => {
         invoiceService.create(createInput()),
         invoiceService.create({
           ...createInput(),
-          billingItemIds: ['22222222-2222-4222-8222-222222222222']
+          billingItemUuids: ['22222222-2222-4222-8222-222222222222']
         })
       ])
       expect(new Set([a.number, b.number]).size).toBe(2)
@@ -329,16 +344,20 @@ describe('invoiceService', () => {
     })
 
     it('persists the registered template when rememberTemplateAsDefault is true', async () => {
-      const { invoiceService } = buildMocks(domainPath, [makeBillingItem({ id: billingItemId })])
+      const { invoiceService } = buildMocks(domainPath, [
+        makeBillingItem({ uuid: billingItemUuid })
+      ])
       await invoiceService.create({ ...createInput(), rememberTemplateAsDefault: true })
       const settings = await invoiceService.getSettings()
-      expect(settings.defaultTemplateId).toBe('tpl-1')
+      expect(settings.defaultTemplateUuid).toBe('tpl-1')
     })
 
     it('writes the invoice record to disk', async () => {
-      const { invoiceService } = buildMocks(domainPath, [makeBillingItem({ id: billingItemId })])
+      const { invoiceService } = buildMocks(domainPath, [
+        makeBillingItem({ uuid: billingItemUuid })
+      ])
       const invoice = await invoiceService.create(createInput())
-      const recordPath = join(domainPath, '.ordicab', 'invoice-records', `${invoice.id}.json`)
+      const recordPath = join(domainPath, '.ordicab', 'invoices', `${invoice.uuid}.json`)
       const raw = await readFile(recordPath, 'utf8')
       const parsed = JSON.parse(raw) as { number: string }
       expect(parsed.number).toBe('FAC-2026-0001')
@@ -347,7 +366,7 @@ describe('invoiceService', () => {
     it('emits a stateRetribution piece (RET-…) with its own sequence and CARPA client', async () => {
       const { invoiceService } = buildMocks(domainPath, [
         makeBillingItem({
-          id: billingItemId,
+          uuid: billingItemUuid,
           sourceFeeAgreementBillingKind: 'stateRetribution',
           vatRateBasisPoints: 0,
           totalTtcCents: 10_000
@@ -368,9 +387,9 @@ describe('invoiceService', () => {
     it('keeps numbering FAC and RET sequences independent', async () => {
       const retributionId = '22222222-2222-4222-8222-222222222222'
       const { invoiceService } = buildMocks(domainPath, [
-        makeBillingItem({ id: billingItemId }),
+        makeBillingItem({ uuid: billingItemUuid }),
         makeBillingItem({
-          id: retributionId,
+          uuid: retributionId,
           sourceFeeAgreementBillingKind: 'stateRetribution',
           vatRateBasisPoints: 0,
           totalTtcCents: 10_000
@@ -379,8 +398,8 @@ describe('invoiceService', () => {
       const facture = await invoiceService.create(createInput())
       const retribution = await invoiceService.create({
         dossierId: 'dossier-1',
-        billingItemIds: [retributionId],
-        templateId: 'tpl-1',
+        billingItemUuids: [retributionId],
+        templateUuid: 'tpl-1',
         issuedAt: '2026-05-23'
       })
       expect(facture.number).toBe('FAC-2026-0001')
@@ -390,9 +409,9 @@ describe('invoiceService', () => {
     it('refuses to mix a stateRetribution item with a commercial item on one piece', async () => {
       const retributionId = '22222222-2222-4222-8222-222222222222'
       const { invoiceService } = buildMocks(domainPath, [
-        makeBillingItem({ id: billingItemId }),
+        makeBillingItem({ uuid: billingItemUuid }),
         makeBillingItem({
-          id: retributionId,
+          uuid: retributionId,
           sourceFeeAgreementBillingKind: 'stateRetribution',
           vatRateBasisPoints: 0,
           totalTtcCents: 10_000
@@ -401,8 +420,8 @@ describe('invoiceService', () => {
       await expect(
         invoiceService.create({
           dossierId: 'dossier-1',
-          billingItemIds: [billingItemId, retributionId],
-          templateId: 'tpl-1',
+          billingItemUuids: [billingItemUuid, retributionId],
+          templateUuid: 'tpl-1',
           issuedAt: '2026-05-23'
         })
       ).rejects.toMatchObject({ message: expect.stringContaining('rétribution AJ') })
@@ -410,19 +429,19 @@ describe('invoiceService', () => {
   })
 
   describe('cancel()', () => {
-    const billingItemId = '11111111-1111-4111-8111-111111111111'
+    const billingItemUuid = '11111111-1111-4111-8111-111111111111'
 
     it('marks invoice as cancelled without re-opening the linked billing items', async () => {
       const { state, invoiceService } = buildMocks(domainPath, [
-        makeBillingItem({ id: billingItemId })
+        makeBillingItem({ uuid: billingItemUuid })
       ])
       const invoice = await invoiceService.create({
         dossierId: 'dossier-1',
-        billingItemIds: [billingItemId],
-        templateId: 'tpl-1',
+        billingItemUuids: [billingItemUuid],
+        templateUuid: 'tpl-1',
         issuedAt: '2026-05-23'
       })
-      const cancelled = await invoiceService.cancel({ invoiceId: invoice.id })
+      const cancelled = await invoiceService.cancel({ invoiceUuid: invoice.uuid })
       expect(cancelled.status).toBe('cancelled')
       expect(state.registryUnmarkCalls).toEqual([])
       expect(state.dossier.billingItems[0]?.status).toBe('billed')
@@ -430,22 +449,22 @@ describe('invoiceService', () => {
   })
 
   describe('credit notes and payments', () => {
-    const billingItemId = '11111111-1111-4111-8111-111111111111'
+    const billingItemUuid = '11111111-1111-4111-8111-111111111111'
 
     it('creates a total credit note with a separate sequence and keeps source items billed', async () => {
       const { state, invoiceService } = buildMocks(domainPath, [
-        makeBillingItem({ id: billingItemId })
+        makeBillingItem({ uuid: billingItemUuid })
       ])
       const invoice = await invoiceService.create({
         dossierId: 'dossier-1',
-        billingItemIds: [billingItemId],
-        templateId: 'tpl-1',
+        billingItemUuids: [billingItemUuid],
+        templateUuid: 'tpl-1',
         issuedAt: '2026-05-23'
       })
 
       const creditNote = await invoiceService.createCreditNote({
-        originalInvoiceId: invoice.id,
-        templateId: 'tpl-1',
+        originalInvoiceUuid: invoice.uuid,
+        templateUuid: 'tpl-1',
         issuedAt: '2026-05-24',
         reason: 'Correction'
       })
@@ -464,19 +483,21 @@ describe('invoiceService', () => {
     })
 
     it('creates a partial credit note with VAT recomputed for the credited amount', async () => {
-      const { invoiceService } = buildMocks(domainPath, [makeBillingItem({ id: billingItemId })])
+      const { invoiceService } = buildMocks(domainPath, [
+        makeBillingItem({ uuid: billingItemUuid })
+      ])
       const invoice = await invoiceService.create({
         dossierId: 'dossier-1',
-        billingItemIds: [billingItemId],
-        templateId: 'tpl-1',
+        billingItemUuids: [billingItemUuid],
+        templateUuid: 'tpl-1',
         issuedAt: '2026-05-23'
       })
 
       const creditNote = await invoiceService.createCreditNote({
-        originalInvoiceId: invoice.id,
-        templateId: 'tpl-1',
+        originalInvoiceUuid: invoice.uuid,
+        templateUuid: 'tpl-1',
         reason: 'Avoir partiel',
-        lineCredits: [{ billingItemId, totalHtCents: 5_000 }]
+        lineCredits: [{ billingItemUuid, totalHtCents: 5_000 }]
       })
 
       expect(creditNote.totalHtCents).toBe(5_000)
@@ -493,16 +514,18 @@ describe('invoiceService', () => {
     })
 
     it('tracks partial and full payments without mutating the invoice lines', async () => {
-      const { invoiceService } = buildMocks(domainPath, [makeBillingItem({ id: billingItemId })])
+      const { invoiceService } = buildMocks(domainPath, [
+        makeBillingItem({ uuid: billingItemUuid })
+      ])
       const invoice = await invoiceService.create({
         dossierId: 'dossier-1',
-        billingItemIds: [billingItemId],
-        templateId: 'tpl-1',
+        billingItemUuids: [billingItemUuid],
+        templateUuid: 'tpl-1',
         issuedAt: '2026-05-23'
       })
 
       const partiallyPaid = await invoiceService.addPayment({
-        invoiceId: invoice.id,
+        invoiceUuid: invoice.uuid,
         amountCents: 4_000,
         method: 'transfer'
       })
@@ -510,7 +533,7 @@ describe('invoiceService', () => {
       expect(partiallyPaid.status).toBe('partiallyPaid')
       expect(partiallyPaid.remainingAmountCents).toBe(8_000)
 
-      const paid = await invoiceService.markPaid({ invoiceId: invoice.id })
+      const paid = await invoiceService.markPaid({ invoiceUuid: invoice.uuid })
       expect(paid.paymentStatus).toBe('paid')
       expect(paid.status).toBe('paid')
       expect(paid.paidAmountCents).toBe(12_000)
@@ -519,7 +542,7 @@ describe('invoiceService', () => {
   })
 
   describe('artifact integrity', () => {
-    const billingItemId = '11111111-1111-4111-8111-111111111111'
+    const billingItemUuid = '11111111-1111-4111-8111-111111111111'
     const DOCX_BYTES = Buffer.from('FAKE-DOCX-CONTENT-V1', 'utf8')
 
     function buildMocksWithRealDocx(items: DossierBillingItem[]): {
@@ -535,16 +558,20 @@ describe('invoiceService', () => {
       const dossierRegistryService: DossierRegistryService = {
         listEligibleFolders: async () => [],
         listRegisteredDossiers: async () =>
-          [{ id: state.dossier.id, name: state.dossier.name }] as unknown as DossierSummary[],
+          [{ id: state.dossier.slug, name: state.dossier.name }] as unknown as DossierSummary[],
         getDossier: async () => state.dossier,
         openDossier: async () => state.dossier,
-        registerDossier: async () => ({ id: state.dossier.id }) as unknown as DossierSummary,
-        createDossier: async () => ({ id: state.dossier.id }) as unknown as DossierSummary,
+        registerDossier: async () => ({ id: state.dossier.slug }) as unknown as DossierSummary,
+        createDossier: async () => ({ id: state.dossier.slug }) as unknown as DossierSummary,
         unregisterDossier: async () => null,
         updateDossier: async () => state.dossier,
         updateLegalAid: async () => state.dossier,
         upsertKeyDate: async () => state.dossier,
         deleteKeyDate: async () => state.dossier,
+        moveKeyDate: async () => null,
+        listGeneralKeyDates: async () => [],
+        upsertGeneralKeyDate: async () => [],
+        deleteGeneralKeyDate: async () => [],
         upsertFeeAgreement: async () => state.dossier,
         deleteFeeAgreement: async () => state.dossier,
         archiveFeeAgreement: async () => state.dossier,
@@ -559,11 +586,11 @@ describe('invoiceService', () => {
           state.dossier = {
             ...state.dossier,
             billingItems: state.dossier.billingItems.map((item) =>
-              input.billingItemIds.includes(item.id)
+              input.billingItemUuids.includes(item.uuid)
                 ? {
                     ...item,
                     status: 'billed' as const,
-                    invoiceId: input.invoiceId,
+                    invoiceUuid: input.invoiceUuid,
                     invoiceNumber: input.invoiceNumber
                   }
                 : item
@@ -623,11 +650,13 @@ describe('invoiceService', () => {
     }
 
     it('stores the DOCX SHA-256 in the invoice record at issuance', async () => {
-      const { invoiceService } = buildMocksWithRealDocx([makeBillingItem({ id: billingItemId })])
+      const { invoiceService } = buildMocksWithRealDocx([
+        makeBillingItem({ uuid: billingItemUuid })
+      ])
       const invoice = await invoiceService.create({
         dossierId: 'dossier-1',
-        billingItemIds: [billingItemId],
-        templateId: 'tpl-1',
+        billingItemUuids: [billingItemUuid],
+        templateUuid: 'tpl-1',
         issuedAt: '2026-05-23'
       })
       expect(invoice.documentHashes?.docxSha256).toBeDefined()
@@ -636,23 +665,27 @@ describe('invoiceService', () => {
     })
 
     it('reports DOCX integrity as "ok" when the file is untouched', async () => {
-      const { invoiceService } = buildMocksWithRealDocx([makeBillingItem({ id: billingItemId })])
+      const { invoiceService } = buildMocksWithRealDocx([
+        makeBillingItem({ uuid: billingItemUuid })
+      ])
       const invoice = await invoiceService.create({
         dossierId: 'dossier-1',
-        billingItemIds: [billingItemId],
-        templateId: 'tpl-1',
+        billingItemUuids: [billingItemUuid],
+        templateUuid: 'tpl-1',
         issuedAt: '2026-05-23'
       })
-      const result = await invoiceService.resolveDocumentAbsolutePath(invoice.id)
+      const result = await invoiceService.resolveDocumentAbsolutePath(invoice.uuid)
       expect(result.integrity).toBe('ok')
     })
 
     it('reports DOCX integrity as "modified" when the file is edited after issuance', async () => {
-      const { invoiceService } = buildMocksWithRealDocx([makeBillingItem({ id: billingItemId })])
+      const { invoiceService } = buildMocksWithRealDocx([
+        makeBillingItem({ uuid: billingItemUuid })
+      ])
       const invoice = await invoiceService.create({
         dossierId: 'dossier-1',
-        billingItemIds: [billingItemId],
-        templateId: 'tpl-1',
+        billingItemUuids: [billingItemUuid],
+        templateUuid: 'tpl-1',
         issuedAt: '2026-05-23'
       })
       const docxPath = join(domainPath, invoice.generatedDocumentPath ?? '')
@@ -660,24 +693,26 @@ describe('invoiceService', () => {
       // restore write permission first, then overwrite.
       await chmod(docxPath, 0o644)
       await writeFile(docxPath, Buffer.from('TAMPERED-CONTENT', 'utf8'))
-      const result = await invoiceService.resolveDocumentAbsolutePath(invoice.id)
+      const result = await invoiceService.resolveDocumentAbsolutePath(invoice.uuid)
       expect(result.integrity).toBe('modified')
     })
 
     it('reports integrity as "unknown" for legacy records without a stored hash', async () => {
-      const { invoiceService } = buildMocksWithRealDocx([makeBillingItem({ id: billingItemId })])
+      const { invoiceService } = buildMocksWithRealDocx([
+        makeBillingItem({ uuid: billingItemUuid })
+      ])
       const invoice = await invoiceService.create({
         dossierId: 'dossier-1',
-        billingItemIds: [billingItemId],
-        templateId: 'tpl-1',
+        billingItemUuids: [billingItemUuid],
+        templateUuid: 'tpl-1',
         issuedAt: '2026-05-23'
       })
       // Simulate a legacy invoice by stripping documentHashes from the persisted record.
-      const recordPath = join(domainPath, '.ordicab', 'invoice-records', `${invoice.id}.json`)
+      const recordPath = join(domainPath, '.ordicab', 'invoices', `${invoice.uuid}.json`)
       const record = JSON.parse(await readFile(recordPath, 'utf8'))
       delete record.documentHashes
       await writeFile(recordPath, JSON.stringify(record, null, 2))
-      const result = await invoiceService.resolveDocumentAbsolutePath(invoice.id)
+      const result = await invoiceService.resolveDocumentAbsolutePath(invoice.uuid)
       expect(result.integrity).toBe('unknown')
     })
   })

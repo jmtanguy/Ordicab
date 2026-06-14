@@ -34,20 +34,20 @@ describe('createOrdicabApi', () => {
     await api.dossier.listEligible()
     await api.dossier.list()
     await api.dossier.get({ dossierId: 'dos-1' })
-    await api.dossier.register({ id: 'TestCase-A' })
-    await api.dossier.unregister({ id: 'TestCase-A' })
+    await api.dossier.register({ slug: 'TestCase-A' })
+    await api.dossier.unregister({ slug: 'TestCase-A' })
     await api.dossier.upsertKeyDate({
       dossierId: 'dos-1',
       label: 'Hearing',
       date: '2026-03-18'
     })
-    await api.dossier.deleteKeyDate({ dossierId: 'dos-1', keyDateId: 'kd-1' })
+    await api.dossier.deleteKeyDate({ dossierId: 'dos-1', keyDateUuid: 'kd-1' })
     await api.dossier.upsertKeyReference({
       dossierId: 'dos-1',
       label: 'Case number',
       value: 'RG 26/001'
     })
-    await api.dossier.deleteKeyReference({ dossierId: 'dos-1', keyReferenceId: 'kr-1' })
+    await api.dossier.deleteKeyReference({ dossierId: 'dos-1', keyReferenceUuid: 'kr-1' })
     await api.dossier.upsertFeeAgreement({
       dossierId: 'dos-1',
       status: 'draft',
@@ -56,7 +56,7 @@ describe('createOrdicabApi', () => {
       billingType: 'mixed',
       vatRateBasisPoints: 2000
     })
-    await api.dossier.deleteFeeAgreement({ dossierId: 'dos-1', feeAgreementId: 'fa-1' })
+    await api.dossier.deleteFeeAgreement({ dossierId: 'dos-1', feeAgreementUuid: 'fa-1' })
     await api.contact.list({ dossierId: 'dos-1' })
     await api.contact.upsert({
       dossierId: 'dos-1',
@@ -71,6 +71,20 @@ describe('createOrdicabApi', () => {
       email: 'contact@test-legal-firm.fr',
       phone: '+33 1 98 76 54 32'
     })
+    await api.entity.importStamp()
+    await api.entity.removeStamp()
+    await api.entity.getStampDataUrl()
+    await api.pieces.list({ dossierId: 'dos-1' })
+    await api.pieces.add({
+      dossierId: 'dos-1',
+      items: [{ documentUuid: 'doc-uuid-1', title: 'Contrat' }]
+    })
+    await api.pieces.update({ dossierId: 'dos-1', pieceUuid: 'piece-1', title: 'Contrat signé' })
+    await api.pieces.remove({ dossierId: 'dos-1', pieceUuid: 'piece-1' })
+    await api.pieces.generate({
+      dossierId: 'dos-1',
+      outputs: { bundle: true, bordereau: true, individual: false }
+    })
     await api.cabinetBilling.get()
     await api.cabinetBilling.upsertService({
       name: 'Convention forfait',
@@ -78,39 +92,39 @@ describe('createOrdicabApi', () => {
       billingType: 'flat',
       vatRateBasisPoints: 2000
     })
-    await api.cabinetBilling.deleteService({ id: 'svc-1' })
-    await api.cabinetBilling.setDefaultService({ serviceId: 'svc-1' })
+    await api.cabinetBilling.deleteService({ uuid: 'svc-1' })
+    await api.cabinetBilling.setDefaultService({ serviceUuid: 'svc-1' })
     await api.document.list({ dossierId: 'dos-1' })
-    await api.document.preview({ dossierId: 'dos-1', documentId: 'doc-1.pdf' })
-    await api.document.contentStatus({ dossierId: 'dos-1', documentId: 'doc-1.pdf' })
-    await api.document.extractContent({ dossierId: 'dos-1', documentId: 'doc-1.pdf' })
+    await api.document.preview({ dossierId: 'dos-1', documentPath: 'doc-1.pdf' })
+    await api.document.contentStatus({ dossierId: 'dos-1', documentPath: 'doc-1.pdf' })
+    await api.document.extractContent({ dossierId: 'dos-1', documentPath: 'doc-1.pdf' })
     await api.document.startWatching({ dossierId: 'dos-1' })
     await api.document.stopWatching({ dossierId: 'dos-1' })
     await api.document.saveMetadata({
       dossierId: 'dos-1',
-      documentId: 'doc-1',
+      documentPath: 'doc-1',
       description: 'Incoming note',
       tags: ['urgent']
     })
     await api.template.list()
     await api.template.create({ name: 'Courrier', content: 'Bonjour {{client}}', tags: [] })
     await api.template.update({
-      id: 'tpl-1',
+      uuid: 'tpl-1',
       name: 'Courrier',
       content: 'Bonjour {{client}}',
       tags: []
     })
-    await api.template.delete({ id: 'tpl-1' })
-    await api.template.importDocx({ id: 'tpl-1' })
-    await api.template.openDocx({ id: 'tpl-1' })
-    await api.template.removeDocx({ id: 'tpl-1' })
+    await api.template.delete({ uuid: 'tpl-1' })
+    await api.template.importDocx({ uuid: 'tpl-1' })
+    await api.template.openDocx({ uuid: 'tpl-1' })
+    await api.template.removeDocx({ uuid: 'tpl-1' })
     await api.generate.document({
       dossierId: 'dos-1',
-      templateId: 'tpl-1'
+      templateUuid: 'tpl-1'
     })
     await api.generate.preview({
       dossierId: 'dos-1',
-      templateId: 'tpl-1'
+      templateUuid: 'tpl-1'
     })
     await api.generate.save({
       dossierId: 'dos-1',
@@ -147,18 +161,18 @@ describe('createOrdicabApi', () => {
       [IPC_CHANNELS.dossier.listEligible],
       [IPC_CHANNELS.dossier.list],
       [IPC_CHANNELS.dossier.get, { dossierId: 'dos-1' }],
-      [IPC_CHANNELS.dossier.register, { id: 'TestCase-A' }],
-      [IPC_CHANNELS.dossier.unregister, { id: 'TestCase-A' }],
+      [IPC_CHANNELS.dossier.register, { slug: 'TestCase-A' }],
+      [IPC_CHANNELS.dossier.unregister, { slug: 'TestCase-A' }],
       [
         IPC_CHANNELS.dossier.upsertKeyDate,
         { dossierId: 'dos-1', label: 'Hearing', date: '2026-03-18' }
       ],
-      [IPC_CHANNELS.dossier.deleteKeyDate, { dossierId: 'dos-1', keyDateId: 'kd-1' }],
+      [IPC_CHANNELS.dossier.deleteKeyDate, { dossierId: 'dos-1', keyDateUuid: 'kd-1' }],
       [
         IPC_CHANNELS.dossier.upsertKeyReference,
         { dossierId: 'dos-1', label: 'Case number', value: 'RG 26/001' }
       ],
-      [IPC_CHANNELS.dossier.deleteKeyReference, { dossierId: 'dos-1', keyReferenceId: 'kr-1' }],
+      [IPC_CHANNELS.dossier.deleteKeyReference, { dossierId: 'dos-1', keyReferenceUuid: 'kr-1' }],
       [
         IPC_CHANNELS.dossier.upsertFeeAgreement,
         {
@@ -170,7 +184,7 @@ describe('createOrdicabApi', () => {
           vatRateBasisPoints: 2000
         }
       ],
-      [IPC_CHANNELS.dossier.deleteFeeAgreement, { dossierId: 'dos-1', feeAgreementId: 'fa-1' }],
+      [IPC_CHANNELS.dossier.deleteFeeAgreement, { dossierId: 'dos-1', feeAgreementUuid: 'fa-1' }],
       [IPC_CHANNELS.contact.list, { dossierId: 'dos-1' }],
       [
         IPC_CHANNELS.contact.upsert,
@@ -186,6 +200,23 @@ describe('createOrdicabApi', () => {
           phone: '+33 1 98 76 54 32'
         }
       ],
+      [IPC_CHANNELS.entity.importStamp],
+      [IPC_CHANNELS.entity.removeStamp],
+      [IPC_CHANNELS.entity.getStampDataUrl],
+      [IPC_CHANNELS.pieces.list, { dossierId: 'dos-1' }],
+      [
+        IPC_CHANNELS.pieces.add,
+        { dossierId: 'dos-1', items: [{ documentUuid: 'doc-uuid-1', title: 'Contrat' }] }
+      ],
+      [
+        IPC_CHANNELS.pieces.update,
+        { dossierId: 'dos-1', pieceUuid: 'piece-1', title: 'Contrat signé' }
+      ],
+      [IPC_CHANNELS.pieces.remove, { dossierId: 'dos-1', pieceUuid: 'piece-1' }],
+      [
+        IPC_CHANNELS.pieces.generate,
+        { dossierId: 'dos-1', outputs: { bundle: true, bordereau: true, individual: false } }
+      ],
       [IPC_CHANNELS.cabinetBilling.get],
       [
         IPC_CHANNELS.cabinetBilling.upsertService,
@@ -196,19 +227,19 @@ describe('createOrdicabApi', () => {
           vatRateBasisPoints: 2000
         }
       ],
-      [IPC_CHANNELS.cabinetBilling.deleteService, { id: 'svc-1' }],
-      [IPC_CHANNELS.cabinetBilling.setDefaultService, { serviceId: 'svc-1' }],
+      [IPC_CHANNELS.cabinetBilling.deleteService, { uuid: 'svc-1' }],
+      [IPC_CHANNELS.cabinetBilling.setDefaultService, { serviceUuid: 'svc-1' }],
       [IPC_CHANNELS.document.list, { dossierId: 'dos-1' }],
-      [IPC_CHANNELS.document.preview, { dossierId: 'dos-1', documentId: 'doc-1.pdf' }],
-      [IPC_CHANNELS.document.contentStatus, { dossierId: 'dos-1', documentId: 'doc-1.pdf' }],
-      [IPC_CHANNELS.document.extractContent, { dossierId: 'dos-1', documentId: 'doc-1.pdf' }],
+      [IPC_CHANNELS.document.preview, { dossierId: 'dos-1', documentPath: 'doc-1.pdf' }],
+      [IPC_CHANNELS.document.contentStatus, { dossierId: 'dos-1', documentPath: 'doc-1.pdf' }],
+      [IPC_CHANNELS.document.extractContent, { dossierId: 'dos-1', documentPath: 'doc-1.pdf' }],
       [IPC_CHANNELS.document.startWatching, { dossierId: 'dos-1' }],
       [IPC_CHANNELS.document.stopWatching, { dossierId: 'dos-1' }],
       [
         IPC_CHANNELS.document.saveMetadata,
         {
           dossierId: 'dos-1',
-          documentId: 'doc-1',
+          documentPath: 'doc-1',
           description: 'Incoming note',
           tags: ['urgent']
         }
@@ -217,14 +248,14 @@ describe('createOrdicabApi', () => {
       [IPC_CHANNELS.template.create, { name: 'Courrier', content: 'Bonjour {{client}}', tags: [] }],
       [
         IPC_CHANNELS.template.update,
-        { id: 'tpl-1', name: 'Courrier', content: 'Bonjour {{client}}', tags: [] }
+        { uuid: 'tpl-1', name: 'Courrier', content: 'Bonjour {{client}}', tags: [] }
       ],
-      [IPC_CHANNELS.template.delete, { id: 'tpl-1' }],
-      [IPC_CHANNELS.template.importDocx, { id: 'tpl-1' }],
-      [IPC_CHANNELS.template.openDocx, { id: 'tpl-1' }],
-      [IPC_CHANNELS.template.removeDocx, { id: 'tpl-1' }],
-      [IPC_CHANNELS.generate.document, { dossierId: 'dos-1', templateId: 'tpl-1' }],
-      [IPC_CHANNELS.generate.preview, { dossierId: 'dos-1', templateId: 'tpl-1' }],
+      [IPC_CHANNELS.template.delete, { uuid: 'tpl-1' }],
+      [IPC_CHANNELS.template.importDocx, { uuid: 'tpl-1' }],
+      [IPC_CHANNELS.template.openDocx, { uuid: 'tpl-1' }],
+      [IPC_CHANNELS.template.removeDocx, { uuid: 'tpl-1' }],
+      [IPC_CHANNELS.generate.document, { dossierId: 'dos-1', templateUuid: 'tpl-1' }],
+      [IPC_CHANNELS.generate.preview, { dossierId: 'dos-1', templateUuid: 'tpl-1' }],
       [
         IPC_CHANNELS.generate.save,
         {

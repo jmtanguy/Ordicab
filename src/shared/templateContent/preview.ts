@@ -11,7 +11,7 @@ function decodeHtmlEntities(value: string): string {
     .replaceAll('&#39;', "'")
 }
 
-export function getPlainTextPreviewFromTemplate(content: string): string {
+function getPlainTextPreviewFromTemplate(content: string): string {
   const withTokens = ensureTemplateHtml(content).replace(
     TAG_SPAN_PATTERN,
     (_match, _quote: string, rawPath: string) => buildTagToken(rawPath)

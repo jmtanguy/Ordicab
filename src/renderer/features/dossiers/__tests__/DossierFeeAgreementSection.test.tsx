@@ -26,7 +26,7 @@ beforeEach(() => {
 
 function createAgreement(overrides: Partial<DossierFeeAgreement> = {}): DossierFeeAgreement {
   return {
-    id: 'fa-1',
+    uuid: 'fa-1',
     createdAt: '2026-03-13T08:30:00.000Z',
     updatedAt: '2026-03-13T08:30:00.000Z',
     isActive: true,
@@ -144,7 +144,7 @@ describe('DossierFeeAgreementSection — commercial discount', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Confirmer' }))
 
-    expect(onDelete).toHaveBeenCalledWith({ dossierId: 'dos-1', feeAgreementId: 'fa-1' })
+    expect(onDelete).toHaveBeenCalledWith({ dossierId: 'dos-1', feeAgreementUuid: 'fa-1' })
   })
 
   it('opens a choice menu before converting an agreement into a billing item', async () => {
@@ -174,7 +174,7 @@ describe('DossierFeeAgreementSection — commercial discount', () => {
       onConvertToBillingItem: vi.fn(),
       billingItems: [
         {
-          id: 'bi-1',
+          uuid: 'bi-1',
           dossierId: 'dos-1',
           date: '2026-04-01',
           label: 'Provision',
@@ -187,7 +187,7 @@ describe('DossierFeeAgreementSection — commercial discount', () => {
           vatRateBasisPoints: 2000,
           totalTtcCents: 30_000,
           status: 'draft',
-          sourceFeeAgreementId: 'fa-1',
+          sourceFeeAgreementUuid: 'fa-1',
           sourceFeeAgreementBillingKind: 'retainer',
           createdAt: '2026-04-01T09:00:00.000Z',
           updatedAt: '2026-04-01T09:00:00.000Z'

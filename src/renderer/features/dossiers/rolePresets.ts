@@ -1,1 +1,1 @@
-export { getRolePresets, roleToTagKey } from '@shared/contactRoles'
+export { roleToTagKey } from '@shared/contactRoles'

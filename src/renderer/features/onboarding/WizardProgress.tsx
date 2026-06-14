@@ -45,17 +45,17 @@ function computeState(
 }
 
 const CIRCLE_STYLES: Record<StepState, string> = {
-  done: 'bg-[#f1f7ec] text-[#3c6132] border-[#cfe3c4]',
+  done: 'bg-success-tint text-success-deep border-[#cfe3c4]',
   current: 'bg-aurora/15 text-aurora border-aurora/30',
-  deferred: 'bg-[#fbf5e3] text-[#b88800] border-[#e8d5a3]',
-  pending: 'bg-white text-[#8a8a85] border-[#e5e3da]'
+  deferred: 'bg-warning-tint text-warning border-warning-border',
+  pending: 'bg-white text-ink-subtle border-hairline'
 }
 
 const LABEL_STYLES: Record<StepState, string> = {
-  done: 'text-[#3c6132]',
-  current: 'text-[#1a1a1a] font-medium',
-  deferred: 'text-[#b88800]',
-  pending: 'text-[#8a8a85]'
+  done: 'text-success-deep',
+  current: 'text-ink font-medium',
+  deferred: 'text-warning',
+  pending: 'text-ink-subtle'
 }
 
 export function WizardProgress({
@@ -97,7 +97,7 @@ export function WizardProgress({
               </span>
             </div>
             {index < WIZARD_STEP_IDS.length - 1 ? (
-              <span aria-hidden className="mx-1 h-px w-5 bg-[#e5e3da]" />
+              <span aria-hidden className="mx-1 h-px w-5 bg-hairline" />
             ) : null}
           </div>
         )

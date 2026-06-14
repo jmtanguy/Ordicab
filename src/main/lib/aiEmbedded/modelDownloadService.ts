@@ -19,29 +19,42 @@
  */
 
 import { createWriteStream } from 'node:fs'
-import { mkdir, rename, rm, stat } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 
 const HF_BASE = 'https://huggingface.co'
 
-export type ModelTask = 'token-classification' | 'feature-extraction'
+type ModelTask = 'token-classification' | 'feature-extraction'
+
+interface RequiredModelFile {
+  path: string
+  /**
+   * Coarse corruption guard for large ONNX weights. A partially written HTTP
+   * response can still be non-empty, but it will be far smaller than the
+   * managed quantized models and later fail with "Protobuf parsing failed".
+   */
+  minBytes?: number
+  json?: boolean
+}
+
+const MIN_ONNX_BYTES = 1024 * 1024
 
 // Files required at runtime by transformers.js for each pipeline task.
 // `model_quantized.onnx` maps to dtype 'q8' at the call site (see modelRegistry).
-const FILES_BY_TASK: Record<ModelTask, readonly string[]> = {
+const FILES_BY_TASK: Record<ModelTask, readonly RequiredModelFile[]> = {
   'token-classification': [
-    'config.json',
-    'tokenizer.json',
-    'tokenizer_config.json',
-    'onnx/model_quantized.onnx'
+    { path: 'config.json', json: true },
+    { path: 'tokenizer.json', json: true },
+    { path: 'tokenizer_config.json', json: true },
+    { path: 'onnx/model_quantized.onnx', minBytes: MIN_ONNX_BYTES }
   ],
   'feature-extraction': [
-    'config.json',
-    'tokenizer.json',
-    'tokenizer_config.json',
-    'onnx/model_quantized.onnx'
+    { path: 'config.json', json: true },
+    { path: 'tokenizer.json', json: true },
+    { path: 'tokenizer_config.json', json: true },
+    { path: 'onnx/model_quantized.onnx', minBytes: MIN_ONNX_BYTES }
   ]
 }
 
@@ -101,10 +114,15 @@ export function modelDirFor(modelsRoot: string, modelId: string): string {
 export async function isModelPresent(modelsRoot: string, model: ManagedModel): Promise<boolean> {
   const dir = modelDirFor(modelsRoot, model.modelId)
   const files = FILES_BY_TASK[model.task]
-  for (const rel of files) {
+  for (const file of files) {
     try {
-      const st = await stat(join(dir, rel))
+      const fullPath = join(dir, file.path)
+      const st = await stat(fullPath)
       if (!st.isFile() || st.size === 0) return false
+      if (file.minBytes !== undefined && st.size < file.minBytes) return false
+      if (file.json) {
+        JSON.parse(await readFile(fullPath, 'utf8'))
+      }
     } catch {
       return false
     }
@@ -160,13 +178,13 @@ export async function downloadModel(
   const files = FILES_BY_TASK[model.task]
   try {
     for (let i = 0; i < files.length; i += 1) {
-      const rel = files[i]!
-      const url = `${HF_BASE}/${model.modelId}/resolve/${model.revision}/${rel}`
-      const target = join(tmpDir, rel)
+      const file = files[i]!
+      const url = `${HF_BASE}/${model.modelId}/resolve/${model.revision}/${file.path}`
+      const target = join(tmpDir, file.path)
       await downloadFileTo(url, target, doFetch, (received, total) => {
         onProgress?.({
           modelId: model.modelId,
-          file: rel,
+          file: file.path,
           fileIndex: i,
           fileCount: files.length,
           receivedBytes: received,

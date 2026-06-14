@@ -21,7 +21,7 @@ type MutableGlobal = typeof globalThis & { ordicabAPI?: OrdicabAPI }
 
 function createTemplate(overrides: Partial<TemplateRecord> = {}): TemplateRecord {
   return {
-    id: 'tpl-1',
+    uuid: 'tpl-1',
     name: 'Convocation',
     macros: [],
     hasDocxSource: false,
@@ -32,7 +32,8 @@ function createTemplate(overrides: Partial<TemplateRecord> = {}): TemplateRecord
 
 function createDossier(overrides: Partial<DossierSummary> = {}): DossierSummary {
   return {
-    id: 'dos-1',
+    slug: 'dos-1',
+    uuid: 'uuid-dos-1',
     name: 'Client Alpha',
     status: 'active',
     type: 'Civil litigation',
@@ -184,7 +185,7 @@ describe('GenerateDocumentPanel', () => {
 
     await renderPanel()
 
-    const button = screen.getByRole('button', { name: 'Next' })
+    const button = screen.getByRole('button', { name: 'Continue' })
     expect((button as HTMLButtonElement).disabled).toBe(true)
 
     fireEvent.click(screen.getByRole('button', { name: /Convocation/ }))
@@ -209,24 +210,30 @@ describe('GenerateDocumentPanel', () => {
     await renderPanel()
 
     fireEvent.click(screen.getByRole('button', { name: /Convocation/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Generate Text' })).toBeTruthy()
+      expect(
+        screen.getByText(
+          'Review and adjust the tag values extracted from the template, then build the draft.'
+        )
+      ).toBeTruthy()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Generate Text' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() => {
       expect(preview).toHaveBeenLastCalledWith({
         dossierId: 'dos-1',
-        templateId: 'tpl-1',
+        templateUuid: 'tpl-1',
         tagOverrides: { 'entity.firmName': '' },
-        primaryContactId: undefined,
+        primaryContactUuid: undefined,
         contactRoleOverrides: undefined
       })
       expect(screen.getByText('Unresolved fields')).toBeTruthy()
       expect(screen.getByRole('button', { name: 'Copy' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Save Document' })).toBeTruthy()
+      expect(screen.getByLabelText('Filename')).toBeTruthy()
     })
   })
 
@@ -266,11 +273,11 @@ describe('GenerateDocumentPanel', () => {
     await renderPanel()
 
     fireEvent.click(screen.getByRole('button', { name: /Audience note/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     // Should call previewDocx (not preview) and navigate to tags step
     await waitFor(() => {
-      expect(previewDocx).toHaveBeenCalledWith({ dossierId: 'dos-1', templateId: 'tpl-1' })
+      expect(previewDocx).toHaveBeenCalledWith({ dossierId: 'dos-1', templateUuid: 'tpl-1' })
       expect(
         screen.getByText(
           'Review and adjust the tag values extracted from the template, then build the draft.'
@@ -279,7 +286,7 @@ describe('GenerateDocumentPanel', () => {
     })
 
     // Proceed through tags step to docx-save step
-    fireEvent.click(screen.getByRole('button', { name: 'Build Draft' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() => {
       expect(screen.getByLabelText('Filename')).toBeTruthy()
@@ -302,7 +309,9 @@ describe('GenerateDocumentPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /Convocation/ }))
 
     expect(screen.queryByText('DOCX')).toBeNull()
-    expect((screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(false)
+    expect((screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement).disabled).toBe(
+      false
+    )
   })
 
   it('waits for dossier detail to load before opening the tags step', async () => {
@@ -318,13 +327,13 @@ describe('GenerateDocumentPanel', () => {
 
     useDossierStore.setState({
       activeDossier: {
-        ...createDossier({ id: 'other-dossier', name: 'Stale dossier' }),
+        ...createDossier({ slug: 'other-dossier', name: 'Stale dossier' }),
         registeredAt: '2026-03-15T12:00:00.000Z',
         uuid: 'stale-dossier-uuid',
         feeAgreements: [],
         billingItems: [],
         keyDates: [
-          { id: 'kd-stale', dossierId: 'other-dossier', label: 'Old hearing', date: '2026-02-01' }
+          { uuid: 'kd-stale', dossierId: 'other-dossier', label: 'Old hearing', date: '2026-02-01' }
         ],
         keyReferences: [],
         notes: []
@@ -346,7 +355,7 @@ describe('GenerateDocumentPanel', () => {
     await renderPanel()
 
     fireEvent.click(screen.getByRole('button', { name: /Convocation/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() => {
       expect(
@@ -355,7 +364,11 @@ describe('GenerateDocumentPanel', () => {
     })
 
     expect(preview).not.toHaveBeenCalled()
-    expect(screen.queryByRole('button', { name: 'Generate Text' })).toBeNull()
+    expect(
+      screen.queryByText(
+        'Review and adjust the tag values extracted from the template, then build the draft.'
+      )
+    ).toBeNull()
 
     resolveDossierGet({
       success: true as const,
@@ -365,7 +378,9 @@ describe('GenerateDocumentPanel', () => {
         uuid: 'dossier-uuid-1',
         feeAgreements: [],
         billingItems: [],
-        keyDates: [{ id: 'kd-1', dossierId: 'dos-1', label: 'Fresh hearing', date: '2026-04-01' }],
+        keyDates: [
+          { uuid: 'kd-1', dossierId: 'dos-1', label: 'Fresh hearing', date: '2026-04-01' }
+        ],
         keyReferences: [],
         notes: []
       }
@@ -374,9 +389,13 @@ describe('GenerateDocumentPanel', () => {
     await waitFor(() => {
       expect(preview).toHaveBeenCalledWith({
         dossierId: 'dos-1',
-        templateId: 'tpl-1'
+        templateUuid: 'tpl-1'
       })
-      expect(screen.getByRole('button', { name: 'Generate Text' })).toBeTruthy()
+      expect(
+        screen.getByText(
+          'Review and adjust the tag values extracted from the template, then build the draft.'
+        )
+      ).toBeTruthy()
     })
   })
 
@@ -401,10 +420,14 @@ describe('GenerateDocumentPanel', () => {
     await renderPanel()
 
     fireEvent.click(screen.getByRole('button', { name: /Convocation/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Generate Text' })).toBeTruthy()
+      expect(
+        screen.getByText(
+          'Review and adjust the tag values extracted from the template, then build the draft.'
+        )
+      ).toBeTruthy()
       expect(screen.getByDisplayValue('Tribunal judiciaire de Paris')).toBeTruthy()
     })
   })
@@ -424,7 +447,7 @@ describe('GenerateDocumentPanel', () => {
     await renderPanel()
 
     fireEvent.click(screen.getByRole('button', { name: /Convocation/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() => {
       expect(

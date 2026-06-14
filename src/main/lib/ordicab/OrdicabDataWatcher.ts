@@ -8,7 +8,7 @@ import {
   DelegatedInstructionsGeneratorError
 } from '../aiDelegated/aiDelegatedInstructionsGenerator'
 import { isAiDelegatedInstructionsFilename } from '../aiDelegated/aiDelegatedInstructions'
-import { ORDICAB_DIRECTORY_NAME } from './ordicabPaths'
+import { COWORK_DIRECTORY_NAME, ORDICAB_DIRECTORY_NAME } from './ordicabPaths'
 
 interface DomainServiceLike {
   getStatus: () => Promise<DomainStatusSnapshot>
@@ -33,9 +33,9 @@ export interface OrdicabDataWatcherLike {
 export interface OrdicabDataWatcherOptions {
   domainService: DomainServiceLike
   instructionsGenerator: InstructionsGeneratorLike
-  listRegisteredDossiers: () => Promise<Array<{ id: string }>>
+  listRegisteredDossiers: () => Promise<Array<{ slug: string }>>
   onDataChanged?: (event: OrdicabDataChangedEvent) => void
-  onDocxTemplateChanged?: (templateId: string) => void
+  onDocxTemplateChanged?: (templateUuid: string) => void
   getActiveAiMode?: () => AiMode
   debounceMs?: number
   logError?: (message: string, error: unknown) => void
@@ -47,7 +47,7 @@ const DEFAULT_DEBOUNCE_MS = 500
 type OrdicabDataChangeTarget = Omit<OrdicabDataChangedEvent, 'changedAt'>
 type RelevantOrdicabChange =
   | { scope: 'domain' }
-  | { scope: 'domain-docx-template'; templateId: string }
+  | { scope: 'domain-docx-template'; templateUuid: string }
   | { scope: 'dossier-metadata'; dossierId: string }
   | { scope: 'dossier-documents'; dossierId: string }
 
@@ -85,10 +85,6 @@ function inferOrdicabDataType(filePath: string): OrdicabDataChangedEvent['type']
     return 'contacts'
   }
 
-  if (filename === 'contacts-index.json') {
-    return 'contacts'
-  }
-
   if (filename === 'dossier.json') {
     return 'dossier'
   }
@@ -97,8 +93,8 @@ function inferOrdicabDataType(filePath: string): OrdicabDataChangedEvent['type']
     return 'dossier'
   }
 
-  if (filename === 'billing-items-index.json' || filename === 'key-dates-index.json') {
-    return 'dossier'
+  if (parentDir === 'general-key-dates' && filename.endsWith('.json')) {
+    return 'general-key-dates'
   }
 
   if (filename === 'entity.json') {
@@ -325,6 +321,12 @@ export function createOrdicabDataWatcher(
       return null
     }
 
+    // <dossier>/Cowork/ is the pseudonymized Claude Cowork workspace, not
+    // dossier data — exports/results there must not trigger regeneration.
+    if (segments[1] === COWORK_DIRECTORY_NAME) {
+      return null
+    }
+
     if (isAiDelegatedInstructionsFilename(filename)) {
       return null
     }
@@ -332,8 +334,8 @@ export function createOrdicabDataWatcher(
     if (segments[0] === ORDICAB_DIRECTORY_NAME) {
       // Detect changes to template docx source files: .ordicab/templates/{id}.docx
       if (segments[1] === 'templates' && filename.endsWith('.docx')) {
-        const templateId = filename.slice(0, -5)
-        return { scope: 'domain-docx-template', templateId }
+        const templateUuid = filename.slice(0, -5)
+        return { scope: 'domain-docx-template', templateUuid }
       }
 
       if (
@@ -351,9 +353,6 @@ export function createOrdicabDataWatcher(
       const parentDir = segments[2]
       const isDossierMetadataFile =
         filename === 'dossier.json' ||
-        filename === 'contacts-index.json' ||
-        filename === 'billing-items-index.json' ||
-        filename === 'key-dates-index.json' ||
         parentDir === 'contacts' ||
         parentDir === 'billing-items' ||
         parentDir === 'key-dates'
@@ -398,7 +397,7 @@ export function createOrdicabDataWatcher(
 
       if (change.scope === 'domain-docx-template') {
         if (event === 'change' || event === 'add') {
-          options.onDocxTemplateChanged?.(change.templateId)
+          options.onDocxTemplateChanged?.(change.templateUuid)
         }
         return
       }

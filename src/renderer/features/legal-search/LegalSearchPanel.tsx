@@ -147,7 +147,7 @@ function HighlightedText({
     <>
       {parts.map((part, index) =>
         index % 2 === 1 ? (
-          <mark key={index} className="rounded bg-aurora/30 px-0.5 font-medium text-[#1a1a1a]">
+          <mark key={index} className="rounded bg-aurora/30 px-0.5 font-medium text-ink">
             {part}
           </mark>
         ) : (
@@ -264,12 +264,12 @@ function LegalText({ text, pattern }: { text: string; pattern: RegExp | null }):
         block.kind === 'title' ? (
           <p
             key={index}
-            className="text-center text-xs font-semibold uppercase tracking-wide text-[#5c5c5a]"
+            className="text-center text-xs font-semibold uppercase tracking-wide text-ink-muted"
           >
             <HighlightedText text={block.text} pattern={pattern} />
           </p>
         ) : (
-          <p key={index} className="wrap-break-word leading-relaxed text-[#1a1a1a]">
+          <p key={index} className="wrap-break-word leading-relaxed text-ink">
             <HighlightedText text={block.text} pattern={pattern} />
           </p>
         )
@@ -303,13 +303,13 @@ function ResultButton({
     <button
       type="button"
       onClick={() => onOpen(item)}
-      className="w-full rounded-lg border border-[#e5e3da] bg-white px-3 py-2 text-left transition hover:border-aurora/50 hover:bg-aurora/5"
+      className="w-full rounded-lg border border-hairline bg-white px-3 py-2 text-left transition hover:border-aurora/50 hover:bg-aurora/5"
     >
       <div className="mb-1 flex items-center justify-between gap-3">
-        <p className="min-w-0 truncate text-sm font-semibold text-[#1a1a1a]">{item.title}</p>
+        <p className="min-w-0 truncate text-sm font-semibold text-ink">{item.title}</p>
         <SourceBadge source={item.source} />
       </div>
-      <div className="flex flex-wrap gap-2 text-[11px] text-[#8a8a85]">
+      <div className="flex flex-wrap gap-2 text-[11px] text-ink-subtle">
         <span>{item.id}</span>
         {item.date ? <span>{item.date.slice(0, 10)}</span> : null}
         {item.jurisdiction ? <span>{item.jurisdiction}</span> : null}
@@ -323,7 +323,7 @@ function ResultButton({
         ) : null}
       </div>
       {item.summary ? (
-        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-[#5c5c5a]">{item.summary}</p>
+        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-ink-muted">{item.summary}</p>
       ) : null}
     </button>
   )
@@ -372,7 +372,7 @@ function VerificationResults({
   if (!result) return null
   if (result.references.length === 0) {
     return (
-      <p className="rounded-lg border border-[#e5e3da] bg-white px-3 py-2 text-sm text-[#5c5c5a]">
+      <p className="rounded-lg border border-hairline bg-white px-3 py-2 text-sm text-ink-muted">
         {t('legal_search.verify_empty', {
           defaultValue: 'Aucune référence juridique détectée.'
         })}
@@ -382,14 +382,14 @@ function VerificationResults({
   return (
     <div className="space-y-2">
       {result.references.map((entry) => (
-        <div key={entry.reference} className="rounded-lg border border-[#e5e3da] bg-white p-3">
+        <div key={entry.reference} className="rounded-lg border border-hairline bg-white p-3">
           <div className="flex flex-wrap items-center gap-2">
             <SourceBadge source={entry.source} />
-            <span className="text-sm font-semibold text-[#1a1a1a]">{entry.reference}</span>
+            <span className="text-sm font-semibold text-ink">{entry.reference}</span>
             <StatusPill status={entry.status} />
           </div>
           {entry.normalizedReference && entry.normalizedReference !== entry.reference ? (
-            <p className="mt-1 text-xs text-[#8a8a85]">
+            <p className="mt-1 text-xs text-ink-subtle">
               {t('legal_search.verify_normalized', {
                 defaultValue: 'Interprétée comme : {{ref}}',
                 ref: entry.normalizedReference
@@ -398,10 +398,10 @@ function VerificationResults({
           ) : null}
           {entry.error ? <p className="mt-1 text-xs text-red-500">{entry.error}</p> : null}
           {entry.matches.length > 0 ? (
-            <ul className="mt-2 space-y-1 text-xs text-[#5c5c5a]">
+            <ul className="mt-2 space-y-1 text-xs text-ink-muted">
               {entry.matches.slice(0, 3).map((match) => (
                 <li key={match.id}>
-                  {match.title} <span className="text-[#8a8a85]">({match.id})</span>
+                  {match.title} <span className="text-ink-subtle">({match.id})</span>
                 </li>
               ))}
             </ul>
@@ -595,13 +595,13 @@ export function LegalSearchPanel({
       />
 
       {!configured ? (
-        <Card className="border-[#e8d5a3] bg-[#fbf5e3]">
-          <p className="text-sm font-semibold text-[#7a5a00]">
+        <Card className="border-warning-border bg-warning-tint">
+          <p className="text-sm font-semibold text-warning-deep">
             {t('legal_search.credentials_missing_title', {
               defaultValue: 'Clés PISTE non configurées.'
             })}
           </p>
-          <p className="mt-1 text-xs text-[#7a5a00]">
+          <p className="mt-1 text-xs text-warning-deep">
             {t('legal_search.credentials_missing_body', {
               defaultValue:
                 'Ajoutez le client ID et le client secret PISTE dans les paramètres pour utiliser la recherche juridique.'
@@ -673,7 +673,7 @@ export function LegalSearchPanel({
               </div>
 
               {showFilters ? (
-                <div className="grid gap-3 border-t border-[#e5e3da] pt-3 md:grid-cols-2">
+                <div className="grid gap-3 border-t border-hairline pt-3 md:grid-cols-2">
                   {source === 'all' ? (
                     <Field label={t('legal_search.sort_label', { defaultValue: 'Tri' })}>
                       <Select
@@ -801,7 +801,7 @@ export function LegalSearchPanel({
                 </div>
               ) : null}
 
-              <p className="text-xs text-[#8a8a85]">
+              <p className="text-xs text-ink-subtle">
                 {t('legal_search.environment_notice', {
                   defaultValue: 'Les résultats doivent être contrôlés avant usage professionnel.'
                 })}
@@ -819,7 +819,7 @@ export function LegalSearchPanel({
                 <textarea
                   value={referenceText}
                   onChange={(event) => setReferenceText(event.target.value)}
-                  className="min-h-28 w-full rounded-lg border border-[#d1cfc6] bg-white px-3 py-2 text-sm text-[#1a1a1a] outline-none transition placeholder:text-[#8a8a85] focus:border-aurora focus:ring-2 focus:ring-aurora/35"
+                  className="min-h-28 w-full rounded-lg border border-hairline-strong bg-white px-3 py-2 text-sm text-ink outline-none transition placeholder:text-ink-subtle focus:border-aurora focus:ring-2 focus:ring-aurora/35"
                   placeholder={t('legal_search.verify_placeholder', {
                     defaultValue:
                       'Collez un courrier, des conclusions ou une liste de références...'
@@ -848,7 +848,7 @@ export function LegalSearchPanel({
               {searchError ? <p className="mb-3 text-sm text-red-500">{searchError}</p> : null}
               {searchResult ? (
                 searchResult.results.length === 0 ? (
-                  <p className="rounded-lg border border-[#e5e3da] bg-white px-3 py-2 text-sm text-[#5c5c5a]">
+                  <p className="rounded-lg border border-hairline bg-white px-3 py-2 text-sm text-ink-muted">
                     {t('legal_search.results_empty', { defaultValue: 'Aucun résultat.' })}
                   </p>
                 ) : (
@@ -869,10 +869,10 @@ export function LegalSearchPanel({
 
         {mode === 'search' ? (
           <Card className="min-h-0 overflow-y-auto">
-            <h2 className="mb-3 text-sm font-semibold text-[#1a1a1a]">
+            <h2 className="mb-3 text-sm font-semibold text-ink">
               {t('legal_search.consult_title', { defaultValue: 'Consultation' })}
             </h2>
-            {isConsulting ? <p className="text-sm text-[#5c5c5a]">{t('common.loading')}</p> : null}
+            {isConsulting ? <p className="text-sm text-ink-muted">{t('common.loading')}</p> : null}
             {consultError ? <p className="text-sm text-red-500">{consultError}</p> : null}
             {consultResult ? (
               <article className="space-y-3">
@@ -910,19 +910,19 @@ export function LegalSearchPanel({
                       </button>
                     ) : null}
                   </div>
-                  <h3 className="mt-2 text-base font-semibold text-[#1a1a1a]">
+                  <h3 className="mt-2 text-base font-semibold text-ink">
                     {consultResult.title ?? consultResult.id}
                   </h3>
                   {consultResult.date ? (
-                    <p className="text-xs text-[#8a8a85]">{consultResult.date.slice(0, 10)}</p>
+                    <p className="text-xs text-ink-subtle">{consultResult.date.slice(0, 10)}</p>
                   ) : null}
                 </div>
                 {consultResult.text ? (
-                  <div className="rounded-lg bg-[#f4f3ee] p-3 text-sm text-[#1a1a1a]">
+                  <div className="rounded-lg bg-parchment p-3 text-sm text-ink">
                     <LegalText text={consultResult.text} pattern={highlightPattern} />
                   </div>
                 ) : (
-                  <p className="text-sm text-[#5c5c5a]">
+                  <p className="text-sm text-ink-muted">
                     {t('legal_search.consult_no_text', {
                       defaultValue:
                         'Aucun texte normalisé disponible. Le payload brut reste disponible côté debug.'
@@ -931,7 +931,7 @@ export function LegalSearchPanel({
                 )}
               </article>
             ) : (
-              <p className="text-sm text-[#5c5c5a]">
+              <p className="text-sm text-ink-muted">
                 {t('legal_search.consult_empty', {
                   defaultValue: 'Sélectionnez un résultat pour consulter le détail.'
                 })}

@@ -56,13 +56,13 @@ export function LegalSettingsDialog({
       panelClassName="max-w-[60rem]"
     >
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-[#1a1a1a]">
+        <h2 className="text-lg font-semibold text-ink">
           {t('legal_settings.title', { defaultValue: 'Recherche juridique PISTE' })}
         </h2>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-lg p-1.5 text-[#5c5c5a] transition hover:bg-[#e4e1d5] hover:text-[#1a1a1a]"
+          className="rounded-lg p-1.5 text-ink-muted transition hover:bg-parchment-dim hover:text-ink"
           aria-label={t('common.close', { defaultValue: 'Fermer' })}
         >
           ✕
@@ -70,7 +70,7 @@ export function LegalSettingsDialog({
       </div>
 
       <div className="space-y-4">
-        <p className="rounded-lg border border-[#e8d5a3] bg-[#fbf5e3] px-3 py-2 text-xs text-[#7a5a00]">
+        <p className="rounded-lg border border-warning-border bg-warning-tint px-3 py-2 text-xs text-warning-deep">
           {t('legal_settings.storage_notice', {
             defaultValue:
               'Les identifiants PISTE sont stockés localement et chiffrés. Ils ne sont jamais écrits dans les dossiers Ordicab.'
@@ -144,7 +144,7 @@ export function LegalSettingsDialog({
                 : t('legal_settings.test_action', { defaultValue: 'Tester PISTE' })}
             </Button>
             {connectionStatus === 'connected' ? (
-              <span className="rounded-full bg-[#5c8a4e]/20 px-2 py-0.5 text-xs font-medium text-[#3c6132]">
+              <span className="rounded-full bg-success/20 px-2 py-0.5 text-xs font-medium text-success-deep">
                 {t('legal_settings.connection_ok', { defaultValue: 'Connexion OK' })}
               </span>
             ) : null}
@@ -169,7 +169,7 @@ export function LegalSettingsDialog({
         </div>
 
         {connection ? (
-          <p className="text-xs text-[#5c5c5a]">
+          <p className="text-xs text-ink-muted">
             {t('legal_settings.connection_summary', {
               token: connection.tokenObtained
                 ? t('common.ok', { defaultValue: 'OK' })

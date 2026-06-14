@@ -13,6 +13,10 @@ import type {
   TemplateDraft,
   TemplateDocxInput,
   TemplateRecord,
+  TemplateTagifyAnalyzeInput,
+  TemplateTagifyAnalyzeResult,
+  TemplateTagifyApplyInput,
+  TemplateTagifyApplyResult,
   TemplateUpdate
 } from '@shared/types'
 import { IpcErrorCode } from '@shared/types'
@@ -43,6 +47,10 @@ interface TemplateStoreActions {
   applyCabinetDocxToAllExisting: () => Promise<
     IpcResult<{ updated: number; skipped: number; failed: string[] }>
   >
+  tagifyAnalyze: (
+    input: TemplateTagifyAnalyzeInput
+  ) => Promise<IpcResult<TemplateTagifyAnalyzeResult>>
+  tagifyApply: (input: TemplateTagifyApplyInput) => Promise<IpcResult<TemplateTagifyApplyResult>>
   generate: (input: GenerateDocumentInput) => Promise<IpcResult<GeneratedDocumentResult>>
   preview: (input: GeneratePreviewInput) => Promise<IpcResult<GeneratedDraftResult>>
   previewDocx: (input: GeneratePreviewInput) => Promise<IpcResult<DocxPreviewResult>>
@@ -65,7 +73,7 @@ function replaceTemplate(
   templates: TemplateRecord[],
   nextTemplate: TemplateRecord
 ): TemplateRecord[] {
-  const index = templates.findIndex((entry) => entry.id === nextTemplate.id)
+  const index = templates.findIndex((entry) => entry.uuid === nextTemplate.uuid)
 
   if (index < 0) {
     return templates
@@ -118,7 +126,7 @@ export const useTemplateStore = create<TemplateStore>()(
         }
       }
 
-      return api.template.getContent({ id })
+      return api.template.getContent({ uuid: id })
     },
     create: async (input) => {
       const api = requireApi(set)
@@ -151,7 +159,7 @@ export const useTemplateStore = create<TemplateStore>()(
           return
         }
 
-        const index = state.templates.findIndex((entry) => entry.id === result.data.id)
+        const index = state.templates.findIndex((entry) => entry.uuid === result.data.uuid)
         if (index >= 0) {
           state.templates[index] = result.data
         }
@@ -163,7 +171,7 @@ export const useTemplateStore = create<TemplateStore>()(
       const api = requireApi(set)
       if (!api) return
 
-      const result = await api.template.delete({ id })
+      const result = await api.template.delete({ uuid: id })
 
       set((state) => {
         if (!result.success) {
@@ -172,7 +180,7 @@ export const useTemplateStore = create<TemplateStore>()(
           return
         }
 
-        state.templates = state.templates.filter((entry) => entry.id !== id)
+        state.templates = state.templates.filter((entry) => entry.uuid !== id)
         state.error = null
         state.errorCode = null
       })
@@ -194,7 +202,9 @@ export const useTemplateStore = create<TemplateStore>()(
       const api = requireApi(set)
       if (!api) return
 
-      const result = await api.template.importDocx(pickToken ? { id, pickToken } : { id })
+      const result = await api.template.importDocx(
+        pickToken ? { uuid: id, pickToken } : { uuid: id }
+      )
 
       set((state) => {
         if (!result.success) {
@@ -219,13 +229,13 @@ export const useTemplateStore = create<TemplateStore>()(
         }
       }
 
-      return api.template.openDocx({ id } satisfies TemplateDocxInput)
+      return api.template.openDocx({ uuid: id } satisfies TemplateDocxInput)
     },
     removeDocx: async (id) => {
       const api = requireApi(set)
       if (!api) return
 
-      const result = await api.template.removeDocx({ id } satisfies TemplateDocxInput)
+      const result = await api.template.removeDocx({ uuid: id } satisfies TemplateDocxInput)
 
       set((state) => {
         if (!result.success) {
@@ -243,7 +253,9 @@ export const useTemplateStore = create<TemplateStore>()(
       const api = requireApi(set)
       if (!api) return
 
-      const result = await api.template.applyCabinetDefaultDocx({ id } satisfies TemplateDocxInput)
+      const result = await api.template.applyCabinetDefaultDocx({
+        uuid: id
+      } satisfies TemplateDocxInput)
 
       set((state) => {
         if (!result.success) {
@@ -291,6 +303,34 @@ export const useTemplateStore = create<TemplateStore>()(
 
       return api.generate.document(input)
     },
+    tagifyAnalyze: async (input) => {
+      const api = getOrdicabApi()
+
+      if (!api) {
+        return {
+          success: false as const,
+          error: IPC_NOT_AVAILABLE_ERROR,
+          code: IpcErrorCode.UNKNOWN
+        }
+      }
+
+      return api.template.tagifyAnalyze(input)
+    },
+
+    tagifyApply: async (input) => {
+      const api = getOrdicabApi()
+
+      if (!api) {
+        return {
+          success: false as const,
+          error: IPC_NOT_AVAILABLE_ERROR,
+          code: IpcErrorCode.UNKNOWN
+        }
+      }
+
+      return api.template.tagifyApply(input)
+    },
+
     preview: async (input) => {
       const api = getOrdicabApi()
 

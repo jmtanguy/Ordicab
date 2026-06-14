@@ -3,10 +3,13 @@
 @theme {
   --font-sans: 'Avenir Next', 'Segoe UI', sans-serif;
 
-  /* Slightly larger text scale for readability */
-  --text-xs: 0.8125rem;   /* 13px (was 12px) */
-  --text-sm: 0.9375rem;   /* 15px (was 14px) */
-  --text-base: 1.0625rem; /* 17px (was 16px) */
+  /* Readability-first text scale for a professional legal audience. */
+  --text-xs: 0.875rem; /* 14px (was 12px in Tailwind defaults) */
+  --text-xs--line-height: 1.25rem;
+  --text-sm: 0.9375rem; /* 15px (was 14px in Tailwind defaults) */
+  --text-sm--line-height: 1.5rem;
+  --text-base: 1.0625rem; /* 17px (was 16px in Tailwind defaults) */
+  --text-base--line-height: 1.625rem;
 
   /* Light "Ordicab" palette — accent aligned with the brand icon
      (teal/cyan). Tokens keep their legacy names so Tailwind utilities
@@ -16,6 +19,29 @@
   --color-deep-space-panel: #ffffff; /* card / panel surface */
   --color-aurora: #0f7a8a; /* primary accent (institutional teal) */
   --color-aurora-soft: #2bacc6; /* brand cyan from icon (hover / soft) */
+
+  /* Semantic utility tokens — mirror the --ord-* palette below so markup
+     uses `text-ink`, `border-hairline`, `bg-parchment`, … instead of
+     hardcoded arbitrary values like `text-[#1a1a1a]`. */
+  --color-ink: #1a1a1a; /* primary text (= --ord-text) */
+  --color-ink-muted: #5c5c5a; /* secondary text (= --ord-text-muted) */
+  --color-ink-subtle: #8a8a85; /* tertiary text (= --ord-text-subtle) */
+  --color-hairline: #e5e3da; /* default border (= --ord-border) */
+  --color-hairline-strong: #d1cfc6; /* emphasized border (= --ord-border-strong) */
+  --color-parchment: #f4f3ee; /* muted panel surface (= --ord-panel-muted) */
+  --color-parchment-bright: #fbf9f4; /* lightest raised surface */
+  --color-parchment-dim: #e4e1d5; /* recessed surface (= --ord-bg-subtle) */
+  --color-destructive: #9c2f2f; /* destructive action text/icon */
+  --color-destructive-tint: #fbf0f0; /* destructive surface */
+  --color-destructive-border: #e8c7c7;
+  --color-success: #5c8a4e;
+  --color-success-deep: #3c6132;
+  --color-success-tint: #f1f7ec;
+  --color-success-border: #cfe0c5;
+  --color-warning: #b88800;
+  --color-warning-deep: #7a5a00;
+  --color-warning-tint: #fbf5e3;
+  --color-warning-border: #e8d5a3;
 
   /* Shadow tokens — neutral, restrained elevations */
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 16px rgba(0, 0, 0, 0.05);
@@ -64,6 +90,12 @@ body {
   font-family: var(--font-sans);
   background: var(--ord-bg);
   color: var(--ord-text);
+}
+
+/* Legacy compact badge utilities should stay compact, but not tiny. */
+.text-\[10px\],
+.text-\[11px\] {
+  font-size: 0.8125rem;
 }
 
 #root {
@@ -177,7 +209,7 @@ body {
   background: var(--ord-accent);
   border: none;
   padding: 7px 14px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   color: #fff;
   cursor: pointer;
@@ -241,7 +273,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
 }
 .ai-avatar--assistant {
@@ -372,7 +404,7 @@ body {
   border: 1px solid var(--ord-border);
   background: var(--ord-panel-muted);
   color: var(--ord-text);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.6;
 }
 .ai-markdown code {
@@ -525,6 +557,18 @@ body {
   }
 }
 
+/* Prompt binder (DelegatedReference) — fiche slides in when switching tabs */
+@keyframes fiche-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) rotate(0.25deg);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) rotate(0);
+  }
+}
+
 /* Reflection block — intermediate reasoning shown during command execution */
 .ai-row--reflection {
   margin-top: -10px;
@@ -549,7 +593,7 @@ body {
 .ai-reflection-header {
   margin-bottom: 8px;
   color: var(--ord-accent-deep);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -564,7 +608,7 @@ body {
 .ai-reflection-summary {
   cursor: pointer;
   color: var(--ord-accent-deep);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -765,7 +809,7 @@ body {
 }
 .ai-mention-popup-header {
   padding: 8px 12px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--ord-text-subtle);
   text-transform: uppercase;
@@ -804,7 +848,7 @@ body {
 }
 .ai-mention-item-desc {
   color: var(--ord-text-subtle);
-  font-size: 12px;
+  font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -994,6 +1038,15 @@ body {
   font-family: 'SFMono-Regular', 'SF Mono', 'Menlo', monospace;
   font-size: 0.85em;
   white-space: nowrap;
+}
+
+/* Tag whose path is not recognized by the catalog — likely a typo */
+.ord-rich-editor.ProseMirror .ord-template-tag-chip--unknown {
+  border-color: rgba(180, 120, 20, 0.55);
+  background: rgba(245, 195, 100, 0.18);
+  color: #8a5a10;
+  text-decoration: underline wavy rgba(180, 120, 20, 0.6) 1px;
+  text-underline-offset: 3px;
 }
 
 /* ── Read-only document preview (shared by editor and save step) ─────── */

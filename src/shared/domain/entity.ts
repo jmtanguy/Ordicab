@@ -1,6 +1,7 @@
 import type { EntityManagedFieldsConfig } from '../managedFields'
 
 import type { Gender } from './gender'
+import type { PieceStampPosition } from './piece'
 
 export interface EntityProfile {
   firmName: string
@@ -29,6 +30,11 @@ export interface EntityProfile {
   toque?: string
   defaultTemplateFileName?: string
   defaultTemplateImportedAt?: string
+  /** Original filename of the imported stamp image (stored as .ordicab/stamp.png). */
+  stampImageFileName?: string
+  stampImportedAt?: string
+  /** Corner where the pièce stamp is applied on each first page. */
+  stampPosition?: PieceStampPosition
   managedFields?: EntityManagedFieldsConfig
 }
 

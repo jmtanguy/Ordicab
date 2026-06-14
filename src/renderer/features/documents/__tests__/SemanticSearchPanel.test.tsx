@@ -41,7 +41,7 @@ describe('SemanticSearchPanel', () => {
         query: 'indemnity clause',
         hits: [
           {
-            documentId: 'contract.pdf',
+            documentPath: 'contract.pdf',
             filename: 'contract.pdf',
             charStart: 0,
             charEnd: 40,
@@ -77,7 +77,7 @@ describe('SemanticSearchPanel', () => {
     const extractContent = vi.fn(async () => ({
       success: true as const,
       data: {
-        documentId: 'a.pdf',
+        documentPath: 'a.pdf',
         filename: 'a.pdf',
         text: 'Full extracted text of the document.',
         textLength: 36,
@@ -97,7 +97,7 @@ describe('SemanticSearchPanel', () => {
           query: 'q',
           hits: [
             {
-              documentId: 'a.pdf',
+              documentPath: 'a.pdf',
               filename: 'a.pdf',
               charStart: 0,
               charEnd: 4,
@@ -114,7 +114,7 @@ describe('SemanticSearchPanel', () => {
 
     fireEvent.click(screen.getByText('snippet'))
 
-    expect(extractContent).toHaveBeenCalledWith({ dossierId: 'dos-1', documentId: 'a.pdf' })
+    expect(extractContent).toHaveBeenCalledWith({ dossierId: 'dos-1', documentPath: 'a.pdf' })
     await waitFor(() => {
       expect(
         screen.getByText(
@@ -131,7 +131,7 @@ describe('SemanticSearchPanel', () => {
     const extractContent = vi.fn(async () => ({
       success: true as const,
       data: {
-        documentId: 'a.pdf',
+        documentPath: 'a.pdf',
         filename: 'a.pdf',
         text: 'text',
         textLength: 4,
@@ -151,7 +151,7 @@ describe('SemanticSearchPanel', () => {
           query: 'q',
           hits: [
             {
-              documentId: 'a.pdf',
+              documentPath: 'a.pdf',
               filename: 'a.pdf',
               charStart: 0,
               charEnd: 10,
@@ -169,7 +169,7 @@ describe('SemanticSearchPanel', () => {
     fireEvent.click(screen.getByText('snippet'))
     fireEvent.click(await screen.findByRole('button', { name: 'Open' }))
 
-    expect(onOpenDocument).toHaveBeenCalledWith({ dossierId: 'dos-1', documentId: 'a.pdf' })
+    expect(onOpenDocument).toHaveBeenCalledWith({ dossierId: 'dos-1', documentPath: 'a.pdf' })
   })
 
   it('renders the empty-result state without throwing', async () => {
@@ -201,7 +201,7 @@ describe('SemanticSearchPanel', () => {
           query: 'newline',
           hits: [
             {
-              documentId: 'note.txt',
+              documentPath: 'note.txt',
               filename: 'note.txt',
               charStart: 0,
               charEnd: 24,

@@ -90,6 +90,22 @@ describe('invoiceNumbering.consumeNextInvoiceNumber', () => {
     expect(result.sequenceValue).toBe(42)
     expect(result.nextSettings.nextSequence).toBe(43)
   })
+
+  it('never reuses an issued number when the counter is stale (floor wins)', () => {
+    // Counter says 5 but number 9 was already issued (e.g. crash before the
+    // counter advanced, or a manually lowered nextSequence). The floor forces
+    // the next number past the highest issued one.
+    const settings = { ...DEFAULT_INVOICE_SETTINGS, nextSequence: 5, currentSequenceYear: 2026 }
+    const result = consumeNextInvoiceNumber(settings, new Date(2026, 5, 1), 10)
+    expect(result.sequenceValue).toBe(10)
+    expect(result.nextSettings.nextSequence).toBe(11)
+  })
+
+  it('ignores the floor when the counter is already ahead of it', () => {
+    const settings = { ...DEFAULT_INVOICE_SETTINGS, nextSequence: 20, currentSequenceYear: 2026 }
+    const result = consumeNextInvoiceNumber(settings, new Date(2026, 5, 1), 10)
+    expect(result.sequenceValue).toBe(20)
+  })
 })
 
 describe('invoiceNumbering.previewInvoiceNumber', () => {

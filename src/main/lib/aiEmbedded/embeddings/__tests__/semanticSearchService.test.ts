@@ -33,14 +33,14 @@ async function writeDoc(entry: Record<string, unknown>): Promise<string> {
 }
 
 function buildIndexedDoc(
-  documentId: string,
+  itemId: string,
   displayName: string,
   text: string,
   chunks: Array<{ charStart: number; charEnd: number; vector: Float32Array }>,
   model = 'Xenova/bge-m3',
   dim = 4
 ): {
-  documentId: string
+  itemId: string
   displayName: string
   text: string
   chunks: Array<{ charStart: number; charEnd: number; vector: Float32Array }>
@@ -48,7 +48,7 @@ function buildIndexedDoc(
   dim: number
 } {
   return {
-    documentId,
+    itemId,
     displayName,
     text,
     chunks,
@@ -64,6 +64,7 @@ async function materializeDoc(doc: ReturnType<typeof buildIndexedDoc>): Promise<
     embeddings: {
       model: doc.model,
       dim: doc.dim,
+      pooling: 'cls',
       chunks: doc.chunks.map((c) => ({
         charStart: c.charStart,
         charEnd: c.charEnd,
@@ -73,7 +74,7 @@ async function materializeDoc(doc: ReturnType<typeof buildIndexedDoc>): Promise<
     }
   })
   return {
-    documentId: doc.documentId,
+    itemId: doc.itemId,
     displayName: doc.displayName,
     cachePath
   } satisfies IndexedDocument
@@ -107,11 +108,11 @@ describe('searchDossier', () => {
       dim: 4
     })
 
-    // Mean-centering drops the two chunks that don't match the query direction
-    // (their centered cosine is negative), leaving only the genuine match. This
-    // is the intended anti-noise behavior, not a regression.
+    // The two chunks that don't match the query direction score 0 cosine and
+    // fall below the confidence floor, leaving only the genuine match. This is
+    // the intended anti-noise behavior, not a regression.
     expect(hits).toHaveLength(1)
-    expect(hits[0]!.documentId).toBe('docA.pdf')
+    expect(hits[0]!.itemId).toBe('docA.pdf')
     expect(hits[0]!.charStart).toBe(35)
     expect(hits[0]!.snippet).toBe('Relevant passage wins.')
   })
@@ -140,9 +141,9 @@ describe('searchDossier', () => {
     })
 
     // b.pdf matches the query direction and ranks first; a.pdf points the other
-    // way, so after centering its score is negative and it's dropped as noise.
-    expect(hits[0]!.documentId).toBe('b.pdf')
-    expect(hits.every((h) => h.documentId !== 'a.pdf')).toBe(true)
+    // way (cosine 0), so it falls below the confidence floor and is dropped.
+    expect(hits[0]!.itemId).toBe('b.pdf')
+    expect(hits.every((h) => h.itemId !== 'a.pdf')).toBe(true)
   })
 
   it('returns [] when the query string is empty', async () => {
@@ -214,7 +215,7 @@ describe('searchDossier', () => {
     })
 
     expect(hits).toHaveLength(1)
-    expect(hits[0]!.documentId).toBe('ok.pdf')
+    expect(hits[0]!.itemId).toBe('ok.pdf')
   })
 
   it('embeds the query with no input prefix (bge-m3 convention)', async () => {
@@ -339,6 +340,156 @@ describe('searchDossier', () => {
     // that passage instead of the entire chunk.
     expect(text.slice(hit.charStart, hit.charEnd)).toBe('Le passage pertinent gagne ici.')
   })
+
+  it('scores the hit by the picked sentence, not the coarse chunk vector', async () => {
+    // Stage-2 ranking: the stored chunk vector matches the query perfectly
+    // (cosine 1.0), but the sentence we actually highlight only matches at 0.6.
+    // The returned score must be the sentence's 0.6 — so the displayed score and
+    // the ranking reflect the highlighted passage, not the whole-chunk average.
+    const text = 'Sujet introductif neutre. Le passage pertinent gagne ici. Remarque finale neutre.'
+    const doc = await materializeDoc(
+      buildIndexedDoc('doc.pdf', 'D', text, [
+        { charStart: 0, charEnd: text.length, vector: new Float32Array([1, 0, 0, 0]) }
+      ])
+    )
+
+    // query (contains "quel") → [1,0,0,0]; the "pertinent" sentence → a unit
+    // vector at cosine 0.6 to the query; any other sentence → orthogonal.
+    pipelineSpy.mockResolvedValue(async (inputs: unknown) => {
+      const arr = Array.isArray(inputs) ? (inputs as string[]) : [String(inputs)]
+      const flat = new Float32Array(arr.length * 4)
+      for (let i = 0; i < arr.length; i++) {
+        const input = arr[i]!
+        const vec = input.includes('quel')
+          ? [1, 0, 0, 0]
+          : input.includes('pertinent')
+            ? [0.6, 0.8, 0, 0]
+            : [0, 1, 0, 0]
+        flat.set(vec, i * 4)
+      }
+      return { data: flat, dims: [arr.length, 4] }
+    })
+
+    const hits = await searchDossier({
+      documents: [doc],
+      query: 'quelle phrase gagne',
+      topK: 1,
+      dim: 4
+    })
+
+    expect(hits).toHaveLength(1)
+    const hit = hits[0]!
+    expect(hit.snippet).toContain('pertinent')
+    // Sentence cosine (0.6), NOT the chunk cosine (1.0).
+    expect(hit.score).toBeCloseTo(0.6, 5)
+  })
+
+  it('ranks single-sentence hits by raw query cosine', async () => {
+    // Three documents at increasing cosine to the query [1,0,0,0]. The two above
+    // the confidence floor are returned, ordered by cosine; the third is dropped.
+    const docs = await Promise.all(
+      [
+        { id: 'far.pdf', vector: new Float32Array([0.2, 0.9797958971, 0, 0]) }, // cos 0.2 (dropped)
+        { id: 'mid.pdf', vector: new Float32Array([0.6, 0.8, 0, 0]) }, // cos 0.6
+        { id: 'near.pdf', vector: new Float32Array([0.95, 0.3122498999, 0, 0]) } // cos 0.95
+      ].map((c) =>
+        materializeDoc(
+          buildIndexedDoc(c.id, c.id, `${c.id} only sentence.`, [
+            { charStart: 0, charEnd: `${c.id} only sentence.`.length, vector: c.vector }
+          ])
+        )
+      )
+    )
+
+    pipelineSpy.mockResolvedValue(async () => ({
+      data: new Float32Array([1, 0, 0, 0]),
+      dims: [1, 4]
+    }))
+
+    const hits = await searchDossier({
+      documents: docs,
+      query: 'rank by raw cosine',
+      topK: 5,
+      dim: 4
+    })
+
+    expect(hits.map((h) => h.itemId)).toEqual(['near.pdf', 'mid.pdf'])
+    expect(hits[0]!.score).toBeCloseTo(0.95, 5)
+    expect(hits[1]!.score).toBeCloseTo(0.6, 5)
+  })
+
+  it('drops weak nearest neighbours instead of showing forced semantic matches', async () => {
+    const queryVec = new Float32Array([
+      0.8642578246792257, -0.0284867090456261, -0.22962450784152322, 0.44657213947276425,
+      -0.009634808443288609
+    ])
+    const chunks = [
+      new Float32Array([
+        -0.024871623830451384, 0.0991800254042939, -0.40098405713326885, -0.054461191105436145,
+        -0.9087301521778401
+      ]),
+      new Float32Array([
+        0.3656566099720655, 0.5612398820515584, -0.6476519906583715, -0.312174898029772,
+        -0.1854690551408495
+      ]),
+      new Float32Array([
+        0.6193914069943065, -0.42275436657609583, 0.34446205897978216, -0.5320575097487652,
+        0.18945639795427666
+      ])
+    ]
+    const docs = await Promise.all(
+      chunks.map((vector, i) =>
+        materializeDoc(
+          buildIndexedDoc(
+            `weak-${i}.pdf`,
+            `weak-${i}.pdf`,
+            `Weak neighbour ${i}.`,
+            [{ charStart: 0, charEnd: `Weak neighbour ${i}.`.length, vector }],
+            'Xenova/bge-m3',
+            5
+          )
+        )
+      )
+    )
+
+    pipelineSpy.mockResolvedValue(async () => ({
+      data: queryVec,
+      dims: [1, 5]
+    }))
+
+    const hits = await searchDossier({
+      documents: docs,
+      query: 'fracture',
+      topK: 5,
+      dim: 5
+    })
+
+    expect(hits).toEqual([])
+  })
+
+  it('does not pick generic headings as semantic snippets', async () => {
+    const text = 'Discussion\n\nLa fracture du tibia est consolidée avec séquelles.'
+    const doc = await materializeDoc(
+      buildIndexedDoc('medical.pdf', 'medical.pdf', text, [
+        { charStart: 0, charEnd: text.length, vector: new Float32Array([1, 0, 0, 0]) }
+      ])
+    )
+
+    pipelineSpy.mockResolvedValue(async () => ({
+      data: new Float32Array([1, 0, 0, 0]),
+      dims: [1, 4]
+    }))
+
+    const hits = await searchDossier({
+      documents: [doc],
+      query: 'fracture tibia',
+      topK: 1,
+      dim: 4
+    })
+
+    expect(hits).toHaveLength(1)
+    expect(hits[0]!.snippet).toBe('La fracture du tibia est consolidée avec séquelles.')
+  })
 })
 
 describe('preloadDossierIndex', () => {
@@ -349,7 +500,7 @@ describe('preloadDossierIndex', () => {
       ])
     )
     const docBad: IndexedDocument = {
-      documentId: 'bad.pdf',
+      itemId: 'bad.pdf',
       displayName: 'bad',
       cachePath: '/does/not/exist.json'
     }

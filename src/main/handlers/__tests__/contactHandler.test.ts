@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS, IpcErrorCode, type ContactRecord, type IpcResult } from '@shared/types'
 
 import { type DocumentService, DocumentServiceError } from '../../services/domain/documentService'
+import type { DossierRegistryService } from '../../services/domain/dossierRegistryService'
+import { createConflictCheckService } from '../../services/domain/conflictCheckService'
 import { createContactService } from '../../services/domain/contactService'
 import { registerContactHandlers } from '../contactHandler'
 import { pathExists } from '../../lib/system/domainState'
@@ -64,7 +66,8 @@ describe('contactHandler', () => {
 
     registerContactHandlers({
       ipcMain: harness.ipcMain,
-      contactService: createContactService({ documentService })
+      contactService: createContactService({ documentService }),
+      conflictCheckService: { check: vi.fn(async () => []) }
     })
 
     await expect(
@@ -110,7 +113,8 @@ describe('contactHandler', () => {
 
     registerContactHandlers({
       ipcMain: harness.ipcMain,
-      contactService: createContactService({ documentService })
+      contactService: createContactService({ documentService }),
+      conflictCheckService: { check: vi.fn(async () => []) }
     })
 
     const created = (await harness.invoke(IPC_CHANNELS.contact.upsert, {
@@ -139,7 +143,7 @@ describe('contactHandler', () => {
     const createdId = created.success ? created.data.uuid : ''
 
     const updated = (await harness.invoke(IPC_CHANNELS.contact.upsert, {
-      id: createdId,
+      uuid: createdId,
       dossierId: 'dos-1',
       firstName: 'Camille',
       lastName: 'Martin',
@@ -194,7 +198,8 @@ describe('contactHandler', () => {
 
     registerContactHandlers({
       ipcMain: harness.ipcMain,
-      contactService: createContactService({ documentService })
+      contactService: createContactService({ documentService }),
+      conflictCheckService: { check: vi.fn(async () => []) }
     })
 
     // Create the contact via the service so it lands in per-file storage
@@ -204,12 +209,12 @@ describe('contactHandler', () => {
       lastName: 'Martin',
       role: 'Client'
     })) as IpcResult<ContactRecord>
-    const contactId = created.success ? created.data.uuid : ''
+    const contactUuid = created.success ? created.data.uuid : ''
 
     await expect(
       harness.invoke(IPC_CHANNELS.contact.delete, {
         dossierId: 'dos-1',
-        contactUuid: contactId
+        contactUuid: contactUuid
       })
     ).resolves.toEqual({
       success: true,
@@ -217,8 +222,76 @@ describe('contactHandler', () => {
     })
 
     // The per-file record should no longer exist
-    const recordPath = join(dossierPath, '.ordicab', 'contacts', `${contactId}.json`)
+    const recordPath = join(dossierPath, '.ordicab', 'contacts', `${contactUuid}.json`)
     await expect(pathExists(recordPath)).resolves.toBe(false)
+  })
+
+  it('reports name conflicts found in other registered dossiers', async () => {
+    const currentDossierPath = await createTempDir()
+    const otherDossierPath = await createTempDir()
+
+    const contactsDir = join(otherDossierPath, '.ordicab', 'contacts')
+    await mkdir(contactsDir, { recursive: true })
+    const contact: ContactRecord = {
+      uuid: 'contact-9',
+      dossierId: 'dos-2',
+      firstName: 'Camille',
+      lastName: 'Martin',
+      role: 'Client'
+    }
+    await writeFile(
+      join(contactsDir, `${contact.uuid}.json`),
+      `${JSON.stringify(contact, null, 2)}\n`,
+      'utf8'
+    )
+
+    const harness = createIpcMainHarness()
+    const documentService = {
+      resolveRegisteredDossierRoot: vi.fn(async (input: { dossierId: string }) =>
+        input.dossierId === 'dos-2' ? otherDossierPath : currentDossierPath
+      )
+    } as unknown as DocumentService
+    const dossierRegistryService = {
+      listRegisteredDossiers: vi.fn(async () => [
+        { slug: 'dos-1', name: 'Dossier 1' },
+        { slug: 'dos-2', name: 'Dossier 2' }
+      ])
+    } as unknown as DossierRegistryService
+
+    registerContactHandlers({
+      ipcMain: harness.ipcMain,
+      contactService: createContactService({ documentService }),
+      conflictCheckService: createConflictCheckService({ dossierRegistryService, documentService })
+    })
+
+    await expect(
+      harness.invoke(IPC_CHANNELS.contact.checkConflicts, {
+        dossierId: 'dos-1',
+        firstName: 'camille',
+        lastName: 'MARTIN'
+      })
+    ).resolves.toEqual({
+      success: true,
+      data: [
+        {
+          dossierId: 'dos-2',
+          dossierName: 'Dossier 2',
+          contactUuid: 'contact-9',
+          contactDisplayName: 'Camille Martin',
+          contactRole: 'Client',
+          matchKind: 'exact'
+        }
+      ]
+    })
+
+    // The dossier being edited is never scanned against itself.
+    await expect(
+      harness.invoke(IPC_CHANNELS.contact.checkConflicts, {
+        dossierId: 'dos-2',
+        firstName: 'Camille',
+        lastName: 'Martin'
+      })
+    ).resolves.toEqual({ success: true, data: [] })
   })
 
   it('rejects invalid input and dossier path traversal attempts', async () => {
@@ -238,7 +311,8 @@ describe('contactHandler', () => {
 
     registerContactHandlers({
       ipcMain: harness.ipcMain,
-      contactService: createContactService({ documentService })
+      contactService: createContactService({ documentService }),
+      conflictCheckService: { check: vi.fn(async () => []) }
     })
 
     await expect(
@@ -251,14 +325,15 @@ describe('contactHandler', () => {
       code: IpcErrorCode.VALIDATION_FAILED
     })
 
+    // A dossierId carrying a path separator / traversal segment is now rejected
+    // at the schema boundary (dossierIdSchema), before it can reach any path join.
     await expect(
       harness.invoke(IPC_CHANNELS.contact.list, {
         dossierId: '../escape'
       })
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       success: false,
-      error: 'Dossier registration is limited to direct subfolders of the active domain.',
-      code: IpcErrorCode.INVALID_INPUT
+      code: IpcErrorCode.VALIDATION_FAILED
     })
   })
 })

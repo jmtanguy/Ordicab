@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -27,6 +27,8 @@ interface TemplateListProps {
   onEdit: (template: TemplateRecord) => void
   onMacros: () => void
   onOpenLibrary: () => void
+  /** Moves a template into a category (null = remove from its category). */
+  onMoveToCategory: (templateUuid: string, category: string | null) => Promise<void>
 }
 
 type SortBy = 'name-asc' | 'name-desc'
@@ -37,6 +39,37 @@ const KIND_LABEL: Record<TemplateDocumentKind, string> = {
   invoice: 'Facture',
   creditNote: 'Avoir',
   correctiveInvoice: 'Rectificative'
+}
+
+function GripIcon(): React.JSX.Element {
+  return (
+    <svg width="10" height="14" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true">
+      <circle cx="3" cy="3" r="1.3" />
+      <circle cx="7" cy="3" r="1.3" />
+      <circle cx="3" cy="8" r="1.3" />
+      <circle cx="7" cy="8" r="1.3" />
+      <circle cx="3" cy="13" r="1.3" />
+      <circle cx="7" cy="13" r="1.3" />
+    </svg>
+  )
+}
+
+function FolderIcon(): React.JSX.Element {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+    </svg>
+  )
 }
 
 const KIND_STYLE: Record<TemplateDocumentKind, string> = {
@@ -53,13 +86,19 @@ export function TemplateList({
   onDelete,
   onEdit,
   onMacros,
-  onOpenLibrary
+  onOpenLibrary,
+  onMoveToCategory
 }: TemplateListProps): React.JSX.Element {
   const { t } = useTranslation()
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState<SortBy>('name-asc')
   const [kindFilter, setKindFilter] = useState<KindFilter>('all')
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null)
+  // Drag & drop state: dragged template + hovered drop zone ('' = uncategorized, '__new__' = create)
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<string | null>(null)
+  const [newCategoryTemplateId, setNewCategoryTemplateId] = useState<string | null>(null)
+  const [newCategoryName, setNewCategoryName] = useState('')
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase()
@@ -75,6 +114,65 @@ export function TemplateList({
       sortBy === 'name-desc' ? b.name.localeCompare(a.name) : a.name.localeCompare(b.name)
     )
   }, [templates, search, sortBy, kindFilter])
+
+  // Group by category — named categories alphabetically, uncategorized last.
+  const grouped = useMemo(() => {
+    const map = new Map<string, TemplateRecord[]>()
+    for (const tpl of filtered) {
+      const key = tpl.category ?? ''
+      const list = map.get(key) ?? []
+      list.push(tpl)
+      map.set(key, list)
+    }
+    const categories = [...map.keys()]
+      .filter((key) => key !== '')
+      .sort((a, b) => a.localeCompare(b))
+    return { categories, map }
+  }, [filtered])
+
+  const hasCategories = grouped.categories.length > 0
+
+  async function handleDrop(category: string | null): Promise<void> {
+    const templateUuid = draggingId
+    setDropTarget(null)
+    setDraggingId(null)
+    if (!templateUuid) return
+    const template = templates.find((tpl) => tpl.uuid === templateUuid)
+    if (!template || (template.category ?? null) === category) return
+    await onMoveToCategory(templateUuid, category)
+  }
+
+  async function submitNewCategory(): Promise<void> {
+    const templateUuid = newCategoryTemplateId
+    const name = newCategoryName.trim()
+    setNewCategoryTemplateId(null)
+    setNewCategoryName('')
+    if (!templateUuid || !name) return
+    await onMoveToCategory(templateUuid, name)
+  }
+
+  const dropZoneProps = (key: string): React.HTMLAttributes<HTMLLIElement> => ({
+    onDragOver: (event) => {
+      if (!draggingId) return
+      event.preventDefault()
+      setDropTarget(key)
+    },
+    onDragLeave: () => setDropTarget((current) => (current === key ? null : current)),
+    onDrop: (event) => {
+      event.preventDefault()
+      if (key === '__new__') {
+        const templateUuid = draggingId
+        setDropTarget(null)
+        setDraggingId(null)
+        if (templateUuid) {
+          setNewCategoryTemplateId(templateUuid)
+          setNewCategoryName('')
+        }
+        return
+      }
+      void handleDrop(key === '' ? null : key)
+    }
+  })
 
   const countLabel =
     templates.length === 0
@@ -111,14 +209,14 @@ export function TemplateList({
       />
 
       {isLoading ? (
-        <p className="shrink-0 rounded-2xl border border-dashed border-[#e5e3da] bg-white p-4 text-sm text-[#1a1a1a]">
+        <p className="shrink-0 rounded-2xl border border-dashed border-hairline bg-white p-4 text-sm text-ink">
           {t('templates.loading')}
         </p>
       ) : templates.length === 0 ? (
         <button
           type="button"
           onClick={onCreate}
-          className="w-full shrink-0 rounded-2xl border border-dashed border-[#e5e3da] bg-white p-4 text-left text-sm text-[#1a1a1a] transition hover:border-aurora/50 hover:text-[#1a1a1a]"
+          className="w-full shrink-0 rounded-2xl border border-dashed border-hairline bg-white p-4 text-left text-sm text-ink transition hover:border-aurora/50 hover:text-ink"
         >
           {t('templates.emptyState')}
         </button>
@@ -161,92 +259,188 @@ export function TemplateList({
           </div>
 
           {filtered.length === 0 ? (
-            <p className="shrink-0 rounded-2xl border border-dashed border-[#e5e3da] bg-white p-4 text-sm text-[#1a1a1a]">
+            <p className="shrink-0 rounded-2xl border border-dashed border-hairline bg-white p-4 text-sm text-ink">
               {t('templates.list.noResults', { defaultValue: 'Aucun résultat' })}
             </p>
           ) : (
             <ListContainer>
               <ul className="h-full divide-y divide-deep-space overflow-y-auto">
-                {filtered.map((template) => {
-                  const isConfirming = confirmingDeleteId === template.id
-                  return (
-                    <li
-                      key={template.id}
-                      className="group relative flex items-center gap-3 px-4 py-3 transition-colors duration-150 hover:bg-[#fbf9f4]"
-                    >
-                      <div className="flex min-w-0 flex-1 items-baseline gap-2">
-                        {template.hasDocxSource ? (
-                          <span className="shrink-0 rounded-full border border-[#cfe0c5] bg-[#f1f7ec] px-2 py-0.5 text-[11px] font-semibold tracking-[0.12em] text-[#3c6132]">
-                            {t('templates.list.docxBadge')}
-                          </span>
-                        ) : (
-                          <span className="shrink-0 rounded-full border border-[#d8d3c4] bg-[#f4f1e8] px-2 py-0.5 text-[11px] font-semibold tracking-[0.12em] text-[#6b5d3a]">
-                            {t('templates.list.textBadge')}
-                          </span>
-                        )}
-                        {(() => {
-                          const kind = template.documentKind ?? 'document'
-                          if (kind === 'document') return null
-                          return (
-                            <span
-                              className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold tracking-[0.12em] ${KIND_STYLE[kind]}`}
-                            >
-                              {KIND_LABEL[kind]}
-                            </span>
-                          )
-                        })()}
-                        <span className="truncate text-sm font-semibold text-[#1a1a1a]">
-                          {template.name}
+                {newCategoryTemplateId ? (
+                  <li className="flex items-center gap-2 bg-aurora/5 px-4 py-2">
+                    <span className="text-xs text-ink-muted">
+                      {t('templates.list.newCategoryName')}
+                    </span>
+                    <input
+                      autoFocus
+                      type="text"
+                      value={newCategoryName}
+                      onChange={(event) => setNewCategoryName(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') void submitNewCategory()
+                        if (event.key === 'Escape') {
+                          setNewCategoryTemplateId(null)
+                          setNewCategoryName('')
+                        }
+                      }}
+                      onBlur={() => void submitNewCategory()}
+                      className="rounded-xl border border-hairline bg-white px-3 py-1 text-sm text-ink outline-none focus:border-aurora"
+                    />
+                  </li>
+                ) : null}
+                {draggingId ? (
+                  <li
+                    {...dropZoneProps('__new__')}
+                    className={`px-4 py-2 text-center text-xs transition-colors ${
+                      dropTarget === '__new__'
+                        ? 'bg-aurora/10 text-aurora'
+                        : 'bg-parchment text-ink-muted'
+                    }`}
+                  >
+                    {t('templates.list.newCategoryDropZone')}
+                  </li>
+                ) : null}
+                {[
+                  ...grouped.categories.map((category) => ({
+                    key: category,
+                    label: category,
+                    items: grouped.map.get(category) ?? []
+                  })),
+                  ...(grouped.map.has('') || hasCategories
+                    ? [
+                        {
+                          key: '',
+                          label: t('templates.list.uncategorized'),
+                          items: grouped.map.get('') ?? []
+                        }
+                      ]
+                    : [])
+                ].map((section) => (
+                  <Fragment key={section.key || '__uncategorized__'}>
+                    {hasCategories ? (
+                      <li
+                        {...dropZoneProps(section.key)}
+                        className={`flex items-center gap-2 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors ${
+                          dropTarget === section.key
+                            ? 'bg-aurora/10 text-aurora'
+                            : 'bg-parchment text-ink-muted'
+                        }`}
+                      >
+                        <FolderIcon />
+                        {section.label}
+                        <span className="font-normal normal-case tracking-normal text-ink-subtle">
+                          ({section.items.length})
                         </span>
-                        {template.description ? (
-                          <span className="min-w-0 truncate text-xs text-[#5c5c5a]">
-                            {template.description}
-                          </span>
-                        ) : null}
-                      </div>
-
-                      <div className="relative flex shrink-0 items-center gap-1">
-                        <div
-                          className={
-                            isConfirming
-                              ? 'invisible flex items-center gap-1'
-                              : 'flex items-center gap-1'
-                          }
+                      </li>
+                    ) : null}
+                    {section.items.map((template) => {
+                      const isConfirming = confirmingDeleteId === template.uuid
+                      return (
+                        <li
+                          key={template.uuid}
+                          draggable
+                          onDragStart={(event) => {
+                            event.dataTransfer.setData('text/plain', template.uuid)
+                            event.dataTransfer.effectAllowed = 'move'
+                            // Mutating the DOM during dragstart aborts the drag in
+                            // Chromium — defer the state update to the next tick.
+                            window.setTimeout(() => setDraggingId(template.uuid), 0)
+                          }}
+                          onDragEnd={() => {
+                            setDraggingId(null)
+                            setDropTarget(null)
+                          }}
+                          className={`group relative flex cursor-grab items-center gap-3 px-4 py-3 transition-colors duration-150 hover:bg-parchment-bright ${
+                            draggingId === template.uuid ? 'opacity-50' : ''
+                          }`}
                         >
-                          <IconButton
-                            label={t('templates.actions.edit')}
-                            onClick={() => onEdit(template)}
+                          <span
+                            aria-hidden="true"
+                            title={t('templates.list.dragHint')}
+                            className="shrink-0 cursor-grab text-ink-subtle opacity-40 transition group-hover:opacity-100"
                           >
-                            <PencilIcon />
-                          </IconButton>
-                          <IconButton
-                            label={t('templates.actions.delete')}
-                            tone="danger"
-                            onClick={() => setConfirmingDeleteId(template.id)}
-                          >
-                            <TrashIcon />
-                          </IconButton>
-                        </div>
-                        {isConfirming ? (
-                          <div className="absolute right-0 top-1/2 -translate-y-1/2">
-                            <DeleteConfirmTray
-                              label={t('templates.list.deleteConfirmMessage', {
-                                name: template.name
-                              })}
-                              confirmLabel={t('templates.list.deleteConfirmAction')}
-                              cancelLabel={t('templates.list.deleteCancelAction')}
-                              onConfirm={async () => {
-                                await onDelete(template.id)
-                                setConfirmingDeleteId(null)
-                              }}
-                              onCancel={() => setConfirmingDeleteId(null)}
-                            />
+                            <GripIcon />
+                          </span>
+                          <div className="flex min-w-0 flex-1 items-baseline gap-2">
+                            {template.hasDocxSource ? (
+                              <span className="shrink-0 rounded-full border border-success-border bg-success-tint px-2 py-0.5 text-[11px] font-semibold tracking-[0.12em] text-success-deep">
+                                {t('templates.list.docxBadge')}
+                              </span>
+                            ) : (
+                              <span className="shrink-0 rounded-full border border-[#d8d3c4] bg-[#f4f1e8] px-2 py-0.5 text-[11px] font-semibold tracking-[0.12em] text-[#6b5d3a]">
+                                {t('templates.list.textBadge')}
+                              </span>
+                            )}
+                            {(() => {
+                              const kind = template.documentKind ?? 'document'
+                              if (kind === 'document') return null
+                              return (
+                                <span
+                                  className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold tracking-[0.12em] ${KIND_STYLE[kind]}`}
+                                >
+                                  {KIND_LABEL[kind]}
+                                </span>
+                              )
+                            })()}
+                            <span className="truncate text-sm font-semibold text-ink">
+                              {template.name}
+                            </span>
+                            {template.category ? (
+                              <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-hairline bg-parchment px-2 py-0.5 text-[11px] text-ink-muted">
+                                <FolderIcon />
+                                {template.category}
+                              </span>
+                            ) : null}
+                            {template.description ? (
+                              <span className="min-w-0 truncate text-xs text-ink-muted">
+                                {template.description}
+                              </span>
+                            ) : null}
                           </div>
-                        ) : null}
-                      </div>
-                    </li>
-                  )
-                })}
+
+                          <div className="relative flex shrink-0 items-center gap-1">
+                            <div
+                              className={
+                                isConfirming
+                                  ? 'invisible flex items-center gap-1'
+                                  : 'flex items-center gap-1'
+                              }
+                            >
+                              <IconButton
+                                label={t('templates.actions.edit')}
+                                onClick={() => onEdit(template)}
+                              >
+                                <PencilIcon />
+                              </IconButton>
+                              <IconButton
+                                label={t('templates.actions.delete')}
+                                tone="danger"
+                                onClick={() => setConfirmingDeleteId(template.uuid)}
+                              >
+                                <TrashIcon />
+                              </IconButton>
+                            </div>
+                            {isConfirming ? (
+                              <div className="absolute right-0 top-1/2 -translate-y-1/2">
+                                <DeleteConfirmTray
+                                  label={t('templates.list.deleteConfirmMessage', {
+                                    name: template.name
+                                  })}
+                                  confirmLabel={t('templates.list.deleteConfirmAction')}
+                                  cancelLabel={t('templates.list.deleteCancelAction')}
+                                  onConfirm={async () => {
+                                    await onDelete(template.uuid)
+                                    setConfirmingDeleteId(null)
+                                  }}
+                                  onCancel={() => setConfirmingDeleteId(null)}
+                                />
+                              </div>
+                            ) : null}
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </Fragment>
+                ))}
               </ul>
             </ListContainer>
           )}

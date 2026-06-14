@@ -7,7 +7,11 @@ import {
   computeFeeAgreementBillingAmounts
 } from '@shared/billingCalculations'
 import { computeContactDisplayName } from '@shared/computeContactDisplayName'
-import { isCabinetServicePresetEligibleForFeeAgreement } from '@shared/types'
+import {
+  BILLING_TYPE_VALUES,
+  FEE_AGREEMENT_STATUS_VALUES,
+  isCabinetServicePresetEligibleForFeeAgreement
+} from '@shared/types'
 import type {
   BillingType,
   ContactRecord,
@@ -29,6 +33,7 @@ import {
   parseEurosToCents,
   parsePercentToBasisPoints
 } from '@renderer/lib/billingFormatters'
+import { billingTypeLabel, feeAgreementStatusLabel } from '@renderer/lib/domainLabels'
 import { useCabinetBillingStore, useTemplateStore } from '@renderer/stores'
 import {
   AlertBanner,
@@ -47,6 +52,7 @@ import {
   IconButton,
   PencilIcon,
   ReceiptIcon,
+  SectionHeader,
   TrashIcon
 } from './sectionLayout'
 import {
@@ -77,29 +83,6 @@ function formatDiscountLabel(
     })
   }
   return undefined
-}
-
-function billingTypeLabel(value: BillingType, t: ReturnType<typeof useTranslation>['t']): string {
-  if (value === 'flat') {
-    return t('cabinet.billing_type.flat', { defaultValue: 'Forfait' })
-  }
-  if (value === 'hourly') {
-    return t('cabinet.billing_type.hourly', { defaultValue: 'Horaire' })
-  }
-  return t('cabinet.billing_type.mixed', { defaultValue: 'Mixte' })
-}
-
-function statusLabel(
-  status: FeeAgreementStatus,
-  t: ReturnType<typeof useTranslation>['t']
-): string {
-  if (status === 'draft') {
-    return t('dossiers.fee_agreement_status_draft', { defaultValue: 'Brouillon' })
-  }
-  if (status === 'sent') {
-    return t('dossiers.fee_agreement_status_sent', { defaultValue: 'Envoyée' })
-  }
-  return t('dossiers.fee_agreement_status_signed', { defaultValue: 'Signée' })
 }
 
 function resolveLinkedDocument(
@@ -135,7 +118,7 @@ export function DossierFeeAgreementSection({
   onDelete: (input: DossierFeeAgreementDeleteInput) => Promise<boolean>
   onArchive: (input: DossierFeeAgreementArchiveInput) => Promise<boolean>
   onSetActive: (input: DossierFeeAgreementSetActiveInput) => Promise<boolean>
-  onOpenDocumentFile?: (input: { dossierId: string; documentId: string }) => Promise<void>
+  onOpenDocumentFile?: (input: { dossierId: string; documentPath: string }) => Promise<void>
   onConvertToBillingItem?: (
     agreement: DossierFeeAgreement,
     conversionKind: SourceFeeAgreementBillingKind
@@ -178,7 +161,7 @@ export function DossierFeeAgreementSection({
   )
 
   const defaultPreset =
-    activePresets.find((preset) => preset.id === catalog?.defaultServiceId) ?? activePresets[0]
+    activePresets.find((preset) => preset.uuid === catalog?.defaultServiceUuid) ?? activePresets[0]
 
   const sortedAgreements = useMemo(
     () =>
@@ -232,7 +215,7 @@ export function DossierFeeAgreementSection({
     )
   }, [selectableSignedDocuments, signedPickerSearch])
   const selectedTemplateIsVisible = filteredTemplates.some(
-    (template) => template.id === selectedTemplateId
+    (template) => template.uuid === selectedTemplateId
   )
   const selectedSignedDocumentIsVisible = filteredSignedDocuments.some(
     (document) => document.uuid === selectedSignedDocumentUuid
@@ -252,11 +235,11 @@ export function DossierFeeAgreementSection({
 
   const handleGenerate = async (
     feeAgreement: DossierFeeAgreement,
-    templateId: string
+    templateUuid: string
   ): Promise<void> => {
     setGenerationError(null)
     const versionIndex =
-      sortedAgreements.findIndex((entry) => entry.id === feeAgreement.id) + 1 ||
+      sortedAgreements.findIndex((entry) => entry.uuid === feeAgreement.uuid) + 1 ||
       sortedAgreements.length
     const description = t('dossiers.fee_agreement_generated_doc_description', {
       defaultValue: 'Convention d’honoraires v{{version}} — {{matter}}',
@@ -265,9 +248,9 @@ export function DossierFeeAgreementSection({
     })
     const result = await generateTemplate({
       dossierId,
-      templateId,
+      templateUuid,
       description,
-      tags: ['fee-agreement', `convention:${feeAgreement.id}`]
+      tags: ['fee-agreement', `convention:${feeAgreement.uuid}`]
     })
     if (!result.success) {
       setGenerationError(result.error)
@@ -325,19 +308,14 @@ export function DossierFeeAgreementSection({
   return (
     <>
       <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs uppercase tracking-[0.16em] text-[#5c5c5a]">
-              {t('dossiers.fee_agreement_badge', { defaultValue: 'Convention' })}
-            </p>
-            <p className="mt-1 text-sm text-[#5c5c5a]">
-              {t('dossiers.fee_agreement_summary', {
-                defaultValue:
-                  'Convention d’honoraires du dossier, avec avenants si nécessaire. Une seule version est active à la fois.'
-              })}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
+        <SectionHeader
+          badge={t('dossiers.fee_agreement_badge', { defaultValue: 'Convention' })}
+          badgeTitle={t('dossiers.fee_agreement_summary', {
+            defaultValue:
+              'Convention d’honoraires du dossier, avec avenants si nécessaire. Une seule version est active à la fois.'
+          })}
+          count={sortedAgreements.length || null}
+          actions={
             <Button
               type="button"
               variant="ghost"
@@ -351,14 +329,14 @@ export function DossierFeeAgreementSection({
                     defaultValue: 'Nouvel avenant'
                   })}
             </Button>
-          </div>
-        </div>
+          }
+        />
 
         {catalogError ? <AlertBanner tone="error">{catalogError}</AlertBanner> : null}
         {generationError ? <AlertBanner tone="error">{generationError}</AlertBanner> : null}
 
         {sortedAgreements.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-[#d1cfc6] bg-white p-5 text-sm text-[#5c5c5a]">
+          <div className="rounded-2xl border border-dashed border-hairline-strong bg-white p-5 text-sm text-ink-muted">
             {t('dossiers.fee_agreement_empty', {
               defaultValue:
                 'Aucune convention d’honoraires enregistrée pour ce dossier. Cliquez sur « Créer la convention » pour démarrer.'
@@ -379,17 +357,17 @@ export function DossierFeeAgreementSection({
               const hasRetainerBillingItem = billingItems.some(
                 (item) =>
                   item.status !== 'cancelled' &&
-                  item.sourceFeeAgreementId === agreement.id &&
+                  item.sourceFeeAgreementUuid === agreement.uuid &&
                   item.sourceFeeAgreementBillingKind === 'retainer'
               )
               const hasFinalBalanceBillingItem = billingItems.some(
                 (item) =>
                   item.status !== 'cancelled' &&
-                  item.sourceFeeAgreementId === agreement.id &&
+                  item.sourceFeeAgreementUuid === agreement.uuid &&
                   item.sourceFeeAgreementBillingKind === 'finalBalance'
               )
               const linkedBillingItemCount = billingItems.filter(
-                (item) => item.sourceFeeAgreementId === agreement.id
+                (item) => item.sourceFeeAgreementUuid === agreement.uuid
               ).length
               const deleteBlockedByLinks = linkedBillingItemCount > 0
               const deleteBlockedTooltip = deleteBlockedByLinks
@@ -414,29 +392,31 @@ export function DossierFeeAgreementSection({
 
               return (
                 <div
-                  key={agreement.id}
+                  key={agreement.uuid}
                   className={`group space-y-3 rounded-2xl border p-4 shadow-[0_1px_2px_rgba(15,122,138,0.04)] ${
-                    agreement.isActive ? 'border-aurora bg-white' : 'border-[#e5e3da] bg-[#fbf9f4]'
+                    agreement.isActive
+                      ? 'border-aurora bg-white'
+                      : 'border-hairline bg-parchment-bright'
                   }`}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="space-y-1">
-                      <h3 className="text-sm font-semibold text-[#1a1a1a]">
+                      <h3 className="text-sm font-semibold text-ink">
                         {agreement.matterLabel || dossierName}
                       </h3>
                       <div className="flex flex-wrap gap-2 text-[11px] font-medium">
-                        <span className="rounded-full bg-[#f4f3ee] px-2.5 py-1 text-[#5c5c5a]">
+                        <span className="rounded-full bg-parchment px-2.5 py-1 text-ink-muted">
                           {billingTypeLabel(agreement.billingType, t)}
                         </span>
                         <span className="rounded-full bg-aurora/12 px-2.5 py-1 text-aurora">
-                          {statusLabel(agreement.status, t)}
+                          {feeAgreementStatusLabel(agreement.status, t)}
                         </span>
                         {agreement.isActive ? (
                           <span className="rounded-full bg-aurora px-2.5 py-1 text-white">
                             {t('dossiers.fee_agreement_active_badge', { defaultValue: 'Active' })}
                           </span>
                         ) : (
-                          <span className="rounded-full bg-[#d1cfc6] px-2.5 py-1 text-[#5c5c5a]">
+                          <span className="rounded-full bg-hairline-strong px-2.5 py-1 text-ink-muted">
                             {t('dossiers.fee_agreement_archived_badge', {
                               defaultValue: 'Archivée'
                             })}
@@ -462,7 +442,7 @@ export function DossierFeeAgreementSection({
                     <div className="relative flex flex-wrap items-center gap-1">
                       <div
                         className={
-                          confirmingDeleteId === agreement.id
+                          confirmingDeleteId === agreement.uuid
                             ? 'invisible flex flex-wrap items-center gap-1'
                             : 'flex flex-wrap items-center gap-1'
                         }
@@ -475,20 +455,20 @@ export function DossierFeeAgreementSection({
                               })}
                               alwaysVisible
                               disabled={disabled}
-                              aria-expanded={conversionMenuAgreementId === agreement.id}
+                              aria-expanded={conversionMenuAgreementId === agreement.uuid}
                               onClick={() => {
                                 setConfirmingDeleteId(null)
                                 setConversionMenuAgreementId((current) =>
-                                  current === agreement.id ? null : agreement.id
+                                  current === agreement.uuid ? null : agreement.uuid
                                 )
                               }}
                             >
                               <ReceiptIcon />
                             </IconButton>
-                            {conversionMenuAgreementId === agreement.id ? (
+                            {conversionMenuAgreementId === agreement.uuid ? (
                               <div
                                 role="menu"
-                                className="absolute right-0 top-8 z-30 w-80 overflow-hidden rounded-xl border border-[#e5e3da] bg-white shadow-lg"
+                                className="absolute right-0 top-8 z-30 w-80 overflow-hidden rounded-xl border border-hairline bg-white shadow-lg"
                               >
                                 <FeeAgreementConversionMenuItem
                                   label={t('dossiers.fee_agreement_convert_retainer_action', {
@@ -572,7 +552,7 @@ export function DossierFeeAgreementSection({
                             disabled={disabled}
                             onClick={async () => {
                               setConfirmingDeleteId(null)
-                              await onSetActive({ dossierId, feeAgreementId: agreement.id })
+                              await onSetActive({ dossierId, feeAgreementUuid: agreement.uuid })
                             }}
                           >
                             <CheckIcon />
@@ -587,7 +567,7 @@ export function DossierFeeAgreementSection({
                             disabled={disabled}
                             onClick={async () => {
                               setConfirmingDeleteId(null)
-                              await onArchive({ dossierId, feeAgreementId: agreement.id })
+                              await onArchive({ dossierId, feeAgreementUuid: agreement.uuid })
                             }}
                           >
                             <ArchiveIcon />
@@ -603,12 +583,12 @@ export function DossierFeeAgreementSection({
                           tone="danger"
                           alwaysVisible
                           disabled={disabled || deleteBlockedByLinks}
-                          onClick={() => setConfirmingDeleteId(agreement.id)}
+                          onClick={() => setConfirmingDeleteId(agreement.uuid)}
                         >
                           <TrashIcon />
                         </IconButton>
                       </div>
-                      {confirmingDeleteId === agreement.id ? (
+                      {confirmingDeleteId === agreement.uuid ? (
                         <div className="absolute right-0 top-1/2 -translate-y-1/2">
                           <DeleteConfirmTray
                             label={t('dossiers.fee_agreement_delete_confirm_label', {
@@ -622,7 +602,7 @@ export function DossierFeeAgreementSection({
                             })}
                             disabled={disabled}
                             onConfirm={async () => {
-                              await onDelete({ dossierId, feeAgreementId: agreement.id })
+                              await onDelete({ dossierId, feeAgreementUuid: agreement.uuid })
                               setConfirmingDeleteId(null)
                             }}
                             onCancel={() => setConfirmingDeleteId(null)}
@@ -646,7 +626,9 @@ export function DossierFeeAgreementSection({
                       value={signatoryName ? computeContactDisplayName(signatoryName) : undefined}
                     />
                     <DetailField
-                      label={t('cabinet.flat_fee_label', { defaultValue: 'Forfait HT' })}
+                      label={t('dossiers.fee_agreement_flat_fee_short', {
+                        defaultValue: 'Forfait HT'
+                      })}
                       value={
                         <DiscountedAgreementAmount
                           value={formatEurosFromCents(
@@ -684,15 +666,19 @@ export function DossierFeeAgreementSection({
                       }
                     />
                     <DetailField
-                      label={t('cabinet.hourly_rate_label', { defaultValue: 'Taux horaire HT' })}
+                      label={t('dossiers.fee_agreement_hourly_rate_short', {
+                        defaultValue: 'Taux horaire HT'
+                      })}
                       value={formatEurosFromCents(agreement.hourlyRateHtCents)}
                     />
                     <DetailField
-                      label={t('cabinet.retainer_label', { defaultValue: 'Provision HT' })}
+                      label={t('dossiers.fee_agreement_retainer_short', {
+                        defaultValue: 'Provision HT'
+                      })}
                       value={formatEurosFromCents(agreement.retainerHtCents)}
                     />
                     <DetailField
-                      label={t('cabinet.vat_rate_label', { defaultValue: 'TVA' })}
+                      label={t('dossiers.fee_agreement_vat_label', { defaultValue: 'TVA' })}
                       value={formatBasisPoints(agreement.vatRateBasisPoints)}
                     />
                     <DetailField
@@ -725,7 +711,7 @@ export function DossierFeeAgreementSection({
                       missing={Boolean(agreement.generatedDocumentUuid && !generatedDoc)}
                       onOpen={
                         generatedDoc && onOpenDocumentFile
-                          ? () => onOpenDocumentFile({ dossierId, documentId: generatedDoc.id })
+                          ? () => onOpenDocumentFile({ dossierId, documentPath: generatedDoc.path })
                           : undefined
                       }
                       actionLabel={
@@ -739,8 +725,8 @@ export function DossierFeeAgreementSection({
                       }
                       onAction={() => {
                         setTemplatePickerSearch('')
-                        setSelectedTemplateId(sortedAvailableTemplates[0]?.id ?? null)
-                        setShowTemplatePicker(agreement.id)
+                        setSelectedTemplateId(sortedAvailableTemplates[0]?.uuid ?? null)
+                        setShowTemplatePicker(agreement.uuid)
                       }}
                       disabled={disabled || availableTemplates.length === 0}
                     />
@@ -752,7 +738,7 @@ export function DossierFeeAgreementSection({
                       missing={Boolean(agreement.signedDocumentUuid && !signedDoc)}
                       onOpen={
                         signedDoc && onOpenDocumentFile
-                          ? () => onOpenDocumentFile({ dossierId, documentId: signedDoc.id })
+                          ? () => onOpenDocumentFile({ dossierId, documentPath: signedDoc.path })
                           : undefined
                       }
                       actionLabel={
@@ -769,7 +755,7 @@ export function DossierFeeAgreementSection({
                         setSelectedSignedDocumentUuid(
                           agreement.signedDocumentUuid ?? selectableSignedDocuments[0]?.uuid ?? null
                         )
-                        setShowSignedPicker(agreement.id)
+                        setShowSignedPicker(agreement.uuid)
                       }}
                       disabled={disabled || selectableSignedDocuments.length === 0}
                     />
@@ -783,7 +769,7 @@ export function DossierFeeAgreementSection({
 
       {showTemplatePicker
         ? (() => {
-            const agreement = feeAgreements.find((entry) => entry.id === showTemplatePicker)
+            const agreement = feeAgreements.find((entry) => entry.uuid === showTemplatePicker)
             if (!agreement) return null
             return (
               <DialogShell
@@ -796,12 +782,12 @@ export function DossierFeeAgreementSection({
                 }}
               >
                 <div>
-                  <h3 className="text-lg font-semibold text-[#1a1a1a]">
+                  <h3 className="text-lg font-semibold text-ink">
                     {t('dossiers.fee_agreement_template_picker_title', {
                       defaultValue: 'Générer la convention'
                     })}
                   </h3>
-                  <p className="mt-1 text-sm text-[#5c5c5a]">
+                  <p className="mt-1 text-sm text-ink-muted">
                     {t('dossiers.fee_agreement_template_picker_hint', {
                       defaultValue: 'Sélectionnez le modèle à utiliser pour générer la convention.'
                     })}
@@ -815,9 +801,9 @@ export function DossierFeeAgreementSection({
                   })}
                   disabled={isPickerSubmitting}
                 />
-                <div className="max-h-[52vh] overflow-y-auto rounded-xl border border-[#e5e3da] bg-white">
+                <div className="max-h-[52vh] overflow-y-auto rounded-xl border border-hairline bg-white">
                   {filteredTemplates.length === 0 ? (
-                    <p className="px-4 py-8 text-center text-sm text-[#8a8a85]">
+                    <p className="px-4 py-8 text-center text-sm text-ink-subtle">
                       {availableTemplates.length === 0
                         ? t('dossiers.fee_agreement_no_templates', {
                             defaultValue: 'Aucun modèle disponible.'
@@ -829,22 +815,22 @@ export function DossierFeeAgreementSection({
                   ) : (
                     <ul className="divide-y divide-[#eeede8]">
                       {filteredTemplates.map((template) => {
-                        const selected = selectedTemplateId === template.id
+                        const selected = selectedTemplateId === template.uuid
                         return (
                           <TemplatePickerItem
-                            key={template.id}
+                            key={template.uuid}
                             template={template}
                             selected={selected}
                             disabled={isPickerSubmitting}
-                            onSelect={() => setSelectedTemplateId(template.id)}
+                            onSelect={() => setSelectedTemplateId(template.uuid)}
                           />
                         )
                       })}
                     </ul>
                   )}
                 </div>
-                <div className="flex items-center justify-between gap-3 border-t border-[#e5e3da] pt-4">
-                  <p className="text-sm text-[#5c5c5a]">
+                <div className="flex items-center justify-between gap-3 border-t border-hairline pt-4">
+                  <p className="text-sm text-ink-muted">
                     {t('dossiers.fee_agreement_template_picker_count', {
                       defaultValue: '{{count}} modèle(s)',
                       count: filteredTemplates.length
@@ -894,7 +880,7 @@ export function DossierFeeAgreementSection({
 
       {showSignedPicker
         ? (() => {
-            const agreement = feeAgreements.find((entry) => entry.id === showSignedPicker)
+            const agreement = feeAgreements.find((entry) => entry.uuid === showSignedPicker)
             if (!agreement) return null
             return (
               <DialogShell
@@ -907,12 +893,12 @@ export function DossierFeeAgreementSection({
                 }}
               >
                 <div>
-                  <h3 className="text-lg font-semibold text-[#1a1a1a]">
+                  <h3 className="text-lg font-semibold text-ink">
                     {t('dossiers.fee_agreement_signed_picker_title', {
                       defaultValue: 'Lier un document signé'
                     })}
                   </h3>
-                  <p className="mt-1 text-sm text-[#5c5c5a]">
+                  <p className="mt-1 text-sm text-ink-muted">
                     {t('dossiers.fee_agreement_signed_picker_hint', {
                       defaultValue:
                         'Sélectionnez le scan signé parmi les documents du dossier. Le statut passera à « Signée ».'
@@ -927,9 +913,9 @@ export function DossierFeeAgreementSection({
                   })}
                   disabled={isPickerSubmitting}
                 />
-                <div className="max-h-[52vh] overflow-y-auto rounded-xl border border-[#e5e3da] bg-white">
+                <div className="max-h-[52vh] overflow-y-auto rounded-xl border border-hairline bg-white">
                   {filteredSignedDocuments.length === 0 ? (
-                    <p className="px-4 py-8 text-center text-sm text-[#8a8a85]">
+                    <p className="px-4 py-8 text-center text-sm text-ink-subtle">
                       {selectableSignedDocuments.length === 0
                         ? t('dossiers.fee_agreement_no_documents', {
                             defaultValue: 'Aucun document dans ce dossier.'
@@ -955,8 +941,8 @@ export function DossierFeeAgreementSection({
                     </ul>
                   )}
                 </div>
-                <div className="flex items-center justify-between gap-3 border-t border-[#e5e3da] pt-4">
-                  <p className="text-sm text-[#5c5c5a]">
+                <div className="flex items-center justify-between gap-3 border-t border-hairline pt-4">
+                  <p className="text-sm text-ink-muted">
                     {t('dossiers.fee_agreement_signed_picker_count', {
                       defaultValue: '{{count}} document(s)',
                       count: filteredSignedDocuments.length
@@ -1014,7 +1000,7 @@ export function DossierFeeAgreementSection({
           }}
         >
           <div>
-            <h3 className="flex items-center gap-2 text-lg font-semibold text-[#1a1a1a]">
+            <h3 className="flex items-center gap-2 text-lg font-semibold text-ink">
               <span>
                 {t('dossiers.fee_agreement_dialog_title', {
                   defaultValue: 'Convention d’honoraires'
@@ -1027,7 +1013,7 @@ export function DossierFeeAgreementSection({
                 })}
               />
             </h3>
-            <p className="mt-1 text-sm text-[#5c5c5a]">{dossierName}</p>
+            <p className="mt-1 text-sm text-ink-muted">{dossierName}</p>
           </div>
 
           <form
@@ -1089,11 +1075,11 @@ export function DossierFeeAgreementSection({
                 >
                   <div className="flex gap-2">
                     <Select
-                      value={editor.sourceServicePresetId}
+                      value={editor.sourceServicePresetUuid}
                       onChange={(event) =>
                         setEditor((current) =>
                           current
-                            ? { ...current, sourceServicePresetId: event.target.value }
+                            ? { ...current, sourceServicePresetUuid: event.target.value }
                             : current
                         )
                       }
@@ -1104,7 +1090,7 @@ export function DossierFeeAgreementSection({
                         })}
                       </option>
                       {activePresets.map((preset) => (
-                        <option key={preset.id} value={preset.id}>
+                        <option key={preset.uuid} value={preset.uuid}>
                           {preset.name}
                         </option>
                       ))}
@@ -1112,10 +1098,10 @@ export function DossierFeeAgreementSection({
                     <Button
                       type="button"
                       variant="ghost"
-                      disabled={!editor.sourceServicePresetId}
+                      disabled={!editor.sourceServicePresetUuid}
                       onClick={() => {
                         const preset = activePresets.find(
-                          (entry) => entry.id === editor.sourceServicePresetId
+                          (entry) => entry.uuid === editor.sourceServicePresetUuid
                         )
                         if (!preset) {
                           return
@@ -1142,15 +1128,11 @@ export function DossierFeeAgreementSection({
                       )
                     }
                   >
-                    <option value="draft">
-                      {t('dossiers.fee_agreement_status_draft', { defaultValue: 'Brouillon' })}
-                    </option>
-                    <option value="sent">
-                      {t('dossiers.fee_agreement_status_sent', { defaultValue: 'Envoyée' })}
-                    </option>
-                    <option value="signed">
-                      {t('dossiers.fee_agreement_status_signed', { defaultValue: 'Signée' })}
-                    </option>
+                    {FEE_AGREEMENT_STATUS_VALUES.map((status) => (
+                      <option key={status} value={status}>
+                        {feeAgreementStatusLabel(status, t)}
+                      </option>
+                    ))}
                   </Select>
                 </Field>
               </div>
@@ -1293,15 +1275,11 @@ export function DossierFeeAgreementSection({
                         )
                       }
                     >
-                      <option value="flat">
-                        {t('cabinet.billing_type.flat', { defaultValue: 'Forfait' })}
-                      </option>
-                      <option value="hourly">
-                        {t('cabinet.billing_type.hourly', { defaultValue: 'Horaire' })}
-                      </option>
-                      <option value="mixed">
-                        {t('cabinet.billing_type.mixed', { defaultValue: 'Mixte' })}
-                      </option>
+                      {BILLING_TYPE_VALUES.map((type) => (
+                        <option key={type} value={type}>
+                          {billingTypeLabel(type, t)}
+                        </option>
+                      ))}
                     </Select>
                   </Field>
                   <Field label={t('cabinet.vat_rate_label', { defaultValue: 'TVA (%)' })}>
@@ -1367,8 +1345,8 @@ export function DossierFeeAgreementSection({
                   </Field>
                 </div>
 
-                <div className="rounded-xl border border-[#e5e3da] bg-white p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8a8a85]">
+                <div className="rounded-xl border border-hairline bg-white p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-subtle">
                     {t('dossiers.fee_agreement_amount_preview_title', {
                       defaultValue: 'Aperçu TTC'
                     })}
@@ -1481,15 +1459,15 @@ export function DossierFeeAgreementSection({
                 />
               </div>
 
-              <details className="rounded-xl border border-[#e5e3da] bg-[#fbf9f4] p-4">
-                <summary className="cursor-pointer text-sm font-medium text-[#1a1a1a]">
+              <details className="rounded-xl border border-hairline bg-parchment-bright p-4">
+                <summary className="cursor-pointer text-sm font-medium text-ink">
                   {t('dossiers.fee_agreement_success_fee_summary', {
                     defaultValue: 'Honoraires de résultat, si prévus'
                   })}
                 </summary>
                 <div className="mt-4 grid gap-4 md:grid-cols-[12rem_minmax(0,1fr)]">
                   <Field
-                    label={t('cabinet.success_fee_label', {
+                    label={t('dossiers.fee_agreement_success_fee_percent_label', {
                       defaultValue: 'Pourcentage (%)'
                     })}
                   >
@@ -1535,7 +1513,7 @@ export function DossierFeeAgreementSection({
             >
               <div className="grid gap-4 md:grid-cols-3">
                 <Field
-                  label={t('cabinet.payment_terms_label', {
+                  label={t('dossiers.fee_agreement_payment_terms_short', {
                     defaultValue: 'Paiement'
                   })}
                 >
@@ -1578,8 +1556,8 @@ export function DossierFeeAgreementSection({
               </div>
             </FeeAgreementDialogSection>
 
-            <details className="rounded-xl border border-[#e5e3da] bg-white p-4">
-              <summary className="cursor-pointer text-sm font-semibold text-[#1a1a1a]">
+            <details className="rounded-xl border border-hairline bg-white p-4">
+              <summary className="cursor-pointer text-sm font-semibold text-ink">
                 {t('dossiers.fee_agreement_tracking_summary', {
                   defaultValue: 'Suivi interne et notes'
                 })}
@@ -1667,10 +1645,10 @@ function FeeAgreementDialogSection({
   children: React.ReactNode
 }): React.JSX.Element {
   return (
-    <section className="rounded-2xl border border-[#e5e3da] bg-[#fbf9f4] p-4">
+    <section className="rounded-2xl border border-hairline bg-parchment-bright p-4">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h4 className="flex items-center gap-2 text-sm font-semibold text-[#1a1a1a]">
+          <h4 className="flex items-center gap-2 text-sm font-semibold text-ink">
             <span>{title}</span>
             <FeeAgreementTooltip message={tooltip} />
           </h4>
@@ -1705,11 +1683,11 @@ function FeeAgreementTooltip({ message }: { message: string }): React.JSX.Elemen
       <span
         tabIndex={0}
         aria-label={message}
-        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-[#c4c2ba] bg-white text-[10px] font-semibold leading-none text-[#5c5c5a] outline-none transition hover:border-aurora hover:text-aurora focus-visible:border-aurora focus-visible:ring-2 focus-visible:ring-aurora/35"
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-[#c4c2ba] bg-white text-[10px] font-semibold leading-none text-ink-muted outline-none transition hover:border-aurora hover:text-aurora focus-visible:border-aurora focus-visible:ring-2 focus-visible:ring-aurora/35"
       >
         {'i'}
       </span>
-      <span className="pointer-events-none absolute left-1/2 top-6 z-50 hidden w-64 -translate-x-1/2 rounded-lg border border-[#d1cfc6] bg-[#1a1a1a] px-3 py-2 text-left text-xs font-normal leading-snug text-white shadow-lg group-hover:block group-focus-within:block">
+      <span className="pointer-events-none absolute left-1/2 top-6 z-50 hidden w-64 -translate-x-1/2 rounded-lg border border-hairline-strong bg-ink px-3 py-2 text-left text-xs font-normal leading-snug text-white shadow-lg group-hover:block group-focus-within:block">
         {message}
       </span>
     </span>
@@ -1725,8 +1703,8 @@ function FeeAgreementPreviewAmount({
 }): React.JSX.Element {
   return (
     <div className="flex items-center justify-between gap-3">
-      <dt className="text-[#5c5c5a]">{label}</dt>
-      <dd className="font-semibold tabular-nums text-[#1a1a1a]">{value || '—'}</dd>
+      <dt className="text-ink-muted">{label}</dt>
+      <dd className="font-semibold tabular-nums text-ink">{value || '—'}</dd>
     </div>
   )
 }
@@ -1750,15 +1728,15 @@ function FeeAgreementConversionMenuItem({
       role="menuitem"
       disabled={disabled}
       onClick={onClick}
-      className="flex w-full items-start justify-between gap-3 px-3 py-2.5 text-left transition hover:bg-[#fbf9f4] disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:bg-white"
+      className="flex w-full items-start justify-between gap-3 px-3 py-2.5 text-left transition hover:bg-parchment-bright disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:bg-white"
     >
       <span className="min-w-0">
-        <span className="block text-sm font-medium text-[#1a1a1a]">{label}</span>
+        <span className="block text-sm font-medium text-ink">{label}</span>
         {disabledLabel ? (
-          <span className="mt-0.5 block text-xs text-[#8a8a85]">{disabledLabel}</span>
+          <span className="mt-0.5 block text-xs text-ink-subtle">{disabledLabel}</span>
         ) : null}
       </span>
-      <span className="shrink-0 text-sm font-semibold tabular-nums text-[#5c5c5a]">{amount}</span>
+      <span className="shrink-0 text-sm font-semibold tabular-nums text-ink-muted">{amount}</span>
     </button>
   )
 }
@@ -1779,7 +1757,7 @@ function TemplatePickerItem({
       <button
         type="button"
         className={`flex w-full items-start gap-3 px-4 py-3 text-left transition-colors ${
-          selected ? 'bg-aurora/8' : 'hover:bg-[#fbf9f4]'
+          selected ? 'bg-aurora/8' : 'hover:bg-parchment-bright'
         }`}
         disabled={disabled}
         aria-pressed={selected}
@@ -1803,12 +1781,10 @@ function TemplatePickerItem({
                 {'TEXTE'}
               </span>
             )}
-            <span className="wrap-break-word text-sm font-medium text-[#1a1a1a]">
-              {template.name}
-            </span>
+            <span className="wrap-break-word text-sm font-medium text-ink">{template.name}</span>
           </span>
           {template.description ? (
-            <span className="mt-0.5 block wrap-break-word text-xs text-[#8a8a85]">
+            <span className="mt-0.5 block wrap-break-word text-xs text-ink-subtle">
               {template.description}
             </span>
           ) : null}
@@ -1816,7 +1792,7 @@ function TemplatePickerItem({
             {(template.tags ?? []).slice(0, 4).map((tag) => (
               <span
                 key={tag}
-                className="rounded-full bg-[#f4f3ee] px-2 py-0.5 text-[10px] font-medium text-[#5c5c5a]"
+                className="rounded-full bg-parchment px-2 py-0.5 text-[10px] font-medium text-ink-muted"
               >
                 {tag}
               </span>
@@ -1844,7 +1820,7 @@ function DocumentPickerItem({
       <button
         type="button"
         className={`flex w-full items-start gap-3 px-4 py-3 text-left transition-colors ${
-          selected ? 'bg-aurora/8' : 'hover:bg-[#fbf9f4]'
+          selected ? 'bg-aurora/8' : 'hover:bg-parchment-bright'
         }`}
         disabled={disabled}
         aria-pressed={selected}
@@ -1858,25 +1834,25 @@ function DocumentPickerItem({
           {selected ? <span className="h-1.5 w-1.5 rounded-full bg-white" /> : null}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block wrap-break-word text-sm font-medium text-[#1a1a1a]">
+          <span className="block wrap-break-word text-sm font-medium text-ink">
             {document.filename}
           </span>
-          <span className="mt-0.5 block wrap-break-word text-xs text-[#8a8a85]">
+          <span className="mt-0.5 block wrap-break-word text-xs text-ink-subtle">
             {document.relativePath}
           </span>
           {document.description ? (
-            <span className="mt-0.5 block wrap-break-word text-xs text-[#5c5c5a]">
+            <span className="mt-0.5 block wrap-break-word text-xs text-ink-muted">
               {document.description}
             </span>
           ) : null}
           <span className="mt-2 flex flex-wrap items-center gap-1.5">
-            <span className="rounded-full bg-[#f4f3ee] px-2 py-0.5 text-[10px] font-medium text-[#5c5c5a]">
+            <span className="rounded-full bg-parchment px-2 py-0.5 text-[10px] font-medium text-ink-muted">
               {document.modifiedAt.slice(0, 10)}
             </span>
             {document.tags.slice(0, 4).map((tag) => (
               <span
                 key={tag}
-                className="rounded-full bg-[#f4f3ee] px-2 py-0.5 text-[10px] font-medium text-[#5c5c5a]"
+                className="rounded-full bg-parchment px-2 py-0.5 text-[10px] font-medium text-ink-muted"
               >
                 {tag}
               </span>
@@ -1907,12 +1883,12 @@ function DocumentSlot({
 }): React.JSX.Element {
   const { t } = useTranslation()
   return (
-    <div className="rounded-xl border border-[#e5e3da] bg-white p-3">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8a8a85]">
+    <div className="rounded-xl border border-hairline bg-white p-3">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-subtle">
         {label}
       </p>
       <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
-        <div className="min-w-0 flex-1 text-sm text-[#1a1a1a]">
+        <div className="min-w-0 flex-1 text-sm text-ink">
           {document ? (
             <span className="truncate">{document.filename}</span>
           ) : missing ? (
@@ -1920,7 +1896,7 @@ function DocumentSlot({
               {t('dossiers.document_slot_missing', { defaultValue: 'Document introuvable' })}
             </span>
           ) : (
-            <span className="text-[#8a8a85]">—</span>
+            <span className="text-ink-subtle">—</span>
           )}
         </div>
         <div className="flex gap-2">
@@ -1955,10 +1931,10 @@ function DetailField({
   if (value === undefined || value === null || value === '') return null
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8a8a85]">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-subtle">
         {label}
       </span>
-      <div className="whitespace-pre-wrap text-sm text-[#1a1a1a]">{value}</div>
+      <div className="whitespace-pre-wrap text-sm text-ink">{value}</div>
     </div>
   )
 }
@@ -1977,7 +1953,7 @@ function DiscountedAgreementAmount({
   return (
     <span className="flex flex-col items-start tabular-nums">
       <span>{value}</span>
-      <span className="text-[10px] text-[#8a8a85] line-through">{originalValue}</span>
+      <span className="text-[10px] text-ink-subtle line-through">{originalValue}</span>
     </span>
   )
 }

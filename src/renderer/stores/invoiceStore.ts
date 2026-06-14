@@ -10,6 +10,8 @@ import type {
   InvoiceCreateInput,
   InvoiceExportCsvInput,
   InvoiceExportCsvResult,
+  InvoiceExportFecInput,
+  InvoiceExportFecResult,
   InvoiceMarkPaidInput,
   InvoicePaymentDeleteInput,
   InvoicePaymentInput,
@@ -53,10 +55,13 @@ interface InvoiceStoreActions {
   updatePayment: (input: InvoicePaymentUpdateInput) => Promise<InvoiceRecord | null>
   deletePayment: (input: InvoicePaymentDeleteInput) => Promise<InvoiceRecord | null>
   exportCsv: (input: InvoiceExportCsvInput) => Promise<InvoiceExportCsvResult | null>
+  exportFec: (input: InvoiceExportFecInput) => Promise<InvoiceExportFecResult | null>
   openDocument: (input: {
-    invoiceId: string
+    invoiceUuid: string
   }) => Promise<{ integrity: InvoiceArtifactIntegrity } | null>
-  openPdf: (input: { invoiceId: string }) => Promise<{ integrity: InvoiceArtifactIntegrity } | null>
+  openPdf: (input: {
+    invoiceUuid: string
+  }) => Promise<{ integrity: InvoiceArtifactIntegrity } | null>
   updateSettings: (input: InvoiceSettingsUpdateInput) => Promise<boolean>
   reset: () => void
 }
@@ -110,12 +115,12 @@ export const useInvoiceStore = create<InvoiceStore>()(
       }
       const groups: UnbilledDossierGroup[] = []
       for (const summary of summaries.data) {
-        const detail = await api.dossier.get({ dossierId: summary.id })
+        const detail = await api.dossier.get({ dossierId: summary.slug })
         if (!detail.success) continue
         const draftItems = detail.data.billingItems.filter((item) => item.status === 'draft')
         if (draftItems.length === 0) continue
         groups.push({
-          dossierId: summary.id,
+          dossierId: summary.slug,
           dossierName: detail.data.name,
           items: draftItems,
           totalHtCents: draftItems.reduce((acc, item) => acc + item.totalHtCents, 0),
@@ -174,7 +179,7 @@ export const useInvoiceStore = create<InvoiceStore>()(
       }
       set((state) => {
         state.invoices = (state.invoices ?? []).map((entry) =>
-          entry.id === result.data.id ? result.data : entry
+          entry.uuid === result.data.uuid ? result.data : entry
         )
       })
       return true
@@ -193,7 +198,7 @@ export const useInvoiceStore = create<InvoiceStore>()(
       }
       set((state) => {
         state.invoices = (state.invoices ?? []).map((entry) =>
-          entry.id === result.data.id ? result.data : entry
+          entry.uuid === result.data.uuid ? result.data : entry
         )
       })
       return true
@@ -232,7 +237,7 @@ export const useInvoiceStore = create<InvoiceStore>()(
         state.invoices = [
           result.data,
           ...(state.invoices ?? []).map((entry) =>
-            entry.id === input.originalInvoiceId
+            entry.uuid === input.originalInvoiceUuid
               ? { ...entry, status: 'corrected' as const }
               : entry
           )
@@ -255,7 +260,7 @@ export const useInvoiceStore = create<InvoiceStore>()(
       }
       set((state) => {
         state.invoices = (state.invoices ?? []).map((entry) =>
-          entry.id === result.data.id ? result.data : entry
+          entry.uuid === result.data.uuid ? result.data : entry
         )
       })
       return result.data
@@ -274,7 +279,7 @@ export const useInvoiceStore = create<InvoiceStore>()(
       }
       set((state) => {
         state.invoices = (state.invoices ?? []).map((entry) =>
-          entry.id === result.data.id ? result.data : entry
+          entry.uuid === result.data.uuid ? result.data : entry
         )
       })
       return result.data
@@ -293,7 +298,7 @@ export const useInvoiceStore = create<InvoiceStore>()(
       }
       set((state) => {
         state.invoices = (state.invoices ?? []).map((entry) =>
-          entry.id === result.data.id ? result.data : entry
+          entry.uuid === result.data.uuid ? result.data : entry
         )
       })
       return result.data
@@ -303,6 +308,20 @@ export const useInvoiceStore = create<InvoiceStore>()(
       const api = requireApi(set)
       if (!api) return null
       const result = await api.invoice.exportCsv(input)
+      if (!result.success) {
+        set((state) => {
+          state.error = result.error
+          state.errorCode = result.code
+        })
+        return null
+      }
+      return result.data
+    },
+
+    exportFec: async (input) => {
+      const api = requireApi(set)
+      if (!api) return null
+      const result = await api.invoice.exportFec(input)
       if (!result.success) {
         set((state) => {
           state.error = result.error

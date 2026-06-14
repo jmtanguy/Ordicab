@@ -104,10 +104,11 @@ export function validateContactFormInput(
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { displayName, ...inputWithoutDisplayName } = input
+  const { displayName, id, ...inputWithoutDisplayName } = input
 
   const parsed = contactUpsertInputSchema.safeParse({
     ...inputWithoutDisplayName,
+    uuid: id,
     customFields: Object.fromEntries(
       Object.entries(normalizedCustomFields).map(([key, value]) => [labelToKey(key), value])
     )

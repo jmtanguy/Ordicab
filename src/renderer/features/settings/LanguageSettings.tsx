@@ -50,11 +50,11 @@ export function LanguageDialog({
   return (
     <DialogShell aria-label={t('settings.language_label')}>
       <div className="mb-5 flex shrink-0 items-center justify-between">
-        <h2 className="text-lg font-semibold text-[#1a1a1a]">{t('settings.language_label')}</h2>
+        <h2 className="text-lg font-semibold text-ink">{t('settings.language_label')}</h2>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-lg p-1.5 text-[#5c5c5a] transition hover:bg-[#e4e1d5] hover:text-[#1a1a1a]"
+          className="rounded-lg p-1.5 text-ink-muted transition hover:bg-parchment-dim hover:text-ink"
           aria-label={t('common.close')}
         >
           ✕
@@ -66,7 +66,7 @@ export function LanguageDialog({
           <Select
             id="language-selector-dialog"
             density="compact"
-            className="rounded-xl border-[#d1cfc6] px-3 py-2"
+            className="rounded-xl border-hairline-strong px-3 py-2"
             value={draft}
             onChange={(e) => setDraft(e.target.value as AppLocale)}
             disabled={isSaving}

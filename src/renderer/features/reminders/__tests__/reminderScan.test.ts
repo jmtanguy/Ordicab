@@ -20,7 +20,7 @@ function entry(
     dossierId,
     dossierName: dossier,
     keyDate: {
-      id: `kd-${overrides.date}`,
+      uuid: `kd-${overrides.date}`,
       label: 'Audience',
       date: overrides.date,
       tags: overrides.tags,
@@ -90,7 +90,7 @@ describe('scanDueReminders', () => {
     ]
     const due = scanDueReminders(entries, prefs({ triggerTags: ['urgent'] }), NOW)
     expect(due).toHaveLength(1)
-    expect(due[0]!.keyDateId).toBe(entries[0]!.keyDate.id)
+    expect(due[0]!.keyDateUuid).toBe(entries[0]!.keyDate.uuid)
   })
 
   it('produces a stable per-day dedupe key', () => {

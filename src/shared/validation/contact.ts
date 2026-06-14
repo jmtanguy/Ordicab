@@ -66,7 +66,7 @@ function normalizeStoredContact(input: unknown): unknown {
 }
 
 const contactBaseSchema = z.object({
-  id: z.string().min(1).optional(),
+  uuid: z.string().min(1).optional(),
   dossierId: dossierIdSchema,
   title: optionalContactTextSchema,
   firstName: optionalContactTextSchema,
@@ -104,20 +104,10 @@ export const contactDeleteInputSchema = z.object({
   contactUuid: z.string().min(1)
 })
 
-export const contactIndexEntrySchema = z.object({
-  uuid: z.string().min(1),
-  displayName: z.string().optional(),
-  role: z.string().optional(),
-  updatedAt: z.string().trim().min(1)
+export const conflictCheckInputSchema = z.object({
+  dossierId: dossierIdSchema,
+  firstName: optionalContactTextSchema,
+  lastName: optionalContactTextSchema
 })
-
-export const contactIndexSchema = z.object({
-  contacts: z.array(contactIndexEntrySchema).default([]),
-  updatedAt: z.string().trim().min(1),
-  migrated: z.boolean().optional()
-})
-
-export type ContactIndexEntry = z.infer<typeof contactIndexEntrySchema>
-export type ContactIndex = z.infer<typeof contactIndexSchema>
 
 export type { ContactDeleteInput, ContactRecord, ContactUpsertInput }

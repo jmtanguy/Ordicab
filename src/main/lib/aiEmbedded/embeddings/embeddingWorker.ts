@@ -8,7 +8,7 @@
  * even while we're indexing a 30-document dossier.
  *
  * Protocol — main → worker:
- *   { type: 'embed', id: number, texts: string[], config: ModelConfig, prefix: string }
+ *   { type: 'embed', id: number, texts: string[], config: ModelConfig }
  *   { type: 'shutdown' }
  *
  * Protocol — worker → main:
@@ -43,7 +43,6 @@ interface EmbedRequest {
   type: 'embed'
   id: number
   texts: string[]
-  prefix: string
 }
 
 interface ShutdownRequest {
@@ -62,7 +61,7 @@ async function loadPipeline(config: WorkerData): Promise<PipelineFn | null> {
         model: string,
         options?: Record<string, unknown>
       ) => Promise<PipelineFn>
-      env: { localModelPath?: string; allowRemoteModels?: boolean }
+      env: { localModelPath?: string; allowRemoteModels?: boolean; useFSCache?: boolean }
     }
     // NEVER allow remote downloads from the worker: models are provisioned
     // explicitly into userData by modelDownloadService. A remote fetch here
@@ -71,18 +70,23 @@ async function loadPipeline(config: WorkerData): Promise<PipelineFn | null> {
     // ("Protobuf parsing failed") and shadows the real model. If modelPath is
     // missing we'd rather fail loudly than silently download.
     mod.env.allowRemoteModels = false
-    if (config.modelPath) {
-      mod.env.localModelPath = config.modelPath
-    } else {
+    mod.env.useFSCache = false
+    if (!config.modelPath) {
       parentPort?.postMessage({
         type: 'log',
         level: 'warn',
         message:
           '[embeddingWorker] no modelPath provided — refusing remote download; pipeline will be unavailable until a model path is configured.'
       })
+      return null
+    } else {
+      mod.env.localModelPath = config.modelPath
     }
     const dtype = config.quantized === false ? 'fp32' : 'q8'
-    return await mod.pipeline('feature-extraction', config.model, { dtype })
+    return await mod.pipeline('feature-extraction', config.model, {
+      dtype,
+      local_files_only: true
+    })
   } catch (err) {
     parentPort?.postMessage({
       type: 'log',
@@ -107,11 +111,6 @@ async function ensurePipeline(config: WorkerData): Promise<PipelineFn | null> {
   return pipe
 }
 
-function applyPrefix(texts: string[], prefix: string): string[] {
-  if (!prefix) return texts
-  return texts.map((t) => `${prefix}${t}`)
-}
-
 async function runEmbed(request: EmbedRequest, config: WorkerData): Promise<void> {
   const pipe = await ensurePipeline(config)
   if (!pipe) {
@@ -124,12 +123,16 @@ async function runEmbed(request: EmbedRequest, config: WorkerData): Promise<void
     return
   }
   try {
-    const inputs = applyPrefix(request.texts, request.prefix)
     // truncation: true guards against inputs over the model's 512-token window.
     // Without it, transformers.js does not truncate and onnxruntime crashes
     // natively on the oversized output tensor. See embeddingService.runPipeline.
-    const result = (await pipe(inputs, {
-      pooling: 'mean',
+    //
+    // pooling: 'cls' is REQUIRED for bge-m3 (its dense vector is the [CLS] token);
+    // 'mean' leaves a high cosine noise floor and degrades ranking. Must stay in
+    // sync with embeddingService.DEFAULT_EMBEDDING_POOLING (this worker runs in a
+    // separate thread and cannot import that module).
+    const result = (await pipe(request.texts, {
+      pooling: 'cls',
       normalize: true,
       truncation: true
     })) as PipelineTensor

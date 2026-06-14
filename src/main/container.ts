@@ -35,6 +35,10 @@ import { resolveDefaultRemoteModel, type RemoteProviderKind } from '@shared/ai/r
 
 import { createAiService, type AiService } from './services/aiEmbedded/aiService'
 import {
+  createTemplateTagifyService,
+  type TemplateTagifyService
+} from './services/aiEmbedded/templateTagifyService'
+import {
   createIndexingQueueService,
   walkExtractableDocuments,
   type IndexingQueueService
@@ -62,25 +66,41 @@ import {
   createAjOrchestrationService,
   type AjOrchestrationService
 } from './services/domain/ajOrchestrationService'
+import {
+  createConflictCheckService,
+  type ConflictCheckService
+} from './services/domain/conflictCheckService'
 import { createContactService, type ContactService } from './services/domain/contactService'
 import { createEntityService, type EntityService } from './services/domain/entityService'
-import { createTemplateService, type TemplateService } from './services/domain/templateService'
+import { createPiecesService, type PiecesService } from './services/domain/pieces/piecesService'
 import {
-  createDossierTransferService,
-  type DossierTransferService
-} from './services/domain/dossierTransferService'
+  createComparisonService,
+  type ComparisonService
+} from './services/domain/compare/comparisonService'
+import { createTemplateService, type TemplateService } from './services/domain/templateService'
 import { AI_REMOTE_API_KEY_SECRET, registerAiHandlers } from './handlers/aiHandler'
+import { registerCoworkHandlers } from './handlers/coworkHandler'
+import {
+  createCoworkExportService,
+  type CoworkExportService
+} from './services/domain/coworkExportService'
 import { registerCabinetBillingHandlers } from './handlers/cabinetBillingHandler'
+import { registerCalendarSyncHandlers } from './handlers/calendarSyncHandler'
+import {
+  createCalendarSyncService,
+  type CalendarSyncService
+} from './services/domain/calendarSyncService'
 import { registerInvoiceHandlers } from './handlers/invoiceHandler'
 import { registerInstructionsHandlers } from './handlers/instructionsHandler'
 import { registerContactHandlers } from './handlers/contactHandler'
 import { registerDossierHandlers } from './handlers/dossierHandler'
-import { registerDossierTransferHandlers } from './handlers/dossierTransferHandler'
 import { registerDocumentHandlers } from './handlers/documentHandler'
 import { registerEntityHandlers } from './handlers/entityHandler'
 import { registerGenerateHandlers } from './handlers/generateHandler'
 import { registerIndexingHandlers } from './handlers/indexingHandler'
 import { registerLegalHandlers } from './handlers/legalHandler'
+import { registerPiecesHandlers } from './handlers/piecesHandler'
+import { registerCompareHandlers } from './handlers/compareHandler'
 import { registerTemplateHandlers } from './handlers/templateHandler'
 import { createAppStateStore, type AppStateStore } from './lib/system/appStateStore'
 import { createCredentialStore, type CredentialStore } from './lib/system/credentialStore'
@@ -154,6 +174,13 @@ export interface BuildContainerOptions {
    */
   printHtmlToPdf?: (html: string, outputPath: string) => Promise<void>
   /**
+   * Converts a DOCX file to a layout-faithful PDF written at `outputPath`.
+   * Implemented by the host via the hidden docx-preview window
+   * (lib/printing/docx2pdfWindow.ts). Optional — when absent, DOCX→PDF
+   * conversion throws.
+   */
+  docxToPdf?: (docxAbsolutePath: string, outputPath: string) => Promise<void>
+  /**
    * Absolute path to the compiled embedding worker bundle emitted by
    * electron-vite alongside the main entry. The indexing queue posts batches
    * to this worker so ONNX inference doesn't block the main thread. When
@@ -168,7 +195,7 @@ export interface BuildContainerOptions {
  * changes without keeping its own copy of the mode state. The handler invokes
  * `applyModeChange` from inside the IPC settings-save listener.
  */
-export interface AiLifecycle {
+interface AiLifecycle {
   getActiveMode(): AiMode
   getDelegatedEnabled(): boolean
   applyModeChange(settings: AiSettingsSaveInput): void
@@ -179,14 +206,17 @@ export interface AppContainer {
   dossierService: DossierRegistryService
   documentService: DocumentService
   contactService: ContactService
+  conflictCheckService: ConflictCheckService
   entityService: EntityService
   cabinetBillingService: CabinetBillingService
   invoiceService: InvoiceService
+  piecesService: PiecesService
+  comparisonService: ComparisonService
   ajOrchestrationService: AjOrchestrationService
   templateService: TemplateService
   generateService: GenerateService
-  dossierTransferService: DossierTransferService
   legalService: LegalService
+  calendarSyncService: CalendarSyncService
   fileWatcherService: FileWatcherService
   indexingQueueService: IndexingQueueService
   ordicabDataWatcher: OrdicabDataWatcherLike
@@ -194,6 +224,8 @@ export interface AppContainer {
   instructionsGenerator: InstructionsGeneratorLike
   credentialStore: CredentialStore
   aiService: AiService
+  coworkExportService: CoworkExportService
+  templateTagifyService: TemplateTagifyService
   aiLifecycle: AiLifecycle
   /** Shared owner of app-state.json; reused by host-constructed stores (e.g. eulaStore). */
   appState: AppStateStore
@@ -351,6 +383,10 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
   })
 
   const contactService = createContactService({ documentService })
+  const conflictCheckService = createConflictCheckService({
+    dossierRegistryService: dossierService,
+    documentService
+  })
   const entityService = createEntityService({ domainService: opts.domainService })
   const cabinetBillingService = createCabinetBillingService({ domainService: opts.domainService })
 
@@ -360,38 +396,18 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
     generateService,
     contactService,
     entityService,
-    printHtmlToPdf: opts.printHtmlToPdf
+    printHtmlToPdf: opts.printHtmlToPdf,
+    docxToPdf: opts.docxToPdf
   })
 
-  const dossierTransferService = createDossierTransferService({
-    contactService,
+  const piecesService = createPiecesService({
     documentService,
-    dossierService,
-    getActiveLocale: () => opts.mainI18n.getLocale(),
-    getDomainPath: async () => {
-      const status = await opts.domainService.getStatus()
-      if (!status.registeredDomainPath || !status.isAvailable) {
-        throw new Error('Active domain is not configured.')
-      }
-      return status.registeredDomainPath
-    },
-    // Mirror the embedded assistant's PII configuration so an export
-    // pseudonymizes the same tokens chats would. `ai.piiWordlist` lives in
-    // the same state file aiService reads.
-    getPiiWordlist: async () => {
-      try {
-        const raw = readFileSync(opts.stateFilePath, 'utf8')
-        const parsed = JSON.parse(raw) as { ai?: { piiWordlist?: unknown } }
-        const list = parsed?.ai?.piiWordlist
-        return Array.isArray(list)
-          ? list.filter((value): value is string => typeof value === 'string')
-          : []
-      } catch {
-        return []
-      }
-    },
-    nerModelPath: opts.modelsPath
+    entityService,
+    printHtmlToPdf: opts.printHtmlToPdf,
+    docxToPdf: opts.docxToPdf
   })
+
+  const comparisonService = createComparisonService({ documentService, legalService })
 
   const templateService = createTemplateService({ domainService: opts.domainService })
 
@@ -429,8 +445,8 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
     // hammers the worker with doomed inference calls (log spam) for every doc.
     isEmbeddingModelReady: async () =>
       opts.modelsPath ? isModelPresent(opts.modelsPath, EMBEDDING_MODEL).catch(() => false) : false,
-    extractContent: ({ dossierId, documentId }) =>
-      documentService.extractContent({ dossierId, documentId }).then(() => undefined),
+    extractContent: ({ dossierId, documentPath }) =>
+      documentService.extractContent({ dossierId, documentPath }).then(() => undefined),
     resolveDossierPath: async (dossierId) => {
       try {
         return await documentService.resolveRegisteredDossierRoot({ dossierId })
@@ -543,6 +559,41 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
     nerModelPath: opts.modelsPath
   })
 
+  const templateTagifyService = createTemplateTagifyService({
+    aiAgentRuntime,
+    templateService,
+    domainService: opts.domainService,
+    localeService: opts.mainI18n,
+    stateFilePath: opts.stateFilePath,
+    nerModelPath: opts.modelsPath,
+    loadEntityProfile: async () => entityService.get()
+  })
+
+  const coworkExportService = createCoworkExportService({
+    documentService,
+    contactService,
+    dossierService,
+    templateService,
+    loadEntityProfile: async () => entityService.get(),
+    localeService: opts.mainI18n,
+    stateFilePath: opts.stateFilePath,
+    nerModelPath: opts.modelsPath
+  })
+
+  const calendarSyncService = createCalendarSyncService({
+    appState,
+    credentialStore,
+    domainService: opts.domainService,
+    listRegisteredDossiers: () => dossierService.listRegisteredDossiers(),
+    onStatusChanged: (status) => {
+      const window = opts.getWebContents()
+      if (window && !(window.isDestroyed?.() ?? false)) {
+        window.send(IPC_CHANNELS.calendarSync.statusChanged, status)
+      }
+    }
+  })
+  calendarSyncService.start()
+
   const ordicabDataWatcher = createOrdicabDataWatcher({
     domainService: opts.domainService,
     instructionsGenerator,
@@ -553,8 +604,14 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
       if (window && !(window.isDestroyed?.() ?? false)) {
         window.send(IPC_CHANNELS.ordicab.dataChanged, event)
       }
+      // Key dates live in dossier folders ('dossier' covers key-dates/*.json)
+      // and in the domain-level general-key-dates folder; any change there may
+      // affect the pushed calendar mirror.
+      if (event.type === 'dossier' || event.type === 'general-key-dates') {
+        calendarSyncService.requestSync('change')
+      }
     },
-    onDocxTemplateChanged: (templateId) => {
+    onDocxTemplateChanged: (templateUuid) => {
       void (async () => {
         try {
           const domainStatus = await opts.domainService.getStatus()
@@ -562,7 +619,7 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
             return
           }
 
-          const result = await templateService.syncDocx(templateId)
+          const result = await templateService.syncDocx(templateUuid)
           if (!result) {
             return
           }
@@ -573,7 +630,7 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
           }
 
           window.send(IPC_CHANNELS.template.docxSynced, {
-            templateId,
+            templateUuid,
             html: result.html
           })
           window.send(IPC_CHANNELS.ordicab.dataChanged, {
@@ -609,12 +666,12 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
         const dossierIds: string[] = []
         await Promise.all(
           registered.map(async (summary) => {
-            dossierIds.push(summary.id)
+            dossierIds.push(summary.slug)
             try {
               const dossierPath = await documentService.resolveRegisteredDossierRoot({
-                dossierId: summary.id
+                dossierId: summary.slug
               })
-              await subscribeQueueToFileEvents(summary.id, dossierPath)
+              await subscribeQueueToFileEvents(summary.slug, dossierPath)
             } catch {
               // Dossier root unavailable at boot — the watcher will handle recovery.
             }
@@ -626,21 +683,19 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
       }
     })()
   }, STARTUP_CATCHUP_DELAY_MS)
+  // Catch up the CalDAV mirror with whatever changed while the app was closed.
+  const CALENDAR_SYNC_STARTUP_DELAY_MS = 8_000
+  setTimeout(() => {
+    calendarSyncService.requestSync('startup')
+  }, CALENDAR_SYNC_STARTUP_DELAY_MS).unref?.()
   if (delegatedEnabled) {
     void delegatedIntentProcessor.watchActiveDomain().catch((error) => {
       console.error('[Container] Failed to initialize delegated intent processor.', error)
     })
   }
-  // One-shot boot migration of legacy templates.json (inline content) — see
-  // templateService.migrateLegacyTemplatesIfNeeded for shape and idempotency.
-  // Then seed the essential default templates if the domain is empty (idempotent).
+  // Seed the essential default templates if the domain is empty (idempotent).
   // Deliberately fire-and-forget: the IPC list path stays a pure read.
   void (async () => {
-    try {
-      await templateService.migrateLegacyTemplatesIfNeeded()
-    } catch (error) {
-      console.error('[Container] Failed to migrate legacy templates on startup.', error)
-    }
     try {
       await templateService.seedDefaultTemplatesIfEmpty()
     } catch (error) {
@@ -703,14 +758,17 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
     dossierService,
     documentService,
     contactService,
+    conflictCheckService,
     entityService,
     cabinetBillingService,
     invoiceService,
+    piecesService,
+    comparisonService,
     ajOrchestrationService,
     templateService,
     generateService,
-    dossierTransferService,
     legalService,
+    calendarSyncService,
     fileWatcherService,
     indexingQueueService,
     ordicabDataWatcher,
@@ -718,6 +776,8 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
     instructionsGenerator,
     credentialStore,
     aiService,
+    coworkExportService,
+    templateTagifyService,
     aiLifecycle,
     appState,
     reloadEmbeddingsAndReindex: async () => {
@@ -728,7 +788,7 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
       await embeddingWorkerClient?.rebind()
       try {
         const registered = await dossierService.listRegisteredDossiers()
-        await indexingQueueService.runStartupCatchUp(registered.map((d) => d.id))
+        await indexingQueueService.runStartupCatchUp(registered.map((d) => d.slug))
       } catch (error) {
         console.warn(
           '[Container] reindex after embedding-model download failed:',
@@ -748,7 +808,8 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
         embeddingWorkerClient?.dispose(),
         fileWatcherService.disposeAll(),
         ordicabDataWatcher.dispose(),
-        delegatedIntentProcessor.dispose()
+        delegatedIntentProcessor.dispose(),
+        calendarSyncService.dispose()
       ])
       aiAgentRuntime.dispose()
     }
@@ -1103,11 +1164,6 @@ export function registerAllHandlers(opts: RegisterAllHandlersOptions): void {
     ajOrchestrationService: container.ajOrchestrationService
   })
 
-  registerDossierTransferHandlers({
-    ipcMain,
-    dossierTransferService: container.dossierTransferService
-  })
-
   registerDocumentHandlers({
     ipcMain,
     documentService: container.documentService,
@@ -1115,9 +1171,17 @@ export function registerAllHandlers(opts: RegisterAllHandlersOptions): void {
     openPath: opts.openPath
   })
 
-  registerContactHandlers({ ipcMain, contactService: container.contactService })
+  registerContactHandlers({
+    ipcMain,
+    contactService: container.contactService,
+    conflictCheckService: container.conflictCheckService
+  })
 
   registerEntityHandlers({ ipcMain, entityService: container.entityService })
+
+  registerPiecesHandlers({ ipcMain, piecesService: container.piecesService })
+
+  registerCompareHandlers({ ipcMain, comparisonService: container.comparisonService })
 
   registerCabinetBillingHandlers({
     ipcMain,
@@ -1127,12 +1191,14 @@ export function registerAllHandlers(opts: RegisterAllHandlersOptions): void {
   registerInvoiceHandlers({
     ipcMain,
     invoiceService: container.invoiceService,
-    openPath: opts.openPath
+    openPath: opts.openPath,
+    showSaveDialog: opts.showSaveDialog
   })
 
   registerTemplateHandlers({
     ipcMain,
     templateService: container.templateService,
+    tagifyService: container.templateTagifyService,
     showOpenDialog: opts.showOpenDialog,
     openPath: opts.openPath
   })
@@ -1169,5 +1235,15 @@ export function registerAllHandlers(opts: RegisterAllHandlersOptions): void {
     onModeChanged: (settings) => container.aiLifecycle.applyModeChange(settings),
     aiService: container.aiService,
     getWebContents: () => opts.getWebContents() ?? null
+  })
+
+  registerCoworkHandlers({
+    ipcMain,
+    coworkExportService: container.coworkExportService
+  })
+
+  registerCalendarSyncHandlers({
+    ipcMain,
+    calendarSyncService: container.calendarSyncService
   })
 }

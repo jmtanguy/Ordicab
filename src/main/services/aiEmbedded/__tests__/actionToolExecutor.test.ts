@@ -62,4 +62,74 @@ describe('ActionToolExecutor._dispatchInline', () => {
     expect(parsed.question).toBe('Pour quel dossier ?')
     expect(parsed.options).toEqual(['Dossier A', 'Dossier B'])
   })
+
+  it('resolves dossier_update id UUIDs to dossier slugs before dispatching', async () => {
+    const intentDispatcher = {
+      dispatch: vi.fn().mockResolvedValue({
+        intent: { type: 'dossier_update', id: 'dos1', status: 'active' },
+        feedback: 'Dossier "dos1" mis à jour.'
+      })
+    }
+    const executor = new ActionToolExecutor({
+      dossierId: null,
+      dossiers: [
+        {
+          slug: 'dos1',
+          uuid: 'uuid-dos1',
+          name: 'Dupont',
+          status: 'active',
+          type: 'contentieux',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          lastOpenedAt: '2026-01-01T00:00:00.000Z',
+          nextUpcomingKeyDate: null,
+          nextUpcomingKeyDateLabel: null
+        }
+      ],
+      documentService: {} as never,
+      intentDispatcher: intentDispatcher as never,
+      context: {} as AiCommandContext
+    })
+
+    await executor.execute('dossier_update', { id: 'uuid-dos1', status: 'active' })
+
+    expect(intentDispatcher.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'dossier_update', id: 'dos1' }),
+      expect.any(Object)
+    )
+  })
+
+  it('resolves UUID dossierId values in the dispatch context for active-dossier actions', async () => {
+    const intentDispatcher = {
+      dispatch: vi.fn().mockResolvedValue({
+        intent: { type: 'contact_create', firstName: 'Luc' },
+        feedback: 'Contact ajouté.'
+      })
+    }
+    const executor = new ActionToolExecutor({
+      dossierId: 'dos1',
+      dossiers: [
+        {
+          slug: 'dos1',
+          uuid: 'uuid-dos1',
+          name: 'Dupont',
+          status: 'active',
+          type: 'contentieux',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          lastOpenedAt: '2026-01-01T00:00:00.000Z',
+          nextUpcomingKeyDate: null,
+          nextUpcomingKeyDateLabel: null
+        }
+      ],
+      documentService: {} as never,
+      intentDispatcher: intentDispatcher as never,
+      context: { dossierId: 'uuid-dos1' }
+    })
+
+    await executor.execute('contact_create', { firstName: 'Luc' })
+
+    expect(intentDispatcher.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'contact_create', firstName: 'Luc' }),
+      expect.objectContaining({ dossierId: 'dos1' })
+    )
+  })
 })

@@ -7,6 +7,8 @@ import { normalizeManagedFieldsConfig, type EntityManagedFieldsConfig } from '@s
 // keep working; the canonical source is now @shared/domain/gender.
 import { GENDER_VALUES } from '@shared/domain/gender'
 
+import { pieceStampPositionSchema } from './piece'
+
 export { GENDER_VALUES }
 
 export const TITLE_VALUES = ['M.', 'Mme', 'Me', 'Dr', 'Pr'] as const
@@ -85,6 +87,9 @@ const entityProfileBaseSchema = z.object({
   toque: z.string().trim().optional(),
   defaultTemplateFileName: z.string().trim().optional(),
   defaultTemplateImportedAt: z.string().trim().optional(),
+  stampImageFileName: z.string().trim().optional(),
+  stampImportedAt: z.string().trim().optional(),
+  stampPosition: pieceStampPositionSchema.optional(),
   managedFields: entityManagedFieldsConfigSchema
 })
 
@@ -102,41 +107,3 @@ export const entityProfileDraftSchema = z.preprocess(
 )
 
 export type { EntityProfile, EntityProfileDraft }
-
-/**
- * Maps an EntityProfile to template substitution variables.
- * Keys follow the `entity.<field>` convention expected by the Story 4.x template engine.
- * A null profile produces empty strings for all fields so templates render cleanly.
- */
-export function toEntityTemplateContext(profile: EntityProfile | null): Record<string, string> {
-  return {
-    'entity.firmName': profile?.firmName ?? '',
-    'entity.title': ENTITY_TITLE_SHORT,
-    'entity.titleLong': ENTITY_TITLE_LONG,
-    'entity.gender': profile?.gender ?? '',
-    'entity.firstName': profile?.firstName ?? '',
-    'entity.lastName': profile?.lastName ?? '',
-    'entity.addressLine': profile?.addressLine ?? '',
-    'entity.addressLine2': profile?.addressLine2 ?? '',
-    'entity.zipCode': profile?.zipCode ?? '',
-    'entity.city': profile?.city ?? '',
-    'entity.country': profile?.country ?? '',
-    'entity.vatNumber': profile?.vatNumber ?? '',
-    'entity.siren': profile?.siren ?? '',
-    'entity.siret': profile?.siret ?? '',
-    'entity.legalForm': profile?.legalForm ?? '',
-    'entity.shareCapital': profile?.shareCapital ?? '',
-    'entity.rcsNumber': profile?.rcsNumber ?? '',
-    'entity.rcsCity': profile?.rcsCity ?? '',
-    'entity.iban': profile?.iban ?? '',
-    'entity.bic': profile?.bic ?? '',
-    'entity.carpaIban': profile?.carpaIban ?? '',
-    'entity.phone': profile?.phone ?? '',
-    'entity.email': profile?.email ?? '',
-    'entity.barreau': profile?.barreau ?? '',
-    'entity.toque': profile?.toque ?? '',
-    // Backward-compat alias for templates that already use {{entity.avocat.titre}}.
-    // Prefer {{entity.titleLong}} going forward.
-    'entity.avocat.titre': ENTITY_TITLE_LONG
-  }
-}

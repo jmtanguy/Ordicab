@@ -31,7 +31,7 @@ export interface FeeAgreementEditorState extends DiscountEditorFields {
   clientContactUuid: string
   signatoryContactUuid: string
   billingType: BillingType
-  sourceServicePresetId: string
+  sourceServicePresetUuid: string
   flatFeeHt: string
   hourlyRateHt: string
   estimatedHours: string
@@ -60,7 +60,7 @@ export function createEmptyFeeAgreementEditor(
     clientContactUuid: '',
     signatoryContactUuid: '',
     billingType: defaultPreset?.billingType ?? 'mixed',
-    sourceServicePresetId: defaultPreset?.id ?? '',
+    sourceServicePresetUuid: defaultPreset?.uuid ?? '',
     flatFeeHt: formatMoneyInput(defaultPreset?.flatFeeHtCents),
     hourlyRateHt: formatMoneyInput(defaultPreset?.hourlyRateHtCents),
     estimatedHours: formatNumberInput(defaultPreset?.estimatedHours),
@@ -84,14 +84,14 @@ export function createFeeAgreementEditorFromAgreement(
   agreement: DossierFeeAgreement
 ): FeeAgreementEditorState {
   return {
-    id: agreement.id,
+    id: agreement.uuid,
     status: agreement.status,
     matterLabel: agreement.matterLabel,
     scopeDescription: agreement.scopeDescription,
     clientContactUuid: agreement.clientContactUuid ?? '',
     signatoryContactUuid: agreement.signatoryContactUuid ?? '',
     billingType: agreement.billingType,
-    sourceServicePresetId: agreement.sourceServicePresetId ?? '',
+    sourceServicePresetUuid: agreement.sourceServicePresetUuid ?? '',
     flatFeeHt: formatMoneyInput(agreement.flatFeeHtCents),
     hourlyRateHt: formatMoneyInput(agreement.hourlyRateHtCents),
     estimatedHours: formatNumberInput(agreement.estimatedHours),
@@ -118,7 +118,7 @@ export function applyFeeAgreementPresetToEditor(
   return {
     ...current,
     billingType: preset.billingType,
-    sourceServicePresetId: preset.id,
+    sourceServicePresetUuid: preset.uuid,
     flatFeeHt: formatMoneyInput(preset.flatFeeHtCents),
     hourlyRateHt: formatMoneyInput(preset.hourlyRateHtCents),
     estimatedHours: formatNumberInput(preset.estimatedHours),
@@ -139,14 +139,14 @@ export function createUpsertInputFromFeeAgreement(
 ): DossierFeeAgreementUpsertInput {
   return {
     dossierId,
-    id: agreement.id,
+    uuid: agreement.uuid,
     status: agreement.status,
     matterLabel: agreement.matterLabel,
     scopeDescription: agreement.scopeDescription,
     clientContactUuid: agreement.clientContactUuid,
     signatoryContactUuid: agreement.signatoryContactUuid,
     billingType: agreement.billingType,
-    sourceServicePresetId: agreement.sourceServicePresetId,
+    sourceServicePresetUuid: agreement.sourceServicePresetUuid,
     flatFeeHtCents: agreement.flatFeeHtCents,
     hourlyRateHtCents: agreement.hourlyRateHtCents,
     estimatedHours: agreement.estimatedHours,
@@ -176,7 +176,7 @@ export function buildFeeAgreementUpsertInput(
 ): DossierFeeAgreementUpsertInput | null {
   const candidate = {
     dossierId,
-    id: state.id,
+    uuid: state.id,
     setActive,
     generatedDocumentUuid: state.generatedDocumentUuid,
     signedDocumentUuid: state.signedDocumentUuid,
@@ -186,7 +186,7 @@ export function buildFeeAgreementUpsertInput(
     clientContactUuid: state.clientContactUuid || undefined,
     signatoryContactUuid: state.signatoryContactUuid || undefined,
     billingType: state.billingType,
-    sourceServicePresetId: state.sourceServicePresetId || undefined,
+    sourceServicePresetUuid: state.sourceServicePresetUuid || undefined,
     flatFeeHtCents: parseEurosToCents(state.flatFeeHt),
     hourlyRateHtCents: parseEurosToCents(state.hourlyRateHt),
     estimatedHours: parseDecimalInput(state.estimatedHours),

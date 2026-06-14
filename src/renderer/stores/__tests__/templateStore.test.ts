@@ -9,7 +9,7 @@ type MutableGlobal = typeof globalThis & { ordicabAPI?: OrdicabAPI }
 
 function createTemplate(overrides: Partial<TemplateRecord> = {}): TemplateRecord {
   return {
-    id: 'tpl-1',
+    uuid: 'tpl-1',
     name: 'Courrier client',
     macros: [],
     hasDocxSource: false,
@@ -94,7 +94,7 @@ describe('templateStore', () => {
     })
 
     await useTemplateStore.getState().update({
-      id: 'tpl-1',
+      uuid: 'tpl-1',
       name: 'Courrier final',
       content: 'Version finale'
     })
@@ -143,7 +143,7 @@ describe('templateStore', () => {
     await expect(
       useTemplateStore.getState().generate({
         dossierId: 'dos-1',
-        templateId: 'tpl-1'
+        templateUuid: 'tpl-1'
       })
     ).resolves.toEqual({
       success: true,
@@ -154,13 +154,13 @@ describe('templateStore', () => {
 
     expect(generate).toHaveBeenCalledWith({
       dossierId: 'dos-1',
-      templateId: 'tpl-1'
+      templateUuid: 'tpl-1'
     })
 
     await expect(
       useTemplateStore.getState().preview({
         dossierId: 'dos-1',
-        templateId: 'tpl-1'
+        templateUuid: 'tpl-1'
       })
     ).resolves.toEqual({
       success: true,
@@ -209,7 +209,7 @@ describe('templateStore', () => {
 
     const result = await useTemplateStore.getState().generate({
       dossierId: 'dos-1',
-      templateId: 'missing-id'
+      templateUuid: 'missing-id'
     })
 
     expect(result).toEqual({
@@ -223,7 +223,7 @@ describe('templateStore', () => {
 
     const previewResult = await useTemplateStore.getState().preview({
       dossierId: 'dos-1',
-      templateId: 'missing-id'
+      templateUuid: 'missing-id'
     })
 
     expect(previewResult).toEqual({
@@ -299,7 +299,7 @@ describe('templateStore', () => {
     expect(useTemplateStore.getState().errorCode).toBe(IpcErrorCode.INVALID_INPUT)
 
     await useTemplateStore.getState().update({
-      id: 'missing-id',
+      uuid: 'missing-id',
       name: 'Courrier client',
       content: 'Bonjour'
     })

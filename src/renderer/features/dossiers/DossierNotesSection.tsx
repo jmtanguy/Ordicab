@@ -209,14 +209,14 @@ export function DossierNotesSection({
             type="button"
             disabled={disabled}
             onClick={openCreate}
-            className="w-full shrink-0 rounded-2xl border border-dashed border-[#e5e3da] bg-white p-4 text-left text-sm text-[#1a1a1a] transition hover:border-aurora/50 disabled:pointer-events-none disabled:opacity-50"
+            className="w-full shrink-0 rounded-2xl border border-dashed border-hairline bg-white p-4 text-left text-sm text-ink transition hover:border-aurora/50 disabled:pointer-events-none disabled:opacity-50"
           >
             {t('dossiers.notes_empty', {
               defaultValue: 'Aucune note. Notez ici vos rappels, idées et points à vérifier.'
             })}
           </button>
         ) : filteredEntries.length === 0 ? (
-          <p className="shrink-0 rounded-2xl border border-dashed border-[#e5e3da] bg-white p-4 text-sm text-[#1a1a1a]">
+          <p className="shrink-0 rounded-2xl border border-dashed border-hairline bg-white p-4 text-sm text-ink">
             {t('dossiers.notes_no_results', { defaultValue: 'Aucune note ne correspond.' })}
           </p>
         ) : (
@@ -232,15 +232,15 @@ export function DossierNotesSection({
             </ColumnHeader>
             <ul className="h-[calc(100%-2.25rem)] divide-y divide-deep-space overflow-y-auto">
               {filteredEntries.map((entry) => {
-                const isConfirming = confirmingDeleteId === entry.id
+                const isConfirming = confirmingDeleteId === entry.uuid
                 const isDone = entry.status === 'done'
                 return (
                   <li
-                    key={entry.id}
-                    className="group relative flex items-start gap-3 px-4 py-2.5 transition-colors duration-150 hover:bg-[#fbf9f4]"
+                    key={entry.uuid}
+                    className="group relative flex items-start gap-3 px-4 py-2.5 transition-colors duration-150 hover:bg-parchment-bright"
                   >
                     <span className="mt-0.5 w-24 shrink-0">
-                      <span className="inline-flex items-center rounded-full border border-[#e5e3da] bg-[#fbf9f4] px-2 py-0.5 text-[11px] text-[#1a1a1a]">
+                      <span className="inline-flex items-center rounded-full border border-hairline bg-parchment-bright px-2 py-0.5 text-[11px] text-ink">
                         {kindLabel(entry.kind)}
                       </span>
                     </span>
@@ -249,8 +249,8 @@ export function DossierNotesSection({
                         <span
                           className={
                             isDone
-                              ? 'truncate text-sm font-medium text-[#1a1a1a]/50 line-through'
-                              : 'truncate text-sm font-medium text-[#1a1a1a]'
+                              ? 'truncate text-sm font-medium text-ink/50 line-through'
+                              : 'truncate text-sm font-medium text-ink'
                           }
                         >
                           {entry.pinned ? '📌 ' : ''}
@@ -268,7 +268,7 @@ export function DossierNotesSection({
                         ) : null}
                       </div>
                       {entry.content ? (
-                        <p className="mt-0.5 line-clamp-2 whitespace-pre-wrap text-xs text-[#1a1a1a]/70">
+                        <p className="mt-0.5 line-clamp-2 whitespace-pre-wrap text-sm leading-5 text-ink/70">
                           {entry.content}
                         </p>
                       ) : null}
@@ -277,7 +277,7 @@ export function DossierNotesSection({
                           {entry.tags.map((tag) => (
                             <span
                               key={tag}
-                              className="rounded-full bg-[#f1efe7] px-1.5 py-0.5 text-[10px] text-[#1a1a1a]/70"
+                              className="rounded-full bg-[#f1efe7] px-1.5 py-0.5 text-[10px] text-ink/70"
                             >
                               #{tag}
                             </span>
@@ -298,7 +298,7 @@ export function DossierNotesSection({
                           disabled={disabled}
                           onClick={() =>
                             setEditor({
-                              id: entry.id,
+                              id: entry.uuid,
                               title: entry.title,
                               content: entry.content,
                               kind: entry.kind,
@@ -314,7 +314,7 @@ export function DossierNotesSection({
                           label={t('dossiers.notes_delete_action', { defaultValue: 'Supprimer' })}
                           tone="danger"
                           disabled={disabled}
-                          onClick={() => setConfirmingDeleteId(entry.id)}
+                          onClick={() => setConfirmingDeleteId(entry.uuid)}
                         >
                           <TrashIcon />
                         </IconButton>
@@ -333,7 +333,7 @@ export function DossierNotesSection({
                             })}
                             disabled={disabled}
                             onConfirm={async () => {
-                              await onDelete({ dossierId, noteId: entry.id })
+                              await onDelete({ dossierId, noteUuid: entry.uuid })
                               setConfirmingDeleteId(null)
                             }}
                             onCancel={() => setConfirmingDeleteId(null)}
@@ -360,12 +360,12 @@ export function DossierNotesSection({
           onDismiss={() => setEditor(null)}
         >
           <div>
-            <h3 className="text-lg font-semibold text-[#1a1a1a]">
+            <h3 className="text-lg font-semibold text-ink">
               {editor.id
                 ? t('dossiers.notes_edit_action', { defaultValue: 'Modifier la note' })
                 : t('dossiers.notes_add_action', { defaultValue: 'Ajouter une note' })}
             </h3>
-            <p className="mt-1 text-sm text-[#1a1a1a]">
+            <p className="mt-1 text-sm text-ink">
               {t('dossiers.notes_form_hint', {
                 defaultValue: 'Rappels, idées, suppositions à vérifier ou tâches à faire.'
               })}
@@ -377,7 +377,7 @@ export function DossierNotesSection({
             onSubmit={async (event) => {
               event.preventDefault()
               const saved = await onSave({
-                id: editor.id,
+                uuid: editor.id,
                 dossierId,
                 title: editor.title,
                 content: editor.content,
@@ -480,7 +480,7 @@ export function DossierNotesSection({
               </Field>
 
               <div className="flex flex-wrap items-center gap-5">
-                <label className="flex items-center gap-2 text-sm text-[#1a1a1a]">
+                <label className="flex items-center gap-2 text-sm text-ink">
                   <input
                     type="checkbox"
                     checked={editor.done}
@@ -492,7 +492,7 @@ export function DossierNotesSection({
                   />
                   {t('dossiers.notes_form_done', { defaultValue: 'Marquer comme fait' })}
                 </label>
-                <label className="flex items-center gap-2 text-sm text-[#1a1a1a]">
+                <label className="flex items-center gap-2 text-sm text-ink">
                   <input
                     type="checkbox"
                     checked={editor.pinned}

@@ -25,7 +25,8 @@ import { atomicWrite } from '../../lib/system/atomicWrite'
 import { pathExists } from '../../lib/system/domainState'
 import {
   getDomainCabinetDefaultTemplateDocxPath,
-  getDomainEntityPath
+  getDomainEntityPath,
+  getDomainStampImagePath
 } from '../../lib/ordicab/ordicabPaths'
 
 interface DomainServiceLike {
@@ -38,6 +39,12 @@ export interface EntityService {
   importDefaultTemplate(sourceFilePath: string): Promise<EntityProfile>
   getDefaultTemplatePath(): Promise<string>
   removeDefaultTemplate(): Promise<EntityProfile>
+  importStamp(sourceFilePath: string): Promise<EntityProfile>
+  removeStamp(): Promise<EntityProfile>
+  /** Absolute path of the imported stamp PNG, or null when none was imported. */
+  getStampImagePath(): Promise<string | null>
+  /** Data URL of the imported stamp for renderer previews, or null when none. */
+  getStampDataUrl(): Promise<string | null>
 }
 
 export class EntityServiceError extends Error {
@@ -164,6 +171,94 @@ export function createEntityService(options: { domainService: DomainServiceLike 
         )
       }
       return docxPath
+    },
+
+    async importStamp(sourceFilePath: string): Promise<EntityProfile> {
+      const domainPath = await resolveActiveDomainPath()
+      const entityPath = getDomainEntityPath(domainPath)
+      const current = await loadEntityProfile(entityPath)
+      if (!current) {
+        throw new EntityServiceError(
+          IpcErrorCode.NOT_FOUND,
+          'Configure firm information before importing a stamp.'
+        )
+      }
+
+      const destination = getDomainStampImagePath(domainPath)
+      await mkdir(dirname(destination), { recursive: true })
+      try {
+        // Re-encode to PNG whatever the source format (png/jpg), downscaling
+        // very large scans: pdf-lib embeds the bytes verbatim, so a 10 MP photo
+        // would bloat every generated pièce.
+        const { loadImage, createCanvas } = await import('@napi-rs/canvas')
+        const image = await loadImage(sourceFilePath)
+        const maxEdge = 1200
+        const scale = Math.min(1, maxEdge / Math.max(image.width, image.height))
+        const width = Math.max(1, Math.round(image.width * scale))
+        const height = Math.max(1, Math.round(image.height * scale))
+        const canvas = createCanvas(width, height)
+        canvas.getContext('2d').drawImage(image, 0, 0, width, height)
+        await atomicWrite(destination, await canvas.encode('png'))
+      } catch {
+        throw new EntityServiceError(
+          IpcErrorCode.VALIDATION_FAILED,
+          'Unable to read the selected stamp image.'
+        )
+      }
+
+      const next: EntityProfileDraft = {
+        ...current,
+        stampImageFileName: basename(sourceFilePath),
+        stampImportedAt: new Date().toISOString()
+      }
+      return saveEntityProfile(entityPath, next)
+    },
+
+    async removeStamp(): Promise<EntityProfile> {
+      const domainPath = await resolveActiveDomainPath()
+      const entityPath = getDomainEntityPath(domainPath)
+      const current = await loadEntityProfile(entityPath)
+      if (!current) {
+        throw new EntityServiceError(
+          IpcErrorCode.NOT_FOUND,
+          'No professional entity profile to update.'
+        )
+      }
+
+      const stampPath = getDomainStampImagePath(domainPath)
+      if (await pathExists(stampPath)) {
+        try {
+          await unlink(stampPath)
+        } catch {
+          throw new EntityServiceError(
+            IpcErrorCode.FILE_SYSTEM_ERROR,
+            'Unable to remove the stamp image.'
+          )
+        }
+      }
+
+      const next: EntityProfileDraft = {
+        ...current,
+        stampImageFileName: undefined,
+        stampImportedAt: undefined
+      }
+      return saveEntityProfile(entityPath, next)
+    },
+
+    async getStampImagePath(): Promise<string | null> {
+      const domainPath = await resolveActiveDomainPath()
+      const stampPath = getDomainStampImagePath(domainPath)
+      return (await pathExists(stampPath)) ? stampPath : null
+    },
+
+    async getStampDataUrl(): Promise<string | null> {
+      const domainPath = await resolveActiveDomainPath()
+      const stampPath = getDomainStampImagePath(domainPath)
+      if (!(await pathExists(stampPath))) {
+        return null
+      }
+      const bytes = await readFile(stampPath)
+      return `data:image/png;base64,${bytes.toString('base64')}`
     },
 
     async removeDefaultTemplate(): Promise<EntityProfile> {

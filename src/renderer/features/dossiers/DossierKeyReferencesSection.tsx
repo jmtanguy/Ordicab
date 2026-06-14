@@ -7,7 +7,11 @@ import type {
   DossierKeyReferenceUpsertInput,
   KeyReference
 } from '@shared/types'
-import { isDossierNameReferenceLabel } from '@shared/types'
+import {
+  DOSSIER_REQUIRED_REFERENCE_LABELS,
+  isDossierNameReferenceLabel,
+  isDossierRequiredReferenceLabel
+} from '@shared/types'
 
 import { Button, DialogShell, Field, Input } from '@renderer/components/ui'
 import { useEntityStore } from '@renderer/stores'
@@ -59,13 +63,18 @@ export function DossierKeyReferencesSection({
     (label) => !entries.some((entry) => entry.label.toLowerCase() === label.toLowerCase())
   )
 
-  // Pin the auto-managed dossier-name entry at the top of the list so the user
-  // always sees how to edit the name. Other entries keep their natural order.
+  // Pin required dossier parameters at the top so the user sees that these
+  // values are part of the dossier references, not separate hidden settings.
   const orderedEntries = useMemo(() => {
-    const nameIndex = entries.findIndex((entry) => isDossierNameReferenceLabel(entry.label))
-    if (nameIndex < 0) return entries
-    const nameEntry = entries[nameIndex]!
-    return [nameEntry, ...entries.slice(0, nameIndex), ...entries.slice(nameIndex + 1)]
+    const required = DOSSIER_REQUIRED_REFERENCE_LABELS.flatMap((label) => {
+      const entry = entries.find(
+        (candidate) =>
+          candidate.label.trim().toLocaleLowerCase('fr-FR') === label.toLocaleLowerCase('fr-FR')
+      )
+      return entry ? [entry] : []
+    })
+    const requiredIds = new Set(required.map((entry) => entry.uuid))
+    return [...required, ...entries.filter((entry) => !requiredIds.has(entry.uuid))]
   }, [entries])
   const searchTerms = searchFilter
     .trim()
@@ -140,7 +149,7 @@ export function DossierKeyReferencesSection({
                   type="button"
                   disabled={disabled}
                   onClick={() => setEditor({ label, value: '' })}
-                  className="rounded-full border border-[#e5e3da] bg-[#fbf9f4] px-3 py-1 text-xs text-[#1a1a1a] transition hover:border-aurora/40 hover:bg-aurora/10 hover:text-aurora disabled:opacity-50"
+                  className="rounded-full border border-hairline bg-parchment-bright px-3 py-1 text-xs text-ink transition hover:border-aurora/40 hover:bg-aurora/10 hover:text-aurora disabled:opacity-50"
                 >
                   + {label}
                 </button>
@@ -154,12 +163,12 @@ export function DossierKeyReferencesSection({
             type="button"
             disabled={disabled}
             onClick={() => setEditor({ label: '', value: '' })}
-            className="w-full shrink-0 rounded-2xl border border-dashed border-[#e5e3da] bg-white p-4 text-left text-sm text-[#1a1a1a] transition hover:border-aurora/50 hover:text-[#1a1a1a] disabled:pointer-events-none disabled:opacity-50"
+            className="w-full shrink-0 rounded-2xl border border-dashed border-hairline bg-white p-4 text-left text-sm text-ink transition hover:border-aurora/50 hover:text-ink disabled:pointer-events-none disabled:opacity-50"
           >
             {t('dossiers.key_references_empty')}
           </button>
         ) : filteredEntries.length === 0 ? (
-          <p className="shrink-0 rounded-2xl border border-dashed border-[#e5e3da] bg-white p-4 text-sm text-[#1a1a1a]">
+          <p className="shrink-0 rounded-2xl border border-dashed border-hairline bg-white p-4 text-sm text-ink">
             {t('dossiers.key_references_no_results')}
           </p>
         ) : (
@@ -175,19 +184,17 @@ export function DossierKeyReferencesSection({
             </ColumnHeader>
             <ul className="h-[calc(100%-2.25rem)] divide-y divide-deep-space overflow-y-auto">
               {filteredEntries.map((entry) => {
-                const isConfirming = confirmingDeleteId === entry.id
-                const isNameEntry = isDossierNameReferenceLabel(entry.label)
+                const isConfirming = confirmingDeleteId === entry.uuid
+                const isRequiredEntry = isDossierRequiredReferenceLabel(entry.label)
                 return (
                   <li
-                    key={entry.id}
-                    className="group relative flex items-center gap-3 px-4 py-2.5 transition-colors duration-150 hover:bg-[#fbf9f4]"
+                    key={entry.uuid}
+                    className="group relative flex items-center gap-3 px-4 py-2.5 transition-colors duration-150 hover:bg-parchment-bright"
                   >
-                    <span className="w-48 shrink-0 truncate text-sm font-medium text-[#1a1a1a]">
+                    <span className="w-48 shrink-0 truncate text-sm font-medium text-ink">
                       {entry.label}
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-sm text-[#1a1a1a]">
-                      {entry.value}
-                    </span>
+                    <span className="min-w-0 flex-1 truncate text-sm text-ink">{entry.value}</span>
                     <div className="relative flex shrink-0 items-center gap-1">
                       <div
                         className={
@@ -201,7 +208,7 @@ export function DossierKeyReferencesSection({
                           disabled={disabled}
                           onClick={() =>
                             setEditor({
-                              id: entry.id,
+                              id: entry.uuid,
                               label: entry.label,
                               value: entry.value,
                               note: entry.note
@@ -210,12 +217,12 @@ export function DossierKeyReferencesSection({
                         >
                           <PencilIcon />
                         </IconButton>
-                        {isNameEntry ? null : (
+                        {isRequiredEntry ? null : (
                           <IconButton
                             label={t('dossiers.key_references_delete_action')}
                             tone="danger"
                             disabled={disabled}
-                            onClick={() => setConfirmingDeleteId(entry.id)}
+                            onClick={() => setConfirmingDeleteId(entry.uuid)}
                           >
                             <TrashIcon />
                           </IconButton>
@@ -229,7 +236,7 @@ export function DossierKeyReferencesSection({
                             cancelLabel={t('dossiers.key_references_delete_cancel_action')}
                             disabled={disabled}
                             onConfirm={async () => {
-                              await onDelete({ dossierId, keyReferenceId: entry.id })
+                              await onDelete({ dossierId, keyReferenceUuid: entry.uuid })
                               setConfirmingDeleteId(null)
                             }}
                             onCancel={() => setConfirmingDeleteId(null)}
@@ -256,12 +263,12 @@ export function DossierKeyReferencesSection({
           onDismiss={() => setEditor(null)}
         >
           <div>
-            <h3 className="text-lg font-semibold text-[#1a1a1a]">
+            <h3 className="text-lg font-semibold text-ink">
               {editor.id
                 ? t('dossiers.key_references_edit_action')
                 : t('dossiers.key_references_add_action')}
             </h3>
-            <p className="mt-1 text-sm text-[#1a1a1a]">{t('dossiers.key_references_form_hint')}</p>
+            <p className="mt-1 text-sm text-ink">{t('dossiers.key_references_form_hint')}</p>
           </div>
 
           <form
@@ -269,7 +276,7 @@ export function DossierKeyReferencesSection({
             onSubmit={async (event) => {
               event.preventDefault()
               const saved = await onSave({
-                id: editor.id,
+                uuid: editor.id,
                 dossierId,
                 label: editor.label,
                 value: editor.value,
@@ -292,7 +299,7 @@ export function DossierKeyReferencesSection({
                   }
                   placeholder={t('dossiers.key_references_form_label_placeholder')}
                   required
-                  disabled={isDossierNameReferenceLabel(editor.label)}
+                  disabled={isDossierRequiredReferenceLabel(editor.label)}
                 />
                 <datalist id="key-reference-label-options">
                   {configuredLabels.map((label) => (
@@ -318,7 +325,7 @@ export function DossierKeyReferencesSection({
                         })
                       : t('dossiers.key_references_form_value_placeholder')
                   }
-                  required={!isDossierNameReferenceLabel(editor.label)}
+                  required={!isDossierRequiredReferenceLabel(editor.label)}
                 />
               </Field>
             </div>

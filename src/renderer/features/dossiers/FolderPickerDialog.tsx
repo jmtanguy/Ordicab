@@ -21,7 +21,7 @@ interface FolderPickerDialogProps {
 }
 
 function isVisibleEligibleFolder(folder: DossierEligibleFolder): boolean {
-  return !folder.name.startsWith('.') && !folder.id.startsWith('.')
+  return !folder.name.startsWith('.') && !folder.slug.startsWith('.')
 }
 
 export function FolderPickerDialog(props: FolderPickerDialogProps): React.JSX.Element | null {
@@ -71,11 +71,11 @@ function FolderPickerDialogBody({
           )
         })
   const activeSelectedId =
-    selectedId && filteredEligibleFolders.some((entry) => entry.id === selectedId)
+    selectedId && filteredEligibleFolders.some((entry) => entry.slug === selectedId)
       ? selectedId
-      : (filteredEligibleFolders[0]?.id ?? null)
+      : (filteredEligibleFolders[0]?.slug ?? null)
   const activeFolder =
-    filteredEligibleFolders.find((folder) => folder.id === activeSelectedId) ?? null
+    filteredEligibleFolders.find((folder) => folder.slug === activeSelectedId) ?? null
 
   return (
     <DialogShell
@@ -85,10 +85,10 @@ function FolderPickerDialogBody({
       onDismiss={onDismiss}
     >
       <div className="space-y-1">
-        <h3 id="dossier-picker-title" className="text-lg font-semibold text-[#1a1a1a]">
+        <h3 id="dossier-picker-title" className="text-lg font-semibold text-ink">
           {t('dossiers.picker_title')}
         </h3>
-        <p className="text-sm text-[#1a1a1a]">{t('dossiers.picker_summary')}</p>
+        <p className="text-sm text-ink">{t('dossiers.picker_summary')}</p>
       </div>
 
       <div className="grid min-h-0 flex-1 gap-4 py-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(280px,0.85fr)]">
@@ -122,7 +122,7 @@ function FolderPickerDialogBody({
           />
 
           {isCreating ? (
-            <div className="space-y-3 rounded-2xl border border-[#e5e3da] bg-white p-4">
+            <div className="space-y-3 rounded-2xl border border-hairline bg-white p-4">
               <label
                 htmlFor="dossier-picker-new-name"
                 className="text-xs uppercase tracking-[0.2em] text-aurora-soft"
@@ -173,33 +173,33 @@ function FolderPickerDialogBody({
           ) : null}
 
           {isLoading && visibleEligibleFolders.length === 0 ? (
-            <p className="rounded-2xl border border-[#e5e3da] bg-white p-4 text-sm text-[#1a1a1a]">
+            <p className="rounded-2xl border border-hairline bg-white p-4 text-sm text-ink">
               {t('dossiers.picker_loading')}
             </p>
           ) : visibleEligibleFolders.length === 0 ? (
-            <p className="rounded-2xl border border-[#e5e3da] bg-white p-4 text-sm text-[#1a1a1a]">
+            <p className="rounded-2xl border border-hairline bg-white p-4 text-sm text-ink">
               {t('dossiers.picker_empty')}
             </p>
           ) : filteredEligibleFolders.length === 0 ? (
-            <p className="rounded-2xl border border-[#e5e3da] bg-white p-4 text-sm text-[#1a1a1a]">
+            <p className="rounded-2xl border border-hairline bg-white p-4 text-sm text-ink">
               {t('dossiers.picker_no_results')}
             </p>
           ) : (
-            <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-[#e5e3da] bg-white">
+            <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-hairline bg-white">
               <div className="divide-y divide-white/10">
                 {filteredEligibleFolders.map((folder) => (
                   <button
-                    key={folder.id}
+                    key={folder.slug}
                     type="button"
-                    onClick={() => setSelectedId(folder.id)}
-                    aria-pressed={activeSelectedId === folder.id}
+                    onClick={() => setSelectedId(folder.slug)}
+                    aria-pressed={activeSelectedId === folder.slug}
                     className={cn(
-                      'w-full px-4 py-3 text-left transition hover:bg-[#f4f3ee] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aurora/35',
-                      activeSelectedId === folder.id ? 'bg-aurora/12' : 'bg-transparent'
+                      'w-full px-4 py-3 text-left transition hover:bg-parchment focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aurora/35',
+                      activeSelectedId === folder.slug ? 'bg-aurora/12' : 'bg-transparent'
                     )}
                   >
-                    <strong className="block text-sm text-[#1a1a1a]">{folder.name}</strong>
-                    <span className="mt-1 block break-all text-xs text-[#5c5c5a]">
+                    <strong className="block text-sm text-ink">{folder.name}</strong>
+                    <span className="mt-1 block break-all text-xs text-ink-muted">
                       {folder.path}
                     </span>
                   </button>
@@ -209,19 +209,19 @@ function FolderPickerDialogBody({
           )}
         </div>
 
-        <div className="flex min-h-0 flex-col rounded-2xl border border-[#e5e3da] bg-white p-4">
+        <div className="flex min-h-0 flex-col rounded-2xl border border-hairline bg-white p-4">
           <p className="text-xs uppercase tracking-[0.2em] text-aurora-soft">
             {t('dossiers.picker_selected_label')}
           </p>
           {activeFolder ? (
             <div className="mt-4 flex-1 space-y-3">
               <div>
-                <h4 className="text-xl font-semibold text-[#1a1a1a]">{activeFolder.name}</h4>
-                <p className="mt-2 break-all text-sm text-[#1a1a1a]">{activeFolder.path}</p>
+                <h4 className="text-xl font-semibold text-ink">{activeFolder.name}</h4>
+                <p className="mt-2 break-all text-sm text-ink">{activeFolder.path}</p>
               </div>
             </div>
           ) : (
-            <p className="mt-4 text-sm text-[#1a1a1a]">
+            <p className="mt-4 text-sm text-ink">
               {isLoading && visibleEligibleFolders.length === 0
                 ? t('dossiers.picker_loading')
                 : normalizedQuery.length > 0

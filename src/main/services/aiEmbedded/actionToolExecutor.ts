@@ -55,15 +55,20 @@ export class ActionToolExecutor {
 
   async execute(toolName: string, args: Record<string, unknown>): Promise<string> {
     if (toolName === 'document_analyze') {
-      const documentId = typeof args['documentId'] === 'string' ? args['documentId'] : ''
+      const documentUuid = typeof args['documentUuid'] === 'string' ? args['documentUuid'] : ''
       const targetDossierId = this._resolveDossierId(args['dossierId'])
       const charStart = typeof args['charStart'] === 'number' ? args['charStart'] : undefined
       const charEnd = typeof args['charEnd'] === 'number' ? args['charEnd'] : undefined
-      const result = await this.runDocumentAnalysis(targetDossierId, documentId, charStart, charEnd)
+      const result = await this.runDocumentAnalysis(
+        targetDossierId,
+        documentUuid,
+        charStart,
+        charEnd
+      )
       this.lastInlineDispatchResult = {
         intent: {
           type: 'document_analyze',
-          documentId,
+          documentUuid,
           dossierId: targetDossierId,
           charStart,
           charEnd
@@ -84,7 +89,7 @@ export class ActionToolExecutor {
    */
   async runDocumentAnalysis(
     targetDossierId: string,
-    documentId: string,
+    documentUuid: string,
     charStart?: number,
     charEnd?: number
   ): Promise<string> {
@@ -92,8 +97,8 @@ export class ActionToolExecutor {
     const docs = await documentService
       .listDocuments({ dossierId: targetDossierId })
       .catch(() => [] as DocumentRecord[])
-    const doc = docs.find((d) => d.id === documentId || d.uuid === documentId)
-    if (!doc) return JSON.stringify({ error: `Document introuvable : ${documentId}` })
+    const doc = docs.find((d) => d.path === documentUuid || d.uuid === documentUuid)
+    if (!doc) return JSON.stringify({ error: `Document introuvable : ${documentUuid}` })
 
     let absolutePath: string
     let dossierRoot: string
@@ -127,7 +132,7 @@ export class ActionToolExecutor {
         try {
           const live = await this.deps.documentService.extractContent({
             dossierId: targetDossierId,
-            documentId: doc.relativePath
+            documentPath: doc.relativePath
           })
           extractedText = live.text
         } catch (extractionErr) {
@@ -175,8 +180,13 @@ export class ActionToolExecutor {
 
   private async _dispatchInline(toolName: string, args: Record<string, unknown>): Promise<string> {
     const { intentDispatcher, context } = this.deps
-    const normalizedArgs =
-      'dossierId' in args ? { ...args, dossierId: this._resolveDossierId(args['dossierId']) } : args
+    const normalizedArgs = { ...args }
+    if ('dossierId' in normalizedArgs) {
+      normalizedArgs.dossierId = this._resolveDossierId(normalizedArgs.dossierId)
+    }
+    if (toolName === 'dossier_update' && 'id' in normalizedArgs) {
+      normalizedArgs.id = this._resolveDossierId(normalizedArgs.id)
+    }
     const actionIntent = { type: toolName, ...normalizedArgs } as InternalAiCommand
     console.log(`\n╔══ AI INTENT (inline) ${'═'.repeat(47)}`)
     console.log(`║ type       : ${actionIntent.type}`)
@@ -187,7 +197,11 @@ export class ActionToolExecutor {
         .join('\n')}`
     )
     console.log('╚══════════════════════════════════════════════════════════')
-    const dispatchResult = await intentDispatcher.dispatch(actionIntent, context)
+    const dispatchContext =
+      typeof context.dossierId === 'string'
+        ? { ...context, dossierId: this._resolveDossierId(context.dossierId) }
+        : context
+    const dispatchResult = await intentDispatcher.dispatch(actionIntent, dispatchContext)
     console.log(`\n╔══ AI FEEDBACK (inline) ══════════════════════════════════`)
     console.log(`║ ${dispatchResult.feedback.split('\n').join('\n║ ')}`)
     console.log('╚══════════════════════════════════════════════════════════')
@@ -213,14 +227,14 @@ export class ActionToolExecutor {
       if (clarification.question) inlineResult.question = clarification.question
       if (clarification.options) inlineResult.options = clarification.options
     }
-    if (dispatchResult.contextUpdate?.templateId) {
-      inlineResult.templateId = dispatchResult.contextUpdate.templateId
+    if (dispatchResult.contextUpdate?.templateUuid) {
+      inlineResult.templateUuid = dispatchResult.contextUpdate.templateUuid
     }
     if (dispatchResult.contextUpdate?.dossierId) {
       inlineResult.dossierId = dispatchResult.contextUpdate.dossierId
     }
-    if (dispatchResult.contextUpdate?.contactId) {
-      inlineResult.contactId = dispatchResult.contextUpdate.contactId
+    if (dispatchResult.contextUpdate?.contactUuid) {
+      inlineResult.contactUuid = dispatchResult.contextUpdate.contactUuid
     }
     if (dispatchResult.entity) {
       inlineResult.entity = dispatchResult.entity

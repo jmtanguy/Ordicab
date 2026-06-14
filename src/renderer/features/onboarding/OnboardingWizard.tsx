@@ -111,7 +111,7 @@ export function OnboardingWizard({
       {/* The Drive step owns its own primary action (folder picker) and auto-advances,
           so the wizard footer only appears from step 2 onward. */}
       {!isFirstStep ? (
-        <div className="flex items-center justify-between gap-2 border-t border-[#e5e3da] pt-4">
+        <div className="flex items-center justify-between gap-2 border-t border-hairline pt-4">
           <Button type="button" variant="ghost" onClick={back}>
             {t('onboarding.action_back', { defaultValue: 'Retour' })}
           </Button>

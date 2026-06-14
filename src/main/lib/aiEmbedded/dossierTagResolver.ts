@@ -17,6 +17,8 @@
  * Used by: aiCommandDispatcher.ts (document_generate catch-and-retry path)
  */
 
+import { distinguishingTokens, stripAccents, tokenize } from '@shared/templateContent'
+
 export interface ResolveDossierTagsInput {
   unresolvedTags: string[]
   keyDates?: Array<{ label: string; date: string }>
@@ -50,19 +52,6 @@ const RESERVED_DOSSIER_KEYS = new Set([
   'type'
 ])
 
-function stripAccents(value: string): string {
-  return value.normalize('NFD').replace(/\p{Mn}/gu, '')
-}
-
-function tokenize(value: string): string[] {
-  return stripAccents(value)
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter(Boolean)
-}
-
 function entryMatchesSlug(label: string, slug: string): boolean {
   const slugLower = stripAccents(slug).toLowerCase()
   if (!slugLower) return false
@@ -86,36 +75,6 @@ function entryMatchesSlug(label: string, slug: string): boolean {
  * like "dossier", "key", "date", "long") — without that, every keyDate macro
  * shares the "date" token and no migration is unique enough to commit.
  */
-const GENERIC_TOKENS = new Set([
-  'a',
-  'an',
-  'contact',
-  'd',
-  'date',
-  'dates',
-  'dossier',
-  'entity',
-  'entite',
-  'formatted',
-  'formate',
-  'key',
-  'long',
-  'name',
-  'nom',
-  'of',
-  'ref',
-  'reference',
-  'short',
-  'court',
-  'the',
-  'today',
-  'value'
-])
-
-function distinguishingTokens(value: string): Set<string> {
-  return new Set(tokenize(value).filter((t) => t.length >= 2 && !GENERIC_TOKENS.has(t)))
-}
-
 export function migrateDanglingOverrideKeys(
   overrides: Record<string, string>,
   templateMacros: string[]

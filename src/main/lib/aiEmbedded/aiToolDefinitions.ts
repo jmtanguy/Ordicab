@@ -57,9 +57,9 @@ export const STALE_TOOL_NAMES_AFTER_ACTION: Partial<Record<string, string[]>> = 
   dossier_create_billing_item: ['dossier_get'],
   dossier_update_billing_item: ['dossier_get'],
   dossier_delete_billing_item: ['dossier_get'],
-  note_create: ['note_search', 'dossier_get'],
-  note_update: ['note_search', 'dossier_get'],
-  note_delete: ['note_search', 'dossier_get'],
+  note_create: ['note_search', 'note_get', 'dossier_get'],
+  note_update: ['note_search', 'note_get', 'dossier_get'],
+  note_delete: ['note_search', 'note_get', 'dossier_get'],
   template_select: ['template_list'],
   template_create: ['template_list'],
   template_update: ['template_list'],
@@ -113,7 +113,7 @@ const contactMutationFieldsSchema = {
     .record(z.string(), z.string())
     .optional()
     .describe(
-      'Optional values for managed contact fields not covered by the standard parameters. Omit this field entirely when no managed field value is explicitly known. Keys must be exact field labels from managed_fields_get.'
+      'Values for managed contact fields not covered by the standard parameters. Keys must be exact field labels from managed_fields_get.'
     )
 } satisfies Record<string, z.ZodTypeAny>
 
@@ -131,8 +131,7 @@ const dossierKeyDateFieldsSchema = {
     .array(z.enum(KEY_DATE_TAG_VALUES))
     .optional()
     .describe(
-      'Optional explicit tags (cumulative). Allowed values: cancelled, postponed, urgent, imperative, important, to_confirm, confidential, to_do. ' +
-        'Do NOT use this for past/upcoming — that is auto-computed from the date.'
+      'Optional cumulative tags. Do NOT use for past/upcoming — auto-computed from the date.'
     ),
   isClosed: z
     .boolean()
@@ -161,9 +160,7 @@ const dossierNoteFieldsSchema = {
     .enum(NOTE_KIND_VALUES)
     .optional()
     .describe(
-      'Note kind. "note" (default) for a general memo, "todo" for a task, "idea" for an idea, ' +
-        '"to_verify" for a supposition to check, "ai_log" when YOU are saving a research or reasoning ' +
-        'trace for later recall. Defaults to "note".'
+      'Note kind; "ai_log" when YOU are saving a research/reasoning trace for later recall. Defaults to "note".'
     ),
   status: z
     .enum(NOTE_STATUS_VALUES)
@@ -223,11 +220,11 @@ const dossierBillingItemFieldsSchema = {
     .min(0)
     .optional()
     .describe('Discount amount in cents (HT) when discountKind is "amount".'),
-  sourceServicePresetId: z
+  sourceServicePresetUuid: z
     .string()
     .optional()
     .describe('Optional ID of a cabinet service preset this item is based on.'),
-  sourceKeyDateId: z
+  sourceKeyDateUuid: z
     .string()
     .optional()
     .describe('Optional ID of the timeline event (key date) this service relates to.')
@@ -235,7 +232,11 @@ const dossierBillingItemFieldsSchema = {
 
 /**
  * Data tools: result fed back to the LLM, loop continues.
- * All descriptions are verbatim from the original createActionTool() calls.
+ *
+ * Descriptions are intentionally terse: cross-tool rules (MUST-call-not-narrate,
+ * optional dossierId = active dossier, exact-ID resolution, per-domain workflows)
+ * live ONCE in aiSystemPrompt.ts — do not re-add them per tool, the whole
+ * payload is re-sent on every step of the loop.
  */
 export function buildDataTools(
   execute: (name: string, args: Record<string, unknown>) => Promise<string>
@@ -243,53 +244,32 @@ export function buildDataTools(
   return {
     entity_get: tool({
       description:
-        "Get the current professional entity profile configured in Settings (the user's own cabinet / office / firm). " +
-        'Use this when the user asks for their own cabinet information, such as firm name, professional identity, address, phone, email, VAT number, or other `entity.*` details used in document templates. ' +
-        "This is the primary source of truth for the user's own cabinet information. Do NOT start with `contact_lookup` or `document_search` for those questions. " +
-        'If a requested field is missing here, say that it is not configured in Settings.',
+        "Get the professional entity profile from Settings (the user's own cabinet/firm: name, address, phone, email, VAT, other `entity.*` values used in templates). " +
+        'Primary source of truth for cabinet info — do NOT use `contact_lookup`/`document_search` for it. If a field is missing here, say it is not configured in Settings.',
       inputSchema: z.object({}),
       execute: async (args) => execute('entity_get', args as Record<string, unknown>)
     }),
     managed_fields_get: tool({
       description:
-        'Load the configured contact roles and managed field definitions for the current entity profile. ' +
-        'Use this before creating or updating contacts, key dates, or key references. ' +
-        'In particular, call it before adding a contact, before adding a key date, and before adding a key reference, so you know which roles and managed fields exist and which details to extract from the user request or source text. ' +
-        "Do NOT use this tool for read-only contact questions such as listing contacts or retrieving an existing contact's email, phone, address, role, or other current values.",
+        'Load the configured contact roles and managed field definitions, so you know which roles/fields exist and what to extract from the request or source. ' +
+        "Do NOT use it for read-only contact questions (listing contacts, reading an existing contact's email/phone/address/role…).",
       inputSchema: z.object({}),
       execute: async (args) => execute('managed_fields_get', args as Record<string, unknown>)
     }),
     contact_lookup: tool({
       description:
-        'List all contacts in a dossier, including their UUIDs. ' +
-        'Use this tool to list contacts, search by name, answer read-only questions about an existing contact, or resolve a UUID before an action or contact_get. ' +
-        'Each contact in the result has an `id` field which is a UUID — always use this UUID as the contactId in subsequent calls. ' +
-        'This tool only retrieves data — after getting the result, you MUST call the appropriate action tool (e.g. contact_delete, contact_update, contact_create) to perform any mutation. ' +
-        'CONTACT RECORDS FIRST: this is the primary source of truth for contacts. If a contact the user named is not in the result, do NOT stop there — fall back to `document_search` to look for it in the dossier documents before telling the user it cannot be found.',
+        'List all contacts in a dossier with their UUIDs. ' +
+        'Use it to list/search contacts, answer read-only contact questions, or resolve a UUID (`contactUuid`) before contact_get or a contact action. READ-ONLY.',
       inputSchema: z.object({
-        dossierId: z
-          .string()
-          .optional()
-          .describe('Target dossier ID. Omit to use the active dossier.')
+        dossierId: z.string().optional()
       }),
       execute: async (args) => execute('contact_lookup', args as Record<string, unknown>)
     }),
     contact_get: tool({
-      description:
-        'Get full details of a contact by UUID. ' +
-        'If you do not have the UUID yet, call contact_lookup first to resolve it. ' +
-        'contactId MUST be the exact UUID from a contact_lookup result — never a name, placeholder, or comment. ' +
-        'If a field the user asked about (phone, email, address…) is empty or missing on the returned contact, fall back to `document_search` to look for that detail in the dossier documents before answering that it is unavailable.',
+      description: 'Get full details of a contact by UUID (`contactUuid` from contact_lookup).',
       inputSchema: z.object({
-        contactId: z
-          .string()
-          .describe(
-            'UUID of the contact from a contact_lookup result. Must be an exact UUID — never a name or placeholder.'
-          ),
-        dossierId: z
-          .string()
-          .optional()
-          .describe('Target dossier ID. Omit to use the active dossier.')
+        contactUuid: z.string().describe('Contact UUID from a contact_lookup result.'),
+        dossierId: z.string().optional()
       }),
       execute: async (args) => execute('contact_get', args as Record<string, unknown>)
     }),
@@ -303,100 +283,68 @@ export function buildDataTools(
     document_list: tool({
       description:
         'List documents in a dossier with their name, date, type, and whether they already have metadata (description/tags). ' +
-        'Use this for all document queries: full list, latest document, filtering by extension, or finding documents without metadata. ' +
-        'Also use this to resolve a `@<filename>` mention from the user to its UUID before any document_get / document_analyze call.',
+        'Use this for all document queries: full list, latest document, filtering by extension, or finding documents without metadata.',
       inputSchema: z.object({
-        dossierId: z
-          .string()
-          .optional()
-          .describe('Target dossier ID. Omit to use the active dossier.')
+        dossierId: z.string().optional()
       }),
       execute: async (args) => execute('document_list', args as Record<string, unknown>)
     }),
     document_get: tool({
       description:
-        'Get the metadata of a document: its UUID, filename, description, tags, and size statistics. ' +
-        'Returns a structured JSON with fields: uuid, filename, description, tags, totalChars, totalLines. ' +
-        'This tool does NOT return the document text — use it to retrieve metadata and gauge the document size (totalChars / totalLines) before reading it. ' +
-        'To read the actual text content, call document_analyze (optionally with charStart / charEnd to read a specific character range of large documents). ' +
-        'If the user referenced the document via a `@<filename>` mention in the chat, resolve the UUID with document_list first (match on `filename`) and then call this tool. ' +
-        'If you do not have the documentId, call document_list first. ' +
-        'documentId must be the UUID of the document.',
+        'Get a document’s metadata: uuid, filename, description, tags, totalChars, totalLines. ' +
+        'Does NOT return the text — use it to gauge size before reading with document_analyze (optionally charStart/charEnd for a range).',
       inputSchema: z.object({
-        documentId: z.string().describe('UUID of the document from document_list.'),
-        dossierId: z
-          .string()
-          .optional()
-          .describe('Target dossier ID. Omit to use the active dossier.')
+        documentUuid: z.string().describe('UUID of the document from document_list.'),
+        dossierId: z.string().optional()
       }),
       execute: async (args) => execute('document_get', args as Record<string, unknown>)
     }),
     dossier_get: tool({
       description:
-        'Get the full details of a dossier including its key dates, key references, billing items (prestations), fee agreements, and issued invoices (factures). ' +
-        'Use this for dossier-level questions about prestations, invoices already issued, amounts already invoiced, paid amounts, remaining payment status, and fee agreements. ' +
-        'The result includes `financialSummary` with precomputed HT, VAT, TTC, paid, and remaining totals; prefer those summary values for totals instead of manually summing lines. ' +
-        'Use this before updating or deleting key dates, key references, or billing items to read the existing IDs. ' +
-        'Amount fields ending in Cents are integer cents; when present, prefer the sibling Display/Euros fields in user-facing replies. ' +
-        'If you do not have the dossierId, call dossier_list first.',
+        'Get full dossier details: key dates, key references, billing items (prestations), fee agreements, and issued invoices (factures). ' +
+        'Use for dossier-level questions about prestations, amounts invoiced/paid/remaining, and fee agreements. ' +
+        '`financialSummary` has precomputed HT/VAT/TTC/paid/remaining totals — prefer them over summing lines.',
       inputSchema: z.object({
-        dossierId: z
-          .string()
-          .optional()
-          .describe('Target dossier ID. Omit to use the active dossier.')
+        dossierId: z.string().optional()
       }),
       execute: async (args) => execute('dossier_get', args as Record<string, unknown>)
     }),
     dossier_list: tool({
       description:
         'List all registered dossiers in the domain with their id, name, status, and type. ' +
-        'Use this to discover dossiers — for example to resolve a dossier the user named, or to work across more than one dossier in the same turn. ' +
-        'This tool only retrieves data; the loop continues after the result.',
+        'Use this to discover dossiers — for example to resolve a dossier the user named, or to work across more than one dossier in the same turn.',
       inputSchema: z.object({}),
       execute: async (args) => execute('dossier_list', args as Record<string, unknown>)
     }),
     document_search: tool({
       description:
-        'Hybrid search over the pre-extracted text of all documents in a dossier: combines exact substring matches with semantic (embedding) similarity, then returns the best-matching excerpts ranked by confidence. ' +
-        'Each match includes: excerpt, score (higher is better), matchType ("exact" for literal string hits, "semantic" for vector similarity), and document info. ' +
-        'Exact matches score ≥ 1 and always rank above semantic matches. Use matchType + score to judge how trustworthy a hit is. ' +
-        'Use this tool whenever the user asks about dossier CONTENT: demands, claims, facts, amounts, dates, positions, history, or any specific information. ' +
-        'Also use it as the FALLBACK for contact questions: when a contact has no record via contact_lookup, or a requested contact detail (phone, email, address…) is not filled in on the record, search the documents here before telling the user the information is unavailable. ' +
-        'You MUST call this tool (or document_analyze for a single document) before answering content questions — never answer from memory. ' +
-        'QUERY EXPANSION REQUIRED: for any content question, call this tool 2–4 times with DIFFERENT query strings — ' +
-        'one per semantic angle (legal concept, party name, synonyms, document type). ' +
-        'Because semantic search handles paraphrase well, vary wording across calls (e.g., "pension alimentaire" vs "contribution à l\'entretien") to catch both verbatim and reformulated passages. ' +
-        'NEVER repeat the same query string across calls — it returns the same results and wastes a turn. ' +
-        'Use known contact names and roles from the active context to craft targeted queries. ' +
-        'Aggregate all returned excerpts before answering. ' +
-        'Only works for documents whose text has already been extracted and indexed via the Documents tab. ' +
-        'If no excerpts are returned after all queries, say so — do NOT invent content.',
+        'Hybrid search (exact + semantic) over the extracted text of a dossier’s documents. Returns ranked excerpts with score and matchType ("exact" scores ≥ 1 and ranks above "semantic"); use both to judge trust. ' +
+        'Use it whenever the user asks about dossier CONTENT (demands, claims, facts, amounts, dates, positions, history), and as the FALLBACK for contact details missing from contact_lookup. ' +
+        'QUERY EXPANSION: call 2–4 times with DIFFERENT queries (legal concept, party name, synonyms, document type); never repeat a query. Aggregate all excerpts before answering. ' +
+        'Only works on documents already indexed via the Documents tab. If nothing is returned, say so.',
       inputSchema: z.object({
         query: z
           .string()
           .describe(
             'Natural language search query describing the information to find (e.g. "demandes de la partie adverse", "pension alimentaire", "dates d\'audience").'
           ),
-        dossierId: z
-          .string()
-          .optional()
-          .describe('Target dossier ID. Omit to use the active dossier.')
+        dossierId: z.string().optional()
       }),
       execute: async (args) => execute('document_search', args as Record<string, unknown>)
     }),
     note_search: tool({
       description:
-        'Hybrid search (keyword + semantic) over the dossier NOTES — the lawyer’s pense-bête / TODO / reflection log, including notes you previously saved as research or reasoning traces (kind "ai_log"). ' +
-        'Use this to recall things the lawyer asked to remember, open tasks, ideas, suppositions to verify, or what you logged earlier in this or a past session. ' +
-        'This is SEPARATE from document_search: notes are short authored memos, not the dossier’s documents. When the user asks "what did I note / did we already look into X / is there a reminder about Y", search here. ' +
-        'Returns matching notes with title, an excerpt, kind, and matchType. ' +
-        'Optionally narrow with kind and/or status. This tool is READ-ONLY; the loop continues.',
+        'Hybrid search (keyword + semantic) over the dossier NOTES — the lawyer’s pense-bête / TODO / reflection log, including your own saved traces (kind "ai_log"). SEPARATE from document_search: notes are short memos, not documents. ' +
+        'Returns notes with noteUuid, title, kind, status, an excerpt, a `truncated` flag, and matchType. ' +
+        'Omit `query` to list ALL notes (pinned first, then most recent); do NOT pass "*". Optionally filter by kind/status. READ-ONLY.',
       inputSchema: z.object({
-        query: z.string().describe('Natural language query describing the note(s) to find.'),
-        dossierId: z
+        query: z
           .string()
           .optional()
-          .describe('Target dossier ID. Omit to use the active dossier.'),
+          .describe(
+            'Natural language query describing the note(s) to find. Omit (or leave empty) to list ALL notes in the dossier.'
+          ),
+        dossierId: z.string().optional(),
         kind: z
           .enum(NOTE_KIND_VALUES)
           .optional()
@@ -408,42 +356,42 @@ export function buildDataTools(
       }),
       execute: async (args) => execute('note_search', args as Record<string, unknown>)
     }),
+    note_get: tool({
+      description:
+        'Read ONE dossier note in full by its `noteUuid` (from note_search): title, full content (untruncated), kind, status, tags, pinned, timestamps. ' +
+        'Use this when a note_search excerpt is marked `truncated`. READ-ONLY.',
+      inputSchema: z.object({
+        noteUuid: z.string().describe('Existing note ID, e.g. from note_search.'),
+        dossierId: z.string().optional()
+      }),
+      execute: async (args) => execute('note_get', args as Record<string, unknown>)
+    }),
     invoice_list: tool({
       description:
-        'List the invoices (factures) issued by the cabinet, with their number, document type, status, payment status, dossier, client, total amounts (TTC), and key dates. ' +
-        'Use this first when the user asks how much has been invoiced/factured, paid, or remains due for a dossier. ' +
-        'Optionally filter by dossierId to list only invoices of one dossier. ' +
-        'Amount fields ending in Cents are integer cents; when present, prefer the sibling Display/Euros fields in user-facing replies. ' +
-        'This tool is READ-ONLY: it retrieves data and the loop continues. ' +
-        'The assistant cannot create, cancel, or record payments on invoices — those actions are done by the user in the Invoices tab.',
+        'List invoices (factures) issued by the cabinet: number, type, status, payment status, dossier, client, TTC totals, key dates. ' +
+        'Use first when asked how much was invoiced, paid, or remains due for a dossier. READ-ONLY.',
       inputSchema: z.object({
         dossierId: z
           .string()
           .optional()
-          .describe(
-            'Optional dossier ID to list only that dossier’s invoices. Omit to list all invoices.'
-          )
+          .describe('Optional dossier filter. Omit to list ALL invoices (not the active dossier).')
       }),
       execute: async (args) => execute('invoice_list', args as Record<string, unknown>)
     }),
     invoice_get: tool({
       description:
-        'Get the full details of a single invoice (facture) by its ID: line items, VAT breakdown, payments, status, and references. ' +
-        'Call invoice_list first to discover invoice IDs. ' +
-        'Amount fields ending in Cents are integer cents; when present, prefer the sibling Display/Euros fields in user-facing replies. ' +
-        'This tool is READ-ONLY.',
+        'Get the full details of a single invoice (facture) by its ID (from invoice_list): line items, VAT breakdown, payments, status, and references. READ-ONLY.',
       inputSchema: z.object({
-        invoiceId: z.string().describe('Invoice ID from invoice_list.')
+        invoiceUuid: z.string().describe('Invoice ID from invoice_list.')
       }),
       execute: async (args) => execute('invoice_get', args as Record<string, unknown>)
     }),
     legal_search_legifrance: tool({
       description:
-        'Search official French legal texts through Légifrance via PISTE. READ-ONLY. ' +
-        'Use this for statutes, code articles, decrees, JORF, administrative/judicial legal databases, or when checking whether a cited article exists. ' +
-        'PREFER passing the natural query in `recherche` and leaving the other fields unset: the search auto-detects article citations like "article 1240 du code civil" (it then targets the exact article in the right code) and otherwise ranks results by relevance. ' +
-        'Only set fond/typeChamp/typeRecherche/code to deliberately override that behaviour. ' +
-        'After finding a likely result, call legal_consult_legifrance with the exact id before giving a legal-content answer.',
+        'Search official French legal texts (statutes, code articles, decrees, JORF) via Légifrance/PISTE, or check whether a cited article exists. READ-ONLY. ' +
+        'Mandatory before answering legal-research questions about French statutes, articles, codes, decrees, or official texts. ' +
+        'Pass the natural query in `recherche`; set the other fields only to override the auto-detection. ' +
+        'Results include a public `url` when available; include that source link in the answer. Official site: https://www.legifrance.gouv.fr.',
       inputSchema: z.object({
         recherche: z
           .string()
@@ -497,7 +445,7 @@ export function buildDataTools(
     legal_consult_legifrance: tool({
       description:
         'Consult the full official Légifrance content for a result id returned by legal_search_legifrance. READ-ONLY. ' +
-        'Use this before quoting or validating the content of an article.',
+        'Use this before quoting or validating the content of an article. Include the returned `url` source link in the answer when present.',
       inputSchema: z.object({
         id: z.string().describe('Légifrance id, e.g. LEGIARTI... from search results.')
       }),
@@ -505,10 +453,9 @@ export function buildDataTools(
     }),
     legal_search_judilibre: tool({
       description:
-        'Search French judicial decisions through Judilibre via PISTE. READ-ONLY. ' +
-        'Use this for Cour de cassation / court decision research, pourvoi numbers, ECLI, legal concepts in case law. ' +
-        'To filter by chamber (e.g. "civ1") or legal theme, first call legal_taxonomy_judilibre to get the exact valid codes — do NOT guess them. ' +
-        'After finding a likely decision, call legal_consult_judilibre before summarising the holding.',
+        'Search French judicial decisions through Judilibre via PISTE: Cour de cassation / court decision research, pourvoi numbers, ECLI, legal concepts in case law. READ-ONLY. ' +
+        'Mandatory before answering legal-research questions about French case law or judicial decisions. ' +
+        'Results include a public `url` when available; include that source link in the answer. Official search page: https://www.courdecassation.fr/recherche-judilibre.',
       inputSchema: z.object({
         recherche: z.string().optional().describe('Plain text query or pourvoi number.'),
         juridiction: z
@@ -547,8 +494,7 @@ export function buildDataTools(
     }),
     legal_taxonomy_judilibre: tool({
       description:
-        'Look up the valid Judilibre vocabulary (chambers, legal themes, jurisdictions, decision types, fields) before filtering a case-law search. READ-ONLY. ' +
-        'Call this to resolve human terms to the exact codes Judilibre expects — e.g. id="chamber" with contextValue="cc" lists the Cour de cassation chambers ("civ1" → "Première chambre civile"), id="theme" lists matières, id="jurisdiction" lists courts. ' +
+        'Look up the valid Judilibre vocabulary (chambers, legal themes, jurisdictions, decision types, fields) and resolve human terms to the exact codes Judilibre expects (e.g. id="chamber", contextValue="cc" → "civ1"). READ-ONLY. ' +
         'Use the returned codes as the chambre/theme/juridiction arguments of legal_search_judilibre.',
       inputSchema: z.object({
         taxonomyId: z
@@ -565,7 +511,7 @@ export function buildDataTools(
     }),
     legal_consult_judilibre: tool({
       description:
-        'Consult the full Judilibre decision for an id returned by legal_search_judilibre. READ-ONLY.',
+        'Consult the full Judilibre decision for an id returned by legal_search_judilibre. READ-ONLY. Include the returned `url` source link in the answer when present.',
       inputSchema: z.object({
         decisionId: z.string().describe('Judilibre decision id.')
       }),
@@ -574,7 +520,8 @@ export function buildDataTools(
     legal_verify_references: tool({
       description:
         'Extract and verify French legal references from text using Légifrance and Judilibre. READ-ONLY. ' +
-        'Use this when the user asks whether references from a client, opposing counsel, or a document are correct.',
+        'Use this when the user asks whether references from a client, opposing counsel, or a document are correct. ' +
+        'Matches include public source links when available; include those links in the answer.',
       inputSchema: z.object({
         text: z.string().describe('Text containing legal references to verify.')
       }),
@@ -585,7 +532,7 @@ export function buildDataTools(
 
 /**
  * Batchable action tools: executed inline within the tool loop, result fed back to LLM.
- * All descriptions are verbatim from the original createActionTool() calls.
+ * Descriptions are intentionally terse — shared rules live in aiSystemPrompt.ts (see buildDataTools).
  */
 export function buildBatchableActionTools(
   execute: (name: string, args: Record<string, unknown>) => Promise<string>
@@ -593,55 +540,33 @@ export function buildBatchableActionTools(
   return {
     contact_create: tool({
       description:
-        'Create a new contact in the active dossier. ' +
-        'You MUST call this tool to save the new contact — do NOT describe the creation in text, do NOT say "done" or "created" without calling this tool first. ' +
-        'Before creating a contact, call managed_fields_get so you know the configured contact roles and managed contact fields to populate or look for. ' +
-        'Use this tool only for NEW contacts. If the user is correcting or enriching an existing contact, use `contact_lookup` then `contact_update` instead. ' +
-        'Provide only the fields explicitly known from the user request or the source documents. ' +
-        'Always capitalise proper names: first letter uppercase, rest lowercase (e.g. "dupont" → "Dupont", "MARIE" → "Marie"). ' +
-        'ROLE RULE: only set `role` to a value from the managed_fields_get result, and only if the user explicitly stated it or it is unambiguously evident from context. ' +
-        'If the role is not specified or unclear, omit the `role` field entirely — NEVER guess or invent a role. ' +
-        'CUSTOM FIELDS RULE: managed contact fields are optional, never mandatory. Use `customFields` only for managed fields that both (a) actually exist in the managed_fields_get result and (b) are explicitly present and certain in the user request or source text. ' +
-        'If no managed field value is clearly present, omit `customFields` entirely. NEVER invent, infer, auto-complete, or mirror standard fields into managed fields. ' +
-        'Keys in `customFields` must match the field labels exactly as returned by managed_fields_get (e.g. { "Numéro de dossier": "2024-001" }).',
+        'Create a NEW contact in the active dossier. For correcting or enriching an EXISTING contact, use `contact_lookup` then `contact_update` instead. Provide only fields known from the request or source documents.',
       inputSchema: z.object(contactMutationFieldsSchema),
       execute: async (args) => execute('contact_create', args as Record<string, unknown>)
     }),
     contact_update: tool({
       description:
-        'Update an existing contact in the active dossier. ' +
-        'You MUST call this tool to save the contact changes — do NOT describe the update in text, do NOT say "done" or "corrected" without calling this tool first. ' +
-        'Before updating, call managed_fields_get so you know the configured contact roles and managed contact fields to populate or look for. ' +
-        'Update workflow: (1) call contact_lookup to list contacts, (2) call contact_get to read current field values when needed, (3) call contact_update with the exact contactId and only the fields to change. ' +
-        '`contactId` MUST be the exact UUID from contact_lookup or contact_get. Never omit it, never use a name in its place. ' +
-        'Always capitalise proper names: first letter uppercase, rest lowercase (e.g. "dupont" → "Dupont", "MARIE" → "Marie"). ' +
-        'ROLE RULE: only set `role` to a value from the managed_fields_get result, and only if the user explicitly stated it or it is unambiguously evident from context. ' +
-        'If the role is not specified or unclear, omit the `role` field entirely — NEVER guess or invent a role. ' +
-        'CUSTOM FIELDS RULE: managed contact fields are optional, never mandatory. Use `customFields` only for managed fields that both (a) actually exist in the managed_fields_get result and (b) are explicitly present and certain in the user request or source text. ' +
-        'If no managed field value is clearly present, omit `customFields` entirely. NEVER invent, infer, auto-complete, or mirror standard fields into managed fields. ' +
-        'Keys in `customFields` must match the field labels exactly as returned by managed_fields_get (e.g. { "Numéro de dossier": "2024-001" }).',
+        'Update an existing contact in the active dossier with the exact `contactUuid` (UUID from contact_lookup/contact_get) and only the fields to change.',
       inputSchema: z.object({
-        contactId: z.string().describe('Existing contact UUID from contact_lookup or contact_get.'),
+        contactUuid: z
+          .string()
+          .describe('Existing contact UUID from contact_lookup or contact_get.'),
         ...contactMutationFieldsSchema
       }),
       execute: async (args) => execute('contact_update', args as Record<string, unknown>)
     }),
     contact_delete: tool({
       description:
-        'Delete a contact from the active dossier. ' +
-        'You MUST call this tool to perform the deletion — do NOT describe the deletion in text. ' +
-        'If you do not have the contactId yet, call contact_lookup first to resolve it. ' +
-        'A bare contact name can be accepted as fallback, but resolving to the exact existing contact first is preferred.',
+        'Delete a contact from the active dossier. A bare contact name is accepted as `contactUuid` fallback, but resolving the exact UUID via contact_lookup first is preferred.',
       inputSchema: z.object({
-        contactId: z
+        contactUuid: z
           .string()
           .describe('ID of the contact to delete, or a bare contact name as fallback.')
       }),
       execute: async (args) => execute('contact_delete', args as Record<string, unknown>)
     }),
     dossier_select: tool({
-      description:
-        'Set a dossier as the active context. You MUST call this tool to activate it — do NOT say "I selected the dossier" in text.',
+      description: 'Set a dossier as the active context.',
       inputSchema: z.object({
         dossierId: z.string().describe('ID of the dossier to select.')
       }),
@@ -649,8 +574,7 @@ export function buildBatchableActionTools(
     }),
     template_select: tool({
       description:
-        'Select a template by name. You MUST call this tool to select it — do NOT say "I selected the template" in text. ' +
-        'The tool result includes a `templateId` field — use it as the `templateId` in the next `document_generate` call.',
+        'Select a template by name. The tool result includes a `templateUuid` field — use it as the `templateUuid` in the next `document_generate` call.',
       inputSchema: z.object({
         templateName: z.string().describe('Name of the template to select.')
       }),
@@ -658,157 +582,117 @@ export function buildBatchableActionTools(
     }),
     dossier_create_key_date: tool({
       description:
-        'Create a new timeline event (chronologie) on a dossier — hearings, appointments, expertises, deadlines, etc. ' +
-        'Before creating, call managed_fields_get so you know the configured event labels to target. ' +
-        'Use this tool only for NEW events. To modify an existing event, call dossier_get first and then use `dossier_update_key_date` with the exact `keyDateId`. ' +
-        'You MUST call this tool to persist the event — do NOT describe the action in text.',
+        'Create a NEW timeline event (chronologie) on a dossier — hearings, appointments, expertises, deadlines, etc. ' +
+        'To modify an existing event, use `dossier_update_key_date` instead.',
       inputSchema: z.object(dossierKeyDateFieldsSchema),
       execute: async (args) => execute('dossier_create_key_date', args as Record<string, unknown>)
     }),
     dossier_update_key_date: tool({
       description:
-        'Update an existing timeline event (chronologie) on a dossier. ' +
-        'Before updating, call managed_fields_get so you know the configured event labels to target, then call dossier_get to read the exact `keyDateId`. ' +
-        '`keyDateId` MUST be the exact existing ID from dossier_get. Never omit it. ' +
-        'Provide only the fields to change, while keeping `label` and `date` explicit in the call. ' +
-        'You MUST call this tool to persist the event update — do NOT describe the action in text.',
+        'Update an existing timeline event (chronologie). `keyDateUuid` MUST be the exact existing ID from dossier_get — never omit it. ' +
+        'Provide only the fields to change, while keeping `label` and `date` explicit in the call.',
       inputSchema: z.object({
-        keyDateId: z.string().describe('Existing key date ID from dossier_get.'),
+        keyDateUuid: z.string().describe('Existing key date ID from dossier_get.'),
         ...dossierKeyDateFieldsSchema
       }),
       execute: async (args) => execute('dossier_update_key_date', args as Record<string, unknown>)
     }),
     dossier_delete_key_date: tool({
-      description:
-        'Delete a key date from a dossier. ' +
-        'Call dossier_get first to resolve the keyDateId. ' +
-        'You MUST call this tool to perform the deletion — do NOT describe the deletion in text.',
+      description: 'Delete a key date from a dossier.',
       inputSchema: z.object({
         dossierId: z.string().describe('Target dossier ID.'),
-        keyDateId: z.string().describe('ID of the key date to delete.')
+        keyDateUuid: z.string().describe('ID of the key date to delete.')
       }),
       execute: async (args) => execute('dossier_delete_key_date', args as Record<string, unknown>)
     }),
     dossier_create_key_reference: tool({
       description:
-        'Create a new key reference on a dossier. ' +
-        'Before creating a key reference, call managed_fields_get so you know the configured key reference labels and field types to target. ' +
-        'Use this tool only for NEW references. To modify an existing key reference, call dossier_get first and then use `dossier_update_key_reference` with the exact `keyReferenceId`. ' +
-        'You MUST call this tool to persist the reference — do NOT describe the action in text.',
+        'Create a NEW key reference on a dossier. To modify an existing key reference, use `dossier_update_key_reference` instead.',
       inputSchema: z.object(dossierKeyReferenceFieldsSchema),
       execute: async (args) =>
         execute('dossier_create_key_reference', args as Record<string, unknown>)
     }),
     dossier_update_key_reference: tool({
       description:
-        'Update an existing key reference on a dossier. ' +
-        'Before updating a key reference, call managed_fields_get, then call dossier_get to read the exact `keyReferenceId`. ' +
-        '`keyReferenceId` MUST be the exact existing ID from dossier_get. Never omit it. ' +
-        'You MUST call this tool to persist the reference update — do NOT describe the action in text.',
+        'Update an existing key reference on a dossier. `keyReferenceUuid` MUST be the exact existing ID from dossier_get — never omit it.',
       inputSchema: z.object({
-        keyReferenceId: z.string().describe('Existing key reference ID from dossier_get.'),
+        keyReferenceUuid: z.string().describe('Existing key reference ID from dossier_get.'),
         ...dossierKeyReferenceFieldsSchema
       }),
       execute: async (args) =>
         execute('dossier_update_key_reference', args as Record<string, unknown>)
     }),
     dossier_delete_key_reference: tool({
-      description:
-        'Delete a key reference from a dossier. ' +
-        'Call dossier_get first to resolve the keyReferenceId. ' +
-        'You MUST call this tool to perform the deletion — do NOT describe the deletion in text.',
+      description: 'Delete a key reference from a dossier.',
       inputSchema: z.object({
         dossierId: z.string().describe('Target dossier ID.'),
-        keyReferenceId: z.string().describe('ID of the key reference to delete.')
+        keyReferenceUuid: z.string().describe('ID of the key reference to delete.')
       }),
       execute: async (args) =>
         execute('dossier_delete_key_reference', args as Record<string, unknown>)
     }),
     dossier_create_billing_item: tool({
       description:
-        'Create a new billing item (prestation) on a dossier — a billable line of work such as a consultation, a drafted act, or a court appearance. ' +
-        'Provide quantity + quantityUnit, unitPriceHtCents, and vatRateBasisPoints; the HT/VAT/TTC totals are computed automatically — do NOT compute or pass them. ' +
-        'Use status "draft" for a new editable item. ' +
-        'Use this tool only for NEW prestations. To modify an existing one, call dossier_get first and use `dossier_update_billing_item` with the exact `billingItemId`. ' +
-        'You MUST call this tool to persist the prestation — do NOT describe the action in text.',
+        'Create a NEW billing item (prestation) on a dossier — a billable line of work such as a consultation, a drafted act, or a court appearance. ' +
+        'To modify an existing one, use `dossier_update_billing_item` instead.',
       inputSchema: z.object(dossierBillingItemFieldsSchema),
       execute: async (args) =>
         execute('dossier_create_billing_item', args as Record<string, unknown>)
     }),
     dossier_update_billing_item: tool({
       description:
-        'Update an existing billing item (prestation) on a dossier. ' +
-        'Call dossier_get first to read the exact `billingItemId`. `billingItemId` MUST be the exact existing ID — never omit it. ' +
-        'Re-state quantity, quantityUnit, unitPriceHtCents, and vatRateBasisPoints; totals are recomputed automatically. ' +
-        'A prestation that has already been invoiced (status "billed") cannot be edited — the tool will report this; do not retry. ' +
-        'You MUST call this tool to persist the update — do NOT describe the action in text.',
+        'Update an existing billing item (prestation). `billingItemUuid` MUST be the exact existing ID from dossier_get — never omit it. ' +
+        'Re-state quantity, quantityUnit, unitPriceHtCents, and vatRateBasisPoints.',
       inputSchema: z.object({
-        billingItemId: z.string().describe('Existing billing item ID from dossier_get.'),
+        billingItemUuid: z.string().describe('Existing billing item ID from dossier_get.'),
         ...dossierBillingItemFieldsSchema
       }),
       execute: async (args) =>
         execute('dossier_update_billing_item', args as Record<string, unknown>)
     }),
     dossier_delete_billing_item: tool({
-      description:
-        'Delete a billing item (prestation) from a dossier. ' +
-        'Call dossier_get first to resolve the billingItemId. ' +
-        'A prestation that has already been invoiced (status "billed") cannot be deleted — the tool will report this; do not retry. ' +
-        'You MUST call this tool to perform the deletion — do NOT describe the deletion in text.',
+      description: 'Delete a billing item (prestation) from a dossier.',
       inputSchema: z.object({
         dossierId: z.string().describe('Target dossier ID.'),
-        billingItemId: z.string().describe('ID of the billing item to delete.')
+        billingItemUuid: z.string().describe('ID of the billing item to delete.')
       }),
       execute: async (args) =>
         execute('dossier_delete_billing_item', args as Record<string, unknown>)
     }),
     note_create: tool({
       description:
-        'Create a NEW note in the dossier — the lawyer’s pense-bête / TODO / reflection log. ' +
-        'Use this whenever the user asks you to remember, jot down, or keep track of something (a reminder, a task, an idea, a supposition to verify), ' +
-        'OR when you should persist a research/reasoning trace for later recall (set kind "ai_log"). ' +
-        'Prefer this over answering in prose when the user’s intent is to STORE information for later. ' +
-        'Use note_update (not note_create) to change an existing note — call note_search first to get its ID. ' +
-        'You MUST call this tool to persist the note — do NOT just describe it in text.',
+        'Create a NEW note in the dossier — an UNDATED reminder, task ("todo"), idea, supposition to verify, or your own research/reasoning trace ("ai_log"). ' +
+        'If the item carries a specific date (deadline, appointment, "rappelle-moi le…"), use dossier_create_key_date instead — dated reminders belong to the timeline, not to notes. ' +
+        'To change an existing note, use note_update instead.',
       inputSchema: z.object(dossierNoteFieldsSchema),
       execute: async (args) => execute('note_create', args as Record<string, unknown>)
     }),
     note_update: tool({
       description:
-        'Update an existing dossier note. Call note_search first to resolve the exact `noteId`. ' +
-        '`noteId` MUST be an exact existing ID — never omit it. Provide only the fields to change (e.g. set status "done" to complete a todo). ' +
-        'You MUST call this tool to persist the change — do NOT describe it in text.',
+        'Update an existing dossier note. `noteUuid` MUST be the exact existing ID from note_search — never omit it. ' +
+        'Provide only the fields to change (e.g. set status "done" to complete a todo).',
       inputSchema: z.object({
-        noteId: z.string().describe('Existing note ID from note_search.'),
+        noteUuid: z.string().describe('Existing note ID from note_search.'),
         ...dossierNoteFieldsSchema
       }),
       execute: async (args) => execute('note_update', args as Record<string, unknown>)
     }),
     note_delete: tool({
-      description:
-        'Delete a note from the dossier. Call note_search first to resolve the noteId, and confirm with the user before deleting. ' +
-        'You MUST call this tool to perform the deletion — do NOT describe it in text.',
+      description: 'Delete a note from the dossier. Confirm with the user before deleting.',
       inputSchema: z.object({
         dossierId: z.string().describe('Target dossier ID.'),
-        noteId: z.string().describe('ID of the note to delete.')
+        noteUuid: z.string().describe('ID of the note to delete.')
       }),
       execute: async (args) => execute('note_delete', args as Record<string, unknown>)
     }),
     document_analyze: tool({
       description:
-        'Read the text of a single document and return it as structured JSON. ' +
-        'Returns: { uuid, rawContent, totalChars, charsReturned }. ' +
-        'Uses the pre-extracted cache when available; on cache miss it runs DOCX / PDF text / OCR extraction in-process and persists the result. ' +
-        'A surfaced error means extraction itself failed (unsupported type, missing OCR data, or read error) — relay it to the user. ' +
-        'Use charStart and charEnd to read a specific character range (both inclusive). ' +
-        'Omit both to read the full document (capped at 12 000 chars). ' +
-        'documentId must be the UUID of the document. If you do not have the UUID, call document_list first (also use this path to resolve a user `@<filename>` mention).',
+        "Read a single document's text as JSON { uuid, rawContent, totalChars, charsReturned }. " +
+        'Uses the extraction cache; on miss it runs DOCX/PDF/OCR extraction and persists it. A surfaced error means extraction failed (unsupported type, missing OCR, read error) — relay it. ' +
+        'Use charStart/charEnd for a specific range (inclusive); omit both for the full document (capped at 12 000 chars).',
       inputSchema: z.object({
-        documentId: z.string().describe('UUID of the document to read.'),
-        dossierId: z
-          .string()
-          .optional()
-          .describe('Target dossier ID. Omit to use the active dossier.'),
+        documentUuid: z.string().describe('UUID of the document to read.'),
+        dossierId: z.string().optional(),
         charStart: z.number().optional().describe('First character offset to return (inclusive).'),
         charEnd: z.number().optional().describe('Last character offset to return (inclusive).')
       }),
@@ -816,17 +700,11 @@ export function buildBatchableActionTools(
     }),
     document_metadata_save: tool({
       description:
-        'Save a description and/or tags for a document. ' +
-        'You MUST call this tool to persist metadata — do NOT describe the save in text. ' +
-        'If you do not have the documentId, call document_list first. ' +
-        'Generate a concise description (1-3 sentences) and at most 5 relevant tags from the document content. ' +
-        'When indexing multiple documents in a single turn, call this tool once per document and continue with the next one without waiting for confirmation.',
+        'Save a description and/or tags for ONE document. Generate a concise description (1-3 sentences) and ≤5 relevant tags from the content. ' +
+        'For several documents, prefer the batch tools.',
       inputSchema: z.object({
-        documentId: z.string().describe('Document ID to update.'),
-        dossierId: z
-          .string()
-          .optional()
-          .describe('Target dossier ID. Omit to use the active dossier.'),
+        documentUuid: z.string().describe('Document ID to update.'),
+        dossierId: z.string().optional(),
         description: z.string().optional().describe('Short description of the document.'),
         tags: z.array(z.string()).describe('List of tags for the document.')
       }),
@@ -838,54 +716,44 @@ export function buildBatchableActionTools(
 /**
  * Terminal action tools: no execute — the SDK stops the loop when called.
  * The runtime reads these from result.steps[*].toolCalls and dispatches them as intents.
- * All descriptions are verbatim from the original createActionTool() calls.
+ * Descriptions are intentionally terse — shared rules live in aiSystemPrompt.ts (see buildDataTools).
  */
 export const terminalActionTools = {
   field_populate: tool({
     description:
-      'Prepare template field filling for a contact. Call this when both contactId and templateId are known.',
+      'Prepare template field filling for a contact. Call this when both contactUuid and templateUuid are known.',
     inputSchema: z.object({
-      contactId: z.string().describe('Contact ID to use.'),
-      templateId: z.string().describe('Template ID to use.')
+      contactUuid: z.string().describe('Contact ID to use.'),
+      templateUuid: z.string().describe('Template ID to use.')
     })
   }),
   document_generate: tool({
     description:
       'Generate a document from a template for a dossier. ' +
-      'You MUST call this tool to trigger generation — do NOT describe the document as generated in text. ' +
       'When the runtime returns a clarification listing missing fields with their template paths in backticks ' +
       '(e.g. "Date d\'audience (`dossier.keyDate.audience.long`)"), the next call MUST reuse those EXACT paths ' +
       'as `tagOverrides` keys.',
     inputSchema: z.object({
       dossierId: z.string().describe('Target dossier ID.'),
-      templateId: z.string().describe('Template ID to use.'),
-      contactId: z.string().optional().describe('Optional primary contact ID.'),
+      templateUuid: z.string().describe('Template ID to use.'),
+      contactUuid: z.string().optional().describe('Optional primary contact ID.'),
       tagOverrides: z
         .record(z.string(), z.string())
         .optional()
         .describe(
-          'Override values for unresolved template tags. ' +
-            'Keys MUST be the exact template macro paths as returned by `template_list` (the `macros` array) ' +
-            'or as quoted in a previous clarification message — for example ' +
-            '`dossier.keyDate.audience.long`, `contact.juridiction.displayName`, `todayLong`. ' +
-            'Do NOT invent short keys (e.g. `dateDAudience`, `audience`) or use marker names ' +
-            '(e.g. `custom.dossier_1`); the runtime will silently drop any key that is not in the macros list.'
+          'Override values for unresolved template tags. Keys MUST be exact template macro paths from `template_list` (`macros`) ' +
+            'or quoted in a prior clarification — e.g. `dossier.keyDate.audience.long`, `contact.juridiction.displayName`, `todayLong`. ' +
+            'Do NOT invent short keys or marker names; any key not in `macros` is silently dropped.'
         )
     })
   }),
   document_metadata_batch: tool({
     description:
-      'Process multiple documents in one shot to generate and persist their metadata (description + tags) without polluting the main conversation context. ' +
-      'Each document is handled by an isolated sub-LLM call with only that document text. ' +
-      'Use this whenever the user wants to "index", "organise", "generate metadata", or "tag all documents" of a dossier — even when no explicit list is provided. ' +
-      'When `documentIds` is omitted, ALL documents without metadata in the dossier are processed automatically. ' +
-      'Prefer this over emitting many `document_metadata_save` calls in a loop.',
+      'Generate and persist metadata (description + tags) for many documents in one shot, each via an isolated sub-LLM call — without polluting the main context. ' +
+      'Omit `documentUuids` to process every document without metadata.',
     inputSchema: z.object({
-      dossierId: z
-        .string()
-        .optional()
-        .describe('Target dossier ID. Omit to use the active dossier.'),
-      documentIds: z
+      dossierId: z.string().optional(),
+      documentUuids: z
         .array(z.string())
         .optional()
         .describe(
@@ -895,33 +763,24 @@ export const terminalActionTools = {
   }),
   document_summary_batch: tool({
     description:
-      'Produce a longer narrative summary (2–4 paragraphs) for multiple documents in one shot, persisted as the document description. Existing tags are preserved. ' +
-      'Each document is handled by an isolated sub-LLM call. ' +
-      'Use this when the user wants a "summary of each document" or "summarise all documents" — distinct from `document_metadata_batch` which produces short descriptions plus tags. ' +
-      'When `documentIds` is omitted, EVERY document in the dossier is summarised.',
+      "Produce a 2–4 paragraph summary for many documents in one shot, saved as each document's description (existing tags preserved), each via an isolated sub-LLM call. " +
+      'Distinct from `document_metadata_batch` (short description + tags). Omit `documentUuids` to summarise every document.',
     inputSchema: z.object({
-      dossierId: z
-        .string()
-        .optional()
-        .describe('Target dossier ID. Omit to use the active dossier.'),
-      documentIds: z
+      dossierId: z.string().optional(),
+      documentUuids: z
         .array(z.string())
         .optional()
         .describe('Optional explicit list of document UUIDs. Omit to summarise every document.')
     })
   }),
   dossier_create: tool({
-    description:
-      'Create a new dossier. ' +
-      'You MUST call this tool to create the dossier — do NOT describe the creation in text.',
+    description: 'Create a new dossier.',
     inputSchema: z.object({
       id: z.string().describe('Name or ID for the new dossier.')
     })
   }),
   dossier_update: tool({
-    description:
-      'Update metadata of an existing dossier. ' +
-      'You MUST call this tool to persist changes — do NOT describe the update in text.',
+    description: 'Update metadata of an existing dossier.',
     inputSchema: z.object({
       id: z.string().describe('Dossier ID to update.'),
       status: z.string().optional().describe('New status.'),
@@ -932,24 +791,21 @@ export const terminalActionTools = {
   document_relocate: tool({
     description:
       'Update a document metadata binding after the file was moved or renamed anywhere inside the same dossier. ' +
-      'Use this only when the physical file already exists at its new path. ' +
-      'You MUST call this tool to persist the new location — do NOT describe the move in text.',
+      'Use this only when the physical file already exists at its new path.',
     inputSchema: z.object({
       documentUuid: z
         .string()
         .describe('Stable UUID of the document whose metadata must be rebound.'),
       dossierId: z.string().describe('Dossier ID containing both the old and new file path.'),
-      fromDocumentId: z
+      fromDocumentPath: z
         .string()
         .optional()
         .describe('Previous relative document path. Optional safety check.'),
-      toDocumentId: z.string().describe('New relative document path inside the same dossier.')
+      toDocumentPath: z.string().describe('New relative document path inside the same dossier.')
     })
   }),
   template_create: tool({
-    description:
-      'Create a new template. ' +
-      'You MUST call this tool to create the template — do NOT describe the creation in text.',
+    description: 'Create a new template.',
     inputSchema: z.object({
       name: z.string().describe('Template name.'),
       content: z.string().describe('Template content.'),
@@ -957,35 +813,28 @@ export const terminalActionTools = {
     })
   }),
   template_update: tool({
-    description:
-      'Update an existing template. ' +
-      'You MUST call this tool to persist changes — do NOT describe the update in text. ' +
-      'Call template_list first if you do not have the template ID.',
+    description: 'Update an existing template (`uuid` from template_list).',
     inputSchema: z.object({
-      id: z.string().describe('Template ID to update.'),
+      uuid: z.string().describe('Template UUID to update.'),
       name: z.string().optional().describe('New name.'),
       content: z.string().optional().describe('New content.'),
       description: z.string().optional().describe('New description.')
     })
   }),
   template_delete: tool({
-    description:
-      'Delete a template. ' +
-      'You MUST call this tool to perform the deletion — do NOT describe the deletion in text. ' +
-      'Call template_list first if you do not have the template ID.',
+    description: 'Delete a template (`uuid` from template_list).',
     inputSchema: z.object({
-      id: z.string().describe('Template ID to delete.')
+      uuid: z.string().describe('Template UUID to delete.')
     })
   }),
   text_generate: tool({
     description:
-      'Request free-text drafting related to the Ordicab context. ' +
-      'You MUST call this tool to trigger drafting — do NOT write the text yourself.',
+      'Request free-text drafting related to the Ordicab context — never write the draft yourself.',
     inputSchema: z.object({
       textType: z
         .enum(['email', 'letter', 'analysis', 'summary', 'text'])
         .describe('Type of text to produce.'),
-      contactId: z.string().optional().describe('Optional target contact ID.'),
+      contactUuid: z.string().optional().describe('Optional target contact ID.'),
       language: z.string().optional().describe('Output language, e.g. fr or en.'),
       instructions: z.string().describe('Drafting instructions.')
     })
@@ -993,15 +842,9 @@ export const terminalActionTools = {
   dossier_summarize: tool({
     description:
       'Produce an executive summary of an ENTIRE dossier: object/nature, parties, facts & ' +
-      'context, timeline and upcoming deadlines, key references, and open points to handle. ' +
-      'Use this when the user asks for a summary, synthesis or overview of the dossier ' +
-      '("synthétise ce dossier", "résumé du dossier", "fais le point sur le dossier"). ' +
-      'You MUST call this tool to trigger the synthesis — do NOT write the summary yourself.',
+      'context, timeline and upcoming deadlines, key references, and open points to handle — never write the summary yourself.',
     inputSchema: z.object({
-      dossierId: z
-        .string()
-        .optional()
-        .describe('Target dossier ID. Omit to use the active dossier.'),
+      dossierId: z.string().optional(),
       language: z.string().optional().describe('Output language, e.g. fr or en.')
     })
   }),

@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -7,6 +7,12 @@ import {
   type TemplateDraft,
   type TemplateRecord
 } from '@shared/types'
+import type { TagLintIssue } from '@shared/templateContent'
+import {
+  buildTagPathLocalizer,
+  templateRoutineCatalog,
+  type TemplateRoutineEntry
+} from '@shared/templateRoutines'
 
 import { AlertBanner, Button, Field, Input, Select } from '@renderer/components/ui'
 
@@ -45,6 +51,16 @@ interface TemplateEditorProps {
   onApplyCabinetDefaultDocx?: () => Promise<void>
   /** Whether the cabinet has a default DOCX template — controls availability of the convert action. */
   cabinetHasDefaultDocx?: boolean
+  /** Tag catalog forwarded to the editor for chip validation and autocomplete. */
+  tagSuggestions?: TemplateRoutineEntry[]
+  /** Known category names, offered as datalist suggestions for the category field. */
+  existingCategories?: string[]
+  /** Opens the AI tag-detection dialog for the edited template. */
+  onTagify?: () => void
+  /** Unknown tags found at save time — shown as a warning with suggestions. */
+  lintIssues?: TagLintIssue[] | null
+  onApplyLintSuggestion?: (issue: TagLintIssue, suggestion: string) => void
+  onSaveAnyway?: () => void
 }
 
 export function TemplateEditor({
@@ -62,10 +78,20 @@ export function TemplateEditor({
   onOpenDocx,
   onRemoveDocx,
   onApplyCabinetDefaultDocx,
-  cabinetHasDefaultDocx
+  cabinetHasDefaultDocx,
+  tagSuggestions,
+  existingCategories,
+  onTagify,
+  lintIssues,
+  onApplyLintSuggestion,
+  onSaveAnyway
 }: TemplateEditorProps): React.JSX.Element {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const tagInsertRef = useRef<((tagPath: string) => void) | null>(null)
+  const localizeTagPath = useMemo(
+    () => buildTagPathLocalizer(templateRoutineCatalog, i18n.language),
+    [i18n.language]
+  )
   const hasDocxSource = template?.hasDocxSource === true
   const isDocxCreationFlow = mode === 'create' && preferredSourceType === 'docx' && !hasDocxSource
   const hasPickedFile = isDocxCreationFlow && pendingDocxFileName !== null
@@ -83,14 +109,14 @@ export function TemplateEditor({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex shrink-0 items-start justify-between gap-4">
         <div className="space-y-2">
-          <h3 className="text-base font-semibold text-[#1a1a1a]">
+          <h3 className="text-base font-semibold text-ink">
             {mode === 'create'
               ? isDocxCreationFlow
                 ? t('templates.editor.createDocxTitle')
                 : t('templates.editor.createTitle')
               : t('templates.editor.editTitle')}
           </h3>
-          <p className="text-sm text-[#1a1a1a]">
+          <p className="text-sm text-ink">
             {isDocxCreationFlow
               ? t('templates.editor.createDocxDescription')
               : t('templates.editor.description')}
@@ -104,6 +130,43 @@ export function TemplateEditor({
 
       {errors.form ? <AlertBanner tone="error">{errors.form}</AlertBanner> : null}
 
+      {lintIssues && lintIssues.length > 0 ? (
+        <div className="shrink-0 rounded-2xl border border-warning-border bg-warning-tint px-4 py-3">
+          <p className="text-sm font-medium text-warning-deep">{t('templates.lint.title')}</p>
+          <p className="mt-1 text-sm text-warning-deep">{t('templates.lint.description')}</p>
+          <ul className="mt-3 space-y-2">
+            {lintIssues.map((issue) => (
+              <li key={issue.normalizedPath} className="flex flex-wrap items-center gap-2 text-xs">
+                <code className="rounded-full border border-warning-border px-2.5 py-0.5 font-mono text-warning-deep">
+                  {`{{${issue.rawPath}}}`}
+                </code>
+                {issue.suggestions.length > 0 ? (
+                  <>
+                    <span className="text-warning-deep">{t('templates.lint.didYouMean')}</span>
+                    {issue.suggestions.map((suggestion) => (
+                      <button
+                        key={suggestion}
+                        type="button"
+                        title={`{{${suggestion}}}`}
+                        onClick={() => onApplyLintSuggestion?.(issue, suggestion)}
+                        className="rounded-full border border-success-border bg-success-tint px-2.5 py-0.5 font-mono text-success-deep transition hover:bg-success-tint/60"
+                      >
+                        {`{{${localizeTagPath(suggestion)}}}`}
+                      </button>
+                    ))}
+                  </>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+          <div className="mt-3 flex justify-end">
+            <Button type="button" variant="ghost" size="sm" onClick={() => onSaveAnyway?.()}>
+              {t('templates.lint.saveAnyway')}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       <form
         className="flex min-h-0 flex-1 flex-col gap-4"
         onSubmit={(event) => {
@@ -112,7 +175,7 @@ export function TemplateEditor({
         }}
       >
         {/* Name + description row */}
-        <div className="grid shrink-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,12rem)]">
+        <div className="grid shrink-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,12rem)_minmax(0,12rem)]">
           <Field label={t('templates.editor.name')} htmlFor="template-name" error={errors.name}>
             <Input
               id="template-name"
@@ -148,18 +211,39 @@ export function TemplateEditor({
               ))}
             </Select>
           </Field>
+
+          <Field label={t('templates.editor.categoryField')} htmlFor="template-category">
+            <Input
+              id="template-category"
+              type="text"
+              list="template-category-options"
+              value={value.category ?? ''}
+              onChange={(event) => onChange('category', event.target.value)}
+              placeholder={t('templates.editor.categoryPlaceholder')}
+            />
+            <datalist id="template-category-options">
+              {(existingCategories ?? []).map((category) => (
+                <option key={category} value={category} />
+              ))}
+            </datalist>
+          </Field>
         </div>
 
-        <div className="flex shrink-0 items-center justify-between gap-3 rounded-2xl border border-[#e5e3da] bg-white px-4 py-3 text-sm text-[#1a1a1a]">
+        <div className="flex shrink-0 items-center justify-between gap-3 rounded-2xl border border-hairline bg-white px-4 py-3 text-sm text-ink">
           {hasDocxSource ? (
             <>
               <div className="flex items-center gap-2">
-                <span className="rounded-full border border-[#cfe0c5] bg-[#f1f7ec] px-2 py-0.5 text-xs font-semibold tracking-[0.12em] text-[#3c6132]">
+                <span className="rounded-full border border-success-border bg-success-tint px-2 py-0.5 text-xs font-semibold tracking-[0.12em] text-success-deep">
                   {t('templates.list.docxBadge')}
                 </span>
-                <span className="text-sm text-[#1a1a1a]">{t('templates.editor.docxAttached')}</span>
+                <span className="text-sm text-ink">{t('templates.editor.docxAttached')}</span>
               </div>
               <div className="flex items-center gap-2">
+                {onTagify ? (
+                  <Button type="button" variant="ghost" size="sm" onClick={onTagify}>
+                    {t('templates.tagify.openButton')}
+                  </Button>
+                ) : null}
                 <Button type="button" size="sm" onClick={() => void onOpenDocx?.()}>
                   {t('templates.editor.openInWord')}
                 </Button>
@@ -167,7 +251,7 @@ export function TemplateEditor({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="border border-[#e8c7c7] text-[#9c2f2f] hover:bg-[#fbf0f0]"
+                  className="border border-destructive-border text-destructive hover:bg-destructive-tint"
                   onClick={() => {
                     if (window.confirm(t('templates.editor.removeDocxConfirm'))) {
                       void onRemoveDocx?.()
@@ -185,10 +269,10 @@ export function TemplateEditor({
                   <span className="rounded-full border border-aurora/30 bg-aurora/10 px-2 py-0.5 text-xs font-semibold tracking-[0.12em] text-aurora">
                     {t('templates.list.docxBadge')}
                   </span>
-                  <span className="truncate text-xs text-[#1a1a1a]">{pickedFileName}</span>
+                  <span className="truncate text-xs text-ink">{pickedFileName}</span>
                 </div>
               ) : (
-                <span className="text-xs text-[#5c5c5a]">
+                <span className="text-xs text-ink-muted">
                   {t('templates.editor.docxImportHint')}
                 </span>
               )}
@@ -198,10 +282,15 @@ export function TemplateEditor({
                   : t('templates.editor.importDocx')}
               </Button>
             </div>
-          ) : mode === 'create' && !template?.id ? (
-            <span className="text-xs text-[#5c5c5a]">{t('templates.editor.richTextHint')}</span>
+          ) : mode === 'create' && !template?.uuid ? (
+            <span className="text-xs text-ink-muted">{t('templates.editor.richTextHint')}</span>
           ) : (
             <div className="flex w-full items-center justify-end gap-2">
+              {onTagify ? (
+                <Button type="button" variant="ghost" size="sm" onClick={onTagify}>
+                  {t('templates.tagify.openButton')}
+                </Button>
+              ) : null}
               {mode === 'edit' && onApplyCabinetDefaultDocx ? (
                 <Button
                   type="button"
@@ -231,10 +320,10 @@ export function TemplateEditor({
         </div>
 
         {/* Content — two-column: editor left, tag panel right */}
-        <div className="flex min-h-0 flex-1 flex-col gap-2 text-sm text-[#1a1a1a]">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 text-sm text-ink">
           <div className="flex shrink-0 items-center justify-between gap-3">
             <label htmlFor="template-content">{contentLabel}</label>
-            <p className="text-xs text-[#5c5c5a]">
+            <p className="text-xs text-ink-muted">
               {isDocxCreationFlow && !hasPickedFile
                 ? t('templates.editor.createDocxHint')
                 : hasDocxSource || hasPickedFile
@@ -248,8 +337,8 @@ export function TemplateEditor({
           >
             <div className="flex min-h-0 flex-col gap-3">
               {isDocxCreationFlow && !hasPickedFile ? (
-                <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 rounded-2xl border border-[#e5e3da] bg-[#eeece3] p-8 text-center">
-                  <p className="max-w-xl text-sm text-[#1a1a1a]">
+                <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 rounded-2xl border border-hairline bg-[#eeece3] p-8 text-center">
+                  <p className="max-w-xl text-sm text-ink">
                     {t('templates.editor.createDocxBody')}
                   </p>
                   <Button type="button" size="sm" onClick={() => void onImportDocx?.()}>
@@ -264,9 +353,10 @@ export function TemplateEditor({
                     onChange={(nextValue) => onChange('content', nextValue)}
                     tagInsertRef={tagInsertRef}
                     readOnly={hasPickedFile || (mode === 'edit' && hasDocxSource)}
+                    tagSuggestions={tagSuggestions}
                   />
                   {errors.content ? (
-                    <span className="mt-1 block text-xs text-[#9c2f2f]">{errors.content}</span>
+                    <span className="mt-1 block text-xs text-destructive">{errors.content}</span>
                   ) : null}
                 </div>
               )}
@@ -285,7 +375,7 @@ export function TemplateEditor({
           </div>
         </div>
 
-        <div className="flex shrink-0 justify-end gap-2 border-t border-[#e5e3da] pt-4">
+        <div className="flex shrink-0 justify-end gap-2 border-t border-hairline pt-4">
           <Button type="button" variant="ghost" onClick={onCancel}>
             {t('templates.editor.cancelButton')}
           </Button>

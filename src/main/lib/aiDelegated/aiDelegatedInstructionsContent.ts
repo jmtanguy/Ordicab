@@ -31,7 +31,7 @@ import {
 /**
  * Minimal dossier descriptor used while rendering delegated instructions for external assistants.
  */
-export interface DelegatedInstructionDossier {
+interface DelegatedInstructionDossier {
   id: string
   uuid?: string
   folderPath: string
@@ -113,7 +113,7 @@ function buildDelegatedExamples(): {
   dossier: ReturnType<typeof dossierMetadataFileSchema.parse>
 } {
   const keyDate = keyDateSchema.parse({
-    id: '5f8f5d83-f0d3-4a53-9db4-feb6b6db03c7',
+    uuid: '5f8f5d83-f0d3-4a53-9db4-feb6b6db03c7',
     dossierId: 'example-dossier',
     label: 'Audience de mise en etat',
     date: '2026-04-15',
@@ -121,7 +121,7 @@ function buildDelegatedExamples(): {
   })
 
   const keyReference = keyReferenceSchema.parse({
-    id: '9d086d17-cf57-4743-bb05-d8f12a2706d8',
+    uuid: '9d086d17-cf57-4743-bb05-d8f12a2706d8',
     dossierId: 'example-dossier',
     label: 'Numero RG',
     value: 'RG 26/00124',
@@ -129,7 +129,6 @@ function buildDelegatedExamples(): {
   })
 
   const contact = contactRecordSchema.parse({
-    id: '7aa77f6f-84f6-4d54-9b79-8bb4c1570a11',
     uuid: '7aa77f6f-84f6-4d54-9b79-8bb4c1570a11',
     dossierId: 'example-dossier',
     title: 'Me',
@@ -161,7 +160,7 @@ function buildDelegatedExamples(): {
   })
 
   const template = templateRecordSchema.parse({
-    id: '3f84e5b6-3912-49dc-9c7d-8c446df43b0f',
+    uuid: '3f84e5b6-3912-49dc-9c7d-8c446df43b0f',
     name: 'Lettre de mise en demeure',
     content: 'Objet : Mise en demeure\n\nBonjour {{contact.displayName}},',
     description: 'Modele de courrier initial',
@@ -171,7 +170,8 @@ function buildDelegatedExamples(): {
   })
 
   const dossier = dossierMetadataFileSchema.parse({
-    id: 'example-dossier',
+    slug: 'example-dossier',
+    uuid: '7f3a1c2e-0000-4000-8000-000000000001',
     name: 'Dossier Exemple',
     type: 'Contentieux civil',
     status: 'active',
@@ -327,9 +327,9 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
     '2. Write exactly one complete JSON intent file per mutation into the inbox folder.',
     '3. Wait for the matching response file after each emitted intent. Delegated workflows are multi-step and Ordicab may instruct you to continue, ask the user for missing information, or stop.',
     '4. For updates or deletes, use the real existing IDs from the canonical files and rely on UUIDs to disambiguate collisions before writing the payload.',
-    '5. Never invent an `id` for an update. If the existing record ID is unknown, either omit `id` to create a new record when that matches the request, or ask for clarification before writing the intent.',
+    '5. Never invent a `uuid` for an update. If the existing record UUID is unknown, either omit `uuid` to create a new record when that matches the request, or ask for clarification before writing the intent.',
     '6. If the target entity cannot be identified uniquely, or if a field required by the action is missing, ask for clarification instead of guessing.',
-    '7. For `contact.upsert`, include `id` to update an existing contact (merge — only the provided fields are changed, existing fields are preserved). Omit `id` to create a new contact.',
+    '7. For `contact.upsert`, include `uuid` to update an existing contact (merge — only the provided fields are changed, existing fields are preserved). Omit `uuid` to create a new contact.',
     '8. When names collide, prefer stable IDs, dossier UUIDs, and document UUIDs from the canonical files over display names or filenames.',
     '',
     '### Response Workflow',
@@ -380,18 +380,18 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
     '',
     '#### Template storage layout',
     `\`${templatesPath}\` is a **lean index** — each record contains \`id\`, \`name\`, \`description\`, \`macros\`, \`hasDocxSource\`, \`updatedAt\`. No \`content\` field is present.`,
-    'Full HTML content for each template lives in a separate file: `<domain>/.ordicab/templates/<id>.html`.',
-    'When a DOCX source exists (`hasDocxSource: true`), it is at: `<domain>/.ordicab/templates/<id>.docx`.',
+    'Full HTML content for each template lives in a separate file: `<domain>/.ordicab/templates/<uuid>.html`.',
+    'When a DOCX source exists (`hasDocxSource: true`), it is at: `<domain>/.ordicab/templates/<uuid>.docx`.',
     '',
     '#### Using the index efficiently',
     '- **Variable compatibility check**: the `macros` array in the index lists every placeholder the template uses (e.g. `["contact.displayName", "dossier.name"]`). Use this to decide whether a template is compatible with the available dossier data — no need to load the HTML for this check.',
-    '- **Content editing or generation preview**: read `<domain>/.ordicab/templates/<id>.html` on demand only when you need to inspect, modify, or show the full template text.',
+    '- **Content editing or generation preview**: read `<domain>/.ordicab/templates/<uuid>.html` on demand only when you need to inspect, modify, or show the full template text.',
     '',
     'To identify the right template for a `generate.document` action:',
-    '1. Read the templates index file to list all available templates with their `id`, `name`, `description`, and `macros`.',
+    '1. Read the templates index file to list all available templates with their `uuid`, `name`, `description`, and `macros`.',
     '2. Filter templates by matching `name` or `description` against the desired document type.',
     '3. If multiple templates match, prefer the one whose name or description best fits the context; ask for clarification only if still ambiguous.',
-    '4. Never invent a `templateId`. If no suitable template exists, suggest creating one first with `template.create`.',
+    '4. Never invent a `templateUuid`. If no suitable template exists, suggest creating one first with `template.create`.',
     '5. Do not try to pre-validate `macros` against dossier data manually — many fields are computed at render time. Emit the intent and rely on the failure file (see "Verifying Intent Outcomes") if any fields are missing.',
     '',
     '### Procedure: "Organize the dossier"',
@@ -407,7 +407,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
     '5. Complete the dossier details that can be inferred reliably from the documents with `dossier.update`, such as dossier type, status, and the dossier `information` note when the evidence is clear.',
     '6. Extract contacts from the documents and persist them with `contact.upsert`.',
     '7. Extract key dates from the documents and persist them with `dossier.upsertKeyDate`.',
-    '8. If a contact, key date, or dossier detail may already exist, re-read the canonical files first and use the real existing `id` only for updates.',
+    '8. If a contact, key date, or dossier detail may already exist, re-read the canonical files first and use the real existing identifier (`uuid`; `id` for dossiers) only for updates.',
     '9. If a contact identity, role, date meaning, or dossier detail is ambiguous, ask for clarification instead of guessing.',
     '10. Emit multiple small intents in this order instead of one large batch payload: document metadata first, then dossier details, then contacts, then key dates.',
     '',
@@ -447,7 +447,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
       ? `- Omit the \`country\` field when the contact's country is "${params.entityCountry}" (the practice's country). Only populate \`country\` when a contact is clearly in a different country.`
       : '- Include `country` only when clearly documented; omit it when it can be reasonably inferred from context',
     '- Never invent or guess missing identity fields. If a field cannot be clearly extracted from the document, omit it rather than inferring a value',
-    '- Use existing contact `id` values only when updating known contacts; for new contacts omit the `id` field',
+    '- Use existing contact `uuid` values only when updating known contacts; for new contacts omit the `uuid` field',
     '- When a contact appears in multiple documents with the same role, use the most complete version and consolidate into a single `contact.upsert` per person',
     '- If the same person appears with different roles across documents, create separate contact records for each distinct role context',
     '',
@@ -520,7 +520,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
     '',
     '#### Contacts',
     '**Important**: `displayName` is a **computed field** derived from `title`, `firstName`, `additionalFirstNames`, and `lastName`. Never include `displayName` in contact write intents—it is automatically computed at render time.',
-    '**Partial update (merge semantics)**: when updating an existing contact, include `id` and only the fields you want to change — all other fields are preserved from the existing record. Only omit `id` when creating a new contact.',
+    '**Partial update (merge semantics)**: when updating an existing contact, include `uuid` and only the fields you want to change — all other fields are preserved from the existing record. Only omit `uuid` when creating a new contact.',
     'Create or update:',
     'If role or another useful field is known, include it. If some action truly requires a missing field, ask the user before emitting the intent.',
     'For the `role` field, always prefer one of the configured contact roles listed below. Only use a custom role if none of the configured roles fits.',
@@ -576,7 +576,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
     ),
     '',
     '#### Key Dates',
-    'Create a new key date: omit `id`.',
+    'Create a new key date: omit `uuid`.',
     toJsonSnippet(
       buildIntentEnvelopeExample({
         commandId: 'key-date-create-1',
@@ -591,7 +591,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
         }
       })
     ),
-    'Update an existing key date: include the real existing `id` from canonical files. Never invent one.',
+    'Update an existing key date: include the real existing `uuid` from canonical files. Never invent one.',
     toJsonSnippet(
       buildIntentEnvelopeExample({
         commandId: 'key-date-upsert-1',
@@ -610,13 +610,13 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
         action: 'dossier.deleteKeyDate',
         payload: {
           dossierId: delegatedKeyDateExample.dossierId,
-          keyDateId: delegatedKeyDateExample.id
+          keyDateUuid: delegatedKeyDateExample.uuid
         }
       })
     ),
     '',
     '#### Key References',
-    'Create a new key reference: omit `id`.',
+    'Create a new key reference: omit `uuid`.',
     toJsonSnippet(
       buildIntentEnvelopeExample({
         commandId: 'key-reference-create-1',
@@ -631,7 +631,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
         }
       })
     ),
-    'Update an existing key reference: include the real existing `id` from canonical files. Never invent one.',
+    'Update an existing key reference: include the real existing `uuid` from canonical files. Never invent one.',
     toJsonSnippet(
       buildIntentEnvelopeExample({
         commandId: 'key-reference-upsert-1',
@@ -650,7 +650,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
         action: 'dossier.deleteKeyReference',
         payload: {
           dossierId: delegatedKeyReferenceExample.dossierId,
-          keyReferenceId: delegatedKeyReferenceExample.id
+          keyReferenceUuid: delegatedKeyReferenceExample.uuid
         }
       })
     ),
@@ -717,7 +717,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
         action: 'document.analyze',
         payload: {
           dossierId: 'Client Alpha',
-          documentId: 'subfolder/filename.pdf'
+          documentPath: 'subfolder/filename.pdf'
         }
       })
     ),
@@ -731,7 +731,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
         action: 'document.saveMetadata',
         payload: {
           dossierId: 'Client Alpha',
-          documentId: 'subfolder/filename.pdf',
+          documentPath: 'subfolder/filename.pdf',
           description: 'Description generated from the extracted text.',
           tags: ['2026', 'tag1', 'tag2']
         }
@@ -749,7 +749,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
         action: 'document.saveMetadata',
         payload: {
           dossierId: 'Client Alpha',
-          documentId: 'subfolder/filename.pdf',
+          documentPath: 'subfolder/filename.pdf',
           description: 'Optional description',
           tags: ['tag1', 'tag2']
         }
@@ -757,7 +757,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
     ),
     'Use this action only to update `description` and `tags` for an existing document.',
     'Always sort document tags in alphabetical order before writing the payload.',
-    'Execution is still relativePath-based today, so UUIDs are for discovery and disambiguation, while `documentId` remains the canonical relative path.',
+    'Execution is still relativePath-based today, so UUIDs are for discovery and disambiguation, while `documentPath` remains the canonical relative path.',
     'If the same document was moved or renamed outside Ordicab and you know its UUID, use `document.relocate` to preserve the existing metadata binding:',
     toJsonSnippet(
       buildIntentEnvelopeExample({
@@ -768,8 +768,8 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
         payload: {
           dossierId: 'Client Alpha',
           documentUuid: 'document-uuid-1',
-          fromDocumentId: 'old-folder/filename.pdf',
-          toDocumentId: 'new-folder/filename.pdf'
+          fromDocumentPath: 'old-folder/filename.pdf',
+          toDocumentPath: 'new-folder/filename.pdf'
         }
       })
     ),
@@ -779,7 +779,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
     `Before editing template content, read the supported routine guide at ${templateRoutinesPath}.`,
     'Prefer routines listed in that guide over ad hoc placeholders because those routines are supported directly by Ordicab.',
     'The `macros` field in the index is computed by Ordicab from the HTML content — do not include it in intent payloads.',
-    'To edit an existing template, read its HTML content first from `<domain>/.ordicab/templates/<id>.html`, then emit a `template.update` intent with the modified content.',
+    'To edit an existing template, read its HTML content first from `<domain>/.ordicab/templates/<uuid>.html`, then emit a `template.update` intent with the modified content.',
     'Create:',
     toJsonSnippet(
       buildIntentEnvelopeExample({
@@ -794,7 +794,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
         }
       })
     ),
-    'Update (read `<domain>/.ordicab/templates/<id>.html` first, then emit with modified content):',
+    'Update (read `<domain>/.ordicab/templates/<uuid>.html` first, then emit with modified content):',
     toJsonSnippet(
       buildIntentEnvelopeExample({
         commandId: 'template-update-1',
@@ -802,7 +802,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
         originDeviceId: params.originDeviceId,
         action: 'template.update',
         payload: {
-          id: delegatedTemplateExample.id,
+          uuid: delegatedTemplateExample.uuid,
           name: delegatedTemplateExample.name,
           content: delegatedTemplateExample.content,
           description: delegatedTemplateExample.description
@@ -817,7 +817,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
         originDeviceId: params.originDeviceId,
         action: 'template.delete',
         payload: {
-          id: delegatedTemplateExample.id
+          uuid: delegatedTemplateExample.uuid
         }
       })
     ),
@@ -833,7 +833,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
         action: 'generate.document',
         payload: {
           dossierId: 'Client Alpha',
-          templateId: delegatedTemplateExample.id,
+          templateUuid: delegatedTemplateExample.uuid,
           description: 'Concise description of the generated document purpose',
           tags: ['2026', 'example-tag']
         }
@@ -848,7 +848,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
         action: 'generate.document',
         payload: {
           dossierId: 'Client Alpha',
-          templateId: delegatedTemplateExample.id,
+          templateUuid: delegatedTemplateExample.uuid,
           description: 'Concise description of the generated document purpose',
           tags: ['2026', 'example-tag'],
           tagOverrides: {
@@ -864,7 +864,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
     '#### Domain Files',
     `- Entity profile: ${entityPath}`,
     `- Templates index (lean, no content): ${templatesPath}`,
-    `- Template HTML content (on-demand): <domain>/.ordicab/templates/<id>.html`,
+    `- Template HTML content (on-demand): <domain>/.ordicab/templates/<uuid>.html`,
     `- Template routines guide: ${templateRoutinesPath}`,
     `- Delegated intent inbox: ${inboxPath}`,
     `- Delegated responses: ${responsesPath}`,
@@ -923,7 +923,7 @@ export function buildDomainRootAiDelegatedInstructions(input: {
     `- Registry: ${registryPath}`,
     `- Entity profile: ${getDomainEntityPath(input.domainPath)}`,
     `- Templates index (lean, no content): ${getDomainTemplatesPath(input.domainPath)}`,
-    `- Template HTML content (on-demand): ${getDomainOrdicabPath(input.domainPath)}/templates/<id>.html`,
+    `- Template HTML content (on-demand): ${getDomainOrdicabPath(input.domainPath)}/templates/<uuid>.html`,
     `- Template routines guide: ${templateRoutinesPath}`,
     '',
     `## Registered Dossier Source Paths (${input.dossiers.length} total)`,
@@ -954,7 +954,7 @@ export function buildDomainRootAiDelegatedInstructions(input: {
       contactRoles: input.contactRoles,
       originDeviceId: input.originDeviceId,
       dossiers: input.dossiers.map((dossier) => ({
-        id: dossier.metadata.id,
+        id: dossier.metadata.slug,
         uuid: dossier.metadata.uuid,
         folderName: basename(dossier.dossierPath),
         folderPath: dossier.dossierPath

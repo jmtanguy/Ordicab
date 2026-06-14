@@ -17,15 +17,15 @@ export function StepShell({
     <div className="flex flex-col gap-5">
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <h2 className="text-xl font-semibold leading-snug text-[#1a1a1a] md:text-2xl">{title}</h2>
+          <h2 className="text-xl font-semibold leading-snug text-ink md:text-2xl">{title}</h2>
           {badge ? (
-            <span className="rounded-full border border-[#e5e3da] bg-[#f4f3ee] px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-[#8a8a85]">
+            <span className="rounded-full border border-hairline bg-parchment px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-ink-subtle">
               {badge}
             </span>
           ) : null}
         </div>
         {description ? (
-          <p className="max-w-2xl text-pretty text-base leading-relaxed text-[#5c5c5a]">
+          <p className="max-w-2xl text-pretty text-base leading-relaxed text-ink-muted">
             {description}
           </p>
         ) : null}

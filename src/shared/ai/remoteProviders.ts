@@ -17,7 +17,7 @@ export interface RemoteProviderPreset {
   requiresProjectRef?: boolean
 }
 
-export type ModelCostPerformance = 'low' | 'balanced' | 'high'
+type ModelCostPerformance = 'low' | 'balanced' | 'high'
 
 export interface RemoteToolModelDefinition {
   name: string
@@ -30,7 +30,7 @@ export interface RemoteToolModelDefinition {
   pricing?: { inputEurPer10k: number; outputEurPer10k: number }
 }
 
-export const REMOTE_PROVIDER_TOOL_MODELS: Readonly<
+const REMOTE_PROVIDER_TOOL_MODELS: Readonly<
   Record<RemoteProviderKind, RemoteToolModelDefinition[]>
 > = {
   // Low-cost model is intentionally first for default selection.
@@ -201,7 +201,7 @@ export function normalizeOpenAiCompatibleBaseUrl(raw: string): string {
     .replace(/\/$/, '')
 }
 
-export function getRemoteProviderPreset(kind: RemoteProviderKind): RemoteProviderPreset {
+function getRemoteProviderPreset(kind: RemoteProviderKind): RemoteProviderPreset {
   const found = REMOTE_PROVIDER_PRESETS.find((preset) => preset.kind === kind)
   if (found) return found
   const fallback = REMOTE_PROVIDER_PRESETS[0]

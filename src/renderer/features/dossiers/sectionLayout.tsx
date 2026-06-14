@@ -4,17 +4,31 @@ import { cn } from '@renderer/lib/utils'
 
 interface SectionHeaderProps {
   badge: string
+  badgeTitle?: string
   count?: ReactNode
   actions?: ReactNode
 }
 
-export function SectionHeader({ badge, count, actions }: SectionHeaderProps): React.JSX.Element {
+export function SectionHeader({
+  badge,
+  badgeTitle,
+  count,
+  actions
+}: SectionHeaderProps): React.JSX.Element {
   return (
     <div className="flex min-h-10 shrink-0 flex-wrap items-center justify-between gap-3">
       <div className="flex items-baseline gap-3">
-        <p className="text-xs uppercase tracking-[0.16em] text-[#5c5c5a]">{badge}</p>
+        <p
+          title={badgeTitle}
+          className={cn(
+            'text-xs uppercase tracking-[0.16em] text-ink-muted',
+            badgeTitle ? 'cursor-help' : undefined
+          )}
+        >
+          {badge}
+        </p>
         {count !== undefined && count !== null ? (
-          <span className="text-xs text-[#8a8a85]">{count}</span>
+          <span className="text-xs text-ink-subtle">{count}</span>
         ) : null}
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
@@ -43,7 +57,7 @@ export function SearchField({
     <div className={cn('relative min-w-48 flex-1', className)}>
       <svg
         aria-hidden="true"
-        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8a8a85]"
+        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-subtle"
         width="14"
         height="14"
         viewBox="0 0 16 16"
@@ -61,7 +75,7 @@ export function SearchField({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         aria-label={ariaLabel}
-        className="h-10 w-full rounded-full border border-[#e5e3da] bg-white pl-9 pr-4 text-sm text-[#1a1a1a] outline-none transition placeholder:text-[#8a8a85] focus:border-aurora focus:ring-2 focus:ring-aurora/30"
+        className="h-10 w-full rounded-full border border-hairline bg-white pl-9 pr-4 text-sm text-ink outline-none transition placeholder:text-ink-subtle focus:border-aurora focus:ring-2 focus:ring-aurora/30"
       />
     </div>
   )
@@ -88,10 +102,50 @@ export function PillSelect<T extends string>({
       value={value}
       onChange={(event) => onChange(event.target.value as T)}
       aria-label={ariaLabel}
-      className="h-10 rounded-full border border-[#e5e3da] bg-white px-4 text-sm text-[#1a1a1a] outline-none transition focus:border-aurora focus:ring-2 focus:ring-aurora/30"
+      className="h-10 rounded-full border border-hairline bg-white px-4 text-sm text-ink outline-none transition focus:border-aurora focus:ring-2 focus:ring-aurora/30"
     >
       {children}
     </select>
+  )
+}
+
+interface SegmentedControlProps<T extends string> {
+  value: T
+  onChange: (value: T) => void
+  options: { value: T; label: string }[]
+  ariaLabel?: string
+}
+
+export function SegmentedControl<T extends string>({
+  value,
+  onChange,
+  options,
+  ariaLabel
+}: SegmentedControlProps<T>): React.JSX.Element {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={ariaLabel}
+      className="inline-flex shrink-0 rounded-full border border-hairline bg-white p-0.5"
+    >
+      {options.map((option) => {
+        const active = option.value === value
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            onClick={() => onChange(option.value)}
+            className={`rounded-full px-3 py-1 text-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aurora/40 ${
+              active ? 'bg-aurora/10 font-medium text-aurora' : 'text-ink-muted hover:text-ink'
+            }`}
+          >
+            {option.label}
+          </button>
+        )
+      })}
+    </div>
   )
 }
 
@@ -104,7 +158,7 @@ export function ListContainer({ children, className }: ListContainerProps): Reac
   return (
     <div
       className={cn(
-        'min-h-0 flex-1 overflow-hidden rounded-2xl border border-[#e5e3da] bg-white shadow-[0_1px_2px_rgba(15,122,138,0.04)]',
+        'min-h-0 flex-1 overflow-hidden rounded-2xl border border-hairline bg-white shadow-[0_1px_2px_rgba(15,122,138,0.04)]',
         className
       )}
     >
@@ -119,7 +173,7 @@ interface ColumnHeaderProps {
 
 export function ColumnHeader({ children }: ColumnHeaderProps): React.JSX.Element {
   return (
-    <div className="flex h-9 items-center gap-3 border-b border-deep-space bg-[#fbf9f4] px-4 text-xs font-medium uppercase tracking-[0.12em] text-[#8a8a85]">
+    <div className="flex h-9 items-center gap-3 border-b border-deep-space bg-parchment-bright px-4 text-xs font-medium uppercase tracking-[0.12em] text-ink-subtle">
       {children}
     </div>
   )
@@ -149,8 +203,8 @@ export function IconButton({
       className={cn(
         'relative z-10 flex h-7 w-7 items-center justify-center rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aurora/40 disabled:pointer-events-none disabled:opacity-50',
         tone === 'danger'
-          ? 'text-[#9c2f2f] hover:bg-[#fbf0f0]'
-          : 'text-[#5c5c5a] hover:bg-aurora/10 hover:text-aurora',
+          ? 'text-destructive hover:bg-destructive-tint'
+          : 'text-ink-muted hover:bg-aurora/10 hover:text-aurora',
         alwaysVisible
           ? 'opacity-100'
           : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
@@ -262,6 +316,42 @@ export function CopyIcon(): React.JSX.Element {
   )
 }
 
+export function ChevronLeftIcon(): React.JSX.Element {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M10 3 5 8l5 5" />
+    </svg>
+  )
+}
+
+export function ChevronRightIcon(): React.JSX.Element {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m6 3 5 5-5 5" />
+    </svg>
+  )
+}
+
 export function CheckIcon(): React.JSX.Element {
   return (
     <svg
@@ -298,14 +388,14 @@ export function DeleteConfirmTray({
   onCancel
 }: DeleteConfirmTrayProps): React.JSX.Element {
   return (
-    <div className="relative z-10 flex w-max max-w-none flex-nowrap items-center gap-1.5 whitespace-nowrap rounded-full border border-[#e8c7c7] bg-[#fbf0f0] px-2 py-0.5">
-      <span className="whitespace-nowrap text-xs font-semibold text-[#9c2f2f]">{label}</span>
+    <div className="relative z-10 flex w-max max-w-none flex-nowrap items-center gap-1.5 whitespace-nowrap rounded-full border border-destructive-border bg-destructive-tint px-2 py-0.5">
+      <span className="whitespace-nowrap text-xs font-semibold text-destructive">{label}</span>
       <button
         type="button"
         disabled={disabled}
         onClick={onConfirm}
         aria-label={confirmLabel}
-        className="whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold text-[#9c2f2f] transition hover:bg-[#f7dada] disabled:opacity-50"
+        className="whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold text-destructive transition hover:bg-[#f7dada] disabled:opacity-50"
       >
         {confirmLabel}
       </button>
@@ -314,7 +404,7 @@ export function DeleteConfirmTray({
         disabled={disabled}
         onClick={onCancel}
         aria-label={cancelLabel}
-        className="whitespace-nowrap rounded-full px-2 py-0.5 text-xs text-[#5c5c5a] transition hover:bg-white/60 hover:text-[#1a1a1a] disabled:opacity-50"
+        className="whitespace-nowrap rounded-full px-2 py-0.5 text-xs text-ink-muted transition hover:bg-white/60 hover:text-ink disabled:opacity-50"
       >
         {cancelLabel}
       </button>

@@ -100,6 +100,7 @@ function installApiStub(): void {
     dossier: {
       listEligible: vi.fn(async () => ({ success: true as const, data: [] })),
       list: vi.fn(async () => ({ success: true as const, data: [] })),
+      listGeneralKeyDates: vi.fn(async () => ({ success: true as const, data: [] })),
       get: vi.fn(async () => ({
         success: true as const,
         data: {
@@ -192,6 +193,7 @@ function buildOrdicabApiWithDataChanged(
     dossier: {
       listEligible: vi.fn(async () => ({ success: true as const, data: [] })),
       list: vi.fn(async () => ({ success: true as const, data: [] })),
+      listGeneralKeyDates: vi.fn(async () => ({ success: true as const, data: [] })),
       get: vi.fn(async () => ({ success: true as const, data: null })),
       open: vi.fn(async () => ({ success: true as const, data: null }))
     },
@@ -273,6 +275,7 @@ describe('AppShell', () => {
       {
         dossier: {
           list: vi.fn(async () => ({ success: true as const, data: [] })),
+          listGeneralKeyDates: vi.fn(async () => ({ success: true as const, data: [] })),
           get: vi.fn(async () => ({
             success: false as const,
             error: 'Stored dossier metadata is invalid.',
@@ -320,6 +323,7 @@ describe('AppShell', () => {
       {
         dossier: {
           list: vi.fn(async () => ({ success: true as const, data: [] })),
+          listGeneralKeyDates: vi.fn(async () => ({ success: true as const, data: [] })),
           get: vi.fn(async () => ({
             success: true as const,
             data: {
@@ -510,6 +514,7 @@ describe('AppShell', () => {
       {
         dossier: {
           list: vi.fn(async () => ({ success: true as const, data: [] })),
+          listGeneralKeyDates: vi.fn(async () => ({ success: true as const, data: [] })),
           get: vi.fn(async () => ({
             success: false as const,
             error: 'Stored dossier metadata is invalid.',

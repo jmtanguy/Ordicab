@@ -44,7 +44,7 @@ describe('documentHandler — semantic search', () => {
       query: 'contract indemnity',
       hits: [
         {
-          documentId: 'a.pdf',
+          documentPath: 'a.pdf',
           filename: 'a.pdf',
           charStart: 0,
           charEnd: 10,

@@ -102,7 +102,7 @@ export const tagCatalog: TagCatalogEntry[] = templateRoutineCatalog
  * Returns role-keyed tag entries for the given role labels.
  * e.g. role "client" → {{contact.client.displayName}}, {{contact.client.email}}, ...
  */
-export function buildRoleTagEntries(roles: string[]): TagCatalogEntry[] {
+function buildRoleTagEntries(roles: string[]): TagCatalogEntry[] {
   return roles.flatMap((role) =>
     CONTACT_ROLE_FIELDS.filter(({ field }) => RECOMMENDED_CONTACT_ROLE_FIELDS.has(field)).map(
       ({ field, fieldFr, example, subGroup }) => ({

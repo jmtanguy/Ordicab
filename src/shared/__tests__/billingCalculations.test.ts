@@ -26,7 +26,7 @@ describe('applyVatRate', () => {
 
 describe('buildBillingItemFromKeyDate', () => {
   const baseKeyDate: KeyDate = {
-    id: 'kd-1',
+    uuid: 'kd-1',
     dossierId: 'dos-1',
     label: 'Audience',
     date: '2026-04-12',
@@ -35,7 +35,7 @@ describe('buildBillingItemFromKeyDate', () => {
   }
 
   const preset: CabinetServicePreset = {
-    id: 'preset-1',
+    uuid: 'preset-1',
     name: 'Consultation horaire',
     usage: 'billing',
     billingType: 'hourly',
@@ -50,14 +50,14 @@ describe('buildBillingItemFromKeyDate', () => {
     expect(input.quantityUnit).toBe('hours')
     expect(input.unitPriceHtCents).toBe(18_000)
     expect(input.vatRateBasisPoints).toBe(2000)
-    expect(input.sourceKeyDateId).toBe('kd-1')
+    expect(input.sourceKeyDateUuid).toBe('kd-1')
     expect(input.label).toBe('Audience')
     expect(input.description).toBe('Audience plaidoirie\n1h30')
   })
 
   it('falls back to time/duration/tags when no note is provided', () => {
     const input = buildBillingItemFromKeyDate({
-      id: 'kd-time',
+      uuid: 'kd-time',
       dossierId: 'dos-1',
       label: 'Audience JLD',
       date: '2026-05-12',
@@ -71,7 +71,7 @@ describe('buildBillingItemFromKeyDate', () => {
 
   it('defaults to one hour and standard VAT when no preset and no duration are provided', () => {
     const input = buildBillingItemFromKeyDate({
-      id: 'kd-2',
+      uuid: 'kd-2',
       dossierId: 'dos-1',
       label: 'Rdv client',
       date: '2026-05-01'
@@ -79,7 +79,7 @@ describe('buildBillingItemFromKeyDate', () => {
     expect(input.quantity).toBe(1)
     expect(input.unitPriceHtCents).toBe(0)
     expect(input.vatRateBasisPoints).toBe(2000)
-    expect(input.sourceKeyDateId).toBe('kd-2')
+    expect(input.sourceKeyDateUuid).toBe('kd-2')
     expect(input.description).toBeUndefined()
   })
 })
@@ -154,7 +154,7 @@ describe('computeBillingItemTotals', () => {
 
 describe('buildBillingItemFromFeeAgreement', () => {
   const baseAgreement: DossierFeeAgreement = {
-    id: 'fa-1',
+    uuid: 'fa-1',
     createdAt: '2026-03-12T08:30:00.000Z',
     updatedAt: '2026-03-12T08:30:00.000Z',
     isActive: true,
@@ -186,7 +186,7 @@ describe('buildBillingItemFromFeeAgreement', () => {
     expect(input.discountPercentBasisPoints).toBeUndefined()
     expect(input.discountAmountHtCents).toBeUndefined()
     expect(input.label).toBe('Provision - Convention forfait')
-    expect(input.sourceFeeAgreementId).toBe('fa-1')
+    expect(input.sourceFeeAgreementUuid).toBe('fa-1')
     expect(input.sourceFeeAgreementBillingKind).toBe('retainer')
     const description = input.description ?? ''
     expect(description.startsWith('Phase 1 du dossier\nProvision encaissée en avril\n')).toBe(true)
@@ -214,7 +214,7 @@ describe('buildBillingItemFromFeeAgreement', () => {
     expect(input.discountPercentBasisPoints).toBeUndefined()
     expect(input.discountAmountHtCents).toBeUndefined()
     expect(input.label).toBe('Solde final - Convention forfait')
-    expect(input.sourceFeeAgreementId).toBe('fa-1')
+    expect(input.sourceFeeAgreementUuid).toBe('fa-1')
     expect(input.sourceFeeAgreementBillingKind).toBe('finalBalance')
     const description = input.description ?? ''
     expect(description).toContain('Convention : forfait')
@@ -300,7 +300,7 @@ describe('computeLegalAidPartialAmounts', () => {
 
 describe('buildBillingItemFromFeeAgreement — aide juridictionnelle', () => {
   const ajAgreement: DossierFeeAgreement = {
-    id: 'fa-aj',
+    uuid: 'fa-aj',
     createdAt: '2026-03-12T08:30:00.000Z',
     updatedAt: '2026-03-12T08:30:00.000Z',
     isActive: true,

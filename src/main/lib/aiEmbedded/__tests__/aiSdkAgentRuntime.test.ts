@@ -102,7 +102,7 @@ describe('createAiSdkAgentRuntime', () => {
   it('handles duplicate data-tool calls with identical args without breaking the loop', async () => {
     const executeDataTool = vi
       .fn()
-      .mockResolvedValue('{"matches":[{"documentId":"d1","excerpt":"Karine Calvez"}]}')
+      .mockResolvedValue('{"matches":[{"documentUuid":"d1","excerpt":"Karine Calvez"}]}')
     const model = new MockLanguageModelV3({
       doGenerate: vi
         .fn()

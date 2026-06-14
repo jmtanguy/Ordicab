@@ -49,7 +49,7 @@ type MutableGlobal = typeof globalThis & { ordicabAPI?: OrdicabAPI }
 
 function createTemplate(overrides: Partial<TemplateRecord> = {}): TemplateRecord {
   return {
-    id: 'tpl-1',
+    uuid: 'tpl-1',
     name: 'Courrier client',
     macros: ['dossier.name'],
     hasDocxSource: false,
@@ -60,7 +60,8 @@ function createTemplate(overrides: Partial<TemplateRecord> = {}): TemplateRecord
 
 function createDossier(overrides: Partial<DossierSummary> = {}): DossierSummary {
   return {
-    id: 'dos-1',
+    slug: 'dos-1',
+    uuid: 'uuid-dos-1',
     name: 'Client Alpha',
     status: 'active',
     type: 'Civil litigation',
@@ -102,7 +103,7 @@ function createApi(overrides: Partial<OrdicabAPI> = {}): OrdicabAPI {
       create: vi.fn(async () => ({
         success: true as const,
         data: createTemplate({
-          id: 'tpl-2',
+          uuid: 'tpl-2',
           name: 'New template'
         })
       })),
@@ -207,7 +208,7 @@ describe('TemplatesPanel', () => {
     const create = vi.fn(async () => ({
       success: true as const,
       data: createTemplate({
-        id: 'tpl-2',
+        uuid: 'tpl-2',
         name: 'New template'
       })
     }))

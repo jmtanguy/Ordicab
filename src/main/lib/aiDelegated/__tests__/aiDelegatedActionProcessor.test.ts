@@ -56,7 +56,8 @@ describe('DelegatedAiActionProcessor', () => {
   it('processes existing inbox intents on watchDomain and records processed command ids', async () => {
     const domainPath = await createTempDir()
     const dossierMutationResult = {
-      id: 'Client Alpha',
+      slug: 'Client Alpha',
+      uuid: 'uuid-client-alpha',
       name: 'Client Alpha',
       status: 'active' as const,
       type: 'Civil litigation',
@@ -85,7 +86,7 @@ describe('DelegatedAiActionProcessor', () => {
       upsertKeyReference: vi.fn(async () => dossierMutationResult),
       deleteKeyReference: vi.fn(async () => dossierMutationResult),
       registerDossier: vi.fn(async () => ({
-        id: 'new-dossier',
+        slug: 'new-dossier',
         name: 'new-dossier',
         registeredAt: '2026-03-20T21:45:12.345Z'
       }))
@@ -133,7 +134,7 @@ describe('DelegatedAiActionProcessor', () => {
     await processor.watchDomain(domainPath)
 
     expect(dossierService.updateDossier).toHaveBeenCalledWith({
-      id: 'Client Alpha',
+      slug: 'Client Alpha',
       status: 'active',
       type: 'Civil litigation',
       information: undefined
@@ -165,7 +166,7 @@ describe('DelegatedAiActionProcessor', () => {
   it('does not re-execute duplicate command ids and keeps the original response', async () => {
     const domainPath = await createTempDir()
     const updateDossier = vi.fn(async () => ({
-      id: 'Client Alpha',
+      slug: 'Client Alpha',
       status: 'active' as const,
       type: 'Civil litigation',
       updatedAt: '2026-03-20T21:45:12.345Z'
@@ -180,7 +181,8 @@ describe('DelegatedAiActionProcessor', () => {
       },
       dossierService: {
         getDossier: vi.fn(async () => ({
-          id: 'Client Alpha',
+          slug: 'Client Alpha',
+          uuid: 'uuid-client-alpha',
           name: 'Client Alpha',
           status: 'active' as const,
           type: 'Civil litigation',
@@ -252,7 +254,8 @@ describe('DelegatedAiActionProcessor', () => {
   it('writes a failed response for malformed intents without executing actions', async () => {
     const domainPath = await createTempDir()
     const dossierMutationResult = {
-      id: 'Client Alpha',
+      slug: 'Client Alpha',
+      uuid: 'uuid-client-alpha',
       name: 'Client Alpha',
       status: 'active' as const,
       type: 'Civil litigation',
@@ -275,7 +278,7 @@ describe('DelegatedAiActionProcessor', () => {
       upsertKeyReference: vi.fn(async () => dossierMutationResult),
       deleteKeyReference: vi.fn(async () => dossierMutationResult),
       registerDossier: vi.fn(async () => ({
-        id: 'new-dossier',
+        slug: 'new-dossier',
         name: 'new-dossier',
         registeredAt: '2026-03-20T21:45:12.345Z'
       }))
@@ -381,7 +384,7 @@ describe('DelegatedAiActionProcessor', () => {
       action: 'document.analyze',
       payload: {
         dossierId: 'Client Alpha',
-        documentId: 'incoming-note.txt'
+        documentPath: 'incoming-note.txt'
       }
     })
 
@@ -392,7 +395,7 @@ describe('DelegatedAiActionProcessor', () => {
       status: 'completed',
       action: 'document.analyze',
       result: {
-        documentId: 'incoming-note.txt',
+        documentPath: 'incoming-note.txt',
         method: 'direct',
         text: expect.stringContaining('Madame Alice Martin')
       },
@@ -500,7 +503,7 @@ describe('DelegatedAiActionProcessor', () => {
       action: 'generate.document',
       payload: {
         dossierId: 'Client Alpha',
-        templateId: 'tpl-1',
+        templateUuid: 'tpl-1',
         description: 'Draft document',
         tags: ['2026']
       }
@@ -527,7 +530,8 @@ describe('DelegatedAiActionProcessor', () => {
     const domainPath = await createTempDir()
     const dossierPath = join(domainPath, 'Client Alpha')
     const dossierMutationResult = {
-      id: 'Client Alpha',
+      slug: 'Client Alpha',
+      uuid: 'uuid-client-alpha',
       name: 'Client Alpha',
       status: 'active' as const,
       type: 'Civil litigation',
@@ -558,7 +562,7 @@ describe('DelegatedAiActionProcessor', () => {
         upsertKeyReference: vi.fn(async () => dossierMutationResult),
         deleteKeyReference: vi.fn(async () => dossierMutationResult),
         registerDossier: vi.fn(async () => ({
-          id: 'new-dossier',
+          slug: 'new-dossier',
           name: 'new-dossier',
           registeredAt: '2026-03-20T21:45:12.345Z'
         }))
@@ -610,12 +614,12 @@ describe('DelegatedAiActionProcessor', () => {
   it('merges partial contact fields when updating an existing contact by id', async () => {
     const domainPath = await createTempDir()
     const dossierPath = join(domainPath, 'Client Alpha')
-    const contactId = 'existing-contact-id'
+    const contactUuid = 'existing-contact-id'
 
     // Pre-populate per-file contact record
     const contactsDir = getDossierContactsDirectoryPath(dossierPath)
-    await writeJson(join(contactsDir, `${contactId}.json`), {
-      uuid: contactId,
+    await writeJson(join(contactsDir, `${contactUuid}.json`), {
+      uuid: contactUuid,
       dossierId: 'Client Alpha',
       firstName: 'Camille',
       lastName: 'Martin',
@@ -663,7 +667,7 @@ describe('DelegatedAiActionProcessor', () => {
       originDeviceId: 'device-origin-123',
       action: 'contact.upsert',
       payload: {
-        id: contactId,
+        uuid: contactUuid,
         dossierId: 'Client Alpha',
         email: 'new.email@example.com'
       }
@@ -674,7 +678,7 @@ describe('DelegatedAiActionProcessor', () => {
     const contacts = await readContactsForDossierPath(dossierPath)
     expect(contacts).toHaveLength(1)
     expect(contacts[0]).toMatchObject({
-      uuid: contactId,
+      uuid: contactUuid,
       dossierId: 'Client Alpha',
       firstName: 'Camille',
       lastName: 'Martin',
@@ -687,7 +691,8 @@ describe('DelegatedAiActionProcessor', () => {
   it('routes document relocation intents through the document service', async () => {
     const domainPath = await createTempDir()
     const dossierMutationResult = {
-      id: 'Client Alpha',
+      slug: 'Client Alpha',
+      uuid: 'uuid-client-alpha',
       name: 'Client Alpha',
       status: 'active' as const,
       type: 'Civil litigation',
@@ -703,7 +708,7 @@ describe('DelegatedAiActionProcessor', () => {
       notes: []
     }
     const relocateMetadata = vi.fn(async () => ({
-      id: 'moved/report.txt',
+      path: 'moved/report.txt',
       uuid: 'document-uuid-1',
       dossierId: 'Client Alpha',
       filename: 'report.txt',
@@ -730,7 +735,7 @@ describe('DelegatedAiActionProcessor', () => {
         upsertKeyReference: vi.fn(async () => dossierMutationResult),
         deleteKeyReference: vi.fn(async () => dossierMutationResult),
         registerDossier: vi.fn(async () => ({
-          id: 'new-dossier',
+          slug: 'new-dossier',
           name: 'new-dossier',
           registeredAt: '2026-03-20T21:45:12.345Z'
         }))
@@ -760,8 +765,8 @@ describe('DelegatedAiActionProcessor', () => {
       payload: {
         dossierId: 'Client Alpha',
         documentUuid: 'document-uuid-1',
-        fromDocumentId: 'report.txt',
-        toDocumentId: 'moved/report.txt'
+        fromDocumentPath: 'report.txt',
+        toDocumentPath: 'moved/report.txt'
       }
     })
 
@@ -770,15 +775,16 @@ describe('DelegatedAiActionProcessor', () => {
     expect(relocateMetadata).toHaveBeenCalledWith({
       dossierId: 'Client Alpha',
       documentUuid: 'document-uuid-1',
-      fromDocumentId: 'report.txt',
-      toDocumentId: 'moved/report.txt'
+      fromDocumentPath: 'report.txt',
+      toDocumentPath: 'moved/report.txt'
     })
   })
 
   it('merges partial dossier update intents with existing dossier metadata', async () => {
     const domainPath = await createTempDir()
     const dossierMutationResult = {
-      id: 'Client Alpha',
+      slug: 'Client Alpha',
+      uuid: 'uuid-client-alpha',
       name: 'Client Alpha',
       status: 'pending' as const,
       type: 'Civil litigation',
@@ -802,7 +808,7 @@ describe('DelegatedAiActionProcessor', () => {
       upsertKeyReference: vi.fn(async () => dossierMutationResult),
       deleteKeyReference: vi.fn(async () => dossierMutationResult),
       registerDossier: vi.fn(async () => ({
-        id: 'new-dossier',
+        slug: 'new-dossier',
         name: 'new-dossier',
         registeredAt: '2026-03-20T21:45:12.345Z'
       }))
@@ -850,7 +856,7 @@ describe('DelegatedAiActionProcessor', () => {
 
     expect(dossierService.getDossier).toHaveBeenCalledWith({ dossierId: 'Client Alpha' })
     expect(dossierService.updateDossier).toHaveBeenCalledWith({
-      id: 'Client Alpha',
+      slug: 'Client Alpha',
       status: 'pending',
       type: 'Civil litigation',
       information: 'Updated summary'
@@ -863,7 +869,8 @@ describe('DelegatedAiActionProcessor', () => {
     const oldFailedPath = join(getDomainDelegatedFailedPath(domainPath), 'old.json')
     const recentFailedPath = join(getDomainDelegatedFailedPath(domainPath), 'recent.json')
     const dossierMutationResult = {
-      id: 'Client Alpha',
+      slug: 'Client Alpha',
+      uuid: 'uuid-client-alpha',
       name: 'Client Alpha',
       status: 'active' as const,
       type: 'Civil litigation',
@@ -908,7 +915,7 @@ describe('DelegatedAiActionProcessor', () => {
         upsertKeyReference: vi.fn(async () => dossierMutationResult),
         deleteKeyReference: vi.fn(async () => dossierMutationResult),
         registerDossier: vi.fn(async () => ({
-          id: 'new-dossier',
+          slug: 'new-dossier',
           name: 'new-dossier',
           registeredAt: '2026-03-20T21:45:12.345Z'
         }))
@@ -940,7 +947,7 @@ describe('DelegatedAiActionProcessor', () => {
   it('creates a dossier folder and registers it when processing a dossier.create intent', async () => {
     const domainPath = await createTempDir()
     const registerDossier = vi.fn(async () => ({
-      id: 'Nouveau Client',
+      slug: 'Nouveau Client',
       name: 'Nouveau Client',
       registeredAt: '2026-03-20T21:45:12.345Z'
     }))
@@ -1008,6 +1015,6 @@ describe('DelegatedAiActionProcessor', () => {
 
     const folderStats = await stat(join(domainPath, 'Nouveau Client'))
     expect(folderStats.isDirectory()).toBe(true)
-    expect(registerDossier).toHaveBeenCalledWith({ id: 'Nouveau Client' })
+    expect(registerDossier).toHaveBeenCalledWith({ slug: 'Nouveau Client' })
   })
 })

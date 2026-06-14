@@ -1,5 +1,5 @@
 import { mkdir, readdir, readFile, unlink } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 
 import type { ZodType } from 'zod'
 
@@ -65,33 +65,4 @@ export async function saveRecord(
  */
 export async function deleteRecord(recordPath: string): Promise<void> {
   await unlink(recordPath).catch(() => undefined)
-}
-
-/**
- * Reads an index file. Returns `emptyValue` if missing or unparseable.
- * Pass `onInvalid` to throw instead of returning the default.
- */
-export async function loadIndex<I>(
-  indexPath: string,
-  schema: ZodType<I>,
-  emptyValue: I,
-  onInvalid?: (path: string) => never
-): Promise<I> {
-  if (!(await pathExists(indexPath))) return emptyValue
-  const raw = await readFile(indexPath, 'utf8').catch(() => null)
-  if (!raw) return emptyValue
-  const result = schema.safeParse(JSON.parse(raw))
-  if (!result.success) {
-    if (onInvalid) onInvalid(indexPath)
-    return emptyValue
-  }
-  return result.data
-}
-
-/**
- * Writes an index file as JSON.
- */
-export async function saveIndex(indexPath: string, index: unknown): Promise<void> {
-  await mkdir(dirname(indexPath), { recursive: true })
-  await atomicWrite(indexPath, `${JSON.stringify(index, null, 2)}\n`)
 }

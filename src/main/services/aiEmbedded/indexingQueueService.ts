@@ -52,7 +52,7 @@ import { getDossierContentCachePath, ORDICAB_DIRECTORY_NAME } from '../../lib/or
 
 export type { IndexingReason } from '@shared/types'
 
-export interface IndexingJob {
+interface IndexingJob {
   dossierId: string
   /** POSIX-separated path relative to the dossier root. */
   relativePath: string
@@ -66,9 +66,9 @@ export interface IndexableInventoryEntry {
   absolutePath: string
 }
 
-export interface IndexingQueueServiceDeps {
-  /** Calls documentService.extractContent for a {dossierId, documentId} pair. */
-  extractContent: (input: { dossierId: string; documentId: string }) => Promise<void>
+interface IndexingQueueServiceDeps {
+  /** Calls documentService.extractContent for a {dossierId, documentPath} pair. */
+  extractContent: (input: { dossierId: string; documentPath: string }) => Promise<void>
   /** Resolves the on-disk root of a registered dossier. Returns null if the dossier disappeared. */
   resolveDossierPath: (dossierId: string) => Promise<string | null>
   /** Lists every extractable document below a dossier root. Used at startup and by enqueueDossierBatch. */
@@ -466,7 +466,7 @@ export function createIndexingQueueService(
 
     if (!textFresh) {
       // Extract (writes text + hash inside the cache via documentService.extractContent).
-      await extractContent({ dossierId: job.dossierId, documentId: job.relativePath })
+      await extractContent({ dossierId: job.dossierId, documentPath: job.relativePath })
 
       // Belt-and-braces: ensure the hash is recorded even if extractContent
       // raced. Idempotent merge. This marks the TEXT as extracted; it does not

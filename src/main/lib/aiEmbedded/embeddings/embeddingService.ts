@@ -12,25 +12,36 @@
  * multilingual (incl. FR) retrieval and an 8K context window. Downloaded at
  * runtime into {userData}/models (not bundled) — see modelDownloadService.
  *
- * Model-specific prefixes: bge-m3 uses NO input prefix (it pools the raw
- * text). The optional `inputPrefix` is retained for E5-style models that
- * expect "query: " / "passage: "; the default is empty.
+ * Pooling: bge-m3's dense embedding is the normalized [CLS] token (the FlagEmbedding
+ * reference and the sentence-transformers config both use CLS), so we pool with
+ * 'cls', NOT 'mean'. Mean pooling leaves a high cosine noise floor (an off-topic
+ * text scores ~0.6 to any query); CLS pooling roughly doubles the relevant-vs-
+ * irrelevant separation. The pooling mode is part of the embedding cache identity
+ * (see embeddingCache) so changing it forces a re-index.
+ *
+ * bge-m3 pools the raw text, so there is no query/passage input prefix — query
+ * and passage embeddings are produced from the bare string.
  */
 
 import {
   getPipeline,
   runInferenceTracked,
-  warmup as warmupPipeline,
   type ModelConfig,
   type PipelineFn
 } from '../modelRegistry'
 
-// bge-m3 is the sole embedding model. Unlike the E5 family it does NOT use
-// query:/passage: input prefixes (it pools the raw text), and produces 1024-dim
-// vectors. The model is downloaded at runtime into userData (see
-// modelDownloadService) rather than bundled.
+// bge-m3 is the sole embedding model. It produces 1024-dim vectors from the raw
+// text (no query:/passage: prefix) and is downloaded at runtime into userData
+// (see modelDownloadService) rather than bundled.
 export const DEFAULT_EMBEDDING_MODEL = 'Xenova/bge-m3'
 export const DEFAULT_EMBEDDING_DIM = 1024
+
+// bge-m3's dense vector is the normalized [CLS] token, so feature-extraction must
+// pool with 'cls'. This is part of the cache identity (embeddingCache) — vectors
+// produced with a different pooling are treated as stale and re-indexed, so the
+// query side and the stored document side never mix pooling modes. The
+// embeddingWorker hardcodes the same value (it cannot import this module).
+export const DEFAULT_EMBEDDING_POOLING = 'cls'
 
 export interface EmbeddingServiceConfig {
   /** HuggingFace model id or local directory. Defaults to bge-m3. */
@@ -40,17 +51,6 @@ export interface EmbeddingServiceConfig {
   /** Use int8-quantized weights. Defaults to true. */
   quantized?: boolean
 }
-
-export interface EmbedOptions {
-  /**
-   * Prefix prepended to every input before encoding. Retained for models that
-   * use the E5 convention ("query: " / "passage: "). bge-m3 uses no prefix, so
-   * the default is empty and callers normally leave it unset.
-   */
-  inputPrefix?: string
-}
-
-const DEFAULT_INPUT_PREFIX = ''
 
 // Minimal typing of the tensor-like object transformers.js returns for
 // feature-extraction. Runtime-shape validated before use.
@@ -76,7 +76,7 @@ async function runPipeline(pipe: PipelineFn, inputs: string[]): Promise<Float32A
   // near the limit, but query/refine paths can exceed it, so we enforce the cap
   // here as the last line of defence.
   const result = (await runInferenceTracked(async () =>
-    pipe(inputs, { pooling: 'mean', normalize: true, truncation: true })
+    pipe(inputs, { pooling: DEFAULT_EMBEDDING_POOLING, normalize: true, truncation: true })
   )) as PipelineTensor
   if (!result || !result.data || !result.dims || result.dims.length !== 2) {
     return null
@@ -96,26 +96,17 @@ async function runPipeline(pipe: PipelineFn, inputs: string[]): Promise<Float32A
   return vectors
 }
 
-function applyPrefix(texts: string[], prefix: string): string[] {
-  if (!prefix) return texts
-  return texts.map((t) => `${prefix}${t}`)
-}
-
 export async function embedBatch(
   texts: string[],
-  config: EmbeddingServiceConfig = {},
-  options: EmbedOptions = {}
+  config: EmbeddingServiceConfig = {}
 ): Promise<Float32Array[] | null> {
   if (!texts.length) return []
 
   const pipe = await getPipeline(toModelConfig(config))
   if (!pipe) return null
 
-  const prefix = options.inputPrefix ?? DEFAULT_INPUT_PREFIX
-  const inputs = applyPrefix(texts, prefix)
-
   try {
-    return await runPipeline(pipe, inputs)
+    return await runPipeline(pipe, texts)
   } catch (err) {
     console.warn(
       '[embedding-service] inference failed — returning null.',
@@ -127,20 +118,11 @@ export async function embedBatch(
 
 export async function embed(
   text: string,
-  config: EmbeddingServiceConfig = {},
-  options: EmbedOptions = {}
+  config: EmbeddingServiceConfig = {}
 ): Promise<Float32Array | null> {
-  const batch = await embedBatch([text], config, options)
+  const batch = await embedBatch([text], config)
   if (!batch || batch.length === 0) return null
   return batch[0] ?? null
-}
-
-/**
- * Preload the embedding model so the first indexing / search call isn't
- * blocked by a cold start. Fire-and-forget safe.
- */
-export async function warmupEmbeddings(config: EmbeddingServiceConfig = {}): Promise<void> {
-  await warmupPipeline(toModelConfig(config))
 }
 
 // -------- Encoding helpers for persistence ---------

@@ -42,7 +42,7 @@ export function DossierStep({ onComplete }: DossierStepProps): React.JSX.Element
       title={t('onboarding.dossier_step_title', { defaultValue: 'Enregistrer un premier dossier' })}
     >
       <Card className="space-y-4 p-5">
-        <p className="text-sm text-[#5c5c5a]">
+        <p className="text-sm text-ink-muted">
           {hasEligible
             ? t('dossiers.picker_summary', {
                 defaultValue: 'Choisissez un sous-dossier existant à enregistrer, ou créez-en un.'

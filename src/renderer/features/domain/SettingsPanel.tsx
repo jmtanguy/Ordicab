@@ -11,6 +11,8 @@ import { AiDialog } from '../settings/AiSettings'
 import { LanguageDialog } from '../settings/LanguageSettings'
 import { ReminderDialog } from '../settings/ReminderSettings'
 import { LegalSettingsDialog } from '../settings/LegalSettings'
+import { CalendarSyncDialog } from '../settings/CalendarSyncSettings'
+import { useCalendarSyncStore } from '@renderer/stores/calendarSyncStore'
 import { InvoiceSettingsDialog } from '@renderer/features/invoices/InvoiceSettingsSection'
 import { useInvoiceSettingsSummary } from '@renderer/features/invoices/useInvoiceSettingsSummary'
 import { useInvoiceStore } from '@renderer/stores/invoiceStore'
@@ -116,6 +118,24 @@ function IconCompass(): React.JSX.Element {
   )
 }
 
+function IconCalendar(): React.JSX.Element {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 15 15"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="1.5" y="2.5" width="12" height="11" rx="1.5" />
+      <path d="M1.5 5.5h12M4.5 1v3M10.5 1v3" />
+    </svg>
+  )
+}
+
 function IconChevron(): React.JSX.Element {
   return (
     <svg
@@ -137,7 +157,7 @@ function IconChevron(): React.JSX.Element {
 
 function SectionLabel({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
-    <p className="px-0.5 text-[10.5px] font-semibold uppercase tracking-[0.2em] text-[#8a8a85]">
+    <p className="px-0.5 text-[10.5px] font-semibold uppercase tracking-[0.2em] text-ink-subtle">
       {children}
     </p>
   )
@@ -157,16 +177,16 @@ function PrefRow({ icon, title, value, onClick }: PrefRowProps): React.JSX.Eleme
     <button
       type="button"
       onClick={onClick}
-      className="group flex w-full items-center gap-4 px-5 py-4 text-left transition-colors duration-150 hover:bg-[#f4f3ee] active:bg-[#f4f3ee]"
+      className="group flex w-full items-center gap-4 px-5 py-4 text-left transition-colors duration-150 hover:bg-parchment active:bg-parchment"
     >
-      <span className="shrink-0 text-[#8a8a85]">{icon}</span>
+      <span className="shrink-0 text-ink-subtle">{icon}</span>
 
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-[#1a1a1a]">{title}</p>
-        <p className="mt-0.5 truncate text-xs text-[#8a8a85]">{value}</p>
+        <p className="text-sm font-medium text-ink">{title}</p>
+        <p className="mt-0.5 truncate text-xs text-ink-subtle">{value}</p>
       </div>
 
-      <span className="shrink-0 text-[#5c5c5a] transition-transform duration-150 group-hover:translate-x-0.5">
+      <span className="shrink-0 text-ink-muted transition-transform duration-150 group-hover:translate-x-0.5">
         <IconChevron />
       </span>
     </button>
@@ -174,7 +194,7 @@ function PrefRow({ icon, title, value, onClick }: PrefRowProps): React.JSX.Eleme
 }
 
 function PrefRowDivider(): React.JSX.Element {
-  return <div className="mx-5 h-px bg-[#f4f3ee]" />
+  return <div className="mx-5 h-px bg-parchment" />
 }
 
 // ─── Main component ────────────────────────────────────────────────────────────
@@ -195,6 +215,7 @@ export function SettingsPanel({
   const [invoiceOpen, setInvoiceOpen] = useState(false)
   const [reminderOpen, setReminderOpen] = useState(false)
   const [legalOpen, setLegalOpen] = useState(false)
+  const [calendarSyncOpen, setCalendarSyncOpen] = useState(false)
 
   const reminderPreferences = useReminderStore((s) => s.preferences)
 
@@ -204,6 +225,8 @@ export function SettingsPanel({
   const invoiceSummary = useInvoiceSettingsSummary()
   const loadLegalSettings = useLegalStore((s) => s.loadSettings)
   const legalSettings = useLegalStore((s) => s.settings)
+  const loadCalendarSyncStatus = useCalendarSyncStore((s) => s.loadStatus)
+  const calendarSyncStatus = useCalendarSyncStore((s) => s.status)
 
   const reopenWizard = useOnboardingStore((s) => s.reopenWizard)
   const goToOnboarding = useUiStore((s) => s.goToOnboarding)
@@ -212,7 +235,8 @@ export function SettingsPanel({
     void loadSettings()
     void loadInvoiceSettings()
     void loadLegalSettings()
-  }, [loadSettings, loadInvoiceSettings, loadLegalSettings])
+    void loadCalendarSyncStatus()
+  }, [loadSettings, loadInvoiceSettings, loadLegalSettings, loadCalendarSyncStatus])
 
   const localeLabel =
     currentLocale === 'fr'
@@ -244,16 +268,23 @@ export function SettingsPanel({
           defaultValue: 'Identifiants PISTE à configurer'
         })
 
+  const calendarSyncValue =
+    calendarSyncStatus?.configured && calendarSyncStatus.enabled
+      ? t('calendar_sync.settings_row_enabled', { defaultValue: 'Publication CalDAV active' })
+      : calendarSyncStatus?.configured
+        ? t('calendar_sync.settings_row_disabled', { defaultValue: 'Configurée, désactivée' })
+        : t('calendar_sync.settings_row_unconfigured', { defaultValue: 'À configurer' })
+
   const isDomainConfigured = Boolean(status.registeredDomainPath)
 
   return (
     <section className="flex min-h-[calc(100vh-8.5rem)] flex-col gap-8 pb-8">
       {/* ── Page header ─────────────────────────────────────────────────── */}
-      <div className="border-b border-[#e5e3da] pb-6">
-        <h1 className="text-xl font-semibold tracking-tight text-[#1a1a1a]">
+      <div className="border-b border-hairline pb-6">
+        <h1 className="text-xl font-semibold tracking-tight text-ink">
           {t('settings.section_title')}
         </h1>
-        <p className="mt-1 text-sm text-[#5c5c5a]">{t('settings.section_subtitle')}</p>
+        <p className="mt-1 text-sm text-ink-muted">{t('settings.section_subtitle')}</p>
       </div>
 
       {/* ── Preferences (Language + AI) ──────────────────────────────────── */}
@@ -297,6 +328,15 @@ export function SettingsPanel({
           />
           <PrefRowDivider />
           <PrefRow
+            icon={<IconCalendar />}
+            title={t('calendar_sync.settings_row_title', {
+              defaultValue: 'Synchronisation calendrier'
+            })}
+            value={calendarSyncValue}
+            onClick={() => setCalendarSyncOpen(true)}
+          />
+          <PrefRowDivider />
+          <PrefRow
             icon={<IconCompass />}
             title={t('settings.rerun_onboarding_label', { defaultValue: 'Assistant de démarrage' })}
             value={t('settings.rerun_onboarding_value', {
@@ -320,18 +360,16 @@ export function SettingsPanel({
               <span
                 className={[
                   'inline-block h-2 w-2 shrink-0 rounded-full ring-2',
-                  isDomainConfigured
-                    ? 'bg-[#5c8a4e] ring-[#5c8a4e]/20'
-                    : 'bg-[#b88800] ring-[#b88800]/20'
+                  isDomainConfigured ? 'bg-success ring-success/20' : 'bg-warning ring-warning/20'
                 ].join(' ')}
               />
               <div>
-                <p className="text-sm font-semibold text-[#1a1a1a]">
+                <p className="text-sm font-semibold text-ink">
                   {isDomainConfigured
                     ? t('dashboard.path_label_active')
                     : t('domain.status_value_unconfigured')}
                 </p>
-                <p className="text-xs text-[#8a8a85]">
+                <p className="text-xs text-ink-subtle">
                   {t('dashboard.dossiers_value_detected', { count: status.dossierCount })}
                 </p>
               </div>
@@ -344,18 +382,18 @@ export function SettingsPanel({
             ) : null}
           </div>
 
-          <div className="rounded-xl border border-[#e5e3da] bg-white px-4 py-3">
-            <code className="block break-all text-xs leading-relaxed text-[#1a1a1a]">
+          <div className="rounded-xl border border-hairline bg-white px-4 py-3">
+            <code className="block break-all text-xs leading-relaxed text-ink">
               {status.registeredDomainPath ?? '—'}
             </code>
           </div>
 
           {confirmingChange ? (
-            <div className="space-y-3 rounded-xl border border-[#e8d5a3] bg-[#fbf5e3] p-4">
-              <p className="text-sm font-semibold text-[#7a5a00]">
+            <div className="space-y-3 rounded-xl border border-warning-border bg-warning-tint p-4">
+              <p className="text-sm font-semibold text-warning-deep">
                 {t('dashboard.change_domain_confirm_title')}
               </p>
-              <p className="text-xs leading-relaxed text-[#7a5a00]">
+              <p className="text-xs leading-relaxed text-warning-deep">
                 {t('dashboard.change_domain_confirm_body')}
               </p>
               <div className="flex flex-wrap gap-2 pt-1">
@@ -389,6 +427,7 @@ export function SettingsPanel({
       <InvoiceSettingsDialog open={invoiceOpen} onClose={() => setInvoiceOpen(false)} />
       <ReminderDialog open={reminderOpen} onClose={() => setReminderOpen(false)} />
       <LegalSettingsDialog open={legalOpen} onClose={() => setLegalOpen(false)} />
+      <CalendarSyncDialog open={calendarSyncOpen} onClose={() => setCalendarSyncOpen(false)} />
     </section>
   )
 }

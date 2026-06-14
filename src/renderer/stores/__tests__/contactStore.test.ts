@@ -87,7 +87,7 @@ describe('contactStore', () => {
       }
     } as unknown as OrdicabAPI
     await useContactStore.getState().upsert({
-      id: 'missing-id',
+      uuid: 'missing-id',
       dossierId: 'dos-1',
       firstName: 'Camille',
       lastName: 'Martin',
@@ -146,7 +146,7 @@ describe('contactStore', () => {
       institution: 'Martin SARL'
     })
     await useContactStore.getState().upsert({
-      id: 'contact-1',
+      uuid: 'contact-1',
       dossierId: 'dos-1',
       firstName: 'Alex',
       lastName: 'Roche',

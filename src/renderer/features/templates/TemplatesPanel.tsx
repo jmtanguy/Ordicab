@@ -1,15 +1,24 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import type { TemplateDraft, TemplateRecord, TemplateUpdate } from '@shared/types'
 import { IpcErrorCode } from '@shared/types'
-import { getTemplateEditorHtml, isBlankTemplateContent } from '@shared/templateContent'
+import {
+  buildKnownTagIndex,
+  getTemplateEditorHtml,
+  isBlankTemplateContent,
+  lintTemplateHtml,
+  replaceTagPathInHtml,
+  type TagLintIssue
+} from '@shared/templateContent'
 import { templateDraftSchema } from '@shared/validation'
 import { useEntityStore, useTemplateStore } from '@renderer/stores'
 import { AlertBanner, Button, DialogShell } from '@renderer/components/ui'
 import { useToast } from '@renderer/contexts/ToastContext'
 import { copyTextToClipboard } from '@renderer/lib/clipboard'
 
+import { getTagCatalog } from './tagCatalog'
+import { TagifyReviewDialog } from './TagifyReviewDialog'
 import { TagReferencePanel } from './TagReferencePanel'
 import { TemplateEditor } from './TemplateEditor'
 import { TemplateLibraryDialog } from './TemplateLibraryDialog'
@@ -29,7 +38,7 @@ type WorkspaceState =
   | { view: 'library' }
   | { view: 'create-choice' }
   | { view: 'create' }
-  | { view: 'edit'; templateId: string }
+  | { view: 'edit'; templateUuid: string }
   | { view: 'macros' }
   | { view: 'template-library' }
 
@@ -38,7 +47,8 @@ function createEmptyDraft(): TemplateDraft {
     name: '',
     content: '<p></p>',
     description: '',
-    documentKind: 'document'
+    documentKind: 'document',
+    category: ''
   }
 }
 
@@ -47,7 +57,8 @@ function toDraft(template: TemplateRecord, content: string): TemplateDraft {
     name: template.name,
     content: getTemplateEditorHtml(content),
     description: template.description ?? '',
-    documentKind: template.documentKind
+    documentKind: template.documentKind,
+    category: template.category ?? ''
   }
 }
 
@@ -69,6 +80,18 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
   const subscribeToDocxSynced = useTemplateStore((state) => state.subscribeToDocxSynced)
   const entityProfile = useEntityStore((state) => state.profile)
   const cabinetHasDefaultDocx = Boolean(entityProfile?.defaultTemplateFileName)
+  const tagCatalogEntries = useMemo(
+    () => getTagCatalog(entityProfile?.managedFields),
+    [entityProfile?.managedFields]
+  )
+  const knownTagIndex = useMemo(() => buildKnownTagIndex(tagCatalogEntries), [tagCatalogEntries])
+  const existingCategories = useMemo(
+    () =>
+      [
+        ...new Set(templates.map((tpl) => tpl.category).filter((c): c is string => Boolean(c)))
+      ].sort((a, b) => a.localeCompare(b)),
+    [templates]
+  )
 
   const [workspace, setWorkspace] = useState<WorkspaceState>({ view: 'library' })
   const [draft, setDraft] = useState<TemplateDraft>(createEmptyDraft)
@@ -77,6 +100,8 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
   const { showToast } = useToast()
   const [isSaving, setIsSaving] = useState(false)
   const [isEditorLoading, setIsEditorLoading] = useState(false)
+  const [lintIssues, setLintIssues] = useState<TagLintIssue[] | null>(null)
+  const [tagifyTemplate, setTagifyTemplate] = useState<{ id: string; name: string } | null>(null)
   const [pendingDocxCreate, setPendingDocxCreate] = useState(false)
   const [pendingDocxPick, setPendingDocxPick] = useState<{
     token: string
@@ -95,7 +120,7 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
   // Refresh editor draft when the watched .docx file is saved externally (e.g. in Word)
   useEffect(() => {
     return subscribeToDocxSynced((event) => {
-      if (workspace.view === 'edit' && workspace.templateId === event.templateId) {
+      if (workspace.view === 'edit' && workspace.templateUuid === event.templateUuid) {
         setDraft((current) => ({ ...current, content: getTemplateEditorHtml(event.html) }))
       }
     })
@@ -103,7 +128,7 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
 
   const activeTemplate =
     workspace.view === 'edit'
-      ? (templates.find((template) => template.id === workspace.templateId) ?? null)
+      ? (templates.find((template) => template.uuid === workspace.templateUuid) ?? null)
       : null
 
   function openCreateChooser(): void {
@@ -127,12 +152,13 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
   function openEditEditor(template: TemplateRecord): void {
     const requestId = editLoadRequestIdRef.current + 1
     editLoadRequestIdRef.current = requestId
-    setWorkspace({ view: 'edit', templateId: template.id })
+    setWorkspace({ view: 'edit', templateUuid: template.uuid })
     setDraft(createEmptyDraft())
     setIsEditorLoading(true)
     setErrors({})
+    setLintIssues(null)
 
-    void getTemplateContent(template.id).then((result) => {
+    void getTemplateContent(template.uuid).then((result) => {
       if (editLoadRequestIdRef.current !== requestId) {
         return
       }
@@ -145,7 +171,8 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
       }
 
       const nextTemplate =
-        useTemplateStore.getState().templates.find((entry) => entry.id === template.id) ?? template
+        useTemplateStore.getState().templates.find((entry) => entry.uuid === template.uuid) ??
+        template
       setDraft(toDraft(nextTemplate, result.data))
       setIsEditorLoading(false)
     })
@@ -164,7 +191,7 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
   async function closeWorkspace(): Promise<void> {
     editLoadRequestIdRef.current += 1
     if (pendingDocxCreate && workspace.view === 'edit') {
-      await removeTemplate(workspace.templateId)
+      await removeTemplate(workspace.templateUuid)
     }
     setIsEditorLoading(false)
     setPendingDocxCreate(false)
@@ -173,6 +200,7 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
     setDraft(createEmptyDraft())
     setCreateSourceType('text')
     setErrors({})
+    setLintIssues(null)
   }
 
   const updateDraft = useCallback((field: keyof TemplateDraft, value: string): void => {
@@ -185,9 +213,23 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
       [field === 'content' ? 'content' : field]: undefined,
       form: undefined
     }))
+    if (field === 'content') {
+      setLintIssues(null)
+    }
   }, [])
 
-  async function handleSubmit(): Promise<void> {
+  function applyLintSuggestion(issue: TagLintIssue, suggestion: string): void {
+    const fixedContent = replaceTagPathInHtml(draft.content, issue.rawPath, suggestion)
+    setDraft((current) => ({ ...current, content: fixedContent }))
+    setLintIssues((current) => {
+      const remaining = (current ?? []).filter(
+        (entry) => entry.normalizedPath !== issue.normalizedPath
+      )
+      return remaining.length > 0 ? remaining : null
+    })
+  }
+
+  async function handleSubmit(options: { skipLint?: boolean } = {}): Promise<void> {
     const nextErrors: TemplateFormErrors = {}
 
     if (!draft.name.trim()) {
@@ -233,7 +275,7 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
         const created = nextState.templates.find((tmpl) => tmpl.name === draft.name.trim())
         if (!created) return
 
-        await importTemplateDocx(created.id, pendingDocxPick.token)
+        await importTemplateDocx(created.uuid, pendingDocxPick.token)
 
         const importState = useTemplateStore.getState()
         if (importState.error) {
@@ -244,6 +286,8 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
         showToast(t('templates.toast.created'))
         setPendingDocxCreate(false)
         void closeWorkspace()
+        // Offer AI tag detection on the freshly imported letter
+        setTagifyTemplate({ id: created.uuid, name: created.name })
       } finally {
         setIsSaving(false)
       }
@@ -269,13 +313,24 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
       return
     }
 
+    // Warn about unknown tags before saving — DOCX sources are authored in Word
+    // and synced separately, so only lint editable text templates.
+    if (!options.skipLint && !activeTemplate?.hasDocxSource) {
+      const issues = lintTemplateHtml(draft.content, knownTagIndex)
+      if (issues.length > 0) {
+        setLintIssues(issues)
+        return
+      }
+    }
+    setLintIssues(null)
+
     setErrors({})
     setIsSaving(true)
 
     try {
-      if (workspace.view === 'edit' && workspace.templateId) {
+      if (workspace.view === 'edit' && workspace.templateUuid) {
         const payload: TemplateUpdate = {
-          id: workspace.templateId,
+          uuid: workspace.templateUuid,
           ...parsed.data
         }
         await updateTemplate(payload)
@@ -309,8 +364,33 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
     }
   }
 
-  async function handleDelete(templateId: string): Promise<void> {
-    await removeTemplate(templateId)
+  function handleTagifyApplied(): void {
+    void loadTemplates()
+    // Refresh the open editor draft if it shows the tagified template
+    if (workspace.view === 'edit' && workspace.templateUuid === tagifyTemplate?.id) {
+      const template = templates.find((tpl) => tpl.uuid === tagifyTemplate.id)
+      if (template) openEditEditor(template)
+    }
+  }
+
+  async function handleMoveToCategory(
+    templateUuid: string,
+    category: string | null
+  ): Promise<void> {
+    const template = templates.find((tpl) => tpl.uuid === templateUuid)
+    if (!template) return
+
+    // Lightweight update: omitted content keeps the stored template body.
+    await updateTemplate({ uuid: templateUuid, name: template.name, category: category ?? '' })
+
+    const nextError = useTemplateStore.getState().error
+    if (nextError) {
+      setErrors({ form: nextError })
+    }
+  }
+
+  async function handleDelete(templateUuid: string): Promise<void> {
+    await removeTemplate(templateUuid)
 
     const nextError = useTemplateStore.getState().error
 
@@ -321,7 +401,7 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
       return
     }
 
-    if (workspace.view === 'edit' && workspace.templateId === templateId) {
+    if (workspace.view === 'edit' && workspace.templateUuid === templateUuid) {
       void closeWorkspace()
     }
 
@@ -330,8 +410,8 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
 
   async function handlePickDocxFile(): Promise<void> {
     // For the edit flow (existing template), use the old full import path
-    if (workspace.view === 'edit' && workspace.templateId) {
-      await importTemplateDocx(workspace.templateId)
+    if (workspace.view === 'edit' && workspace.templateUuid) {
+      await importTemplateDocx(workspace.templateUuid)
 
       const state = useTemplateStore.getState()
       if (state.error) {
@@ -343,10 +423,10 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
       }
 
       const updated = state.templates.find(
-        (tmpl) => tmpl.id === (workspace as { templateId: string }).templateId
+        (tmpl) => tmpl.uuid === (workspace as { templateUuid: string }).templateUuid
       )
       if (updated) {
-        void getTemplateContent(updated.id).then((r) => {
+        void getTemplateContent(updated.uuid).then((r) => {
           setDraft(toDraft(updated, r.success ? r.data : ''))
           setIsEditorLoading(false)
         })
@@ -369,21 +449,21 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
   }
 
   async function handleOpenDocx(): Promise<void> {
-    if (workspace.view !== 'edit' || !workspace.templateId) {
+    if (workspace.view !== 'edit' || !workspace.templateUuid) {
       return
     }
 
-    const result = await openTemplateDocx(workspace.templateId)
+    const result = await openTemplateDocx(workspace.templateUuid)
     if (!result.success) {
       setErrors({ form: result.error })
     }
   }
 
   async function handleApplyCabinetDefaultDocx(): Promise<void> {
-    if (workspace.view !== 'edit' || !workspace.templateId) {
+    if (workspace.view !== 'edit' || !workspace.templateUuid) {
       return
     }
-    await applyCabinetDefaultDocx(workspace.templateId)
+    await applyCabinetDefaultDocx(workspace.templateUuid)
     const state = useTemplateStore.getState()
     if (state.error) {
       setErrors({ form: state.error })
@@ -397,11 +477,11 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
   }
 
   async function handleRemoveDocx(): Promise<void> {
-    if (workspace.view !== 'edit' || !workspace.templateId) {
+    if (workspace.view !== 'edit' || !workspace.templateUuid) {
       return
     }
 
-    await removeTemplateDocx(workspace.templateId)
+    await removeTemplateDocx(workspace.templateUuid)
 
     const state = useTemplateStore.getState()
     if (state.error) {
@@ -424,10 +504,20 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
         onEdit={openEditEditor}
         onMacros={openMacrosWorkspace}
         onOpenLibrary={openLibraryDialog}
+        onMoveToCategory={handleMoveToCategory}
       />
 
       {workspace.view === 'template-library' ? (
         <TemplateLibraryDialog onDismiss={() => void closeWorkspace()} />
+      ) : null}
+
+      {tagifyTemplate ? (
+        <TagifyReviewDialog
+          templateUuid={tagifyTemplate.id}
+          templateName={tagifyTemplate.name}
+          onClose={() => setTagifyTemplate(null)}
+          onApplied={handleTagifyApplied}
+        />
       ) : null}
 
       {workspace.view === 'create-choice' ? (
@@ -438,22 +528,22 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
         >
           <div className="flex flex-col gap-6">
             <div className="space-y-2">
-              <h3 className="text-base font-semibold text-[#1a1a1a]">
+              <h3 className="text-base font-semibold text-ink">
                 {t('templates.createChoice.title')}
               </h3>
-              <p className="text-sm text-[#1a1a1a]">{t('templates.createChoice.description')}</p>
+              <p className="text-sm text-ink">{t('templates.createChoice.description')}</p>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
               <button
                 type="button"
                 onClick={() => openCreateEditor('text')}
-                className="rounded-2xl border border-[#e5e3da] bg-white p-5 text-left transition hover:border-[#d1cfc6] hover:bg-white"
+                className="rounded-2xl border border-hairline bg-white p-5 text-left transition hover:border-hairline-strong hover:bg-white"
               >
-                <p className="text-sm font-semibold text-[#1a1a1a]">
+                <p className="text-sm font-semibold text-ink">
                   {t('templates.createChoice.textTitle')}
                 </p>
-                <p className="mt-2 text-sm text-[#5c5c5a]">
+                <p className="mt-2 text-sm text-ink-muted">
                   {t('templates.createChoice.textDescription')}
                 </p>
               </button>
@@ -461,18 +551,18 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
               <button
                 type="button"
                 onClick={() => openCreateEditor('docx')}
-                className="rounded-2xl border border-[#e5e3da] bg-deep-space p-5 text-left transition hover:border-[#d1cfc6] hover:bg-[#e4e1d5]"
+                className="rounded-2xl border border-hairline bg-deep-space p-5 text-left transition hover:border-hairline-strong hover:bg-parchment-dim"
               >
-                <p className="text-sm font-semibold text-[#1a1a1a]">
+                <p className="text-sm font-semibold text-ink">
                   {t('templates.createChoice.docxTitle')}
                 </p>
-                <p className="mt-2 text-sm text-[#1a1a1a]">
+                <p className="mt-2 text-sm text-ink">
                   {t('templates.createChoice.docxDescription')}
                 </p>
               </button>
             </div>
 
-            <div className="flex justify-end border-t border-[#e5e3da] pt-4">
+            <div className="flex justify-end border-t border-hairline pt-4">
               <Button type="button" variant="ghost" onClick={() => void closeWorkspace()}>
                 {t('templates.editor.cancelButton')}
               </Button>
@@ -494,7 +584,7 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
           onDismiss={() => void closeWorkspace()}
         >
           {workspace.view === 'edit' && isEditorLoading ? (
-            <div className="flex min-h-0 flex-1 items-center justify-center rounded-2xl border border-[#e5e3da] bg-white px-6 py-10 text-sm text-[#1a1a1a]">
+            <div className="flex min-h-0 flex-1 items-center justify-center rounded-2xl border border-hairline bg-white px-6 py-10 text-sm text-ink">
               {t('templates.loading')}
             </div>
           ) : (
@@ -514,6 +604,16 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
               onRemoveDocx={handleRemoveDocx}
               onApplyCabinetDefaultDocx={handleApplyCabinetDefaultDocx}
               cabinetHasDefaultDocx={cabinetHasDefaultDocx}
+              tagSuggestions={tagCatalogEntries}
+              existingCategories={existingCategories}
+              onTagify={
+                workspace.view === 'edit' && activeTemplate
+                  ? () => setTagifyTemplate({ id: activeTemplate.uuid, name: activeTemplate.name })
+                  : undefined
+              }
+              lintIssues={lintIssues}
+              onApplyLintSuggestion={applyLintSuggestion}
+              onSaveAnyway={() => void handleSubmit({ skipLint: true })}
             />
           )}
         </DialogShell>
@@ -528,10 +628,8 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
           <div className="flex min-h-0 flex-1 flex-col gap-4">
             <div className="flex items-start justify-between gap-3">
               <div className="space-y-1">
-                <h3 className="text-base font-semibold text-[#1a1a1a]">
-                  {t('templates.macros.title')}
-                </h3>
-                <p className="text-sm text-[#5c5c5a]">{t('templates.macros.helperText')}</p>
+                <h3 className="text-base font-semibold text-ink">{t('templates.macros.title')}</h3>
+                <p className="text-sm text-ink-muted">{t('templates.macros.helperText')}</p>
               </div>
               <Button type="button" variant="ghost" size="sm" onClick={() => void closeWorkspace()}>
                 {t('common.close', { defaultValue: 'Fermer' })}

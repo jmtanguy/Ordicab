@@ -8,11 +8,11 @@ import { foldDiacritics, keywordSearchDossier } from '../keywordSearchService'
 import type { IndexedDocument } from '../textSearchShared'
 
 let counter = 0
-async function makeDoc(documentId: string, text: string): Promise<IndexedDocument> {
+async function makeDoc(itemId: string, text: string): Promise<IndexedDocument> {
   const dir = await mkdtemp(join(tmpdir(), 'kwsearch-'))
   const path = join(dir, `cache-${counter++}.json`)
   await writeFile(path, JSON.stringify({ version: 3, text, isEmpty: false }), 'utf8')
-  return { documentId, displayName: documentId, cachePath: path }
+  return { itemId, displayName: itemId, cachePath: path }
 }
 
 describe('foldDiacritics', () => {
@@ -48,14 +48,14 @@ describe('keywordSearchDossier', () => {
     ]
     const hits = await keywordSearchDossier({ documents: docs, query: 'école' })
     expect(hits).toHaveLength(1)
-    expect(hits[0]!.documentId).toBe('scolarite.docx')
+    expect(hits[0]!.itemId).toBe('scolarite.docx')
   })
 
   it('is case- and accent-insensitive', async () => {
     const doc = await makeDoc('doc.docx', "Inscription à l'ECOLE communale.")
     const hits = await keywordSearchDossier({ documents: [doc], query: 'École' })
     expect(hits).toHaveLength(1)
-    expect(hits[0]!.documentId).toBe('doc.docx')
+    expect(hits[0]!.itemId).toBe('doc.docx')
   })
 
   it('matches the singular/plural variant', async () => {
@@ -85,7 +85,7 @@ describe('keywordSearchDossier', () => {
     ]
     const hits = await keywordSearchDossier({ documents: docs, query: 'pension alimentaire' })
     expect(hits).toHaveLength(2)
-    expect(hits[0]!.documentId).toBe('both.docx')
+    expect(hits[0]!.itemId).toBe('both.docx')
     expect(hits[0]!.score).toBeGreaterThan(hits[1]!.score)
   })
 
@@ -99,7 +99,7 @@ describe('keywordSearchDossier', () => {
     const dir = await mkdtemp(join(tmpdir(), 'kwsearch-'))
     const path = join(dir, 'empty.json')
     await writeFile(path, JSON.stringify({ version: 3, text: '', isEmpty: true }), 'utf8')
-    const doc: IndexedDocument = { documentId: 'empty.docx', displayName: 'empty', cachePath: path }
+    const doc: IndexedDocument = { itemId: 'empty.docx', displayName: 'empty', cachePath: path }
     expect(await keywordSearchDossier({ documents: [doc], query: 'école' })).toEqual([])
   })
 })

@@ -26,7 +26,9 @@ const aiStubs = {
   remoteConnectionStatus: vi.fn(async () => ({
     success: true as const,
     data: { reachable: false }
-  }))
+  })),
+  getPersonas: vi.fn(async () => ({ success: true as const, data: { personas: [] } })),
+  savePersonas: vi.fn(async () => ({ success: true as const, data: { personas: [] } }))
 }
 
 afterEach(() => {

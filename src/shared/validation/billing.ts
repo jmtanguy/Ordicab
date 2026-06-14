@@ -67,16 +67,16 @@ const optionalNonNegativeNumberSchema = z.preprocess(
 
 // Schemas derive their value sets from the domain layer (single source of truth)
 // rather than re-declaring the literals here.
-export const billingTypeSchema = z.enum(BILLING_TYPE_VALUES)
-export const cabinetServiceUsageSchema = z.enum(CABINET_SERVICE_USAGE_VALUES)
-export const feeAgreementStatusSchema = z.enum(FEE_AGREEMENT_STATUS_VALUES)
-export const billingItemStatusSchema = z.enum(BILLING_ITEM_STATUS_VALUES)
-export const billingItemQuantityUnitSchema = z.enum(BILLING_ITEM_QUANTITY_UNIT_VALUES)
-export const billingItemDiscountKindSchema = z.enum(BILLING_ITEM_DISCOUNT_KIND_VALUES)
-export const sourceFeeAgreementBillingKindSchema = z.enum(SOURCE_FEE_AGREEMENT_BILLING_KIND_VALUES)
+const billingTypeSchema = z.enum(BILLING_TYPE_VALUES)
+const cabinetServiceUsageSchema = z.enum(CABINET_SERVICE_USAGE_VALUES)
+const feeAgreementStatusSchema = z.enum(FEE_AGREEMENT_STATUS_VALUES)
+const billingItemStatusSchema = z.enum(BILLING_ITEM_STATUS_VALUES)
+const billingItemQuantityUnitSchema = z.enum(BILLING_ITEM_QUANTITY_UNIT_VALUES)
+const billingItemDiscountKindSchema = z.enum(BILLING_ITEM_DISCOUNT_KIND_VALUES)
+const sourceFeeAgreementBillingKindSchema = z.enum(SOURCE_FEE_AGREEMENT_BILLING_KIND_VALUES)
 
-export const cabinetServicePresetSchema = z.object({
-  id: z.string().trim().min(1),
+const cabinetServicePresetSchema = z.object({
+  uuid: z.string().trim().min(1),
   name: z.string().trim().min(1),
   description: optionalTrimmedStringSchema,
   group: optionalTrimmedStringSchema,
@@ -95,30 +95,30 @@ export const cabinetServicePresetSchema = z.object({
   updatedAt: z.string().trim().min(1)
 })
 
-export const legalAidTypeSchema = z.enum(LEGAL_AID_TYPE_VALUES)
+const legalAidTypeSchema = z.enum(LEGAL_AID_TYPE_VALUES)
 
 export const cabinetBillingCatalogSchema = z.object({
   services: z.array(cabinetServicePresetSchema).default([]),
-  defaultServiceId: optionalTrimmedStringSchema,
+  defaultServiceUuid: optionalTrimmedStringSchema,
   invoiceSettings: invoiceSettingsSchema.optional(),
   updatedAt: z.string().trim().min(1)
 })
 
 export const cabinetServicePresetUpsertInputSchema = cabinetServicePresetSchema
   .omit({
-    id: true,
+    uuid: true,
     updatedAt: true
   })
   .extend({
-    id: z.string().trim().min(1).optional()
+    uuid: z.string().trim().min(1).optional()
   })
 
 export const cabinetServicePresetDeleteInputSchema = z.object({
-  id: z.string().trim().min(1)
+  uuid: z.string().trim().min(1)
 })
 
 export const cabinetBillingDefaultInputSchema = z.object({
-  serviceId: optionalTrimmedStringSchema
+  serviceUuid: optionalTrimmedStringSchema
 })
 
 type DiscountShape = {
@@ -141,7 +141,7 @@ const discountConsistencyMessage =
   'Discount fields must match discountKind: percent requires discountPercentBasisPoints only, amount requires discountAmountHtCents only, and no discountKind forbids both.'
 
 const feeAgreementBaseSchema = z.object({
-  id: z.string().uuid(),
+  uuid: z.string().uuid(),
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1),
   isActive: z.boolean(),
@@ -154,7 +154,7 @@ const feeAgreementBaseSchema = z.object({
   clientContactUuid: optionalTrimmedStringSchema,
   signatoryContactUuid: optionalTrimmedStringSchema,
   billingType: billingTypeSchema,
-  sourceServicePresetId: optionalTrimmedStringSchema,
+  sourceServicePresetUuid: optionalTrimmedStringSchema,
   flatFeeHtCents: optionalNonNegativeIntegerSchema,
   hourlyRateHtCents: optionalNonNegativeIntegerSchema,
   estimatedHours: optionalNonNegativeNumberSchema,
@@ -221,10 +221,10 @@ export const feeAgreementSchema = feeAgreementBaseSchema
   })
 
 export const dossierFeeAgreementUpsertInputSchema = feeAgreementBaseSchema
-  .omit({ id: true, createdAt: true, updatedAt: true, isActive: true })
+  .omit({ uuid: true, createdAt: true, updatedAt: true, isActive: true })
   .extend({
     dossierId: dossierIdSchema,
-    id: z.string().uuid().optional(),
+    uuid: z.string().uuid().optional(),
     setActive: z.boolean().optional()
   })
   .refine(isDiscountShapeConsistent, {
@@ -238,26 +238,26 @@ export const dossierFeeAgreementUpsertInputSchema = feeAgreementBaseSchema
 
 export const dossierFeeAgreementDeleteInputSchema = z.object({
   dossierId: dossierIdSchema,
-  feeAgreementId: z.string().uuid()
+  feeAgreementUuid: z.string().uuid()
 })
 
 export const dossierFeeAgreementArchiveInputSchema = z.object({
   dossierId: dossierIdSchema,
-  feeAgreementId: z.string().uuid()
+  feeAgreementUuid: z.string().uuid()
 })
 
 export const dossierFeeAgreementSetActiveInputSchema = z.object({
   dossierId: dossierIdSchema,
-  feeAgreementId: z.string().uuid()
+  feeAgreementUuid: z.string().uuid()
 })
 
 const dossierBillingItemRawSchema = z.object({
-  id: z.string().uuid(),
+  uuid: z.string().uuid(),
   dossierId: dossierIdSchema,
   date: z.string().trim().date(),
   label: z.string().trim().min(1),
   description: optionalTrimmedStringSchema,
-  sourceServicePresetId: optionalTrimmedStringSchema,
+  sourceServicePresetUuid: optionalTrimmedStringSchema,
   quantity: z.number().nonnegative(),
   quantityUnit: billingItemQuantityUnitSchema,
   unitPriceHtCents: z.number().int().nonnegative(),
@@ -270,33 +270,33 @@ const dossierBillingItemRawSchema = z.object({
   vatRateBasisPoints: z.number().int().min(0).max(10_000),
   totalTtcCents: z.number().int().nonnegative(),
   status: billingItemStatusSchema,
-  sourceKeyDateId: optionalTrimmedStringSchema,
-  sourceFeeAgreementId: optionalTrimmedStringSchema,
+  sourceKeyDateUuid: optionalTrimmedStringSchema,
+  sourceFeeAgreementUuid: optionalTrimmedStringSchema,
   sourceFeeAgreementBillingKind: sourceFeeAgreementBillingKindSchema.optional(),
-  invoiceId: optionalTrimmedStringSchema,
+  invoiceUuid: optionalTrimmedStringSchema,
   invoiceNumber: optionalTrimmedStringSchema,
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1)
 })
 
 type BillingItemSourceShape = {
-  sourceKeyDateId?: string
-  sourceFeeAgreementId?: string
+  sourceKeyDateUuid?: string
+  sourceFeeAgreementUuid?: string
   sourceFeeAgreementBillingKind?: SourceFeeAgreementBillingKind
 }
 
 function isBillingItemSourceConsistent(data: BillingItemSourceShape): boolean {
-  if (data.sourceKeyDateId && data.sourceFeeAgreementId) {
+  if (data.sourceKeyDateUuid && data.sourceFeeAgreementUuid) {
     return false
   }
-  if (data.sourceFeeAgreementBillingKind && !data.sourceFeeAgreementId) {
+  if (data.sourceFeeAgreementBillingKind && !data.sourceFeeAgreementUuid) {
     return false
   }
   return true
 }
 
 const billingItemSourceConsistencyMessage =
-  'A billing item cannot reference both a key date and a fee agreement, and sourceFeeAgreementBillingKind requires sourceFeeAgreementId.'
+  'A billing item cannot reference both a key date and a fee agreement, and sourceFeeAgreementBillingKind requires sourceFeeAgreementUuid.'
 
 const dossierBillingItemNormalizedSchema = z.preprocess((value) => {
   if (typeof value !== 'object' || value === null) {
@@ -323,23 +323,23 @@ export const dossierBillingItemSchema = dossierBillingItemNormalizedSchema
   })
   .refine(isBillingItemSourceConsistent, {
     message: billingItemSourceConsistencyMessage,
-    path: ['sourceFeeAgreementId']
+    path: ['sourceFeeAgreementUuid']
   })
 
 export const dossierBillingItemUpsertInputSchema = dossierBillingItemRawSchema
   .omit({
-    id: true,
+    uuid: true,
     subtotalHtCents: true,
     discountHtCents: true,
     totalHtCents: true,
     totalTtcCents: true,
-    invoiceId: true,
+    invoiceUuid: true,
     invoiceNumber: true,
     createdAt: true,
     updatedAt: true
   })
   .extend({
-    id: z.string().uuid().optional()
+    uuid: z.string().uuid().optional()
   })
   .refine(isDiscountShapeConsistent, {
     message: discountConsistencyMessage,
@@ -347,33 +347,13 @@ export const dossierBillingItemUpsertInputSchema = dossierBillingItemRawSchema
   })
   .refine(isBillingItemSourceConsistent, {
     message: billingItemSourceConsistencyMessage,
-    path: ['sourceFeeAgreementId']
+    path: ['sourceFeeAgreementUuid']
   })
 
 export const dossierBillingItemDeleteInputSchema = z.object({
   dossierId: dossierIdSchema,
-  billingItemId: z.string().uuid()
+  billingItemUuid: z.string().uuid()
 })
-
-export const billingItemIndexEntrySchema = z.object({
-  id: z.string().uuid(),
-  dossierId: dossierIdSchema,
-  label: z.string().trim().min(1),
-  status: billingItemStatusSchema,
-  date: z.string().trim().min(1),
-  totalTtcCents: z.number().int().nonnegative(),
-  invoiceId: z.string().optional(),
-  updatedAt: z.string().min(1)
-})
-
-export const billingItemIndexSchema = z.object({
-  items: z.array(billingItemIndexEntrySchema).default([]),
-  updatedAt: z.string().min(1),
-  migrated: z.boolean().optional()
-})
-
-export type BillingItemIndexEntry = z.infer<typeof billingItemIndexEntrySchema>
-export type BillingItemIndex = z.infer<typeof billingItemIndexSchema>
 
 export type {
   BillingItemDiscountKind,

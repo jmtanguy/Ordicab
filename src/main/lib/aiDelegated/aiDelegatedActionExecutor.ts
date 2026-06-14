@@ -45,28 +45,28 @@ import { normalizeManagedFieldsConfig } from '@shared/managedFields'
 export interface OrdicabActionContactService {
   list(dossierId: string): Promise<ContactRecord[]>
   upsert(input: ContactUpsertInput): Promise<ContactRecord>
-  delete(dossierId: string, contactId: string): Promise<void>
+  delete(dossierId: string, contactUuid: string): Promise<void>
 }
 
-export interface OrdicabActionDossierService {
+interface OrdicabActionDossierService {
   getDossier: (input: { dossierId: string }) => Promise<DossierDetail>
   updateDossier: (input: DossierUpdateInput) => Promise<unknown>
   upsertKeyDate: (input: {
     dossierId: string
-    id?: string
+    uuid?: string
     label: string
     date: string
     note?: string
   }) => Promise<unknown>
-  deleteKeyDate: (input: { dossierId: string; keyDateId: string }) => Promise<unknown>
+  deleteKeyDate: (input: { dossierId: string; keyDateUuid: string }) => Promise<unknown>
   upsertKeyReference: (input: {
     dossierId: string
-    id?: string
+    uuid?: string
     label: string
     value: string
     note?: string
   }) => Promise<unknown>
-  deleteKeyReference: (input: { dossierId: string; keyReferenceId: string }) => Promise<unknown>
+  deleteKeyReference: (input: { dossierId: string; keyReferenceUuid: string }) => Promise<unknown>
   registerDossier: (input: DossierRegistrationInput) => Promise<unknown>
 }
 
@@ -151,8 +151,8 @@ async function saveContact(dossierPath: string, contact: ContactRecord): Promise
   )
 }
 
-async function deleteContact(dossierPath: string, contactId: string): Promise<void> {
-  return deleteRecord(getDossierContactRecordPath(dossierPath, contactId))
+async function deleteContact(dossierPath: string, contactUuid: string): Promise<void> {
+  return deleteRecord(getDossierContactRecordPath(dossierPath, contactUuid))
 }
 
 async function loadEntityProfile(entityPath: string): Promise<EntityProfileDraft | null> {
@@ -224,7 +224,7 @@ function ensureNoDuplicateTemplateName(
 ): void {
   const normalized = normalizeTemplateNameForComparison(name)
   const duplicate = templates.some((template) => {
-    if (template.id === excludeId) {
+    if (template.uuid === excludeId) {
       return false
     }
 
@@ -243,9 +243,9 @@ function ensureNoDuplicateTemplateName(
 }
 
 function createTemplateRecord(input: {
-  id: string
+  uuid: string
   name: string
-  content: string
+  content?: string
   description?: string
   updatedAt: string
 }): TemplateRecord {
@@ -263,7 +263,7 @@ async function createTemplate(
   ensureNoDuplicateTemplateName(templates, input.name)
 
   const nextTemplate = createTemplateRecord({
-    id: randomUUID(),
+    uuid: randomUUID(),
     name: input.name,
     content: input.content,
     description: input.description,
@@ -281,20 +281,20 @@ async function updateTemplate(
 ): Promise<TemplateRecord> {
   const templatesPath = getDomainTemplatesPath(domainPath)
   const templates = await loadTemplates(templatesPath)
-  const index = templates.findIndex((template) => template.id === input.id)
+  const index = templates.findIndex((template) => template.uuid === input.uuid)
 
   if (index < 0) {
     throw new OrdicabActionError(
       IpcErrorCode.NOT_FOUND,
       'This template was not found.',
-      `The template id "${input.id}" does not exist. Read the templates index to find the correct id, then re-emit the intent with the correct id.`
+      `The template id "${input.uuid}" does not exist. Read the templates index to find the correct id, then re-emit the intent with the correct id.`
     )
   }
 
-  ensureNoDuplicateTemplateName(templates, input.name, input.id)
+  ensureNoDuplicateTemplateName(templates, input.name, input.uuid)
 
   const nextTemplate = createTemplateRecord({
-    id: input.id,
+    uuid: input.uuid,
     name: input.name,
     content: input.content,
     description: input.description,
@@ -311,13 +311,13 @@ async function updateTemplate(
 async function deleteTemplate(domainPath: string, input: TemplateDeleteInput): Promise<void> {
   const templatesPath = getDomainTemplatesPath(domainPath)
   const templates = await loadTemplates(templatesPath)
-  const nextTemplates = templates.filter((template) => template.id !== input.id)
+  const nextTemplates = templates.filter((template) => template.uuid !== input.uuid)
 
   if (nextTemplates.length === templates.length) {
     throw new OrdicabActionError(
       IpcErrorCode.NOT_FOUND,
       'This template was not found.',
-      `The template id "${input.id}" does not exist. Read the templates index to verify the correct id before re-emitting.`
+      `The template id "${input.uuid}" does not exist. Read the templates index to verify the correct id before re-emitting.`
     )
   }
 
@@ -355,40 +355,40 @@ export function createFileBackedOrdicabActionContactService(options: {
         dossierId: input.dossierId
       })
       const contacts = await loadContacts(dossierPath)
-      const existingIndex = input.id
-        ? contacts.findIndex((contact) => contact.uuid === input.id)
+      const existingIndex = input.uuid
+        ? contacts.findIndex((contact) => contact.uuid === input.uuid)
         : -1
 
-      if (input.id && existingIndex === -1) {
+      if (input.uuid && existingIndex === -1) {
         throw new OrdicabActionError(
           IpcErrorCode.NOT_FOUND,
           'This contact was not found.',
-          `The contact id "${input.id}" does not exist in this dossier. To create a new contact instead, omit the id field.`
+          `The contact id "${input.uuid}" does not exist in this dossier. To create a new contact instead, omit the id field.`
         )
       }
 
       const nextContact = contactRecordSchema.parse({
         ...pickDefined(input),
-        uuid: input.id ?? randomUUID()
+        uuid: input.uuid ?? randomUUID()
       })
 
       await saveContact(dossierPath, nextContact)
       return nextContact
     },
 
-    async delete(dossierId: string, contactId: string): Promise<void> {
+    async delete(dossierId: string, contactUuid: string): Promise<void> {
       const dossierPath = await documentService.resolveRegisteredDossierRoot({ dossierId })
       const contacts = await loadContacts(dossierPath)
 
-      if (!contacts.some((contact) => contact.uuid === contactId)) {
+      if (!contacts.some((contact) => contact.uuid === contactUuid)) {
         throw new OrdicabActionError(
           IpcErrorCode.NOT_FOUND,
           'This contact was not found.',
-          `The contact id "${contactId}" does not exist in this dossier.`
+          `The contact id "${contactUuid}" does not exist in this dossier.`
         )
       }
 
-      await deleteContact(dossierPath, contactId)
+      await deleteContact(dossierPath, contactUuid)
     }
   }
 }
@@ -406,17 +406,17 @@ export function createDelegatedAiActionExecutor(
           const payload = parsePayload('contact.upsert', rawPayload)
           const contactService = requireDependency(options.contactService, action, 'contactService')
           const existingContact =
-            payload.id && payload.dossierId
+            payload.uuid && payload.dossierId
               ? (await contactService.list(payload.dossierId)).find(
-                  (contact) => contact.uuid === payload.id
+                  (contact) => contact.uuid === payload.uuid
                 )
               : undefined
 
-          if (payload.id && !existingContact) {
+          if (payload.uuid && !existingContact) {
             throw new OrdicabActionError(
               IpcErrorCode.NOT_FOUND,
               'This contact was not found.',
-              `The contact id "${payload.id}" does not exist in this dossier. List contacts first (contact.list) to find the correct id, then re-emit the intent with the correct id. To create a new contact instead, omit the id field.`
+              `The contact id "${payload.uuid}" does not exist in this dossier. List contacts first (contact.list) to find the correct id, then re-emit the intent with the correct id. To create a new contact instead, omit the id field.`
             )
           }
 
@@ -448,7 +448,7 @@ export function createDelegatedAiActionExecutor(
 
           try {
             await mkdir(join(domainPath, payload.id), { recursive: true })
-            return await dossierService.registerDossier({ id: payload.id })
+            return await dossierService.registerDossier({ slug: payload.id })
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error)
             if (message.includes('already registered')) {
@@ -469,7 +469,7 @@ export function createDelegatedAiActionExecutor(
           const dossier = await dossierService.getDossier({ dossierId: payload.id })
 
           return dossierService.updateDossier({
-            id: payload.id,
+            slug: payload.id,
             status: payload.status ?? dossier.status,
             type: payload.type ?? dossier.type,
             information: payload.information ?? dossier.information
@@ -561,18 +561,18 @@ export function createDelegatedAiActionExecutor(
               .listDocuments({ dossierId: payload.dossierId })
               .catch(() => [] as DocumentRecord[])
           ])
-          const doc = docs.find((d) => d.id === payload.documentId)
-          const absolutePath = join(dossierRoot, payload.documentId)
+          const doc = docs.find((d) => d.path === payload.documentPath)
+          const absolutePath = join(dossierRoot, payload.documentPath)
           const { getDossierContentCachePath } = await import('../ordicab/ordicabPaths')
           const cacheDir = getDossierContentCachePath(dossierRoot)
           const { readCachedDocumentText } = await import('../aiEmbedded/documentContentService')
           const result = await readCachedDocumentText(absolutePath, cacheDir)
           if (result === null) {
             return {
-              documentId: payload.documentId,
+              documentPath: payload.documentPath,
               dossierId: payload.dossierId,
               extracted: false,
-              warning: `Le texte de "${doc?.filename ?? payload.documentId}" n'a pas encore été extrait. Veuillez aller dans l'onglet Documents et utiliser "Tout extraire" pour extraire le texte des documents avant de relancer l'analyse.`,
+              warning: `Le texte de "${doc?.filename ?? payload.documentPath}" n'a pas encore été extrait. Veuillez aller dans l'onglet Documents et utiliser "Tout extraire" pour extraire le texte des documents avant de relancer l'analyse.`,
               metadata: {
                 description: doc?.description ?? null,
                 tags: doc?.tags ?? []
@@ -582,7 +582,7 @@ export function createDelegatedAiActionExecutor(
           // Return the full extracted payload here because delegated AI cannot
           // inspect in-memory state directly; it only sees the response file.
           return {
-            documentId: payload.documentId,
+            documentPath: payload.documentPath,
             dossierId: payload.dossierId,
             extracted: true,
             method: result.method,
@@ -645,8 +645,3 @@ export function createDelegatedAiActionExecutor(
 export function isDelegatedAiActionNeedsInputError(error: unknown): error is GenerateServiceError {
   return error instanceof GenerateServiceError && (error.unresolvedTags?.length ?? 0) > 0
 }
-
-export type OrdicabActionExecutorOptions = DelegatedAiActionExecutorOptions
-export type OrdicabActionExecutor = DelegatedAiActionExecutor
-export const createOrdicabActionExecutor = createDelegatedAiActionExecutor
-export const isOrdicabActionNeedsInputError = isDelegatedAiActionNeedsInputError

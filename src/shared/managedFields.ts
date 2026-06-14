@@ -23,8 +23,6 @@ export interface EntityManagedFieldsConfig {
   contactRoleFields: Record<string, string[]>
 }
 
-export const CONTACT_ADDITIONAL_FIRST_NAMES_FIELD_KEY = 'additionalFirstNames'
-
 function capitalizeFirst(value: string): string {
   return value.length === 0 ? value : value.charAt(0).toUpperCase() + value.slice(1)
 }
@@ -127,9 +125,7 @@ function normalizeContactRoles(input: string[] | null | undefined): string[] {
   return [...deduped.values()]
 }
 
-export function createDefaultManagedFieldsConfig(
-  locale: AppLocale = 'fr'
-): EntityManagedFieldsConfig {
+function createDefaultManagedFieldsConfig(locale: AppLocale = 'fr'): EntityManagedFieldsConfig {
   const roles = normalizeContactRoles(getRolePresets(locale))
   const contactRoleFields = Object.fromEntries(
     roles.map((role) => [roleToTagKey(role), suggestContactFieldKeysForRole(role, locale)])

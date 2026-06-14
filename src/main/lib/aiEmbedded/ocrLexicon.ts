@@ -1,6 +1,6 @@
 export const OCR_LANGUAGES = ['fra', 'eng'] as const
 
-export const OCR_COMMON_WORDS_FR = new Set([
+const OCR_COMMON_WORDS_FR = new Set([
   'a',
   'accord',
   'adresse',
@@ -75,7 +75,7 @@ export const OCR_COMMON_WORDS_FR = new Set([
   'vous'
 ])
 
-export const OCR_COMMON_WORDS_EN = new Set([
+const OCR_COMMON_WORDS_EN = new Set([
   'a',
   'and',
   'bank',
@@ -119,7 +119,7 @@ export const OCR_COMMON_WORDS_EN = new Set([
   'your'
 ])
 
-export const OCR_KEYWORDS_FR = new Set([
+const OCR_KEYWORDS_FR = new Set([
   'appel',
   'assignation',
   'audience',
@@ -144,7 +144,7 @@ export const OCR_KEYWORDS_FR = new Set([
   'witness'
 ])
 
-export const OCR_KEYWORDS_EN = new Set([
+const OCR_KEYWORDS_EN = new Set([
   'bank',
   'defendant',
   'hearing',

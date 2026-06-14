@@ -26,9 +26,9 @@ import {
   type ManagedModel
 } from '../../lib/aiEmbedded/modelDownloadService'
 
-export type ModelKind = 'ner' | 'embedding'
+type ModelKind = 'ner' | 'embedding'
 
-export type ModelStatus = ModelDownloadStatus
+type ModelStatus = ModelDownloadStatus
 
 export interface ModelProvisioningDeps {
   /** Absolute path to the user-data models root (`{userData}/models`). */

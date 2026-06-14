@@ -24,13 +24,10 @@ import { useUiStore } from '@renderer/stores/uiStore'
 import { useToast } from '@renderer/contexts/ToastContext'
 import { getRemoteToolModelDetails, inferRemoteProviderKind } from '@shared/ai/remoteProviders'
 import { AiDialog } from '../settings/AiSettings'
-import { DelegatedReference } from '../delegated/DelegatedReference'
 
 const CLOUD_MANAGED_MODES = ['claude-code'] as const
 
 interface AiPageProps {
-  entityName: string | null
-  sampleDossierName: string | null
   dossierId?: string
 }
 
@@ -282,17 +279,22 @@ function TypingDots(): React.JSX.Element {
 const INLINE_MARKDOWN_PATTERN =
   /(?:\[([^\]]+)\]\((https?:\/\/[^\s)]+)\))|(?:`([^`]+)`)|(?:\*\*([^*]+)\*\*)|(?:__([^_]+)__)|(?:\*([^*\n]+)\*)|(?:_([^_\n]+)_)/g
 
-function renderInlineMarkdown(text: string): React.ReactNode[] {
+function renderInlineMarkdown(text: string, keyPrefix = ''): React.ReactNode[] {
   const nodes: React.ReactNode[] = []
   let lastIndex = 0
   let match: RegExpExecArray | null
 
+  const pushTextNode = (value: string, key: string): void => {
+    if (!value) return
+    nodes.push(<React.Fragment key={`${keyPrefix}${key}`}>{value}</React.Fragment>)
+  }
+
   while ((match = INLINE_MARKDOWN_PATTERN.exec(text)) !== null) {
     if (match.index > lastIndex) {
-      nodes.push(text.slice(lastIndex, match.index))
+      pushTextNode(text.slice(lastIndex, match.index), `text-${lastIndex}-${match.index}`)
     }
 
-    const key = `${match.index}-${match[0]}`
+    const key = `${keyPrefix}${match.index}-${match[0]}`
     const [, linkLabel, linkUrl, inlineCode, boldA, boldB, italicA, italicB] = match
 
     if (linkLabel && linkUrl) {
@@ -313,7 +315,7 @@ function renderInlineMarkdown(text: string): React.ReactNode[] {
   }
 
   if (lastIndex < text.length) {
-    nodes.push(text.slice(lastIndex))
+    pushTextNode(text.slice(lastIndex), `text-${lastIndex}-${text.length}`)
   }
 
   return nodes
@@ -321,7 +323,7 @@ function renderInlineMarkdown(text: string): React.ReactNode[] {
 
 function renderParagraphLines(lines: string[]): React.ReactNode[] {
   return lines.flatMap((line, index) => {
-    const nodes = renderInlineMarkdown(line)
+    const nodes = renderInlineMarkdown(line, `line-${index}-`)
     if (index === lines.length - 1) {
       return nodes
     }
@@ -781,7 +783,7 @@ function parseDocumentMentions(
       const end = i + 1 + name.length
       if (end > text.length) continue
       if (lowerText.slice(i + 1, end) !== name.toLowerCase()) continue
-      const key = doc.uuid ?? doc.id
+      const key = doc.uuid ?? doc.path
       if (!seen.has(key)) {
         seen.add(key)
         out.push({ uuid: key, filename: name })
@@ -833,11 +835,7 @@ function collectDocumentMentions(
 
 // ── Main component ─────────────────────────────────────────────────────────
 
-export function AiPage({
-  entityName,
-  sampleDossierName,
-  dossierId
-}: AiPageProps): React.JSX.Element {
+export function AiPage({ dossierId }: AiPageProps): React.JSX.Element {
   const { t } = useTranslation()
   const mode = useAiStore((s) => s.settings?.mode ?? 'none')
   const messages = useAiStore((s) => s.messages)
@@ -937,11 +935,10 @@ export function AiPage({
     }
   }, [commandLoading])
 
-  if ((CLOUD_MANAGED_MODES as readonly string[]).includes(mode)) {
-    return <DelegatedReference entityName={entityName} sampleDossierName={sampleDossierName} />
-  }
-
-  if (mode === 'none') {
+  // The assistant page only hosts the embedded (remote API) assistant. The
+  // Claude Cowork prompt reference lives in the dedicated Cowork section; a
+  // cowork-only mode therefore shows the same configure screen as 'none'.
+  if (mode === 'none' || (CLOUD_MANAGED_MODES as readonly string[]).includes(mode)) {
     return (
       <div className="ai-configure-screen">
         <div className="ai-welcome-icon">
@@ -1030,7 +1027,7 @@ export function AiPage({
     const trail = after.startsWith(' ') ? '' : ' '
     const newText = `${before}${inserted}${trail}${after}`
     const newCaret = before.length + inserted.length + trail.length
-    const key = doc.uuid ?? doc.id
+    const key = doc.uuid ?? doc.path
     if (key) {
       insertedMentionsRef.current.set(key, doc.filename)
     }
@@ -1254,7 +1251,7 @@ export function AiPage({
               </div>
               <ul className="ai-mention-list">
                 {filteredMentionDocs.map((doc, idx) => (
-                  <li key={doc.id}>
+                  <li key={doc.uuid ?? doc.path ?? doc.relativePath ?? `${doc.filename}-${idx}`}>
                     <button
                       type="button"
                       role="option"
@@ -1341,7 +1338,7 @@ export function AiPage({
                         className="ai-model-select"
                       >
                         {availableModels.map((m) => (
-                          <option key={m} value={m} className="bg-[#f4f3ee] text-[#1a1a1a]">
+                          <option key={m} value={m} className="bg-parchment text-ink">
                             {m}
                           </option>
                         ))}
@@ -1350,7 +1347,7 @@ export function AiPage({
                         <button
                           type="button"
                           onClick={() => setShowModelInfo((v) => !v)}
-                          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#d1cfc6] text-[#1a1a1a] transition hover:bg-[#e5e3da]/50"
+                          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-hairline-strong text-ink transition hover:bg-hairline/50"
                           title={t('ai.page.model_info', 'Model info')}
                           aria-label={t('ai.page.model_info', 'Model info')}
                         >
@@ -1358,19 +1355,19 @@ export function AiPage({
                         </button>
                       )}
                       {hasModelInfoToShow && showModelInfo && selectedRemoteModelDetails && (
-                        <div className="absolute bottom-9 right-0 z-20 w-72 rounded-md border border-[#d1cfc6] bg-[#f4f3ee] px-3 py-2 text-[11px] text-[#1a1a1a] shadow-xl">
+                        <div className="absolute bottom-9 right-0 z-20 w-72 rounded-md border border-hairline-strong bg-parchment px-3 py-2 text-[11px] text-ink shadow-xl">
                           {selectedRemoteModelDetails.costPerformance && (
-                            <div className="font-medium text-[#1a1a1a]">
+                            <div className="font-medium text-ink">
                               {costPerformanceLabel(selectedRemoteModelDetails.costPerformance)}
                             </div>
                           )}
                           {selectedRemoteModelDetails.comment && (
-                            <div className="mt-1 text-[#1a1a1a]">
+                            <div className="mt-1 text-ink">
                               {selectedRemoteModelDetails.comment}
                             </div>
                           )}
                           {selectedRemoteModelDetails.pricing && (
-                            <div className="mt-2 border-t border-[#d1cfc6] pt-2 text-[#5c5c5a]">
+                            <div className="mt-2 border-t border-hairline-strong pt-2 text-ink-muted">
                               {t('ai.page.model_pricing', {
                                 input: selectedRemoteModelDetails.pricing.inputEurPer10k.toFixed(3),
                                 output:
@@ -1398,7 +1395,7 @@ export function AiPage({
                         piiEnabled: !(settings?.piiEnabled ?? true)
                       })
                     }
-                    className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${(settings?.piiEnabled ?? true) ? 'bg-aurora' : 'bg-[#d1cfc6]'}`}
+                    className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${(settings?.piiEnabled ?? true) ? 'bg-aurora' : 'bg-hairline-strong'}`}
                   >
                     <span
                       className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${(settings?.piiEnabled ?? true) ? 'translate-x-3' : 'translate-x-0'}`}

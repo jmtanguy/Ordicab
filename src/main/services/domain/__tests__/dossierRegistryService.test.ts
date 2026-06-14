@@ -5,11 +5,64 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { IpcErrorCode } from '@shared/types'
+import {
+  DOSSIER_INFORMATION_REFERENCE_LABEL,
+  DOSSIER_JURIDICTION_REFERENCE_LABEL,
+  DOSSIER_NAME_REFERENCE_LABEL,
+  DOSSIER_STATUS_REFERENCE_LABEL,
+  DOSSIER_TRIBUNAL_REFERENCE_LABEL,
+  DOSSIER_TYPE_REFERENCE_LABEL,
+  IpcErrorCode,
+  type KeyReference
+} from '@shared/types'
 
-import { createDossierRegistryService, DossierRegistryError } from '../dossierRegistryService'
+import {
+  createDossierRegistryService,
+  DossierRegistryError,
+  NOTE_SNIPPET_MAX_LENGTH
+} from '../dossierRegistryService'
 
 const tempDirs: string[] = []
+
+function expectRequiredDossierReferences(
+  references: KeyReference[],
+  values: Partial<Record<string, string>> = {}
+): void {
+  expect(references).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        uuid: expect.any(String),
+        label: DOSSIER_NAME_REFERENCE_LABEL,
+        value: values[DOSSIER_NAME_REFERENCE_LABEL] ?? 'Client Alpha'
+      }),
+      expect.objectContaining({
+        uuid: expect.any(String),
+        label: DOSSIER_STATUS_REFERENCE_LABEL,
+        value: values[DOSSIER_STATUS_REFERENCE_LABEL] ?? 'active'
+      }),
+      expect.objectContaining({
+        uuid: expect.any(String),
+        label: DOSSIER_TYPE_REFERENCE_LABEL,
+        value: values[DOSSIER_TYPE_REFERENCE_LABEL] ?? ''
+      }),
+      expect.objectContaining({
+        uuid: expect.any(String),
+        label: DOSSIER_JURIDICTION_REFERENCE_LABEL,
+        value: values[DOSSIER_JURIDICTION_REFERENCE_LABEL] ?? ''
+      }),
+      expect.objectContaining({
+        uuid: expect.any(String),
+        label: DOSSIER_TRIBUNAL_REFERENCE_LABEL,
+        value: values[DOSSIER_TRIBUNAL_REFERENCE_LABEL] ?? ''
+      }),
+      expect.objectContaining({
+        uuid: expect.any(String),
+        label: DOSSIER_INFORMATION_REFERENCE_LABEL,
+        value: values[DOSSIER_INFORMATION_REFERENCE_LABEL] ?? ''
+      })
+    ])
+  )
+}
 
 async function createTempDir(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'ordicab-dossier-service-'))
@@ -72,22 +125,22 @@ describe('dossier registry service', () => {
 
     await expect(service.listEligibleFolders()).resolves.toEqual([
       {
-        id: 'Client Alpha',
+        slug: 'Client Alpha',
         name: 'Client Alpha',
         path: join(domainPath, 'Client Alpha')
       },
       {
-        id: 'Client Beta',
+        slug: 'Client Beta',
         name: 'Client Beta',
         path: join(domainPath, 'Client Beta')
       }
     ])
 
-    await service.registerDossier({ id: 'Client Alpha' })
+    await service.registerDossier({ slug: 'Client Alpha' })
 
     await expect(service.listEligibleFolders()).resolves.toEqual([
       {
-        id: 'Client Beta',
+        slug: 'Client Beta',
         name: 'Client Beta',
         path: join(domainPath, 'Client Beta')
       }
@@ -103,8 +156,8 @@ describe('dossier registry service', () => {
       now: () => new Date('2026-03-13T09:00:00.000Z')
     })
 
-    await expect(service.registerDossier({ id: 'Client Alpha' })).resolves.toMatchObject({
-      id: 'Client Alpha',
+    await expect(service.registerDossier({ slug: 'Client Alpha' })).resolves.toMatchObject({
+      slug: 'Client Alpha',
       uuid: expect.any(String),
       name: 'Client Alpha',
       status: 'active',
@@ -117,7 +170,7 @@ describe('dossier registry service', () => {
 
     await expect(service.listRegisteredDossiers()).resolves.toEqual([
       expect.objectContaining({
-        id: 'Client Alpha',
+        slug: 'Client Alpha',
         uuid: expect.any(String),
         name: 'Client Alpha',
         status: 'active',
@@ -137,7 +190,7 @@ describe('dossier registry service', () => {
     expect(registry).toEqual({
       dossiers: [
         expect.objectContaining({
-          id: 'Client Alpha',
+          slug: 'Client Alpha',
           uuid: expect.any(String),
           name: 'Client Alpha',
           registeredAt: '2026-03-13T09:00:00.000Z'
@@ -174,7 +227,7 @@ describe('dossier registry service', () => {
     })
 
     await expect(service.createDossier({ name: 'Client Gamma' })).resolves.toMatchObject({
-      id: 'Client Gamma',
+      slug: 'Client Gamma',
       name: 'Client Gamma',
       status: 'active',
       type: '',
@@ -190,7 +243,7 @@ describe('dossier registry service', () => {
     ])
 
     await expect(service.listRegisteredDossiers()).resolves.toEqual([
-      expect.objectContaining({ id: 'Client Gamma', name: 'Client Gamma' })
+      expect.objectContaining({ slug: 'Client Gamma', name: 'Client Gamma' })
     ])
   })
 
@@ -204,7 +257,7 @@ describe('dossier registry service', () => {
 
     const summary = await service.createDossier({ name: 'Dupont c/ Martin' })
 
-    expect(summary.id).toBe('Dupont c- Martin')
+    expect(summary.slug).toBe('Dupont c- Martin')
     expect(summary.name).toBe('Dupont c/ Martin')
     expect(await pathExists(join(domainPath, 'Dupont c- Martin'))).toBe(true)
 
@@ -261,10 +314,11 @@ describe('dossier registry service', () => {
       now: () => currentTime
     })
 
-    await service.registerDossier({ id: 'Client Alpha' })
+    await service.registerDossier({ slug: 'Client Alpha' })
 
-    await expect(service.getDossier({ dossierId: 'Client Alpha' })).resolves.toMatchObject({
-      id: 'Client Alpha',
+    const initialDetail = await service.getDossier({ dossierId: 'Client Alpha' })
+    expect(initialDetail).toMatchObject({
+      slug: 'Client Alpha',
       uuid: expect.any(String),
       name: 'Client Alpha',
       registeredAt: '2026-03-13T09:00:00.000Z',
@@ -275,28 +329,21 @@ describe('dossier registry service', () => {
       lastOpenedAt: null,
       nextUpcomingKeyDate: null,
       nextUpcomingKeyDateLabel: null,
-      keyDates: [],
-      keyReferences: [
-        {
-          id: expect.any(String),
-          dossierId: 'Client Alpha',
-          label: 'Nom du dossier',
-          value: 'Client Alpha'
-        }
-      ]
+      keyDates: []
     })
+    expectRequiredDossierReferences(initialDetail.keyReferences)
 
     currentTime = new Date('2026-03-13T09:15:00.000Z')
 
     await expect(
       service.updateDossier({
-        id: 'Client Alpha',
+        slug: 'Client Alpha',
         status: 'pending',
         type: 'Civil litigation',
         information: 'Current status note'
       })
     ).resolves.toMatchObject({
-      id: 'Client Alpha',
+      slug: 'Client Alpha',
       status: 'pending',
       type: 'Civil litigation',
       information: 'Current status note',
@@ -310,6 +357,7 @@ describe('dossier registry service', () => {
       type: string
       information?: string
       updatedAt: string
+      keyReferences: KeyReference[]
     }
 
     expect(dossierMetadata).toMatchObject({
@@ -318,6 +366,11 @@ describe('dossier registry service', () => {
       information: 'Current status note',
       updatedAt: '2026-03-13T09:15:00.000Z',
       lastOpenedAt: null
+    })
+    expectRequiredDossierReferences(dossierMetadata.keyReferences, {
+      [DOSSIER_STATUS_REFERENCE_LABEL]: 'pending',
+      [DOSSIER_TYPE_REFERENCE_LABEL]: 'Civil litigation',
+      [DOSSIER_INFORMATION_REFERENCE_LABEL]: 'Current status note'
     })
   })
 
@@ -331,19 +384,19 @@ describe('dossier registry service', () => {
       now: () => currentTime
     })
 
-    await service.registerDossier({ id: 'Client Alpha' })
+    await service.registerDossier({ slug: 'Client Alpha' })
 
     currentTime = new Date('2026-03-13T09:20:00.000Z')
 
     await expect(service.openDossier({ dossierId: 'Client Alpha' })).resolves.toMatchObject({
-      id: 'Client Alpha',
+      slug: 'Client Alpha',
       updatedAt: '2026-03-13T09:00:00.000Z',
       lastOpenedAt: '2026-03-13T09:20:00.000Z'
     })
 
     await expect(service.listRegisteredDossiers()).resolves.toEqual([
       expect.objectContaining({
-        id: 'Client Alpha',
+        slug: 'Client Alpha',
         uuid: expect.any(String),
         name: 'Client Alpha',
         status: 'active',
@@ -377,7 +430,7 @@ describe('dossier registry service', () => {
       now: () => new Date('2026-03-13T09:00:00.000Z')
     })
 
-    await service.registerDossier({ id: 'Client Alpha' })
+    await service.registerDossier({ slug: 'Client Alpha' })
     await writeFile(
       join(domainPath, 'Client Alpha', '.ordicab', 'dossier.json'),
       '{not-json}\n',
@@ -403,7 +456,7 @@ describe('dossier registry service', () => {
         {
           dossiers: [
             {
-              id: 'Client Delta',
+              slug: 'Client Delta',
               name: 'Client Delta',
               registeredAt: '2026-03-13T09:00:00.000Z'
             }
@@ -418,7 +471,7 @@ describe('dossier registry service', () => {
       join(dossierPath, '.ordicab', 'dossier.json'),
       `${JSON.stringify(
         {
-          id: 'Client Delta',
+          slug: 'Client Delta',
           name: 'Client Delta',
           registeredAt: '2026-03-13T09:00:00.000Z',
           status: 'active',
@@ -430,6 +483,7 @@ describe('dossier registry service', () => {
           keyReferences: [],
           documents: [
             {
+              uuid: 'stored-letter-uuid',
               relativePath: 'letter.txt',
               description: 'Incoming note',
               tags: ['urgent']
@@ -448,7 +502,7 @@ describe('dossier registry service', () => {
     })
 
     await service.updateDossier({
-      id: 'Client Delta',
+      slug: 'Client Delta',
       status: 'pending',
       type: 'Civil litigation'
     })
@@ -465,6 +519,7 @@ describe('dossier registry service', () => {
     expect(dossierMetadata.type).toBe('Civil litigation')
     expect(dossierMetadata.documents).toEqual([
       {
+        uuid: 'stored-letter-uuid',
         relativePath: 'letter.txt',
         description: 'Incoming note',
         tags: ['urgent']
@@ -482,7 +537,7 @@ describe('dossier registry service', () => {
       now: () => currentTime
     })
 
-    await service.registerDossier({ id: 'Client Alpha' })
+    await service.registerDossier({ slug: 'Client Alpha' })
     await service.upsertKeyDate({
       dossierId: 'Client Alpha',
       label: 'Past deadline',
@@ -507,7 +562,7 @@ describe('dossier registry service', () => {
     expect(futureEntry).toBeDefined()
 
     const updatedFuture = await service.upsertKeyDate({
-      id: futureEntry?.id,
+      uuid: futureEntry?.uuid,
       dossierId: 'Client Alpha',
       label: 'Appeal deadline',
       date: '2026-03-21'
@@ -521,7 +576,7 @@ describe('dossier registry service', () => {
     currentTime = new Date('2026-03-20T10:00:00.000Z')
     const withoutToday = await service.deleteKeyDate({
       dossierId: 'Client Alpha',
-      keyDateId: todayEntry?.id ?? ''
+      keyDateUuid: todayEntry?.uuid ?? ''
     })
 
     expect(withoutToday.nextUpcomingKeyDate).toBe('2026-03-21')
@@ -546,9 +601,9 @@ describe('dossier registry service', () => {
       now: () => currentTime
     })
 
-    await service.registerDossier({ id: 'Client Alpha' })
+    await service.registerDossier({ slug: 'Client Alpha' })
     await service.updateDossier({
-      id: 'Client Alpha',
+      slug: 'Client Alpha',
       status: 'pending',
       type: 'Civil litigation'
     })
@@ -566,44 +621,51 @@ describe('dossier registry service', () => {
 
     const createdReference = created.keyReferences.find((entry) => entry.label === 'Case number')
     expect(createdReference).toBeDefined()
+    const statusReference = created.keyReferences.find(
+      (entry) => entry.label === DOSSIER_STATUS_REFERENCE_LABEL
+    )
+    await expect(
+      service.deleteKeyReference({
+        dossierId: 'Client Alpha',
+        keyReferenceUuid: statusReference?.uuid ?? ''
+      })
+    ).rejects.toMatchObject({
+      code: IpcErrorCode.VALIDATION_FAILED
+    })
 
     currentTime = new Date('2026-03-21T09:10:00.000Z')
     const updated = await service.upsertKeyReference({
-      id: createdReference?.id,
+      uuid: createdReference?.uuid,
       dossierId: 'Client Alpha',
       label: 'Case number',
       value: 'RG 26/009'
     })
 
-    expect(updated.keyReferences).toEqual([
-      {
-        id: expect.any(String),
-        dossierId: 'Client Alpha',
-        label: 'Nom du dossier',
-        value: 'Client Alpha'
-      },
-      {
-        id: createdReference?.id,
-        dossierId: 'Client Alpha',
-        label: 'Case number',
-        value: 'RG 26/009'
-      }
-    ])
+    expectRequiredDossierReferences(updated.keyReferences, {
+      [DOSSIER_STATUS_REFERENCE_LABEL]: 'pending',
+      [DOSSIER_TYPE_REFERENCE_LABEL]: 'Civil litigation'
+    })
+    expect(updated.keyReferences).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          uuid: createdReference?.uuid,
+          dossierId: 'Client Alpha',
+          label: 'Case number',
+          value: 'RG 26/009'
+        })
+      ])
+    )
 
     const cleared = await service.deleteKeyReference({
       dossierId: 'Client Alpha',
-      keyReferenceId: createdReference?.id ?? ''
+      keyReferenceUuid: createdReference?.uuid ?? ''
     })
 
-    // The auto-managed dossier-name reference is non-deletable, so it stays.
-    expect(cleared.keyReferences).toEqual([
-      {
-        id: expect.any(String),
-        dossierId: 'Client Alpha',
-        label: 'Nom du dossier',
-        value: 'Client Alpha'
-      }
-    ])
+    expectRequiredDossierReferences(cleared.keyReferences, {
+      [DOSSIER_STATUS_REFERENCE_LABEL]: 'pending',
+      [DOSSIER_TYPE_REFERENCE_LABEL]: 'Civil litigation'
+    })
+    expect(cleared.keyReferences.some((entry) => entry.label === 'Case number')).toBe(false)
     expect(cleared.status).toBe('pending')
     expect(cleared.type).toBe('Civil litigation')
   })
@@ -618,11 +680,11 @@ describe('dossier registry service', () => {
       stateFilePath,
       now: () => currentTime,
       indexNote: async (_dossierPath, note) => {
-        indexed.push(note.id)
+        indexed.push(note.uuid)
       }
     })
 
-    await service.registerDossier({ id: 'Client Alpha' })
+    await service.registerDossier({ slug: 'Client Alpha' })
 
     const created = await service.upsertNote({
       dossierId: 'Client Alpha',
@@ -642,15 +704,12 @@ describe('dossier registry service', () => {
       createdAt: '2026-03-21T09:00:00.000Z',
       updatedAt: '2026-03-21T09:00:00.000Z'
     })
-    expect(indexed).toEqual([note?.id])
+    expect(indexed).toEqual([note?.uuid])
 
-    // The note record and its index entry are persisted; embeddings are not in
-    // dossier.json (per-file storage).
-    const notePath = join(domainPath, 'Client Alpha', '.ordicab', 'notes', `${note?.id}.json`)
-    const indexPath = join(domainPath, 'Client Alpha', '.ordicab', 'notes-index.json')
+    // The note record is persisted per-file; notes are not embedded in
+    // dossier.json (per-file storage, no index).
+    const notePath = join(domainPath, 'Client Alpha', '.ordicab', 'notes', `${note?.uuid}.json`)
     expect(await pathExists(notePath)).toBe(true)
-    const indexJson = JSON.parse(await readFile(indexPath, 'utf8')) as { notes: { id: string }[] }
-    expect(indexJson.notes.map((entry) => entry.id)).toEqual([note?.id])
     const dossierJson = JSON.parse(
       await readFile(join(domainPath, 'Client Alpha', '.ordicab', 'dossier.json'), 'utf8')
     ) as { notes: unknown[] }
@@ -658,25 +717,25 @@ describe('dossier registry service', () => {
 
     currentTime = new Date('2026-03-21T09:10:00.000Z')
     const updated = await service.upsertNote({
-      id: note?.id,
+      uuid: note?.uuid,
       dossierId: 'Client Alpha',
       title: 'Vérifier la prescription',
       content: 'Confirmé : prescription acquise.',
       kind: 'to_verify',
       status: 'done'
     })
-    const updatedNote = updated.notes.find((entry) => entry.id === note?.id)
+    const updatedNote = updated.notes.find((entry) => entry.uuid === note?.uuid)
     expect(updatedNote).toMatchObject({
       content: 'Confirmé : prescription acquise.',
       status: 'done',
       createdAt: '2026-03-21T09:00:00.000Z', // preserved
       updatedAt: '2026-03-21T09:10:00.000Z' // bumped
     })
-    expect(indexed).toEqual([note?.id, note?.id]) // re-indexed on update
+    expect(indexed).toEqual([note?.uuid, note?.uuid]) // re-indexed on update
 
     const afterDelete = await service.deleteNote({
       dossierId: 'Client Alpha',
-      noteId: note?.id ?? ''
+      noteUuid: note?.uuid ?? ''
     })
     expect(afterDelete.notes).toEqual([])
     expect(await pathExists(notePath)).toBe(false)
@@ -691,7 +750,7 @@ describe('dossier registry service', () => {
       now: () => new Date('2026-03-21T09:00:00.000Z')
     })
 
-    await service.registerDossier({ id: 'Client Alpha' })
+    await service.registerDossier({ slug: 'Client Alpha' })
     await service.upsertNote({
       dossierId: 'Client Alpha',
       title: 'Prescription',
@@ -719,6 +778,95 @@ describe('dossier registry service', () => {
     expect(todoHits).toEqual([])
   })
 
+  it('lists all notes when searchNotes is called with no query (pinned first, then recent)', async () => {
+    const { domainPath, stateFilePath } = await createConfiguredDomain()
+    await mkdir(join(domainPath, 'Client Alpha'))
+
+    let clock = new Date('2026-03-21T09:00:00.000Z')
+    const service = createDossierRegistryService({
+      stateFilePath,
+      now: () => clock
+    })
+
+    await service.registerDossier({ slug: 'Client Alpha' })
+    await service.upsertNote({
+      dossierId: 'Client Alpha',
+      title: 'Ancienne note',
+      content: 'La plus ancienne.',
+      kind: 'note'
+    })
+    clock = new Date('2026-03-22T09:00:00.000Z')
+    await service.upsertNote({
+      dossierId: 'Client Alpha',
+      title: 'Todo récent',
+      content: 'Rappeler le client.',
+      kind: 'todo',
+      status: 'open'
+    })
+    clock = new Date('2026-03-23T09:00:00.000Z')
+    await service.upsertNote({
+      dossierId: 'Client Alpha',
+      title: 'Note épinglée',
+      content: 'À garder en tête.',
+      kind: 'idea',
+      pinned: true
+    })
+
+    // Empty query → every note, pinned first then most recently updated.
+    const all = await service.searchNotes({ dossierId: 'Client Alpha', query: '' })
+    expect(all.map((hit) => hit.title)).toEqual(['Note épinglée', 'Todo récent', 'Ancienne note'])
+
+    // Each result carries kind/status and a (here false) truncation flag.
+    expect(all[0]).toMatchObject({ kind: 'idea', truncated: false })
+    expect(all[1]).toMatchObject({ kind: 'todo', status: 'open', truncated: false })
+
+    // "*" behaves the same as an empty query (no real search term).
+    const wildcard = await service.searchNotes({ dossierId: 'Client Alpha', query: '*' })
+    expect(wildcard.map((hit) => hit.title)).toEqual([
+      'Note épinglée',
+      'Todo récent',
+      'Ancienne note'
+    ])
+
+    // Filters still apply when listing all.
+    const openTodos = await service.searchNotes({
+      dossierId: 'Client Alpha',
+      query: '',
+      status: 'open'
+    })
+    expect(openTodos.map((hit) => hit.title)).toEqual(['Todo récent'])
+  })
+
+  it('truncates long note content and flags it, leaving the full note readable', async () => {
+    const { domainPath, stateFilePath } = await createConfiguredDomain()
+    await mkdir(join(domainPath, 'Client Alpha'))
+
+    const service = createDossierRegistryService({
+      stateFilePath,
+      now: () => new Date('2026-03-21T09:00:00.000Z')
+    })
+
+    const longContent = 'a'.repeat(NOTE_SNIPPET_MAX_LENGTH + 50)
+    await service.registerDossier({ slug: 'Client Alpha' })
+    const created = await service.upsertNote({
+      dossierId: 'Client Alpha',
+      title: 'Note longue',
+      content: longContent,
+      kind: 'note'
+    })
+    const noteUuid = created.notes.find((entry) => entry.title === 'Note longue')?.uuid
+
+    const [hit] = await service.searchNotes({ dossierId: 'Client Alpha', query: '' })
+    expect(hit).toBeDefined()
+    expect(hit!.truncated).toBe(true)
+    expect(hit!.snippet).toHaveLength(NOTE_SNIPPET_MAX_LENGTH)
+    expect(hit!.snippet).toBe(longContent.slice(0, NOTE_SNIPPET_MAX_LENGTH))
+
+    // The full content is still recoverable via the dossier detail (what note_get reads).
+    const detail = await service.getDossier({ dossierId: 'Client Alpha' })
+    expect(detail.notes.find((entry) => entry.uuid === noteUuid)?.content).toBe(longContent)
+  })
+
   it('rejects duplicate registration without mutating registry files', async () => {
     const { domainPath, stateFilePath } = await createConfiguredDomain()
     await mkdir(join(domainPath, 'Client Alpha'))
@@ -728,16 +876,16 @@ describe('dossier registry service', () => {
       now: () => new Date('2026-03-13T10:00:00.000Z')
     })
 
-    await service.registerDossier({ id: 'Client Alpha' })
+    await service.registerDossier({ slug: 'Client Alpha' })
 
-    await expect(service.registerDossier({ id: 'Client Alpha' })).rejects.toThrow(
+    await expect(service.registerDossier({ slug: 'Client Alpha' })).rejects.toThrow(
       'This dossier is already registered.'
     )
 
     const registry = JSON.parse(
       await readFile(join(domainPath, '.ordicab', 'registry.json'), 'utf8')
     ) as {
-      dossiers: Array<{ id: string }>
+      dossiers: Array<{ slug: string }>
     }
     expect(registry.dossiers).toHaveLength(1)
   })
@@ -753,8 +901,8 @@ describe('dossier registry service', () => {
       now: () => new Date('2026-03-13T11:00:00.000Z')
     })
 
-    await service.registerDossier({ id: 'Client Alpha' })
-    await expect(service.unregisterDossier({ id: 'Client Alpha' })).resolves.toBeNull()
+    await service.registerDossier({ slug: 'Client Alpha' })
+    await expect(service.unregisterDossier({ slug: 'Client Alpha' })).resolves.toBeNull()
 
     await expect(service.listRegisteredDossiers()).resolves.toEqual([])
     await expect(readFile(join(dossierPath, 'notes.txt'), 'utf8')).resolves.toBe('leave me here')
@@ -763,7 +911,7 @@ describe('dossier registry service', () => {
     const registry = JSON.parse(
       await readFile(join(domainPath, '.ordicab', 'registry.json'), 'utf8')
     ) as {
-      dossiers: Array<{ id: string }>
+      dossiers: Array<{ slug: string }>
     }
     expect(registry.dossiers).toEqual([])
   })
@@ -777,7 +925,7 @@ describe('dossier registry service', () => {
       now: () => new Date('2026-03-13T12:00:00.000Z')
     })
 
-    await expect(service.registerDossier({ id: '../escape' })).rejects.toThrow(
+    await expect(service.registerDossier({ slug: '../escape' })).rejects.toThrow(
       'Dossier registration is limited to direct subfolders of the active domain.'
     )
   })
@@ -791,7 +939,7 @@ describe('dossier registry service', () => {
       now: () => new Date('2026-03-13T12:30:00.000Z')
     })
 
-    await expect(service.registerDossier({ id: '.Client Alpha' })).rejects.toThrow(
+    await expect(service.registerDossier({ slug: '.Client Alpha' })).rejects.toThrow(
       'Hidden folders cannot be registered as dossiers.'
     )
   })
@@ -804,11 +952,11 @@ describe('dossier registry service', () => {
       now: () => new Date('2026-03-13T12:00:00.000Z')
     })
 
-    await expect(service.registerDossier({ id: '..' })).rejects.toThrow(
+    await expect(service.registerDossier({ slug: '..' })).rejects.toThrow(
       'Dossier registration is limited to direct subfolders of the active domain.'
     )
 
-    await expect(service.registerDossier({ id: '.' })).rejects.toThrow(
+    await expect(service.registerDossier({ slug: '.' })).rejects.toThrow(
       'Dossier registration is limited to direct subfolders of the active domain.'
     )
   })
@@ -824,7 +972,7 @@ describe('dossier registry service', () => {
         {
           dossiers: [
             {
-              id: 'Client Alpha',
+              slug: 'Client Alpha',
               name: 'Client Alpha',
               registeredAt: '2026-03-13T09:00:00.000Z'
             }
@@ -839,7 +987,7 @@ describe('dossier registry service', () => {
       join(dossierPath, '.ordicab', 'dossier.json'),
       `${JSON.stringify(
         {
-          id: 'Client Alpha',
+          slug: 'Client Alpha',
           name: 'Client Alpha',
           registeredAt: '2026-03-13T09:00:00.000Z',
           status: 'registered',
@@ -862,7 +1010,7 @@ describe('dossier registry service', () => {
 
     await expect(service.listRegisteredDossiers()).resolves.toEqual([
       expect.objectContaining({
-        id: 'Client Alpha',
+        slug: 'Client Alpha',
         uuid: expect.any(String),
         name: 'Client Alpha',
         status: 'active',
@@ -884,7 +1032,7 @@ describe('dossier registry service', () => {
       now: () => new Date('2026-03-21T09:00:00.000Z')
     })
 
-    await service.registerDossier({ id: 'Client Alpha' })
+    await service.registerDossier({ slug: 'Client Alpha' })
 
     const created = await service.upsertKeyDate({
       dossierId: 'Client Alpha',
@@ -897,7 +1045,7 @@ describe('dossier registry service', () => {
     expect(createdEntry?.note).toBe('Initial note')
 
     const updated = await service.upsertKeyDate({
-      id: createdEntry?.id,
+      uuid: createdEntry?.uuid,
       dossierId: 'Client Alpha',
       label: 'Hearing',
       date: '2026-04-01',
@@ -907,7 +1055,7 @@ describe('dossier registry service', () => {
     expect(updated.keyDates[0]?.note).toBe('Updated note')
 
     const preserved = await service.upsertKeyDate({
-      id: createdEntry?.id,
+      uuid: createdEntry?.uuid,
       dossierId: 'Client Alpha',
       label: 'Hearing',
       date: '2026-04-01'
@@ -926,7 +1074,7 @@ describe('dossier registry service', () => {
     expect(refEntry?.note).toBe('First note')
 
     const updatedRef = await service.upsertKeyReference({
-      id: refEntry?.id,
+      uuid: refEntry?.uuid,
       dossierId: 'Client Alpha',
       label: 'Case number',
       value: 'RG 26/001',
@@ -935,55 +1083,6 @@ describe('dossier registry service', () => {
 
     const updatedRefEntry = updatedRef.keyReferences.find((entry) => entry.label === 'Case number')
     expect(updatedRefEntry?.note).toBe('Second note')
-  })
-
-  it('migrates legacy singular feeAgreement metadata into feeAgreements[]', async () => {
-    const { domainPath, stateFilePath } = await createConfiguredDomain()
-    await mkdir(join(domainPath, 'Client Alpha'))
-
-    const service = createDossierRegistryService({
-      stateFilePath,
-      now: () => new Date('2026-03-13T08:30:00.000Z')
-    })
-
-    await service.registerDossier({ id: 'Client Alpha' })
-
-    const legacyMetadata = {
-      id: 'Client Alpha',
-      uuid: 'legacy-uuid',
-      name: 'Client Alpha',
-      registeredAt: '2026-03-13T08:30:00.000Z',
-      status: 'active',
-      type: '',
-      updatedAt: '2026-03-13T09:00:00.000Z',
-      lastOpenedAt: null,
-      nextUpcomingKeyDate: null,
-      nextUpcomingKeyDateLabel: null,
-      feeAgreement: {
-        status: 'sent',
-        matterLabel: 'Legacy convention',
-        scopeDescription: 'Original scope',
-        billingType: 'flat',
-        flatFeeHtCents: 100_000,
-        vatRateBasisPoints: 2000
-      },
-      keyDates: [],
-      keyReferences: [],
-      documents: []
-    }
-    const metadataPath = join(domainPath, 'Client Alpha', '.ordicab', 'dossier.json')
-    await writeFile(metadataPath, `${JSON.stringify(legacyMetadata, null, 2)}\n`, 'utf8')
-
-    const detail = await service.getDossier({ dossierId: 'Client Alpha' })
-    expect(detail.feeAgreements).toHaveLength(1)
-    expect(detail.feeAgreements[0]?.isActive).toBe(true)
-    expect(detail.feeAgreements[0]?.matterLabel).toBe('Legacy convention')
-    expect(detail.feeAgreements[0]?.id).toBeDefined()
-    expect(detail.billingItems).toEqual([])
-
-    const persistedRaw = await readFile(metadataPath, 'utf8')
-    const persisted = JSON.parse(persistedRaw) as { feeAgreements?: unknown[] }
-    expect(Array.isArray(persisted.feeAgreements)).toBe(true)
   })
 
   it('tracks the active fee agreement across upsert and archive operations', async () => {
@@ -995,7 +1094,7 @@ describe('dossier registry service', () => {
       now: () => new Date('2026-03-13T08:30:00.000Z')
     })
 
-    await service.registerDossier({ id: 'Client Alpha' })
+    await service.registerDossier({ slug: 'Client Alpha' })
 
     const first = await service.upsertFeeAgreement({
       dossierId: 'Client Alpha',
@@ -1007,7 +1106,7 @@ describe('dossier registry service', () => {
       vatRateBasisPoints: 2000
     })
     expect(first.feeAgreements).toHaveLength(1)
-    const firstId = first.feeAgreements[0]?.id as string
+    const firstId = first.feeAgreements[0]?.uuid as string
     expect(first.feeAgreements[0]?.isActive).toBe(true)
 
     const amended = await service.upsertFeeAgreement({
@@ -1024,16 +1123,16 @@ describe('dossier registry service', () => {
     expect(activeAgreements).toHaveLength(1)
     expect(activeAgreements[0]?.matterLabel).toBe('Amendment')
 
-    const archivedFirst = amended.feeAgreements.find((entry) => entry.id === firstId)
+    const archivedFirst = amended.feeAgreements.find((entry) => entry.uuid === firstId)
     expect(archivedFirst?.isActive).toBe(false)
     expect(archivedFirst?.archivedAt).toBeDefined()
 
     const restored = await service.setActiveFeeAgreement({
       dossierId: 'Client Alpha',
-      feeAgreementId: firstId
+      feeAgreementUuid: firstId
     })
-    expect(restored.feeAgreements.find((entry) => entry.id === firstId)?.isActive).toBe(true)
-    const previouslyActive = restored.feeAgreements.find((entry) => entry.id !== firstId)
+    expect(restored.feeAgreements.find((entry) => entry.uuid === firstId)?.isActive).toBe(true)
+    const previouslyActive = restored.feeAgreements.find((entry) => entry.uuid !== firstId)
     expect(previouslyActive?.isActive).toBe(false)
   })
 
@@ -1046,7 +1145,7 @@ describe('dossier registry service', () => {
       now: () => new Date('2026-03-13T08:30:00.000Z')
     })
 
-    await service.registerDossier({ id: 'Client Alpha' })
+    await service.registerDossier({ slug: 'Client Alpha' })
     const created = await service.upsertFeeAgreement({
       dossierId: 'Client Alpha',
       status: 'draft',
@@ -1058,7 +1157,7 @@ describe('dossier registry service', () => {
       discountKind: 'percent',
       discountPercentBasisPoints: 1500
     })
-    const id = created.feeAgreements[0]?.id as string
+    const id = created.feeAgreements[0]?.uuid as string
 
     const reload = createDossierRegistryService({
       stateFilePath,
@@ -1070,7 +1169,7 @@ describe('dossier registry service', () => {
 
     const updated = await reload.upsertFeeAgreement({
       dossierId: 'Client Alpha',
-      id,
+      uuid: id,
       status: 'draft',
       matterLabel: 'Convention',
       scopeDescription: 'Phase 1',
@@ -1103,7 +1202,7 @@ describe('dossier registry service', () => {
       now: () => new Date('2026-03-13T08:30:00.000Z')
     })
 
-    await service.registerDossier({ id: 'Client Alpha' })
+    await service.registerDossier({ slug: 'Client Alpha' })
 
     const created = await service.upsertFeeAgreement({
       dossierId: 'Client Alpha',
@@ -1116,12 +1215,12 @@ describe('dossier registry service', () => {
       discountKind: 'percent',
       discountPercentBasisPoints: 1000
     })
-    const id = created.feeAgreements[0]?.id as string
+    const id = created.feeAgreements[0]?.uuid as string
     expect(created.feeAgreements[0]?.discountPercentBasisPoints).toBe(1000)
 
     const bumped = await service.upsertFeeAgreement({
       dossierId: 'Client Alpha',
-      id,
+      uuid: id,
       status: 'draft',
       matterLabel: 'Convention',
       scopeDescription: 'Phase 1',
@@ -1136,7 +1235,7 @@ describe('dossier registry service', () => {
 
     const switched = await service.upsertFeeAgreement({
       dossierId: 'Client Alpha',
-      id,
+      uuid: id,
       status: 'draft',
       matterLabel: 'Convention',
       scopeDescription: 'Phase 1',
@@ -1152,7 +1251,7 @@ describe('dossier registry service', () => {
 
     const cleared = await service.upsertFeeAgreement({
       dossierId: 'Client Alpha',
-      id,
+      uuid: id,
       status: 'draft',
       matterLabel: 'Convention',
       scopeDescription: 'Phase 1',
@@ -1174,7 +1273,7 @@ describe('dossier registry service', () => {
       now: () => new Date('2026-03-13T08:30:00.000Z')
     })
 
-    await service.registerDossier({ id: 'Client Alpha' })
+    await service.registerDossier({ slug: 'Client Alpha' })
 
     const percentResult = await service.upsertFeeAgreement({
       dossierId: 'Client Alpha',
@@ -1220,7 +1319,7 @@ describe('dossier registry service', () => {
       now: () => new Date('2026-03-13T08:30:00.000Z')
     })
 
-    await service.registerDossier({ id: 'Client Alpha' })
+    await service.registerDossier({ slug: 'Client Alpha' })
 
     const created = await service.upsertBillingItem({
       dossierId: 'Client Alpha',
@@ -1238,11 +1337,11 @@ describe('dossier registry service', () => {
     expect(item?.discountHtCents).toBe(0)
     expect(item?.totalHtCents).toBe(30_000)
     expect(item?.totalTtcCents).toBe(36_000)
-    expect(item?.id).toBeDefined()
+    expect(item?.uuid).toBeDefined()
 
-    const itemId = item?.id as string
+    const itemId = item?.uuid as string
     const updated = await service.upsertBillingItem({
-      id: itemId,
+      uuid: itemId,
       dossierId: 'Client Alpha',
       date: '2026-03-12',
       label: 'Consultation horaire',
@@ -1260,7 +1359,7 @@ describe('dossier registry service', () => {
 
     const deleted = await service.deleteBillingItem({
       dossierId: 'Client Alpha',
-      billingItemId: itemId
+      billingItemUuid: itemId
     })
     expect(deleted.billingItems).toEqual([])
   })
@@ -1274,7 +1373,7 @@ describe('dossier registry service', () => {
       now: () => new Date('2026-03-13T08:30:00.000Z')
     })
 
-    await service.registerDossier({ id: 'Client Alpha' })
+    await service.registerDossier({ slug: 'Client Alpha' })
 
     const withAgreement = await service.upsertFeeAgreement({
       dossierId: 'Client Alpha',
@@ -1285,7 +1384,7 @@ describe('dossier registry service', () => {
       flatFeeHtCents: 60_000,
       vatRateBasisPoints: 2000
     })
-    const feeAgreementId = withAgreement.feeAgreements[0]?.id as string
+    const feeAgreementUuid = withAgreement.feeAgreements[0]?.uuid as string
 
     const withItem = await service.upsertBillingItem({
       dossierId: 'Client Alpha',
@@ -1296,15 +1395,15 @@ describe('dossier registry service', () => {
       unitPriceHtCents: 60_000,
       vatRateBasisPoints: 2000,
       status: 'draft',
-      sourceFeeAgreementId: feeAgreementId,
+      sourceFeeAgreementUuid: feeAgreementUuid,
       sourceFeeAgreementBillingKind: 'finalBalance'
     })
-    const billingItemId = withItem.billingItems[0]?.id as string
+    const billingItemUuid = withItem.billingItems[0]?.uuid as string
 
     await expect(
       service.deleteFeeAgreement({
         dossierId: 'Client Alpha',
-        feeAgreementId
+        feeAgreementUuid
       })
     ).rejects.toMatchObject({
       name: 'DossierRegistryError',
@@ -1312,14 +1411,14 @@ describe('dossier registry service', () => {
     } satisfies Partial<DossierRegistryError>)
 
     const stillThere = await service.getDossier({ dossierId: 'Client Alpha' })
-    expect(stillThere.feeAgreements.some((entry) => entry.id === feeAgreementId)).toBe(true)
+    expect(stillThere.feeAgreements.some((entry) => entry.uuid === feeAgreementUuid)).toBe(true)
 
-    await service.deleteBillingItem({ dossierId: 'Client Alpha', billingItemId })
+    await service.deleteBillingItem({ dossierId: 'Client Alpha', billingItemUuid })
     const afterDelete = await service.deleteFeeAgreement({
       dossierId: 'Client Alpha',
-      feeAgreementId
+      feeAgreementUuid
     })
-    expect(afterDelete.feeAgreements.some((entry) => entry.id === feeAgreementId)).toBe(false)
+    expect(afterDelete.feeAgreements.some((entry) => entry.uuid === feeAgreementUuid)).toBe(false)
   })
 
   it('applies a percentage discount to billing item totals on upsert', async () => {
@@ -1331,7 +1430,7 @@ describe('dossier registry service', () => {
       now: () => new Date('2026-03-13T08:30:00.000Z')
     })
 
-    await service.registerDossier({ id: 'Client Alpha' })
+    await service.registerDossier({ slug: 'Client Alpha' })
 
     const created = await service.upsertBillingItem({
       dossierId: 'Client Alpha',
@@ -1365,7 +1464,7 @@ describe('dossier registry service', () => {
       now: () => new Date('2026-03-13T08:30:00.000Z')
     })
 
-    await service.registerDossier({ id: 'Client Alpha' })
+    await service.registerDossier({ slug: 'Client Alpha' })
 
     const created = await service.upsertBillingItem({
       dossierId: 'Client Alpha',
@@ -1388,5 +1487,134 @@ describe('dossier registry service', () => {
     expect(item?.discountHtCents).toBe(5_000)
     expect(item?.totalHtCents).toBe(45_000)
     expect(item?.totalTtcCents).toBe(54_000)
+  })
+
+  it('creates, lists, updates and deletes general (hors-dossier) key dates', async () => {
+    const { domainPath, stateFilePath } = await createConfiguredDomain()
+    const service = createDossierRegistryService({ stateFilePath })
+
+    // Empty domain → empty list.
+    expect(await service.listGeneralKeyDates()).toEqual([])
+
+    // Create.
+    const afterCreate = await service.upsertGeneralKeyDate({
+      label: '  Formation déontologie  ',
+      date: '2026-07-01',
+      tags: ['important'],
+      note: 'Hors dossier'
+    })
+    expect(afterCreate).toHaveLength(1)
+    const created = afterCreate[0]!
+    expect(created.uuid).toBeTruthy()
+    expect(created.label).toBe('Formation déontologie') // trimmed
+    expect(created.date).toBe('2026-07-01')
+
+    // Persisted as one file per record under .ordicab/general-key-dates/.
+    expect(
+      await pathExists(join(domainPath, '.ordicab', 'general-key-dates', `${created.uuid}.json`))
+    ).toBe(true)
+
+    // Reloads independently.
+    const listed = await service.listGeneralKeyDates()
+    expect(listed).toHaveLength(1)
+    expect(listed[0]!.uuid).toBe(created.uuid)
+
+    // Update keeps the same id and preserves untouched fields.
+    const afterUpdate = await service.upsertGeneralKeyDate({
+      uuid: created.uuid,
+      label: 'Formation déontologie (reportée)',
+      date: '2026-07-08'
+    })
+    expect(afterUpdate).toHaveLength(1)
+    expect(afterUpdate[0]!.uuid).toBe(created.uuid)
+    expect(afterUpdate[0]!.date).toBe('2026-07-08')
+    expect(afterUpdate[0]!.tags).toEqual(['important']) // preserved
+
+    // Unknown id on update → NOT_FOUND.
+    await expect(
+      service.upsertGeneralKeyDate({ uuid: 'missing', label: 'x', date: '2026-07-08' })
+    ).rejects.toMatchObject({ code: IpcErrorCode.NOT_FOUND })
+
+    // Delete.
+    const afterDelete = await service.deleteGeneralKeyDate({ keyDateUuid: created.uuid })
+    expect(afterDelete).toEqual([])
+    expect(
+      await pathExists(join(domainPath, '.ordicab', 'general-key-dates', `${created.uuid}.json`))
+    ).toBe(false)
+
+    // Deleting again → NOT_FOUND.
+    await expect(service.deleteGeneralKeyDate({ keyDateUuid: created.uuid })).rejects.toMatchObject(
+      {
+        code: IpcErrorCode.NOT_FOUND
+      }
+    )
+  })
+
+  it('moves a key date between dossiers and to/from « hors dossier », keeping its uuid', async () => {
+    const { domainPath, stateFilePath } = await createConfiguredDomain()
+    await mkdir(join(domainPath, 'Client Alpha'))
+    await mkdir(join(domainPath, 'Client Beta'))
+    const service = createDossierRegistryService({ stateFilePath })
+
+    await service.registerDossier({ slug: 'Client Alpha' })
+    await service.registerDossier({ slug: 'Client Beta' })
+
+    const created = await service.upsertKeyDate({
+      dossierId: 'Client Alpha',
+      label: 'Audience',
+      date: '2026-09-10',
+      tags: ['urgent']
+    })
+    const uuid = created.keyDates[0]!.uuid
+    const recordPath = (slug: string): string =>
+      join(domainPath, slug, '.ordicab', 'key-dates', `${uuid}.json`)
+    const generalPath = join(domainPath, '.ordicab', 'general-key-dates', `${uuid}.json`)
+
+    // Dossier → dossier : uuid conservé, fichier déplacé, champs édités appliqués.
+    await service.moveKeyDate({
+      keyDateUuid: uuid,
+      fromDossierId: 'Client Alpha',
+      toDossierId: 'Client Beta',
+      label: 'Audience (renvoi)',
+      date: '2026-09-17',
+      tags: ['urgent']
+    })
+    expect(await pathExists(recordPath('Client Alpha'))).toBe(false)
+    expect(await pathExists(recordPath('Client Beta'))).toBe(true)
+    const beta = await service.getDossier({ dossierId: 'Client Beta' })
+    expect(beta.keyDates).toHaveLength(1)
+    expect(beta.keyDates[0]!).toMatchObject({
+      uuid,
+      label: 'Audience (renvoi)',
+      date: '2026-09-17'
+    })
+    expect((await service.getDossier({ dossierId: 'Client Alpha' })).keyDates).toEqual([])
+
+    // Dossier → hors dossier.
+    await service.moveKeyDate({
+      keyDateUuid: uuid,
+      fromDossierId: 'Client Beta',
+      toDossierId: null,
+      label: 'Audience (renvoi)',
+      date: '2026-09-17'
+    })
+    expect(await pathExists(recordPath('Client Beta'))).toBe(false)
+    expect(await pathExists(generalPath)).toBe(true)
+    const general = await service.listGeneralKeyDates()
+    expect(general).toHaveLength(1)
+    expect(general[0]!.uuid).toBe(uuid)
+
+    // Hors dossier → dossier.
+    await service.moveKeyDate({
+      keyDateUuid: uuid,
+      fromDossierId: null,
+      toDossierId: 'Client Alpha',
+      label: 'Audience (renvoi)',
+      date: '2026-09-17'
+    })
+    expect(await pathExists(generalPath)).toBe(false)
+    expect(await service.listGeneralKeyDates()).toEqual([])
+    expect(await pathExists(recordPath('Client Alpha'))).toBe(true)
+    expect((await service.getDossier({ dossierId: 'Client Alpha' })).keyDates[0]!.uuid).toBe(uuid)
   })
 })

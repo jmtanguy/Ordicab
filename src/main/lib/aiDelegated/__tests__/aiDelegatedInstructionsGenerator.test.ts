@@ -40,7 +40,7 @@ function normalizeFixturePaths(content: string, domainPath: string): string {
 
 function createDossierDetail(overrides: Partial<DossierDetail> = {}): DossierDetail {
   return {
-    id: 'Client Alpha',
+    slug: 'Client Alpha',
     uuid: 'dossier-uuid-1',
     name: 'Client Alpha',
     status: 'active',
@@ -54,7 +54,7 @@ function createDossierDetail(overrides: Partial<DossierDetail> = {}): DossierDet
     billingItems: [],
     keyDates: [
       {
-        id: 'kd-1',
+        uuid: 'kd-1',
         dossierId: 'Client Alpha',
         label: 'Hearing',
         date: '2026-04-01',
@@ -63,7 +63,7 @@ function createDossierDetail(overrides: Partial<DossierDetail> = {}): DossierDet
     ],
     keyReferences: [
       {
-        id: 'kr-1',
+        uuid: 'kr-1',
         dossierId: 'Client Alpha',
         label: 'Case number',
         value: 'RG 26/001',
@@ -77,7 +77,7 @@ function createDossierDetail(overrides: Partial<DossierDetail> = {}): DossierDet
 
 function createTemplate(overrides: Partial<TemplateRecord> = {}): TemplateRecord {
   return {
-    id: 'tpl-1',
+    uuid: 'tpl-1',
     name: 'Mise en demeure',
     content: 'Bonjour',
     tags: [],
@@ -113,7 +113,7 @@ async function createFixture(): Promise<{
   await writeJson(join(domainPath, '.ordicab', 'registry.json'), {
     dossiers: [
       {
-        id: 'Client Alpha',
+        slug: 'Client Alpha',
         name: 'Client Alpha',
         registeredAt: '2026-03-01T09:00:00.000Z'
       }
@@ -254,8 +254,8 @@ describe('InstructionsGenerator', () => {
     expect(content).toContain('### Supported Intent Actions')
     expect(content).toContain('### Intent File Format')
     expect(content).toContain('### File Paths')
-    expect(content).toContain('Never invent an `id` for an update.')
-    expect(content).toContain('For `contact.upsert`, include `id` to update an existing contact')
+    expect(content).toContain('Never invent a `uuid` for an update.')
+    expect(content).toContain('For `contact.upsert`, include `uuid` to update an existing contact')
     expect(content).toContain(
       'Treat the process as incremental if the dossier was already organized: add only new elements and fill only missing details, without duplicating existing contacts, key dates, document summaries, or tags.'
     )
@@ -277,8 +277,8 @@ describe('InstructionsGenerator', () => {
     expect(content).toContain(
       'Always sort document tags in alphabetical order before writing the payload.'
     )
-    expect(content).toContain('Create a new key date: omit `id`.')
-    expect(content).toContain('Update an existing key date: include the real existing `id`')
+    expect(content).toContain('Create a new key date: omit `uuid`.')
+    expect(content).toContain('Update an existing key date: include the real existing `uuid`')
     expect(content).toContain(getDomainEntityPath(domainPath))
     expect(content).toContain(getDomainTemplatesPath(domainPath))
     expect(content).toContain(getDomainTemplateRoutinesPath(domainPath))
@@ -287,7 +287,7 @@ describe('InstructionsGenerator', () => {
     expect(content).toContain('The only allowed write target is the inbox folder:')
     expect(content).not.toContain('Cabinet Martin')
     expect(content).not.toContain('camille.martin@example.com')
-    expect(content).not.toContain('Mise en demeure (id: tpl-1)')
+    expect(content).not.toContain('Mise en demeure (uuid: tpl-1)')
     expect(routinesGuide).toContain('# Ordicab Template Routines')
     expect(routinesGuide).toContain(
       'Prefer a routine from this file whenever it already matches the requested data.'

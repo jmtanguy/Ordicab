@@ -25,7 +25,7 @@ export interface JudilibreTaxonomyOption {
   label: string
 }
 
-export type LegalSourceKind = 'all' | 'legifrance' | 'judilibre'
+type LegalSourceKind = 'all' | 'legifrance' | 'judilibre'
 
 /**
  * Scope key for the global (non-dossier) legal search panel. Dossier scopes use
@@ -67,7 +67,7 @@ export interface LegalSearchScopeState {
   verificationError: string | null
 }
 
-export function createDefaultLegalSearchScopeState(): LegalSearchScopeState {
+function createDefaultLegalSearchScopeState(): LegalSearchScopeState {
   return {
     source: 'all',
     query: '',

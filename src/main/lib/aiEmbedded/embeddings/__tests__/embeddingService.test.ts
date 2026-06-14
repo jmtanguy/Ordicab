@@ -39,7 +39,7 @@ describe('embeddingService', () => {
     const fakePipe = vi.fn(async () => fakeTensor([new Float32Array([0.1, 0.2, 0.3, 0.4])]))
     pipelineSpy.mockResolvedValue(fakePipe)
 
-    const vec = await embed('hello', {}, { inputPrefix: '' })
+    const vec = await embed('hello')
 
     expect(vec).toBeInstanceOf(Float32Array)
     expect(Array.from(vec!)).toEqual([
@@ -50,26 +50,17 @@ describe('embeddingService', () => {
     ])
   })
 
-  it('applies no input prefix by default (bge-m3 convention)', async () => {
+  it('embeds the raw text with no prefix (bge-m3 convention)', async () => {
     const fakePipe = vi.fn(async () => fakeTensor([new Float32Array([1, 0])]))
     pipelineSpy.mockResolvedValue(fakePipe)
 
     await embed('document body')
 
     expect(fakePipe).toHaveBeenCalledWith(['document body'], {
-      pooling: 'mean',
+      pooling: 'cls',
       normalize: true,
       truncation: true
     })
-  })
-
-  it('lets callers override the prefix (e.g. "query: " on the search path)', async () => {
-    const fakePipe = vi.fn(async () => fakeTensor([new Float32Array([1, 0])]))
-    pipelineSpy.mockResolvedValue(fakePipe)
-
-    await embed('find me', {}, { inputPrefix: 'query: ' })
-
-    expect(fakePipe).toHaveBeenCalledWith(['query: find me'], expect.any(Object))
   })
 
   it('returns a vector per input for embedBatch', async () => {
@@ -77,7 +68,7 @@ describe('embeddingService', () => {
     const fakePipe = vi.fn(async () => fakeTensor(vectors))
     pipelineSpy.mockResolvedValue(fakePipe)
 
-    const result = await embedBatch(['a', 'b'], {}, { inputPrefix: '' })
+    const result = await embedBatch(['a', 'b'])
 
     expect(result).toHaveLength(2)
     expect(Array.from(result![0]!)).toEqual([1, 0, 0])
@@ -102,10 +93,7 @@ describe('embeddingService', () => {
     })
     pipelineSpy.mockResolvedValue(fakePipe)
 
-    const inflight = Promise.all([
-      embedBatch(['alpha'], {}, { inputPrefix: '' }),
-      embedBatch(['beta'], {}, { inputPrefix: '' })
-    ])
+    const inflight = Promise.all([embedBatch(['alpha']), embedBatch(['beta'])])
 
     // Wait until BOTH inferences have actually entered their in-flight window
     // before draining (mirrors dispose() running after features have started

@@ -93,32 +93,25 @@ export class TemplateServiceError extends Error {
 
 export interface TemplateService {
   list(): Promise<TemplateRecord[]>
-  getContent(templateId: string): Promise<string>
+  getContent(templateUuid: string): Promise<string>
   create(input: {
     name: string
     content: string
     description?: string
     tags?: string[]
     documentKind?: TemplateDocumentKind
+    category?: string
   }): Promise<TemplateRecord>
   update(input: {
-    id: string
+    uuid: string
     name?: string
     content?: string
     description?: string
     tags?: string[]
     documentKind?: TemplateDocumentKind
+    category?: string
   }): Promise<TemplateRecord>
-  delete(input: { id: string }): Promise<void>
-  /**
-   * One-shot migration from the legacy `templates.json` shape (where each
-   * record had its HTML inline under `content`) to the current shape (one
-   * `<id>.html` file per template, no `content` in the index). Idempotent:
-   * a no-op once `templates.json` no longer carries inline content. Safe to
-   * call when no domain is configured — it just resolves to `{ migrated: false }`.
-   * Container.ts invokes this once at startup; nothing else should call it.
-   */
-  migrateLegacyTemplatesIfNeeded(): Promise<{ migrated: boolean }>
+  delete(input: { uuid: string }): Promise<void>
   /**
    * Seed the essential default templates (factures, conventions, première
    * correspondance) when `templates.json` is empty or missing. Idempotent:
@@ -142,15 +135,15 @@ export interface TemplateService {
   /** Convert a .docx at the given path to HTML — used by handler for preview before import. */
   convertDocxToHtml(filePath: string): Promise<string>
   /** Import a .docx file as the source for an existing template id and rebuild HTML + macros. */
-  importDocxFromPath(input: { id: string; sourceFilePath: string }): Promise<TemplateRecord>
+  importDocxFromPath(input: { uuid: string; sourceFilePath: string }): Promise<TemplateRecord>
   /**
    * Copies the cabinet-level default DOCX template (set on the EntityProfile) onto a text
    * template, making it a DOCX-backed template. The existing HTML content is preserved and
    * will be injected at generation time into the cabinet template's `{{app.content}}` placeholder.
    */
-  applyCabinetDefaultDocx(input: { id: string }): Promise<TemplateRecord>
+  applyCabinetDefaultDocx(input: { uuid: string }): Promise<TemplateRecord>
   /** Remove the .docx companion of a template; flips hasDocxSource to false. */
-  removeDocx(input: { id: string }): Promise<TemplateRecord>
+  removeDocx(input: { uuid: string }): Promise<TemplateRecord>
   /** Whether the template currently has a `.docx` companion in the active domain. */
   hasDocxSource(id: string): Promise<boolean>
   /** Filesystem path of the `.docx` companion in the active domain. */
@@ -161,7 +154,7 @@ export interface TemplateService {
    * Returns null when the template has no `.docx` companion or when the
    * conversion fails (no error surfaced — the watcher loop tolerates misses).
    */
-  syncDocx(templateId: string): Promise<{ html: string } | null>
+  syncDocx(templateUuid: string): Promise<{ html: string } | null>
 }
 
 function transformDocumentWithStyles(document: unknown): unknown {
@@ -346,68 +339,6 @@ export function createTemplateService(options: {
     return result.data.map(toTemplateIndexRecord)
   }
 
-  /**
-   * Inline-content migration. Kept separate from loadTemplates so that the
-   * normal read path stays a pure parse — the migration runs once per process
-   * at boot via container.ts, not on every IPC list call.
-   */
-  async function runLegacyMigration(
-    templatesPath: string,
-    domainPath: string
-  ): Promise<{ migrated: boolean }> {
-    if (!(await pathExists(templatesPath))) {
-      return { migrated: false }
-    }
-
-    let raw: string
-    try {
-      raw = await readFile(templatesPath, 'utf8')
-    } catch {
-      return { migrated: false }
-    }
-
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(raw) as unknown
-    } catch {
-      return { migrated: false }
-    }
-
-    const rawArray = Array.isArray(parsed) ? (parsed as Array<Record<string, unknown>>) : []
-    const needsMigration = rawArray.some((r) => typeof r.content === 'string' && r.content !== '')
-    if (!needsMigration) {
-      return { migrated: false }
-    }
-
-    const result = templateRecordSchema.array().safeParse(parsed)
-    if (!result.success) {
-      // Stored data is invalid — leave it for loadTemplates to surface as a
-      // VALIDATION_FAILED error on the next read instead of silently rewriting.
-      return { migrated: false }
-    }
-
-    for (const rawRecord of rawArray) {
-      const inlineContent = typeof rawRecord.content === 'string' ? rawRecord.content : ''
-      const id = typeof rawRecord.id === 'string' ? rawRecord.id : ''
-      if (inlineContent && id) {
-        const contentPath = getDomainTemplateContentPath(domainPath, id)
-        await mkdir(dirname(contentPath), { recursive: true })
-        await writeFile(contentPath, inlineContent, 'utf8')
-      }
-    }
-
-    const migrated = result.data.map((r, i) => {
-      const rawRecord = rawArray[i] ?? {}
-      const inlineContent = typeof rawRecord.content === 'string' ? rawRecord.content : ''
-      return {
-        ...toTemplateIndexRecord(r),
-        macros: r.macros.length > 0 ? r.macros : extractMacrosFromHtml(inlineContent)
-      }
-    })
-    await saveTemplates(templatesPath, migrated)
-    return { migrated: true }
-  }
-
   async function saveTemplates(templatesPath: string, templates: TemplateRecord[]): Promise<void> {
     await atomicWrite(
       templatesPath,
@@ -454,7 +385,7 @@ export function createTemplateService(options: {
   ): void {
     const normalized = normalizeTemplateNameForComparison(name)
     const duplicate = templates.some((template) => {
-      if (template.id === excludeId) {
+      if (template.uuid === excludeId) {
         return false
       }
       return normalizeTemplateNameForComparison(template.name) === normalized
@@ -470,9 +401,9 @@ export function createTemplateService(options: {
 
   function requireTemplate(
     templates: TemplateRecord[],
-    id: string
+    uuid: string
   ): { index: number; template: TemplateRecord } {
-    const index = templates.findIndex((t) => t.id === id)
+    const index = templates.findIndex((t) => t.uuid === uuid)
     const template = index >= 0 ? templates[index] : undefined
     if (index < 0 || !template) {
       throw new TemplateServiceError(IpcErrorCode.NOT_FOUND, 'This template was not found.')
@@ -481,13 +412,14 @@ export function createTemplateService(options: {
   }
 
   function buildTemplateRecord(input: {
-    id: string
+    uuid: string
     name: string
     description?: string
     tags?: string[]
     macros: string[]
     hasDocxSource?: boolean
     documentKind?: TemplateDocumentKind
+    category?: string
     updatedAt: string
   }): TemplateRecord {
     return templateRecordSchema.parse(input)
@@ -501,17 +433,6 @@ export function createTemplateService(options: {
   }
 
   return {
-    async migrateLegacyTemplatesIfNeeded(): Promise<{ migrated: boolean }> {
-      // Resolve the domain ourselves so the boot caller can stay agnostic of
-      // domain readiness — a missing or unavailable domain is a silent skip.
-      const status = await domainService.getStatus()
-      if (!status.registeredDomainPath || !status.isAvailable) {
-        return { migrated: false }
-      }
-      const domainPath = status.registeredDomainPath
-      return runLegacyMigration(getDomainTemplatesPath(domainPath), domainPath)
-    },
-
     async seedDefaultTemplatesIfEmpty(): Promise<{ seeded: number }> {
       const status = await domainService.getStatus()
       if (!status.registeredDomainPath || !status.isAvailable) {
@@ -580,7 +501,7 @@ export function createTemplateService(options: {
           continue
         }
         try {
-          const existingDocxPath = getDomainTemplateDocxPath(domainPath, template.id)
+          const existingDocxPath = getDomainTemplateDocxPath(domainPath, template.uuid)
           const existingBuffer = await readFile(existingDocxPath)
           const bodyInner = extractBodyInnerFromDocxBuffer(existingBuffer)
           const merged = wrapBodyInCabinetDocx(bodyInner, cabinetBuffer)
@@ -595,7 +516,7 @@ export function createTemplateService(options: {
           console.warn(
             `[TemplateService] Failed to re-wrap template "${template.name}" with new cabinet DOCX: ${error instanceof Error ? error.message : String(error)}`
           )
-          failed.push(template.id)
+          failed.push(template.uuid)
         }
       }
 
@@ -610,9 +531,9 @@ export function createTemplateService(options: {
       return loadTemplates(getDomainTemplatesPath(domainPath))
     },
 
-    async getContent(templateId: string): Promise<string> {
+    async getContent(templateUuid: string): Promise<string> {
       const domainPath = await resolveDomainPath()
-      return readTemplateContent(domainPath, templateId)
+      return readTemplateContent(domainPath, templateUuid)
     },
 
     async create(input): Promise<TemplateRecord> {
@@ -622,8 +543,8 @@ export function createTemplateService(options: {
 
       ensureNoDuplicateTemplateName(templates, input.name)
 
-      const id = randomUUID()
-      await writeTemplateContent(domainPath, id, input.content)
+      const uuid = randomUUID()
+      await writeTemplateContent(domainPath, uuid, input.content)
 
       // Non-email templates get a DOCX companion materialized at creation time:
       // cabinet wrapper if available, plain html-to-docx otherwise. Failure is
@@ -640,7 +561,7 @@ export function createTemplateService(options: {
             name: input.name,
             cabinetDocxBuffer: cabinetBuffer
           })
-          const destinationPath = getDomainTemplateDocxPath(domainPath, id)
+          const destinationPath = getDomainTemplateDocxPath(domainPath, uuid)
           await mkdir(dirname(destinationPath), { recursive: true })
           await atomicWrite(destinationPath, docxBuffer)
           hasDocxSource = true
@@ -652,13 +573,14 @@ export function createTemplateService(options: {
       }
 
       const nextTemplate = buildTemplateRecord({
-        id,
+        uuid,
         name: input.name,
         description: input.description,
         tags: input.tags,
         macros: extractMacrosFromHtml(input.content),
         hasDocxSource,
         documentKind: input.documentKind ?? 'document',
+        category: input.category?.trim() || undefined,
         updatedAt: new Date().toISOString()
       })
 
@@ -670,28 +592,31 @@ export function createTemplateService(options: {
       const domainPath = await resolveDomainPath()
       const templatesPath = getDomainTemplatesPath(domainPath)
       const templates = await loadTemplates(templatesPath)
-      const { index, template } = requireTemplate(templates, input.id)
+      const { index, template } = requireTemplate(templates, input.uuid)
 
       const nextName = input.name ?? template.name
       if (input.name && input.name !== template.name) {
-        ensureNoDuplicateTemplateName(templates, input.name, input.id)
+        ensureNoDuplicateTemplateName(templates, input.name, input.uuid)
       }
 
       // Macros come from the new content if provided, otherwise stay as-is.
       let nextMacros = template.macros
       if (input.content !== undefined) {
-        await writeTemplateContent(domainPath, input.id, input.content)
+        await writeTemplateContent(domainPath, input.uuid, input.content)
         nextMacros = extractMacrosFromHtml(input.content)
       }
 
       const nextTemplate = buildTemplateRecord({
-        id: input.id,
+        uuid: input.uuid,
         name: nextName,
         description: input.description ?? template.description,
         tags: input.tags ?? template.tags,
         macros: nextMacros,
         hasDocxSource: template.hasDocxSource,
         documentKind: input.documentKind ?? template.documentKind,
+        // Explicit empty string clears the category; undefined keeps the stored one
+        category:
+          input.category !== undefined ? input.category.trim() || undefined : template.category,
         updatedAt: new Date().toISOString()
       })
 
@@ -705,15 +630,15 @@ export function createTemplateService(options: {
       const domainPath = await resolveDomainPath()
       const templatesPath = getDomainTemplatesPath(domainPath)
       const templates = await loadTemplates(templatesPath)
-      const { template } = requireTemplate(templates, input.id)
+      const { template } = requireTemplate(templates, input.uuid)
 
-      const nextTemplates = templates.filter((t) => t.id !== input.id)
+      const nextTemplates = templates.filter((t) => t.uuid !== input.uuid)
       await saveTemplates(templatesPath, nextTemplates)
-      await deleteTemplateContent(domainPath, input.id)
+      await deleteTemplateContent(domainPath, input.uuid)
 
       if (template.hasDocxSource) {
         try {
-          await unlink(getDomainTemplateDocxPath(domainPath, input.id))
+          await unlink(getDomainTemplateDocxPath(domainPath, input.uuid))
         } catch (error) {
           if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') {
             throw error
@@ -745,12 +670,12 @@ export function createTemplateService(options: {
       const domainPath = await resolveDomainPath()
       const templatesPath = getDomainTemplatesPath(domainPath)
       const templates = await loadTemplates(templatesPath)
-      const { index, template } = requireTemplate(templates, input.id)
-      const destinationPath = getDomainTemplateDocxPath(domainPath, input.id)
+      const { index, template } = requireTemplate(templates, input.uuid)
+      const destinationPath = getDomainTemplateDocxPath(domainPath, input.uuid)
 
       await copyDocxAtomically(input.sourceFilePath, destinationPath)
 
-      let extractedContent = await readTemplateContent(domainPath, template.id)
+      let extractedContent = await readTemplateContent(domainPath, template.uuid)
       try {
         const { value } = await mammoth.convertToHtml({ path: input.sourceFilePath })
         if (value) {
@@ -760,7 +685,7 @@ export function createTemplateService(options: {
         // Extraction failure is non-fatal — preserve existing content
       }
 
-      await writeTemplateContent(domainPath, template.id, extractedContent)
+      await writeTemplateContent(domainPath, template.uuid, extractedContent)
 
       const nextTemplate = buildTemplateRecord({
         ...template,
@@ -787,10 +712,10 @@ export function createTemplateService(options: {
 
       const templatesPath = getDomainTemplatesPath(domainPath)
       const templates = await loadTemplates(templatesPath)
-      const { index, template } = requireTemplate(templates, input.id)
-      const destinationPath = getDomainTemplateDocxPath(domainPath, input.id)
+      const { index, template } = requireTemplate(templates, input.uuid)
+      const destinationPath = getDomainTemplateDocxPath(domainPath, input.uuid)
 
-      const templateHtml = await readTemplateContent(domainPath, template.id)
+      const templateHtml = await readTemplateContent(domainPath, template.uuid)
 
       let renderedBuffer: Buffer
       try {
@@ -825,10 +750,10 @@ export function createTemplateService(options: {
       const domainPath = await resolveDomainPath()
       const templatesPath = getDomainTemplatesPath(domainPath)
       const templates = await loadTemplates(templatesPath)
-      const { index, template } = requireTemplate(templates, input.id)
+      const { index, template } = requireTemplate(templates, input.uuid)
 
       try {
-        await unlink(getDomainTemplateDocxPath(domainPath, input.id))
+        await unlink(getDomainTemplateDocxPath(domainPath, input.uuid))
       } catch (error) {
         if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') {
           throw error
@@ -856,9 +781,9 @@ export function createTemplateService(options: {
       return getDomainTemplateDocxPath(domainPath, id)
     },
 
-    async syncDocx(templateId: string): Promise<{ html: string } | null> {
+    async syncDocx(templateUuid: string): Promise<{ html: string } | null> {
       const domainPath = await resolveDomainPath()
-      const docxPath = getDomainTemplateDocxPath(domainPath, templateId)
+      const docxPath = getDomainTemplateDocxPath(domainPath, templateUuid)
 
       if (!(await pathExists(docxPath))) {
         return null
@@ -879,12 +804,12 @@ export function createTemplateService(options: {
         return null
       }
 
-      await writeTemplateContent(domainPath, templateId, html)
+      await writeTemplateContent(domainPath, templateUuid, html)
 
       try {
         const templatesPath = getDomainTemplatesPath(domainPath)
         const templates = await loadTemplates(templatesPath)
-        const index = templates.findIndex((t) => t.id === templateId)
+        const index = templates.findIndex((t) => t.uuid === templateUuid)
         const template = index >= 0 ? templates[index] : undefined
         if (template) {
           const nextTemplate = buildTemplateRecord({

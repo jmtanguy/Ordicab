@@ -19,7 +19,7 @@ import { pathExists } from './domainState'
  * shared by unrelated features; each caller owns the typing of its own namespace
  * via the `mutate` callback it passes to `update`.
  */
-export interface AppStateFile {
+interface AppStateFile {
   ai?: Record<string, unknown>
   credentials?: Record<string, unknown>
   legal?: Record<string, unknown>

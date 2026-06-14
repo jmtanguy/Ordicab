@@ -130,6 +130,7 @@ export type InternalAiCommandType =
   | 'note_update'
   | 'note_delete'
   | 'note_search'
+  | 'note_get'
   | 'text_generate'
   | 'direct_response'
   | 'clarification_request'
@@ -144,7 +145,7 @@ export interface ContactLookupIntent {
 
 export interface ContactGetIntent {
   type: 'contact_get'
-  contactId: string
+  contactUuid: string
   dossierId?: string
 }
 
@@ -171,12 +172,12 @@ export interface ContactCreateIntent extends ContactMutationFields {
 
 export interface ContactUpdateIntent extends ContactMutationFields {
   type: 'contact_update'
-  contactId: string
+  contactUuid: string
 }
 
 export interface ContactDeleteIntent {
   type: 'contact_delete'
-  contactId: string
+  contactUuid: string
 }
 
 export interface TemplateSelectIntent {
@@ -190,15 +191,15 @@ export interface TemplateListIntent {
 
 export interface FieldPopulateIntent {
   type: 'field_populate'
-  contactId: string
-  templateId: string
+  contactUuid: string
+  templateUuid: string
 }
 
 export interface DocumentGenerateIntent {
   type: 'document_generate'
   dossierId: string
-  templateId: string
-  contactId?: string
+  templateUuid: string
+  contactUuid?: string
   /** Field overrides provided by the user for unresolved template tags (e.g. renvoiDate → "04/04/2026") */
   tagOverrides?: Record<string, string>
 }
@@ -210,13 +211,13 @@ export interface DocumentListIntent {
 
 export interface DocumentGetIntent {
   type: 'document_get'
-  documentId: string
+  documentUuid: string
   dossierId?: string
 }
 
 export interface DocumentMetadataSaveIntent {
   type: 'document_metadata_save'
-  documentId: string
+  documentUuid: string
   dossierId?: string
   description?: string
   tags: string[]
@@ -226,18 +227,18 @@ export interface DocumentMetadataBatchIntent {
   type: 'document_metadata_batch'
   dossierId?: string
   /** Optional explicit list of document UUIDs to process. Omit to target all docs without metadata. */
-  documentIds?: string[]
+  documentUuids?: string[]
 }
 
 export interface DocumentSummaryBatchIntent {
   type: 'document_summary_batch'
   dossierId?: string
-  documentIds?: string[]
+  documentUuids?: string[]
 }
 
 export interface DocumentAnalyzeIntent {
   type: 'document_analyze'
-  documentId: string
+  documentUuid: string
   dossierId?: string
   charStart?: number
   charEnd?: number
@@ -255,7 +256,7 @@ export interface DossierSelectIntent {
 export interface TextGenerateIntent {
   type: 'text_generate'
   textType: 'email' | 'letter' | 'analysis' | 'summary' | 'text'
-  contactId?: string
+  contactUuid?: string
   language?: string
   instructions: string
 }
@@ -308,13 +309,13 @@ export interface DossierCreateKeyDateIntent extends DossierKeyDateFields {
 
 export interface DossierUpdateKeyDateIntent extends DossierKeyDateFields {
   type: 'dossier_update_key_date'
-  keyDateId: string
+  keyDateUuid: string
 }
 
 export interface DossierDeleteKeyDateIntent {
   type: 'dossier_delete_key_date'
   dossierId: string
-  keyDateId: string
+  keyDateUuid: string
 }
 
 export interface DossierKeyReferenceFields {
@@ -330,13 +331,13 @@ export interface DossierCreateKeyReferenceIntent extends DossierKeyReferenceFiel
 
 export interface DossierUpdateKeyReferenceIntent extends DossierKeyReferenceFields {
   type: 'dossier_update_key_reference'
-  keyReferenceId: string
+  keyReferenceUuid: string
 }
 
 export interface DossierDeleteKeyReferenceIntent {
   type: 'dossier_delete_key_reference'
   dossierId: string
-  keyReferenceId: string
+  keyReferenceUuid: string
 }
 
 export interface DossierBillingItemFields {
@@ -352,8 +353,8 @@ export interface DossierBillingItemFields {
   discountKind?: BillingItemDiscountKind
   discountPercentBasisPoints?: number
   discountAmountHtCents?: number
-  sourceServicePresetId?: string
-  sourceKeyDateId?: string
+  sourceServicePresetUuid?: string
+  sourceKeyDateUuid?: string
 }
 
 export interface DossierCreateBillingItemIntent extends DossierBillingItemFields {
@@ -362,13 +363,13 @@ export interface DossierCreateBillingItemIntent extends DossierBillingItemFields
 
 export interface DossierUpdateBillingItemIntent extends DossierBillingItemFields {
   type: 'dossier_update_billing_item'
-  billingItemId: string
+  billingItemUuid: string
 }
 
 export interface DossierDeleteBillingItemIntent {
   type: 'dossier_delete_billing_item'
   dossierId: string
-  billingItemId: string
+  billingItemUuid: string
 }
 
 export interface DossierNoteFields {
@@ -387,13 +388,13 @@ export interface NoteCreateIntent extends DossierNoteFields {
 
 export interface NoteUpdateIntent extends DossierNoteFields {
   type: 'note_update'
-  noteId: string
+  noteUuid: string
 }
 
 export interface NoteDeleteIntent {
   type: 'note_delete'
   dossierId: string
-  noteId: string
+  noteUuid: string
 }
 
 export interface TemplateCreateIntent {
@@ -405,7 +406,7 @@ export interface TemplateCreateIntent {
 
 export interface TemplateUpdateIntent {
   type: 'template_update'
-  id: string
+  uuid: string
   name?: string
   content?: string
   description?: string
@@ -413,15 +414,15 @@ export interface TemplateUpdateIntent {
 
 export interface TemplateDeleteIntent {
   type: 'template_delete'
-  id: string
+  uuid: string
 }
 
 export interface DocumentRelocateIntent {
   type: 'document_relocate'
   documentUuid: string
   dossierId: string
-  fromDocumentId?: string
-  toDocumentId: string
+  fromDocumentPath?: string
+  toDocumentPath: string
 }
 
 export interface UnknownIntent {
@@ -486,14 +487,14 @@ export type InternalAiCommand =
 /**
  * Contextual state carried by each command from the renderer.
  * `dossierId` is the active dossier UUID selected in the AI panel.
- * `contactId` and `templateId` are forwarded to intentDispatcher (e.g. for field_populate).
+ * `contactUuid` and `templateUuid` are forwarded to intentDispatcher (e.g. for field_populate).
  * `pendingTagPaths` is set when document_generate found unresolved template tags on the last
  * call; the next user message is treated as values for those fields (bypasses the LLM).
  */
 export interface AiCommandContext {
   dossierId?: string
-  contactId?: string
-  templateId?: string
+  contactUuid?: string
+  templateUuid?: string
   /**
    * Unresolved template tag paths from the last document_generate attempt.
    * Injected into the system prompt so the LLM knows to collect these values
@@ -542,7 +543,7 @@ export interface AiCommandResult {
   /**
    * The created or updated entity returned by a mutation tool.
    * Fed back to the LLM as the tool result so the model can reference its UUID
-   * (e.g. the new contactId, keyDateId, keyReferenceId) in subsequent chained calls.
+   * (e.g. the new contactUuid, keyDateUuid, keyReferenceUuid) in subsequent chained calls.
    */
   entity?: Record<string, unknown>
   /** Path of the generated file — set by document_generate so the UI can offer to open it */

@@ -13,6 +13,8 @@ import {
   type InvoiceDocumentType,
   type InvoiceExportCsvInput,
   type InvoiceExportCsvResult,
+  type InvoiceExportFecInput,
+  type InvoiceExportFecResult,
   type InvoiceLine,
   type InvoiceMarkPaidInput,
   type InvoiceOriginalRef,
@@ -26,33 +28,23 @@ import {
   type InvoiceSettings,
   type InvoiceSettingsUpdateInput,
   IpcErrorCode,
-  DEFAULT_INVOICE_SETTINGS
+  DEFAULT_INVOICE_SETTINGS,
+  computeDueDateIso
 } from '@shared/types'
 import { computeContactDisplayName } from '@shared/computeContactDisplayName'
 import { consumeNextInvoiceNumber } from '@shared/domain/invoiceNumbering'
+import { buildFecExport } from '@shared/domain/fecExport'
 import {
   buildInvoiceTemplateInputFromBillingItems,
   buildInvoiceTemplateInputFromRecord
 } from './invoiceTemplateInput'
-import { buildInvoiceHtml, buildInvoiceHtmlFromDocx } from './invoicePdfRenderer'
-import {
-  cabinetBillingCatalogSchema,
-  invoiceIndexSchema,
-  invoiceRecordSchema
-} from '@shared/validation'
-import type { InvoiceIndex, InvoiceIndexEntry } from '@shared/validation'
-import {
-  loadAllRecords,
-  loadIndex,
-  loadRecord,
-  saveIndex,
-  saveRecord
-} from '../../lib/system/perFileStore'
+import { buildInvoiceHtml } from './invoicePdfRenderer'
+import { cabinetBillingCatalogSchema, invoiceRecordSchema } from '@shared/validation'
+import { loadAllRecords, loadRecord, saveRecord } from '../../lib/system/perFileStore'
 
 import {
   getDomainCabinetBillingPath,
   getDomainInvoiceDocumentsPath,
-  getDomainInvoiceIndexPath,
   getDomainInvoiceRecordPath,
   getDomainInvoiceRecordsDirectoryPath
 } from '../../lib/ordicab/ordicabPaths'
@@ -71,7 +63,7 @@ interface DomainServiceLike {
 
 export interface InvoiceService {
   list(): Promise<InvoiceRecord[]>
-  get(invoiceId: string): Promise<InvoiceRecord>
+  get(invoiceUuid: string): Promise<InvoiceRecord>
   getSettings(): Promise<InvoiceSettings>
   updateSettings(input: InvoiceSettingsUpdateInput): Promise<InvoiceSettings>
   create(input: InvoiceCreateInput): Promise<InvoiceRecord>
@@ -82,24 +74,25 @@ export interface InvoiceService {
   addPayment(input: InvoicePaymentInput): Promise<InvoiceRecord>
   updatePayment(input: InvoicePaymentUpdateInput): Promise<InvoiceRecord>
   deletePayment(input: InvoicePaymentDeleteInput): Promise<InvoiceRecord>
-  exportCsv(input: InvoiceExportCsvInput): Promise<InvoiceExportCsvResult>
+  exportCsv(input: InvoiceExportCsvInput, outputPath: string): Promise<InvoiceExportCsvResult>
+  exportFec(input: InvoiceExportFecInput, outputPath: string): Promise<InvoiceExportFecResult>
   /**
    * Resolves the DOCX path for an issued invoice and reports its integrity
    * (hash match against the value captured at issuance). The DOCX is the
    * editable working copy — its content may have drifted from the original
    * artifact and the integrity field surfaces that to the UI.
    */
-  resolveDocumentAbsolutePath(invoiceId: string): Promise<InvoiceArtifactResult>
+  resolveDocumentAbsolutePath(invoiceUuid: string): Promise<InvoiceArtifactResult>
   /**
    * Resolves the PDF path for an issued invoice and reports its integrity.
    * The PDF is the frozen contractual artifact — eagerly generated at
    * issuance from the DOCX (template-faithful), hashed, and never silently
    * regenerated. If the file is missing on disk, a replacement is rendered
-   * from the immutable record (template fidelity may drift) and the
-   * integrity is reported as `regenerated`. Requires a `printHtmlToPdf`
-   * injection to render replacements.
+   * from the intact DOCX via `docxToPdf` (template-faithful), or from the
+   * immutable record via `printHtmlToPdf` when the DOCX is tampered/missing
+   * (generic layout), and the integrity is reported as `regenerated`.
    */
-  resolvePdfAbsolutePath(invoiceId: string): Promise<InvoiceArtifactResult>
+  resolvePdfAbsolutePath(invoiceUuid: string): Promise<InvoiceArtifactResult>
 }
 
 export class InvoiceServiceError extends Error {
@@ -118,6 +111,26 @@ export class InvoiceServiceError extends Error {
  */
 const CARPA_CLIENT_LABEL = 'CARPA — Aide juridictionnelle'
 
+/**
+ * Tags renseignés par le module facture au moment de la création (numéro consommé,
+ * échéance calculée) : les valeurs d'aperçu hydratées dans le dialogue ne doivent
+ * pas écraser les valeurs réelles du contexte.
+ */
+const AUTO_RESOLVED_INVOICE_TAG_PATHS = new Set([
+  'invoice.number',
+  'invoice.issuedAt',
+  'invoice.dueAt'
+])
+
+function stripAutoResolvedInvoiceTagOverrides(
+  overrides: Record<string, string> | undefined
+): Record<string, string> | undefined {
+  if (!overrides) return undefined
+  return Object.fromEntries(
+    Object.entries(overrides).filter(([path]) => !AUTO_RESOLVED_INVOICE_TAG_PATHS.has(path))
+  )
+}
+
 export interface InvoiceServiceOptions {
   domainService: DomainServiceLike
   dossierRegistryService: DossierRegistryService
@@ -126,11 +139,18 @@ export interface InvoiceServiceOptions {
   /** Source of truth for the invoice issuer identity (firm name, SIREN, VAT, IBAN, address). */
   entityService: EntityService
   /**
-   * Renders an HTML string to a PDF written at `outputPath`. Optional; when
-   * absent, `resolvePdfAbsolutePath` throws. Wired by the container using
-   * Electron's BrowserWindow + webContents.printToPDF.
+   * Renders an HTML string to a PDF written at `outputPath`. Used for the
+   * generic fallback layout when no trustworthy DOCX exists. Optional; when
+   * absent, `resolvePdfAbsolutePath` throws on that path. Wired by the
+   * container using Electron's BrowserWindow + webContents.printToPDF.
    */
   printHtmlToPdf?: (html: string, outputPath: string) => Promise<void>
+  /**
+   * Converts the generated DOCX to a layout-faithful PDF written at
+   * `outputPath`. Preferred over `printHtmlToPdf` whenever an intact DOCX is
+   * on disk. Wired by the container via the hidden docx-preview window.
+   */
+  docxToPdf?: (docxAbsolutePath: string, outputPath: string) => Promise<void>
   now?: () => Date
 }
 
@@ -302,7 +322,7 @@ function applyResolvedSettingsForDocumentType(
 }
 
 function invoiceRef(record: InvoiceRecord): InvoiceOriginalRef {
-  return { id: record.id, number: record.number, issuedAt: record.issuedAt }
+  return { uuid: record.uuid, number: record.number, issuedAt: record.issuedAt }
 }
 
 function csvCell(value: string | number | undefined): string {
@@ -335,15 +355,14 @@ interface FreezeArtifactsResult {
  * eagerly renders the PDF from it (so the PDF mirrors the user-selected
  * template), hashes the PDF, and marks both files read-only on disk.
  *
- * The PDF render is best-effort: if `printHtmlToPdf` is not wired (e.g. in
+ * The PDF render is best-effort: if `docxToPdf` is not wired (e.g. in
  * tests), only the DOCX hash is captured and the PDF will be generated
  * lazily on first open (still verified against this hash once produced).
  */
 async function freezeIssuedArtifacts(args: {
   docxAbsolutePath: string
   pdfAbsolutePath: string
-  invoiceNumber: string
-  printHtmlToPdf?: (html: string, outputPath: string) => Promise<void>
+  docxToPdf?: (docxAbsolutePath: string, outputPath: string) => Promise<void>
 }): Promise<FreezeArtifactsResult> {
   const result: FreezeArtifactsResult = {}
   try {
@@ -353,18 +372,17 @@ async function freezeIssuedArtifacts(args: {
     // reported as 'unknown' on later opens — but issuance itself succeeds.
     return result
   }
-  if (args.printHtmlToPdf) {
+  if (args.docxToPdf) {
     try {
       await mkdir(dirname(args.pdfAbsolutePath), { recursive: true })
-      const html = await buildInvoiceHtmlFromDocx(args.docxAbsolutePath, args.invoiceNumber)
-      await args.printHtmlToPdf(html, args.pdfAbsolutePath)
+      await args.docxToPdf(args.docxAbsolutePath, args.pdfAbsolutePath)
       result.pdfSha256 = await sha256OfFile(args.pdfAbsolutePath)
       result.pdfAbsolutePath = args.pdfAbsolutePath
       await makeReadOnlyBestEffort(args.pdfAbsolutePath)
     } catch {
-      // Eager PDF generation failed (mammoth conversion, write error, …).
+      // Eager PDF generation failed (docx-preview render, write error, …).
       // Don't fail issuance — the DOCX is the legal record. PDF can be
-      // regenerated lazily later from `buildInvoiceHtml(record)`.
+      // regenerated lazily later.
     }
   }
   await makeReadOnlyBestEffort(args.docxAbsolutePath)
@@ -375,6 +393,7 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
   const { domainService, dossierRegistryService, generateService, contactService, entityService } =
     options
   const printHtmlToPdf = options.printHtmlToPdf
+  const docxToPdf = options.docxToPdf
   const now = options.now ?? (() => new Date())
 
   // In-flight serialization queue, so two concurrent create()/cancel() calls
@@ -424,26 +443,6 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
     await atomicWrite(catalogPath, `${JSON.stringify(validated, null, 2)}\n`)
   }
 
-  const EMPTY_INVOICE_INDEX: InvoiceIndex = { invoices: [], updatedAt: now().toISOString() }
-
-  async function loadInvoiceIndex(domainPath: string): Promise<InvoiceIndex> {
-    return loadIndex(
-      getDomainInvoiceIndexPath(domainPath),
-      invoiceIndexSchema,
-      EMPTY_INVOICE_INDEX,
-      () => {
-        throw new InvoiceServiceError(
-          IpcErrorCode.VALIDATION_FAILED,
-          'Stored invoice index is invalid.'
-        )
-      }
-    )
-  }
-
-  async function saveInvoiceIndex(domainPath: string, index: InvoiceIndex): Promise<void> {
-    return saveIndex(getDomainInvoiceIndexPath(domainPath), index)
-  }
-
   async function loadInvoiceRecord(domainPath: string, id: string): Promise<InvoiceRecord | null> {
     return loadRecord(getDomainInvoiceRecordPath(domainPath, id), invoiceRecordSchema)
   }
@@ -451,38 +450,35 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
   async function saveInvoiceRecord(domainPath: string, record: InvoiceRecord): Promise<void> {
     return saveRecord(
       getDomainInvoiceRecordsDirectoryPath(domainPath),
-      getDomainInvoiceRecordPath(domainPath, record.id),
+      getDomainInvoiceRecordPath(domainPath, record.uuid),
       record
     )
   }
 
-  async function updateIndexEntry(
-    domainPath: string,
-    record: InvoiceRecord,
-    op: 'upsert' | 'remove' = 'upsert'
-  ): Promise<void> {
-    const index = await loadInvoiceIndex(domainPath)
-    const entry: InvoiceIndexEntry = {
-      id: record.id,
-      number: record.number,
-      dossierId: record.dossierId,
-      status: record.status,
-      paymentStatus: record.paymentStatus,
-      totalTtcCents: record.totalTtcCents,
-      documentType: record.documentType,
-      issuedAt: record.issuedAt,
-      updatedAt: record.updatedAt
-    }
-    const filtered = index.invoices.filter((e) => e.id !== record.id)
-    await saveInvoiceIndex(domainPath, {
-      ...index,
-      invoices: op === 'upsert' ? [...filtered, entry] : filtered,
-      updatedAt: now().toISOString()
-    })
-  }
-
   async function loadAllInvoiceRecords(domainPath: string): Promise<InvoiceRecord[]> {
     return loadAllRecords(getDomainInvoiceRecordsDirectoryPath(domainPath), invoiceRecordSchema)
+  }
+
+  /**
+   * Floor for the next sequence number of `documentType`: one past the highest
+   * already-issued value (scoped to the year when the series resets yearly).
+   * Passed to consumeNextInvoiceNumber so numbering is crash-safe and never
+   * reuses an issued number even if the persisted counter is stale.
+   */
+  function nextSequenceFloor(
+    records: InvoiceRecord[],
+    documentType: InvoiceRecord['documentType'],
+    resetYearly: boolean,
+    issuedAt: Date
+  ): number {
+    const year = issuedAt.getFullYear()
+    const highestIssued = records
+      .filter(
+        (record) =>
+          record.documentType === documentType && (!resetYearly || record.sequenceYear === year)
+      )
+      .reduce((max, record) => Math.max(max, record.sequenceValue), 0)
+    return highestIssued + 1
   }
 
   function getSettingsFromCatalog(catalog: CabinetBillingCatalog): InvoiceSettings {
@@ -519,22 +515,23 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
       ...(patch.correctiveInvoiceNextSequence !== undefined
         ? { correctiveInvoiceNextSequence: patch.correctiveInvoiceNextSequence }
         : {}),
-      ...(patch.defaultTemplateId !== undefined
-        ? { defaultTemplateId: patch.defaultTemplateId ?? undefined }
+      ...(patch.defaultTemplateUuid !== undefined
+        ? { defaultTemplateUuid: patch.defaultTemplateUuid ?? undefined }
         : {}),
-      ...(patch.defaultCreditNoteTemplateId !== undefined
-        ? { defaultCreditNoteTemplateId: patch.defaultCreditNoteTemplateId ?? undefined }
+      ...(patch.defaultCreditNoteTemplateUuid !== undefined
+        ? { defaultCreditNoteTemplateUuid: patch.defaultCreditNoteTemplateUuid ?? undefined }
         : {}),
-      ...(patch.defaultCorrectiveInvoiceTemplateId !== undefined
+      ...(patch.defaultCorrectiveInvoiceTemplateUuid !== undefined
         ? {
-            defaultCorrectiveInvoiceTemplateId:
-              patch.defaultCorrectiveInvoiceTemplateId ?? undefined
+            defaultCorrectiveInvoiceTemplateUuid:
+              patch.defaultCorrectiveInvoiceTemplateUuid ?? undefined
           }
         : {}),
       ...(patch.legalFooter !== undefined ? { legalFooter: patch.legalFooter ?? undefined } : {}),
       ...(patch.defaultPaymentTerms !== undefined
         ? { defaultPaymentTerms: patch.defaultPaymentTerms ?? undefined }
-        : {})
+        : {}),
+      ...(patch.defaultDueDays !== undefined ? { defaultDueDays: patch.defaultDueDays } : {})
     }
   }
 
@@ -545,9 +542,9 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
       return records.sort((a, b) => b.issuedAt.localeCompare(a.issuedAt))
     },
 
-    get: async (invoiceId): Promise<InvoiceRecord> => {
+    get: async (invoiceUuid): Promise<InvoiceRecord> => {
       const domainPath = await resolveDomainPath()
-      const found = await loadInvoiceRecord(domainPath, invoiceId)
+      const found = await loadInvoiceRecord(domainPath, invoiceUuid)
       if (!found) {
         throw new InvoiceServiceError(IpcErrorCode.NOT_FOUND, 'Invoice was not found.')
       }
@@ -578,8 +575,8 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
 
         const dossier = await dossierRegistryService.getDossier({ dossierId: input.dossierId })
 
-        const items = input.billingItemIds.map((id) => {
-          const found = dossier.billingItems.find((entry) => entry.id === id)
+        const items = input.billingItemUuids.map((id) => {
+          const found = dossier.billingItems.find((entry) => entry.uuid === id)
           if (!found) {
             throw new InvoiceServiceError(
               IpcErrorCode.NOT_FOUND,
@@ -628,12 +625,21 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
           throw new InvoiceServiceError(IpcErrorCode.VALIDATION_FAILED, "Date d'émission invalide.")
         }
         const issuedAtIso = issuedAtDate.toISOString().slice(0, 10)
+        const dueAtIso = input.dueAt ?? computeDueDateIso(issuedAtIso, settings.defaultDueDays)
 
+        const documentTypeSettings = getSettingsForDocumentType(settings, documentType)
+        const existingRecords = await loadAllInvoiceRecords(domainPath)
         let resolved
         try {
           resolved = consumeNextInvoiceNumber(
-            getSettingsForDocumentType(settings, documentType),
-            issuedAtDate
+            documentTypeSettings,
+            issuedAtDate,
+            nextSequenceFloor(
+              existingRecords,
+              documentType,
+              documentTypeSettings.resetSequenceYearly,
+              issuedAtDate
+            )
           )
         } catch (error) {
           throw new InvoiceServiceError(
@@ -671,7 +677,7 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
             : undefined
 
         const lines: InvoiceLine[] = items.map((item) => ({
-          billingItemId: item.id,
+          billingItemUuid: item.uuid,
           date: item.date,
           label: item.label,
           description: item.description,
@@ -689,24 +695,25 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
         const totalVatCents = totalTtcCents - totalHtCents
         const vatBreakdown = computeVatBreakdown(lines)
 
-        const invoiceId = randomUUID()
+        const invoiceUuid = randomUUID()
         const nowIso = now().toISOString()
         const invoiceDocumentPath = await resolveInvoiceDocumentPath(domainPath, resolved.number)
 
         const record: InvoiceRecord = {
-          id: invoiceId,
+          uuid: invoiceUuid,
           documentType,
           number: resolved.number,
           sequenceYear: resolved.sequenceYear,
           sequenceValue: resolved.sequenceValue,
           issuedAt: issuedAtIso,
+          dueAt: dueAtIso,
           dossierId: input.dossierId,
           dossierLabel: dossier.name,
           clientContactUuid: clientContact?.uuid,
           clientLabel,
           clientSnapshot,
           issuerSnapshot,
-          templateId: input.templateId,
+          templateUuid: input.templateUuid,
           totalHtCents,
           totalVatCents,
           totalTtcCents,
@@ -730,11 +737,11 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
         try {
           documentResult = await generateService.generateDocument({
             dossierId: input.dossierId,
-            templateId: input.templateId,
+            templateUuid: input.templateUuid,
             outputPath: invoiceDocumentPath,
             filename: resolved.number,
-            tagOverrides: input.tagOverrides,
-            primaryContactId: input.primaryContactId,
+            tagOverrides: stripAutoResolvedInvoiceTagOverrides(input.tagOverrides),
+            primaryContactUuid: input.primaryContactUuid,
             contactRoleOverrides: input.contactRoleOverrides,
             invoiceContext: buildInvoiceTemplateInputFromBillingItems({
               items,
@@ -747,7 +754,7 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
               documentType,
               originalInvoiceRefs: [],
               paymentTerms: settings.defaultPaymentTerms,
-              dueAt: undefined,
+              dueAt: dueAtIso,
               correctionReason: undefined
             })
           })
@@ -773,8 +780,7 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
           const frozen = await freezeIssuedArtifacts({
             docxAbsolutePath: documentResult.outputPath,
             pdfAbsolutePath: documentResult.outputPath.replace(/\.docx$/i, '.pdf'),
-            invoiceNumber: record.number,
-            printHtmlToPdf
+            docxToPdf
           })
           record.documentHashes = {
             docxSha256: frozen.docxSha256,
@@ -782,9 +788,14 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
           }
         }
 
-        // Persist settings (consume sequence), invoice record, default template,
-        // and mark billing items as invoiced. Order matters: if any of these fail
-        // after the doc has been generated we still want a coherent state.
+        // Persist settings (consume sequence), invoice record, then mark billing
+        // items invoiced. Order is deliberate: advancing the counter first means
+        // a crash before the record is written leaves a GAP (a consumed number
+        // with no invoice) rather than a DUPLICATE — a gap is the recoverable,
+        // auditable failure under the no-gap rule, whereas two invoices sharing a
+        // number is not. `nextSequenceFloor` (above) then guarantees the next
+        // issuance never reuses an already-issued number, so the stale-counter
+        // case is self-healing.
         const nextSettings: InvoiceSettings =
           input.rememberTemplateAsDefault && documentType === 'invoice'
             ? {
@@ -793,7 +804,7 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
                   documentType,
                   resolved.nextSettings
                 ),
-                defaultTemplateId: input.templateId
+                defaultTemplateUuid: input.templateUuid
               }
             : applyResolvedSettingsForDocumentType(settings, documentType, resolved.nextSettings)
         const nextCatalog: CabinetBillingCatalog = {
@@ -804,12 +815,11 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
         await saveCatalog(domainPath, nextCatalog)
 
         await saveInvoiceRecord(domainPath, record)
-        await updateIndexEntry(domainPath, record)
 
         await dossierRegistryService.markBillingItemsInvoiced({
           dossierId: input.dossierId,
-          billingItemIds: items.map((item) => item.id),
-          invoiceId: record.id,
+          billingItemUuids: items.map((item) => item.uuid),
+          invoiceUuid: record.uuid,
           invoiceNumber: record.number
         })
 
@@ -820,7 +830,7 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
     cancel: async (input): Promise<InvoiceRecord> => {
       return withLock(async () => {
         const domainPath = await resolveDomainPath()
-        const found = await loadInvoiceRecord(domainPath, input.invoiceId)
+        const found = await loadInvoiceRecord(domainPath, input.invoiceUuid)
         if (!found) {
           throw new InvoiceServiceError(IpcErrorCode.NOT_FOUND, 'Invoice was not found.')
         }
@@ -834,7 +844,6 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
           updatedAt: nowIso
         }
         await saveInvoiceRecord(domainPath, updated)
-        await updateIndexEntry(domainPath, updated)
         return updated
       })
     },
@@ -842,16 +851,25 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
     markPaid: async (input): Promise<InvoiceRecord> => {
       return withLock(async () => {
         const domainPath = await resolveDomainPath()
-        const found = await loadInvoiceRecord(domainPath, input.invoiceId)
+        const found = await loadInvoiceRecord(domainPath, input.invoiceUuid)
         if (!found) {
           throw new InvoiceServiceError(IpcErrorCode.NOT_FOUND, 'Invoice was not found.')
+        }
+        if (found.documentType === 'creditNote') {
+          // A credit note is never "paid" — mirror addPayment's guard so we
+          // don't append a phantom full-amount payment that would then render
+          // in the invoice's settlement block.
+          throw new InvoiceServiceError(
+            IpcErrorCode.VALIDATION_FAILED,
+            'Credit notes are not payable.'
+          )
         }
         const existingPaid = found.payments.reduce((acc, payment) => acc + payment.amountCents, 0)
         const remaining = Math.max(0, found.totalTtcCents - existingPaid)
         if (remaining <= 0) return applyPaymentState(found)
         const nowIso = now().toISOString()
         const payment: InvoicePayment = {
-          id: randomUUID(),
+          uuid: randomUUID(),
           paidAt: input.paidAt ?? nowIso.slice(0, 10),
           amountCents: remaining,
           method: 'transfer',
@@ -865,7 +883,6 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
           updatedAt: nowIso
         })
         await saveInvoiceRecord(domainPath, updated)
-        await updateIndexEntry(domainPath, updated)
         return updated
       })
     },
@@ -873,7 +890,7 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
     createCreditNote: async (input): Promise<InvoiceRecord> => {
       return withLock(async () => {
         const domainPath = await resolveDomainPath()
-        const original = await loadInvoiceRecord(domainPath, input.originalInvoiceId)
+        const original = await loadInvoiceRecord(domainPath, input.originalInvoiceUuid)
         if (!original) {
           throw new InvoiceServiceError(IpcErrorCode.NOT_FOUND, 'Original invoice was not found.')
         }
@@ -891,16 +908,24 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
         const issuedAtIso = issuedAtDate.toISOString().slice(0, 10)
         const catalog = await loadCatalog(domainPath)
         const settings = getSettingsFromCatalog(catalog)
+        const creditNoteSettings = getSettingsForDocumentType(settings, 'creditNote')
+        const existingRecords = await loadAllInvoiceRecords(domainPath)
         const resolved = consumeNextInvoiceNumber(
-          getSettingsForDocumentType(settings, 'creditNote'),
-          issuedAtDate
+          creditNoteSettings,
+          issuedAtDate,
+          nextSequenceFloor(
+            existingRecords,
+            'creditNote',
+            creditNoteSettings.resetSequenceYearly,
+            issuedAtDate
+          )
         )
 
         const creditSpecs = new Map(
-          (input.lineCredits ?? []).map((line) => [line.billingItemId, line])
+          (input.lineCredits ?? []).map((line) => [line.billingItemUuid, line])
         )
         const sourceLines = input.lineCredits
-          ? original.lines.filter((line) => creditSpecs.has(line.billingItemId))
+          ? original.lines.filter((line) => creditSpecs.has(line.billingItemUuid))
           : original.lines
         if (sourceLines.length === 0) {
           throw new InvoiceServiceError(
@@ -909,7 +934,7 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
           )
         }
         const lines: InvoiceLine[] = sourceLines.map((line) => {
-          const spec = creditSpecs.get(line.billingItemId)
+          const spec = creditSpecs.get(line.billingItemUuid)
           const ratio =
             spec?.totalHtCents !== undefined && line.totalHtCents > 0
               ? spec.totalHtCents / line.totalHtCents
@@ -927,7 +952,15 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
           }
           const subtotalHtCents = Math.round(line.subtotalHtCents * clampedRatio)
           const discountHtCents = Math.max(0, subtotalHtCents - totalHtCents)
-          const totalTtcCents = Math.round(totalHtCents * (1 + line.vatRateBasisPoints / 10_000))
+          // Derive the credited TTC from the original line's stored TTC, not by
+          // re-applying the VAT rate to HT — otherwise a full credit can differ
+          // from the invoice it reverses by a rounding cent and the avoir never
+          // exactly cancels the original. Full credit → reuse the line TTC
+          // verbatim; partial credit → prorate the line TTC by the HT share.
+          const totalTtcCents =
+            totalHtCents === line.totalHtCents
+              ? line.totalTtcCents
+              : Math.round(line.totalTtcCents * (totalHtCents / line.totalHtCents))
           return {
             ...line,
             quantity,
@@ -947,7 +980,7 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
           original.issuerSnapshot ??
           entityToInvoiceIssuer(await entityService.get().catch(() => null), settings)
         const record: InvoiceRecord = {
-          id: randomUUID(),
+          uuid: randomUUID(),
           documentType: 'creditNote',
           number: resolved.number,
           sequenceYear: resolved.sequenceYear,
@@ -960,7 +993,7 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
           clientLabel: original.clientLabel,
           clientSnapshot: original.clientSnapshot,
           issuerSnapshot,
-          templateId: input.templateId,
+          templateUuid: input.templateUuid,
           totalHtCents,
           totalVatCents,
           totalTtcCents,
@@ -981,7 +1014,7 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
         const invoiceDocumentPath = await resolveInvoiceDocumentPath(domainPath, resolved.number)
         const documentResult = await generateService.generateDocument({
           dossierId: original.dossierId,
-          templateId: input.templateId,
+          templateUuid: input.templateUuid,
           outputPath: invoiceDocumentPath,
           filename: resolved.number,
           invoiceContext: buildInvoiceTemplateInputFromRecord(record)
@@ -998,8 +1031,7 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
           const frozen = await freezeIssuedArtifacts({
             docxAbsolutePath: documentResult.outputPath,
             pdfAbsolutePath: documentResult.outputPath.replace(/\.docx$/i, '.pdf'),
-            invoiceNumber: record.number,
-            printHtmlToPdf
+            docxToPdf
           })
           record.documentHashes = {
             docxSha256: frozen.docxSha256,
@@ -1017,7 +1049,6 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
           updatedAt: now().toISOString()
         })
         await saveInvoiceRecord(domainPath, record)
-        await updateIndexEntry(domainPath, record)
         return record
       })
     },
@@ -1025,7 +1056,7 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
     createCorrectiveInvoice: async (input): Promise<InvoiceRecord> => {
       return withLock(async () => {
         const domainPath = await resolveDomainPath()
-        const original = await loadInvoiceRecord(domainPath, input.originalInvoiceId)
+        const original = await loadInvoiceRecord(domainPath, input.originalInvoiceUuid)
         if (!original) {
           throw new InvoiceServiceError(IpcErrorCode.NOT_FOUND, 'Original invoice was not found.')
         }
@@ -1037,8 +1068,8 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
         }
 
         const dossier = await dossierRegistryService.getDossier({ dossierId: input.dossierId })
-        const items = input.billingItemIds.map((id) => {
-          const found = dossier.billingItems.find((entry) => entry.id === id)
+        const items = input.billingItemUuids.map((id) => {
+          const found = dossier.billingItems.find((entry) => entry.uuid === id)
           if (!found) {
             throw new InvoiceServiceError(
               IpcErrorCode.NOT_FOUND,
@@ -1060,9 +1091,17 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
         const issuedAtIso = issuedAtDate.toISOString().slice(0, 10)
         const catalog = await loadCatalog(domainPath)
         const settings = getSettingsFromCatalog(catalog)
+        const correctiveSettings = getSettingsForDocumentType(settings, 'correctiveInvoice')
+        const existingRecords = await loadAllInvoiceRecords(domainPath)
         const resolved = consumeNextInvoiceNumber(
-          getSettingsForDocumentType(settings, 'correctiveInvoice'),
-          issuedAtDate
+          correctiveSettings,
+          issuedAtDate,
+          nextSequenceFloor(
+            existingRecords,
+            'correctiveInvoice',
+            correctiveSettings.resetSequenceYearly,
+            issuedAtDate
+          )
         )
         const contacts = await contactService.list(input.dossierId).catch(() => [])
         const clientContact = original.clientContactUuid
@@ -1084,7 +1123,7 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
           settings
         )
         const lines: InvoiceLine[] = items.map((item) => ({
-          billingItemId: item.id,
+          billingItemUuid: item.uuid,
           date: item.date,
           label: item.label,
           description: item.description,
@@ -1101,20 +1140,20 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
         const totalTtcCents = lines.reduce((acc, line) => acc + line.totalTtcCents, 0)
         const nowIso = now().toISOString()
         const record: InvoiceRecord = {
-          id: randomUUID(),
+          uuid: randomUUID(),
           documentType: 'correctiveInvoice',
           number: resolved.number,
           sequenceYear: resolved.sequenceYear,
           sequenceValue: resolved.sequenceValue,
           issuedAt: issuedAtIso,
-          dueAt: input.dueAt,
+          dueAt: input.dueAt ?? computeDueDateIso(issuedAtIso, settings.defaultDueDays),
           dossierId: input.dossierId,
           dossierLabel: dossier.name,
           clientContactUuid: original.clientContactUuid ?? clientContact?.uuid,
           clientLabel,
           clientSnapshot,
           issuerSnapshot,
-          templateId: input.templateId,
+          templateUuid: input.templateUuid,
           totalHtCents,
           totalVatCents: totalTtcCents - totalHtCents,
           totalTtcCents,
@@ -1135,11 +1174,11 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
         const invoiceDocumentPath = await resolveInvoiceDocumentPath(domainPath, resolved.number)
         const documentResult = await generateService.generateDocument({
           dossierId: input.dossierId,
-          templateId: input.templateId,
+          templateUuid: input.templateUuid,
           outputPath: invoiceDocumentPath,
           filename: resolved.number,
-          tagOverrides: input.tagOverrides,
-          primaryContactId: input.primaryContactId,
+          tagOverrides: stripAutoResolvedInvoiceTagOverrides(input.tagOverrides),
+          primaryContactUuid: input.primaryContactUuid,
           contactRoleOverrides: input.contactRoleOverrides,
           invoiceContext: buildInvoiceTemplateInputFromRecord(record)
         })
@@ -1155,8 +1194,7 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
           const frozen = await freezeIssuedArtifacts({
             docxAbsolutePath: documentResult.outputPath,
             pdfAbsolutePath: documentResult.outputPath.replace(/\.docx$/i, '.pdf'),
-            invoiceNumber: record.number,
-            printHtmlToPdf
+            docxToPdf
           })
           record.documentHashes = {
             docxSha256: frozen.docxSha256,
@@ -1179,13 +1217,11 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
           updatedAt: nowIso
         }
         await saveInvoiceRecord(domainPath, correctedOriginal)
-        await updateIndexEntry(domainPath, correctedOriginal)
         await saveInvoiceRecord(domainPath, record)
-        await updateIndexEntry(domainPath, record)
         await dossierRegistryService.markBillingItemsInvoiced({
           dossierId: input.dossierId,
-          billingItemIds: items.map((item) => item.id),
-          invoiceId: record.id,
+          billingItemUuids: items.map((item) => item.uuid),
+          invoiceUuid: record.uuid,
           invoiceNumber: record.number
         })
         return record
@@ -1195,7 +1231,7 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
     addPayment: async (input): Promise<InvoiceRecord> => {
       return withLock(async () => {
         const domainPath = await resolveDomainPath()
-        const found = await loadInvoiceRecord(domainPath, input.invoiceId)
+        const found = await loadInvoiceRecord(domainPath, input.invoiceUuid)
         if (!found) throw new InvoiceServiceError(IpcErrorCode.NOT_FOUND, 'Invoice was not found.')
         if (found.documentType === 'creditNote') {
           throw new InvoiceServiceError(
@@ -1205,7 +1241,7 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
         }
         const nowIso = now().toISOString()
         const payment: InvoicePayment = {
-          id: randomUUID(),
+          uuid: randomUUID(),
           paidAt: input.paidAt ?? nowIso.slice(0, 10),
           amountCents: input.amountCents,
           method: input.method ?? 'transfer',
@@ -1221,7 +1257,6 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
           updatedAt: nowIso
         })
         await saveInvoiceRecord(domainPath, updated)
-        await updateIndexEntry(domainPath, updated)
         return updated
       })
     },
@@ -1229,16 +1264,16 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
     updatePayment: async (input): Promise<InvoiceRecord> => {
       return withLock(async () => {
         const domainPath = await resolveDomainPath()
-        const found = await loadInvoiceRecord(domainPath, input.invoiceId)
+        const found = await loadInvoiceRecord(domainPath, input.invoiceUuid)
         if (!found) throw new InvoiceServiceError(IpcErrorCode.NOT_FOUND, 'Invoice was not found.')
-        if (!found.payments.some((payment) => payment.id === input.paymentId)) {
+        if (!found.payments.some((payment) => payment.uuid === input.paymentUuid)) {
           throw new InvoiceServiceError(IpcErrorCode.NOT_FOUND, 'Payment was not found.')
         }
         const nowIso = now().toISOString()
         const updated = applyPaymentState({
           ...found,
           payments: found.payments.map((payment) =>
-            payment.id === input.paymentId
+            payment.uuid === input.paymentUuid
               ? {
                   ...payment,
                   paidAt: input.paidAt ?? payment.paidAt,
@@ -1253,7 +1288,6 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
           updatedAt: nowIso
         })
         await saveInvoiceRecord(domainPath, updated)
-        await updateIndexEntry(domainPath, updated)
         return updated
       })
     },
@@ -1261,21 +1295,20 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
     deletePayment: async (input): Promise<InvoiceRecord> => {
       return withLock(async () => {
         const domainPath = await resolveDomainPath()
-        const found = await loadInvoiceRecord(domainPath, input.invoiceId)
+        const found = await loadInvoiceRecord(domainPath, input.invoiceUuid)
         if (!found) throw new InvoiceServiceError(IpcErrorCode.NOT_FOUND, 'Invoice was not found.')
         const nowIso = now().toISOString()
         const updated = applyPaymentState({
           ...found,
-          payments: found.payments.filter((payment) => payment.id !== input.paymentId),
+          payments: found.payments.filter((payment) => payment.uuid !== input.paymentUuid),
           updatedAt: nowIso
         })
         await saveInvoiceRecord(domainPath, updated)
-        await updateIndexEntry(domainPath, updated)
         return updated
       })
     },
 
-    exportCsv: async (input): Promise<InvoiceExportCsvResult> => {
+    exportCsv: async (input, outputPath): Promise<InvoiceExportCsvResult> => {
       const domainPath = await resolveDomainPath()
       const allRecords = await loadAllInvoiceRecords(domainPath)
       const from = input.dateFrom ?? ''
@@ -1320,21 +1353,31 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
       const csv = [headers, ...rows]
         .map((row) => row.map((cell) => csvCell(cell)).join(','))
         .join('\n')
-      const directory = getDomainInvoiceDocumentsPath(domainPath)
-      await mkdir(directory, { recursive: true })
-      const filename = `export-facturation-${now().toISOString().slice(0, 10)}.csv`
-      const outputPath = join(directory, filename)
+      // Write to the user-chosen destination (a native save dialog resolves the
+      // path in the handler), creating its parent directory if needed.
+      await mkdir(dirname(outputPath), { recursive: true })
       await atomicWrite(outputPath, `${csv}\n`)
-      return {
-        outputPath,
-        relativePath: toPortableRelativePath(domainPath, outputPath),
-        invoiceCount: invoices.length
-      }
+      return { canceled: false, outputPath, invoiceCount: invoices.length }
     },
 
-    resolveDocumentAbsolutePath: async (invoiceId): Promise<InvoiceArtifactResult> => {
+    exportFec: async (input, outputPath): Promise<InvoiceExportFecResult> => {
       const domainPath = await resolveDomainPath()
-      const found = await loadInvoiceRecord(domainPath, invoiceId)
+      const allRecords = await loadAllInvoiceRecords(domainPath)
+      const from = input.dateFrom ?? ''
+      const to = input.dateTo ?? '9999-12-31'
+      const invoices = allRecords.filter((invoice) => {
+        if (!input.includeCancelled && invoice.status === 'cancelled') return false
+        return invoice.issuedAt >= from && invoice.issuedAt <= to
+      })
+      const fec = buildFecExport(invoices)
+      await mkdir(dirname(outputPath), { recursive: true })
+      await atomicWrite(outputPath, `${fec}\r\n`)
+      return { canceled: false, outputPath, invoiceCount: invoices.length }
+    },
+
+    resolveDocumentAbsolutePath: async (invoiceUuid): Promise<InvoiceArtifactResult> => {
+      const domainPath = await resolveDomainPath()
+      const found = await loadInvoiceRecord(domainPath, invoiceUuid)
       if (!found) {
         throw new InvoiceServiceError(IpcErrorCode.NOT_FOUND, 'Invoice was not found.')
       }
@@ -1362,9 +1405,9 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
       }
     },
 
-    resolvePdfAbsolutePath: async (invoiceId): Promise<InvoiceArtifactResult> => {
+    resolvePdfAbsolutePath: async (invoiceUuid): Promise<InvoiceArtifactResult> => {
       const domainPath = await resolveDomainPath()
-      const found = await loadInvoiceRecord(domainPath, invoiceId)
+      const found = await loadInvoiceRecord(domainPath, invoiceUuid)
       if (!found) {
         throw new InvoiceServiceError(IpcErrorCode.NOT_FOUND, 'Invoice was not found.')
       }
@@ -1400,30 +1443,33 @@ export function createInvoiceService(options: InvoiceServiceOptions): InvoiceSer
       //    own hash is intact: a tampered DOCX would silently leak into the
       //    "replacement" PDF. The safe fallback is to re-render from the
       //    immutable JSON record (generic layout but contractually correct).
-      if (!printHtmlToPdf) {
-        throw new InvoiceServiceError(
-          IpcErrorCode.FILE_SYSTEM_ERROR,
-          'PDF rendering is not available.'
-        )
-      }
+      //    Legacy invoices (DOCX without a stored hash) still get the
+      //    template-faithful render, flagged as `unknown`.
       await mkdir(dirname(pdfPath), { recursive: true })
-      let html: string
-      if (docxAbsolutePath && (await pathExists(docxAbsolutePath)) && storedDocxHash) {
-        const docxCurrentHash = await sha256OfFile(docxAbsolutePath)
-        html =
-          docxCurrentHash === storedDocxHash
-            ? await buildInvoiceHtmlFromDocx(docxAbsolutePath, found.number)
-            : buildInvoiceHtml(found)
-      } else if (docxAbsolutePath && (await pathExists(docxAbsolutePath)) && !storedDocxHash) {
-        // Legacy invoice (no hash) — give the user the template-faithful
-        // render but flag the result as `unknown`.
-        html = await buildInvoiceHtmlFromDocx(docxAbsolutePath, found.number)
-      } else {
-        html = buildInvoiceHtml(found)
+      let useDocx = false
+      if (docxAbsolutePath && (await pathExists(docxAbsolutePath))) {
+        useDocx = storedDocxHash ? (await sha256OfFile(docxAbsolutePath)) === storedDocxHash : true
       }
       try {
-        await printHtmlToPdf(html, pdfPath)
+        if (useDocx) {
+          if (!docxToPdf) {
+            throw new InvoiceServiceError(
+              IpcErrorCode.FILE_SYSTEM_ERROR,
+              'PDF rendering is not available.'
+            )
+          }
+          await docxToPdf(docxAbsolutePath!, pdfPath)
+        } else {
+          if (!printHtmlToPdf) {
+            throw new InvoiceServiceError(
+              IpcErrorCode.FILE_SYSTEM_ERROR,
+              'PDF rendering is not available.'
+            )
+          }
+          await printHtmlToPdf(buildInvoiceHtml(found), pdfPath)
+        }
       } catch (error) {
+        if (error instanceof InvoiceServiceError) throw error
         throw new InvoiceServiceError(
           IpcErrorCode.FILE_SYSTEM_ERROR,
           `Génération du PDF échouée : ${error instanceof Error ? error.message : String(error)}`

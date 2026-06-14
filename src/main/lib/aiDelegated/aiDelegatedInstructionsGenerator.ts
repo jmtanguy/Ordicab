@@ -40,7 +40,7 @@ interface DomainServiceLike {
 type DocumentServiceLike = Pick<DocumentService, 'resolveRegisteredDossierRoot'>
 
 interface DossierRegistryEntry {
-  id: string
+  slug: string
   name: string
   registeredAt: string
 }
@@ -133,12 +133,12 @@ async function loadRegistry(domainPath: string): Promise<DossierRegistryEntry[]>
   return dossiers.flatMap((entry) => {
     if (
       isRecord(entry) &&
-      typeof entry.id === 'string' &&
+      typeof entry.slug === 'string' &&
       typeof entry.name === 'string' &&
       typeof entry.registeredAt === 'string'
     ) {
       const dossierEntry: DossierRegistryEntry = {
-        id: entry.id,
+        slug: entry.slug,
         name: entry.name,
         registeredAt: entry.registeredAt
       }
@@ -348,7 +348,7 @@ export function createInstructionsGenerator(
       registry.map(async (entry) => {
         try {
           const dossierPath = await options.documentService.resolveRegisteredDossierRoot({
-            dossierId: entry.id
+            dossierId: entry.slug
           })
 
           const metadata = await loadDossierMetadata(dossierPath, now)
@@ -361,7 +361,7 @@ export function createInstructionsGenerator(
           if (isGracefulDossierError(error)) {
             if (shouldLogGracefulDossierSkip(error)) {
               logError(
-                `[InstructionsGenerator] Skipping dossier "${entry.id}" in domain generation.`,
+                `[InstructionsGenerator] Skipping dossier "${entry.slug}" in domain generation.`,
                 error
               )
             }

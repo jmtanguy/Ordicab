@@ -7,15 +7,17 @@ import {
   getContactManagedFieldValues,
   getManagedFieldKey,
   normalizeManagedFieldsConfig,
+  type ConflictMatch,
   type ContactDeleteInput,
   type ContactRecord,
   type ContactUpsertInput,
   type ManagedFieldDefinition
 } from '@shared/types'
 
-import { Button } from '@renderer/components/ui'
+import { AlertBanner, Button } from '@renderer/components/ui'
 import { cn } from '@renderer/lib/utils'
 import { useEntityStore } from '@renderer/stores'
+import { getOrdicabApi } from '@renderer/stores/ipc'
 
 import { ContactForm } from './ContactForm'
 import {
@@ -43,6 +45,13 @@ interface DossierContactsSectionProps {
 
 type ContactEditorState = Partial<ContactRecord> | null
 type SortOrder = 'name-asc' | 'name-desc'
+
+interface ConflictCheckState {
+  status: 'checking' | 'done' | 'error'
+  /** Display name of the contact the check ran for. */
+  name: string
+  matches: ConflictMatch[]
+}
 type ManagedFieldSummaryEntry = {
   key: string
   label: string
@@ -137,6 +146,44 @@ export function DossierContactsSection({
   const [copiedField, setCopiedField] = useState<{ uuid: string; field: string } | null>(null)
   const [searchFilter, setSearchFilter] = useState('')
   const [sortOrder, setSortOrder] = useState<SortOrder>('name-asc')
+  const [conflictCheck, setConflictCheck] = useState<ConflictCheckState | null>(null)
+
+  const openEditor = (value: Partial<ContactRecord>): void => {
+    setConflictCheck(null)
+    setEditor(value)
+  }
+
+  const runConflictCheck = (name: { firstName?: string; lastName?: string }): void => {
+    const api = getOrdicabApi()
+    if (!api || !name.lastName?.trim()) {
+      return
+    }
+
+    const checkedName = [name.firstName, name.lastName]
+      .map((part) => part?.trim() ?? '')
+      .filter(Boolean)
+      .join(' ')
+
+    setConflictCheck({ status: 'checking', name: checkedName, matches: [] })
+    void api.contact
+      .checkConflicts({ dossierId, firstName: name.firstName, lastName: name.lastName })
+      .then((result) => {
+        if (!result.success) {
+          setConflictCheck({ status: 'error', name: checkedName, matches: [] })
+          return
+        }
+        setConflictCheck({ status: 'done', name: checkedName, matches: result.data })
+      })
+  }
+
+  const handleSave = async (input: ContactUpsertInput): Promise<boolean> => {
+    const saved = await onSave(input)
+    if (saved && input.lastName) {
+      // Advisory only — the save already went through, the check just warns.
+      runConflictCheck({ firstName: input.firstName, lastName: input.lastName })
+    }
+    return saved
+  }
 
   const isCopied = (uuid: string, field: string): boolean =>
     copiedField?.uuid === uuid && copiedField?.field === field
@@ -191,6 +238,74 @@ export function DossierContactsSection({
     })
   }, [entries, managedFieldDefinitions, searchTerms, sortOrder])
 
+  const conflictPanel = conflictCheck ? (
+    <AlertBanner
+      tone={
+        conflictCheck.status === 'done' && conflictCheck.matches.length === 0
+          ? 'success'
+          : 'warning'
+      }
+      role="status"
+      className="flex shrink-0 items-start justify-between gap-3"
+    >
+      <div className="flex min-w-0 flex-col gap-1">
+        {conflictCheck.status === 'checking' ? (
+          <p>
+            {t('conflictCheck.checking', {
+              defaultValue: 'Vérification des conflits d’intérêts en cours…'
+            })}
+          </p>
+        ) : conflictCheck.status === 'error' ? (
+          <p>
+            {t('conflictCheck.error', {
+              defaultValue: 'La vérification des conflits d’intérêts a échoué.'
+            })}
+          </p>
+        ) : conflictCheck.matches.length === 0 ? (
+          <p>
+            {t('conflictCheck.noMatches', {
+              name: conflictCheck.name,
+              defaultValue: 'Aucun conflit d’intérêts détecté pour {{name}}.'
+            })}
+          </p>
+        ) : (
+          <>
+            <p className="font-semibold">
+              {t('conflictCheck.title', { defaultValue: 'Conflit d’intérêts potentiel' })}
+            </p>
+            <ul className="list-disc pl-5">
+              {conflictCheck.matches.map((match) => (
+                <li key={`${match.dossierId}-${match.contactUuid}`}>
+                  {t('conflictCheck.matchLine', {
+                    name: match.contactDisplayName,
+                    dossier: match.dossierName,
+                    role:
+                      match.contactRole ??
+                      t('conflictCheck.roleUnknown', { defaultValue: 'rôle non précisé' }),
+                    defaultValue:
+                      '{{name}} apparaît dans le dossier {{dossier}} en tant que {{role}}'
+                  })}
+                  {match.matchKind === 'partial'
+                    ? ` (${t('conflictCheck.partialMatch', {
+                        defaultValue: 'correspondance partielle sur le nom'
+                      })})`
+                    : null}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={() => setConflictCheck(null)}
+        className="shrink-0 text-xs font-medium underline-offset-2 transition hover:underline"
+      >
+        {t('conflictCheck.dismiss', { defaultValue: 'Ignorer' })}
+      </button>
+    </AlertBanner>
+  ) : null
+
   const countLabel =
     entries.length === 0
       ? null
@@ -217,7 +332,7 @@ export function DossierContactsSection({
               variant="ghost"
               size="sm"
               disabled={disabled}
-              onClick={() => setEditor(EMPTY_CONTACT)}
+              onClick={() => openEditor(EMPTY_CONTACT)}
             >
               {t('contacts.addButton')}
             </Button>
@@ -225,21 +340,23 @@ export function DossierContactsSection({
         />
 
         {error ? (
-          <div className="shrink-0 rounded-2xl border border-[#e8c7c7] bg-[#fbf0f0] p-4 text-sm text-[#9c2f2f]">
+          <div className="shrink-0 rounded-2xl border border-destructive-border bg-destructive-tint p-4 text-sm text-destructive">
             {error}
           </div>
         ) : null}
 
+        {editor ? null : conflictPanel}
+
         {isLoading ? (
-          <p className="shrink-0 rounded-2xl border border-dashed border-[#e5e3da] bg-white p-4 text-sm text-[#1a1a1a]">
+          <p className="shrink-0 rounded-2xl border border-dashed border-hairline bg-white p-4 text-sm text-ink">
             {t('contacts.loadingState')}
           </p>
         ) : entries.length === 0 ? (
           <button
             type="button"
             disabled={disabled}
-            onClick={() => setEditor(EMPTY_CONTACT)}
-            className="w-full shrink-0 rounded-2xl border border-dashed border-[#e5e3da] bg-white p-4 text-left text-sm text-[#1a1a1a] transition hover:border-aurora/50 hover:text-[#1a1a1a] disabled:pointer-events-none disabled:opacity-50"
+            onClick={() => openEditor(EMPTY_CONTACT)}
+            className="w-full shrink-0 rounded-2xl border border-dashed border-hairline bg-white p-4 text-left text-sm text-ink transition hover:border-aurora/50 hover:text-ink disabled:pointer-events-none disabled:opacity-50"
           >
             {t('contacts.emptyState')}
           </button>
@@ -265,7 +382,7 @@ export function DossierContactsSection({
             </div>
 
             {filteredEntries.length === 0 ? (
-              <p className="shrink-0 rounded-2xl border border-dashed border-[#e5e3da] bg-white p-4 text-sm text-[#1a1a1a]">
+              <p className="shrink-0 rounded-2xl border border-dashed border-hairline bg-white p-4 text-sm text-ink">
                 {t('contacts.noResults')}
               </p>
             ) : (
@@ -281,18 +398,18 @@ export function DossierContactsSection({
                     return (
                       <li
                         key={entry.uuid}
-                        className="group relative px-5 py-4 transition-colors duration-150 hover:bg-[#fbf9f4]"
+                        className="group relative px-5 py-4 transition-colors duration-150 hover:bg-parchment-bright"
                       >
                         <div className="flex items-start justify-between gap-x-4">
                           <div className="grid min-w-0 flex-1 gap-x-6 gap-y-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(10rem,0.8fr)_minmax(12rem,1fr)]">
                             <div className="group/nameaddr flex min-w-0 items-center gap-1.5 overflow-hidden lg:col-start-1 lg:row-start-1">
                               <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-                                <p className="text-sm font-semibold text-[#1a1a1a]">
+                                <p className="text-sm font-semibold text-ink">
                                   {getContactDisplayName(entry)}
                                 </p>
                                 {entry.institution &&
                                 (entry.firstName || entry.lastName || entry.title) ? (
-                                  <span className="text-xs text-[#5c5c5a]">
+                                  <span className="text-xs text-ink-muted">
                                     {entry.institution}
                                   </span>
                                 ) : null}
@@ -338,10 +455,10 @@ export function DossierContactsSection({
 
                             {addressFormatted || entry.phone || entry.email || entry.information ? (
                               <>
-                                <p className="min-w-0 overflow-hidden whitespace-pre-wrap text-sm text-[#5c5c5a] lg:col-start-1 lg:row-start-2">
+                                <p className="min-w-0 overflow-hidden whitespace-pre-wrap text-sm text-ink-muted lg:col-start-1 lg:row-start-2">
                                   {addressFormatted}
                                 </p>
-                                <div className="flex flex-col gap-0.5 text-sm text-[#5c5c5a] lg:col-start-2 lg:row-start-2">
+                                <div className="flex flex-col gap-0.5 text-sm text-ink-muted lg:col-start-2 lg:row-start-2">
                                   {entry.phone ? (
                                     <span className="group/phone inline-flex items-center gap-1">
                                       <span className="tabular-nums">{entry.phone}</span>
@@ -402,14 +519,14 @@ export function DossierContactsSection({
                                   ) : null}
                                 </div>
                                 {entry.information ? (
-                                  <p className="whitespace-pre-wrap text-xs text-[#8a8a85] lg:col-span-2 lg:col-start-1 lg:row-start-3">
+                                  <p className="whitespace-pre-wrap text-xs text-ink-subtle lg:col-span-2 lg:col-start-1 lg:row-start-3">
                                     {entry.information}
                                   </p>
                                 ) : null}
                               </>
                             ) : null}
                             {managedFieldSummary.length > 0 ? (
-                              <dl className="mt-2 grid min-w-0 gap-1.5 rounded-lg border border-[#e5e3da] bg-[#fbf9f4] p-2.5 lg:col-start-3 lg:row-span-3 lg:row-start-1 lg:mt-0">
+                              <dl className="mt-2 grid min-w-0 gap-1.5 rounded-lg border border-hairline bg-parchment-bright p-2.5 lg:col-start-3 lg:row-span-3 lg:row-start-1 lg:mt-0">
                                 {managedFieldSummary.map((field) => (
                                   <div
                                     key={`${entry.uuid}-${field.key}`}
@@ -417,11 +534,11 @@ export function DossierContactsSection({
                                   >
                                     <dt
                                       title={field.label}
-                                      className="min-w-0 truncate text-[11px] font-medium text-[#8a8a85]"
+                                      className="min-w-0 truncate text-[11px] font-medium text-ink-subtle"
                                     >
                                       {field.label}
                                     </dt>
-                                    <dd className="min-w-0 whitespace-pre-wrap break-words text-xs leading-5 text-[#1a1a1a]">
+                                    <dd className="min-w-0 whitespace-pre-wrap break-words text-xs leading-5 text-ink">
                                       {field.value}
                                     </dd>
                                   </div>
@@ -440,7 +557,7 @@ export function DossierContactsSection({
                               <IconButton
                                 label={t('contacts.editButton')}
                                 disabled={disabled}
-                                onClick={() => setEditor(entry)}
+                                onClick={() => openEditor(entry)}
                               >
                                 <PencilIcon />
                               </IconButton>
@@ -485,8 +602,9 @@ export function DossierContactsSection({
           <div
             role="dialog"
             aria-modal="true"
-            className="flex max-h-[calc(100vh-3rem)] w-full max-w-6xl flex-col overflow-y-auto rounded-[28px] border border-[#d1cfc6] bg-[#f4f3ee] p-6 shadow-[0_30px_80px_rgba(10,92,104,0.28)] ring-1 ring-aurora/15"
+            className="flex max-h-[calc(100vh-3rem)] w-full max-w-6xl flex-col overflow-y-auto rounded-[28px] border border-hairline-strong bg-parchment p-6 shadow-[0_30px_80px_rgba(10,92,104,0.28)] ring-1 ring-aurora/15"
           >
+            {conflictPanel ? <div className="mb-4 shrink-0">{conflictPanel}</div> : null}
             <ContactForm
               key={editor.uuid ?? 'new-contact'}
               dossierId={dossierId}
@@ -494,7 +612,8 @@ export function DossierContactsSection({
               existingContacts={entries}
               disabled={disabled}
               onCancel={() => setEditor(null)}
-              onSubmit={onSave}
+              onSubmit={handleSave}
+              onCheckConflicts={runConflictCheck}
             />
           </div>
         </div>

@@ -26,7 +26,7 @@ export const NOTE_SOURCE_VALUES = ['user', 'ai'] as const
 export type DossierNoteSource = (typeof NOTE_SOURCE_VALUES)[number]
 
 export interface DossierNote {
-  id: string
+  uuid: string
   dossierId: string
   title: string
   /** Plain text / light markdown. Kept prefix-free so embeddings stay clean. */
@@ -42,7 +42,7 @@ export interface DossierNote {
 }
 
 export interface DossierNoteUpsertInput {
-  id?: string
+  uuid?: string
   dossierId: string
   title: string
   content: string
@@ -55,5 +55,5 @@ export interface DossierNoteUpsertInput {
 
 export interface DossierNoteDeleteInput {
   dossierId: string
-  noteId: string
+  noteUuid: string
 }

@@ -12,10 +12,10 @@ import {
 export const templateFormatSchema = z.enum(['txt', 'docx'])
 const requiredTemplateNameSchema = z.string().trim().min(1)
 const templateContentSchema = z.string().default('')
-export const templateDocumentKindSchema = z.enum(TEMPLATE_DOCUMENT_KIND_VALUES).default('document')
+const templateDocumentKindSchema = z.enum(TEMPLATE_DOCUMENT_KIND_VALUES).default('document')
 
 export const templateRecordSchema = z.object({
-  id: z.string().min(1),
+  uuid: z.string().min(1),
   name: requiredTemplateNameSchema,
   description: z.string().optional(),
   content: z.string().optional(),
@@ -23,6 +23,7 @@ export const templateRecordSchema = z.object({
   macros: z.array(z.string()).default([]),
   hasDocxSource: z.boolean().default(false),
   documentKind: templateDocumentKindSchema.optional(),
+  category: z.string().trim().min(1).optional(),
   updatedAt: z.string().min(1)
 })
 
@@ -31,20 +32,39 @@ export const templateDraftSchema = z.object({
   content: templateContentSchema,
   description: z.string().optional(),
   tags: z.array(z.string()).optional(),
-  documentKind: templateDocumentKindSchema.optional()
+  documentKind: templateDocumentKindSchema.optional(),
+  category: z.string().trim().optional()
 })
 
 export const templateUpdateSchema = templateDraftSchema.extend({
-  id: z.string().min(1)
+  uuid: z.string().min(1),
+  // Omitted content = keep the stored content (e.g. a drag-and-drop category move)
+  content: z.string().optional()
 })
 
 export const templateDeleteInputSchema = z.object({
-  id: z.string().min(1)
+  uuid: z.string().min(1)
 })
 
 export const templateDocxInputSchema = z.object({
-  id: z.string().min(1),
+  uuid: z.string().min(1),
   pickToken: z.string().min(1).optional()
+})
+
+export const templateTagifyAnalyzeInputSchema = z.object({
+  templateUuid: z.string().min(1)
+})
+
+export const templateTagifyApplyInputSchema = z.object({
+  templateUuid: z.string().min(1),
+  replacements: z
+    .array(
+      z.object({
+        originalText: z.string().min(1),
+        tagPath: z.string().min(1)
+      })
+    )
+    .min(1)
 })
 
 export type {
@@ -54,3 +74,11 @@ export type {
   TemplateRecord,
   TemplateUpdate
 }
+
+export type {
+  TemplateTagifyAnalyzeInput,
+  TemplateTagifyAnalyzeResult,
+  TemplateTagifyApplyInput,
+  TemplateTagifyApplyResult,
+  TemplateTagifyProposal
+} from '@shared/domain/template'

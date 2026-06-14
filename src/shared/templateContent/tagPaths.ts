@@ -86,7 +86,7 @@ const FIELD_ALIASES: Record<string, Record<string, string>> = {
     mission: 'scopeDescription',
     perimetre: 'scopeDescription',
     typeFacturation: 'billingType',
-    sourcePrestation: 'sourceServicePresetId',
+    sourcePrestation: 'sourceServicePresetUuid',
     forfait: 'flatFeeHt',
     forfaitTtc: 'flatFeeTtc',
     tauxHoraire: 'hourlyRateHt',

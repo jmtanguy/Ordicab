@@ -19,7 +19,7 @@ const dialogOverlayVariants = cva(
 )
 
 const dialogPanelVariants = cva(
-  'flex flex-col border border-[#d1cfc6] bg-[#f4f3ee] shadow-[0_30px_80px_rgba(10,92,104,0.28)] ring-1 ring-aurora/15',
+  'flex flex-col border border-hairline-strong bg-parchment shadow-[0_30px_80px_rgba(10,92,104,0.28)] ring-1 ring-aurora/15',
   {
     variants: {
       layout: {

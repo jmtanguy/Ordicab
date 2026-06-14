@@ -23,7 +23,7 @@
  * pattern.
  */
 
-export type TransformersTask = 'token-classification' | 'feature-extraction'
+type TransformersTask = 'token-classification' | 'feature-extraction'
 
 export interface ModelConfig {
   /** HuggingFace model id (e.g. "Xenova/bert-base-multilingual-cased-ner-hrl"). */
@@ -46,6 +46,7 @@ type TransformersModule = {
   env: {
     localModelPath?: string
     allowRemoteModels?: boolean
+    useFSCache?: boolean
   }
 }
 
@@ -110,6 +111,12 @@ export async function getPipeline(config: ModelConfig): Promise<PipelineFn | nul
     if (!mod) return null
 
     try {
+      // Sovereignty/offline guarantee: this is a confidential legal app whose
+      // models are provisioned locally. Never let transformers.js reach out to
+      // the HuggingFace Hub, even for a config without an explicit modelPath
+      // (its default is `allowRemoteModels = true`, which would silently fetch).
+      mod.env.allowRemoteModels = false
+
       if (config.modelPath) {
         // First bundled-model consumer claims ownership of the global env.
         // Subsequent consumers with a different modelPath are ignored — the
@@ -117,7 +124,7 @@ export async function getPipeline(config: ModelConfig): Promise<PipelineFn | nul
         // one localModelPath at once.
         if (!claimedLocalModelPath) {
           mod.env.localModelPath = config.modelPath
-          mod.env.allowRemoteModels = false
+          mod.env.useFSCache = false
           claimedLocalModelPath = config.modelPath
         } else if (claimedLocalModelPath !== config.modelPath) {
           console.warn(
@@ -132,7 +139,10 @@ export async function getPipeline(config: ModelConfig): Promise<PipelineFn | nul
       // `scripts/prepare-models.mjs` downloads for bundled models and keeps
       // memory/CPU cost in check for the fp32 fallback.
       const dtype = config.quantized === false ? 'fp32' : 'q8'
-      return await mod.pipeline(config.task, config.model, { dtype })
+      return await mod.pipeline(config.task, config.model, {
+        dtype,
+        ...(config.modelPath ? { local_files_only: true } : {})
+      })
     } catch (err) {
       console.warn(
         `[model-registry] failed to load ${config.task}:${config.model} — falling back to no-op.`,

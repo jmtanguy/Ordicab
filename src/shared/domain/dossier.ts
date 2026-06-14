@@ -1,10 +1,11 @@
 import type { StoredDocumentMetadata } from './document'
 import type { DossierBillingItem, DossierFeeAgreement } from './billing'
 import type { DossierNote } from './dossierNote'
+import type { PieceRecord } from './piece'
 
-export const DOSSIER_STATUS_VALUES = ['active', 'pending', 'completed', 'archived'] as const
+type DossierStatusTuple = ['active', 'pending', 'completed', 'archived']
 
-export type DossierStatus = (typeof DOSSIER_STATUS_VALUES)[number]
+export type DossierStatus = DossierStatusTuple[number]
 
 /** Statut de l'aide juridictionnelle (AJ) sur le dossier. */
 export const LEGAL_AID_STATUS_VALUES = ['none', 'requested', 'granted', 'rejected'] as const
@@ -57,7 +58,7 @@ export const KEY_DATE_TAG_VALUES = [
 export type KeyDateTag = (typeof KEY_DATE_TAG_VALUES)[number]
 
 export interface KeyDate {
-  id: string
+  uuid: string
   dossierId: string
   label: string
   date: string
@@ -69,7 +70,7 @@ export interface KeyDate {
 }
 
 export interface DossierKeyDateUpsertInput {
-  id?: string
+  uuid?: string
   dossierId: string
   label: string
   date: string
@@ -82,11 +83,57 @@ export interface DossierKeyDateUpsertInput {
 
 export interface DossierKeyDateDeleteInput {
   dossierId: string
-  keyDateId: string
+  keyDateUuid: string
+}
+
+/**
+ * Déplace un événement d'un rattachement à un autre. `null` = « hors dossier »
+ * (événement général). Porte aussi les champs édités : un déplacement peut
+ * accompagner une modification du libellé, de la date, etc. L'`uuid` est
+ * conservé de bout en bout.
+ */
+export interface KeyDateMoveInput {
+  keyDateUuid: string
+  fromDossierId: string | null
+  toDossierId: string | null
+  label: string
+  date: string
+  time?: string
+  duration?: number
+  tags?: KeyDateTag[]
+  isClosed?: boolean
+  note?: string
+}
+
+/** Événement « hors dossier » : même forme qu'un {@link KeyDate} sans rattachement à un dossier. */
+export interface GeneralKeyDate {
+  uuid: string
+  label: string
+  date: string
+  time?: string
+  duration?: number
+  tags?: KeyDateTag[]
+  isClosed?: boolean
+  note?: string
+}
+
+export interface GeneralKeyDateUpsertInput {
+  uuid?: string
+  label: string
+  date: string
+  time?: string
+  duration?: number
+  tags?: KeyDateTag[]
+  isClosed?: boolean
+  note?: string
+}
+
+export interface GeneralKeyDateDeleteInput {
+  keyDateUuid: string
 }
 
 export interface KeyReference {
-  id: string
+  uuid: string
   dossierId: string
   label: string
   value: string
@@ -98,6 +145,20 @@ export interface KeyReference {
  * Editing this entry via the references UI updates `metadata.name`.
  */
 export const DOSSIER_NAME_REFERENCE_LABEL = 'Nom du dossier'
+export const DOSSIER_STATUS_REFERENCE_LABEL = 'Statut'
+export const DOSSIER_TYPE_REFERENCE_LABEL = 'Type'
+export const DOSSIER_JURIDICTION_REFERENCE_LABEL = 'Juridiction'
+export const DOSSIER_TRIBUNAL_REFERENCE_LABEL = 'Tribunal'
+export const DOSSIER_INFORMATION_REFERENCE_LABEL = 'Informations'
+
+export const DOSSIER_REQUIRED_REFERENCE_LABELS = [
+  DOSSIER_NAME_REFERENCE_LABEL,
+  DOSSIER_STATUS_REFERENCE_LABEL,
+  DOSSIER_TYPE_REFERENCE_LABEL,
+  DOSSIER_JURIDICTION_REFERENCE_LABEL,
+  DOSSIER_TRIBUNAL_REFERENCE_LABEL,
+  DOSSIER_INFORMATION_REFERENCE_LABEL
+] as const
 
 /**
  * Case-insensitive match used by services and UI to detect the reserved name entry.
@@ -109,8 +170,15 @@ export function isDossierNameReferenceLabel(label: string): boolean {
   )
 }
 
+export function isDossierRequiredReferenceLabel(label: string): boolean {
+  const normalized = label.trim().toLocaleLowerCase('fr-FR')
+  return DOSSIER_REQUIRED_REFERENCE_LABELS.some(
+    (entry) => entry.toLocaleLowerCase('fr-FR') === normalized
+  )
+}
+
 export interface DossierKeyReferenceUpsertInput {
-  id?: string
+  uuid?: string
   dossierId: string
   label: string
   value: string
@@ -119,11 +187,11 @@ export interface DossierKeyReferenceUpsertInput {
 
 export interface DossierKeyReferenceDeleteInput {
   dossierId: string
-  keyReferenceId: string
+  keyReferenceUuid: string
 }
 
 export interface DossierRegistrationInput {
-  id: string
+  slug: string
 }
 
 export interface DossierCreateInput {
@@ -131,11 +199,11 @@ export interface DossierCreateInput {
 }
 
 export interface DossierUnregisterInput {
-  id: string
+  slug: string
 }
 
 export interface DossierEligibleFolder {
-  id: string
+  slug: string
   name: string
   path: string
 }
@@ -144,109 +212,8 @@ export interface DossierScopedQuery {
   dossierId: string
 }
 
-export type DossierAiDirectoryLanguage = 'fr' | 'en'
-
-export interface DossierAiLocalePaths {
-  aiRootName: string
-  templatesName: string
-  productionName: string
-  confidentialName: string
-}
-
-export interface DossierAiExportDocumentEntry {
-  documentId: string
-  sourceRelativePath: string
-  filename: string
-  exportedTextPath: string
-  modifiedAt: string
-  description?: string
-  tags: string[]
-}
-
-export interface DossierAiExportAnalyzeResult {
-  dossierId: string
-  dossierName: string
-  locale: DossierAiDirectoryLanguage
-  paths: DossierAiLocalePaths
-  totalDocumentCount: number
-  extractableDocumentCount: number
-  extractedDocumentCount: number
-  missingExtractionCount: number
-  missingExtractionDocuments: Array<{
-    documentId: string
-    filename: string
-    relativePath: string
-  }>
-  canExport: boolean
-}
-
-export interface DossierAiExportInput {
-  dossierId: string
-  rootPath: string
-  anonymize: boolean
-}
-
-export interface DossierAiExportResult {
-  dossierId: string
-  rootPath: string
-  aiPath: string
-  confidentialPath: string | null
-  locale: DossierAiDirectoryLanguage
-  exportedDocumentCount: number
-  exportedTemplateCount: number
-  anonymized: boolean
-}
-
-export interface DossierAiImportAnalyzeInput {
-  dossierId: string
-  sourcePath: string
-}
-
-export interface DossierAiImportSourceFile {
-  relativePath: string
-  absolutePath: string
-}
-
-export interface DossierAiImportAnalyzeResult {
-  dossierId: string
-  locale: DossierAiDirectoryLanguage
-  paths: DossierAiLocalePaths
-  sourcePath: string
-  resolvedAiPath: string | null
-  resolvedProductionPath: string
-  resolvedConfidentialPath: string | null
-  hasPiiMapping: boolean
-  fileCount: number
-  files: DossierAiImportSourceFile[]
-}
-
-export interface ImportedProductionFileReport {
-  sourceRelativePath: string
-  savedRelativePath: string
-  restoredPii: boolean
-  extractedText: boolean
-  indexed: boolean
-  status: 'imported' | 'skipped' | 'failed'
-  message: string | null
-}
-
-export interface DossierAiImportInput {
-  dossierId: string
-  sourcePath: string
-  selectedRelativePaths?: string[]
-}
-
-export interface DossierAiImportResult {
-  dossierId: string
-  resolvedProductionPath: string
-  importedCount: number
-  skippedCount: number
-  failedCount: number
-  files: ImportedProductionFileReport[]
-}
-
 export interface DossierUpdateInput {
-  id: string
+  slug: string
   status: DossierStatus
   type: string
   information?: string
@@ -267,18 +234,18 @@ export interface DossierSetupLegalAidInput {
 }
 
 export interface DossierSetupLegalAidResult {
-  feeAgreementId: string
-  billingItemIds: string[]
-  invoiceIds: string[]
+  feeAgreementUuid: string
+  billingItemUuids: string[]
+  invoiceUuids: string[]
   invoiceNumbers: string[]
   documentUuids: string[]
-  keyDateIds: string[]
+  keyDateUuids: string[]
   warnings: string[]
 }
 
 export interface DossierSummary {
-  id: string
-  uuid?: string
+  slug: string
+  uuid: string
   name: string
   type: string
   status: DossierStatus
@@ -305,4 +272,5 @@ export interface DossierDetail extends DossierSummary {
 
 export interface DossierMetadataFile extends DossierDetail {
   documents: StoredDocumentMetadata[]
+  pieces: PieceRecord[]
 }

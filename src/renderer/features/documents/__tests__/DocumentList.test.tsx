@@ -4,12 +4,14 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { DocumentPreview, DocumentRecord } from '@shared/types'
 import { createRendererI18n } from '@renderer/i18n'
+import { ToastProvider } from '@renderer/contexts/ToastContext'
 
 import { DocumentList } from '../DocumentList'
 
 function createDocument(index: number, overrides: Partial<DocumentRecord> = {}): DocumentRecord {
   return {
-    id: `folder/file-${index}.pdf`,
+    path: `folder/file-${index}.pdf`,
+    uuid: `uuid-file-${index}`,
     dossierId: 'dos-1',
     filename: `file-${index}.pdf`,
     byteLength: 1024 + index,
@@ -28,7 +30,7 @@ describe('DocumentList', () => {
     const unsupportedPreview: DocumentPreview = {
       kind: 'unsupported',
       sourceType: 'doc',
-      documentId: 'legacy.doc',
+      documentPath: 'legacy.doc',
       filename: 'legacy.doc',
       mimeType: 'application/msword',
       byteLength: 42,
@@ -38,30 +40,32 @@ describe('DocumentList', () => {
 
     const markup = renderToStaticMarkup(
       <I18nextProvider i18n={i18n}>
-        <DocumentList
-          dossierId="dos-1"
-          documents={[
-            createDocument(0, {
-              id: 'legacy.doc',
-              filename: 'legacy.doc',
-              relativePath: 'legacy.doc'
-            })
-          ]}
-          isLoading={false}
-          isSavingMetadata={false}
-          onSaveMetadata={vi.fn(async () => true)}
-          watchStatus={null}
-          activePreviewDocumentId="legacy.doc"
-          previewState={{
-            status: 'ready',
-            preview: unsupportedPreview,
-            error: null
-          }}
-          contentState={{ status: 'idle', content: null, error: null, progress: null }}
-          onOpenPreview={vi.fn(async () => undefined)}
-          onOpenFile={vi.fn()}
-          onExtractContent={vi.fn(async () => true)}
-        />
+        <ToastProvider>
+          <DocumentList
+            dossierId="dos-1"
+            documents={[
+              createDocument(0, {
+                path: 'legacy.doc',
+                filename: 'legacy.doc',
+                relativePath: 'legacy.doc'
+              })
+            ]}
+            isLoading={false}
+            isSavingMetadata={false}
+            onSaveMetadata={vi.fn(async () => true)}
+            watchStatus={null}
+            activePreviewDocumentId="legacy.doc"
+            previewState={{
+              status: 'ready',
+              preview: unsupportedPreview,
+              error: null
+            }}
+            contentState={{ status: 'idle', content: null, error: null, progress: null }}
+            onOpenPreview={vi.fn(async () => undefined)}
+            onOpenFile={vi.fn()}
+            onExtractContent={vi.fn(async () => true)}
+          />
+        </ToastProvider>
       </I18nextProvider>
     )
 
@@ -75,7 +79,7 @@ describe('DocumentList', () => {
     const emailPreview: DocumentPreview = {
       kind: 'email',
       sourceType: 'eml',
-      documentId: 'message.eml',
+      documentPath: 'message.eml',
       filename: 'message.eml',
       mimeType: 'message/rfc822',
       byteLength: 42,
@@ -84,36 +88,38 @@ describe('DocumentList', () => {
       to: 'receiver@example.com',
       cc: null,
       date: '2026-03-14T12:00:00.000Z',
-      attachments: ['brief.pdf'],
+      attachments: [{ index: 0, filename: 'brief.pdf', byteLength: 1024 }],
       text: 'Email body'
     }
 
     const markup = renderToStaticMarkup(
       <I18nextProvider i18n={i18n}>
-        <DocumentList
-          dossierId="dos-1"
-          documents={[
-            createDocument(0, {
-              id: 'message.eml',
-              filename: 'message.eml',
-              relativePath: 'message.eml'
-            })
-          ]}
-          isLoading={false}
-          isSavingMetadata={false}
-          onSaveMetadata={vi.fn(async () => true)}
-          watchStatus={null}
-          activePreviewDocumentId="message.eml"
-          previewState={{
-            status: 'ready',
-            preview: emailPreview,
-            error: null
-          }}
-          contentState={{ status: 'idle', content: null, error: null, progress: null }}
-          onOpenPreview={vi.fn(async () => undefined)}
-          onOpenFile={vi.fn()}
-          onExtractContent={vi.fn(async () => true)}
-        />
+        <ToastProvider>
+          <DocumentList
+            dossierId="dos-1"
+            documents={[
+              createDocument(0, {
+                path: 'message.eml',
+                filename: 'message.eml',
+                relativePath: 'message.eml'
+              })
+            ]}
+            isLoading={false}
+            isSavingMetadata={false}
+            onSaveMetadata={vi.fn(async () => true)}
+            watchStatus={null}
+            activePreviewDocumentId="message.eml"
+            previewState={{
+              status: 'ready',
+              preview: emailPreview,
+              error: null
+            }}
+            contentState={{ status: 'idle', content: null, error: null, progress: null }}
+            onOpenPreview={vi.fn(async () => undefined)}
+            onOpenFile={vi.fn()}
+            onExtractContent={vi.fn(async () => true)}
+          />
+        </ToastProvider>
       </I18nextProvider>
     )
 
@@ -127,27 +133,29 @@ describe('DocumentList', () => {
     const i18n = await createRendererI18n('en')
     const markup = renderToStaticMarkup(
       <I18nextProvider i18n={i18n}>
-        <DocumentList
-          dossierId="dos-1"
-          documents={[
-            createDocument(0, {
-              id: 'autotagged.pdf',
-              filename: 'autotagged.pdf',
-              relativePath: 'autotagged.pdf',
-              tags: ['urgent', 'contrat']
-            })
-          ]}
-          isLoading={false}
-          isSavingMetadata={false}
-          onSaveMetadata={vi.fn(async () => true)}
-          watchStatus={null}
-          activePreviewDocumentId={null}
-          previewState={{ status: 'idle', preview: null, error: null }}
-          contentState={{ status: 'idle', content: null, error: null, progress: null }}
-          onOpenPreview={vi.fn(async () => undefined)}
-          onOpenFile={vi.fn()}
-          onExtractContent={vi.fn(async () => true)}
-        />
+        <ToastProvider>
+          <DocumentList
+            dossierId="dos-1"
+            documents={[
+              createDocument(0, {
+                path: 'autotagged.pdf',
+                filename: 'autotagged.pdf',
+                relativePath: 'autotagged.pdf',
+                tags: ['urgent', 'contrat']
+              })
+            ]}
+            isLoading={false}
+            isSavingMetadata={false}
+            onSaveMetadata={vi.fn(async () => true)}
+            watchStatus={null}
+            activePreviewDocumentId={null}
+            previewState={{ status: 'idle', preview: null, error: null }}
+            contentState={{ status: 'idle', content: null, error: null, progress: null }}
+            onOpenPreview={vi.fn(async () => undefined)}
+            onOpenFile={vi.fn()}
+            onExtractContent={vi.fn(async () => true)}
+          />
+        </ToastProvider>
       </I18nextProvider>
     )
 

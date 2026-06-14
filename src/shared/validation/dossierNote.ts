@@ -19,7 +19,7 @@ const sourceSchema = z.enum(NOTE_SOURCE_VALUES)
 const tagsArray = z.array(z.string().min(1)).optional()
 
 export const dossierNoteSchema = z.object({
-  id: z.string().min(1),
+  uuid: z.string().min(1),
   dossierId: dossierIdSchema,
   title: z.string().min(1),
   content: z.string().default(''),
@@ -33,7 +33,7 @@ export const dossierNoteSchema = z.object({
 })
 
 export const dossierNoteUpsertInputSchema = z.object({
-  id: z.string().min(1).optional(),
+  uuid: z.string().min(1).optional(),
   dossierId: dossierIdSchema,
   title: z.string().min(1),
   content: z.string().default(''),
@@ -46,28 +46,7 @@ export const dossierNoteUpsertInputSchema = z.object({
 
 export const dossierNoteDeleteInputSchema = z.object({
   dossierId: dossierIdSchema,
-  noteId: z.string().min(1)
+  noteUuid: z.string().min(1)
 })
-
-export const dossierNoteIndexEntrySchema = z.object({
-  id: z.string().min(1),
-  dossierId: dossierIdSchema,
-  title: z.string().min(1),
-  kind: kindSchema,
-  status: statusSchema.optional(),
-  tags: tagsArray,
-  pinned: z.boolean().optional(),
-  source: sourceSchema.optional(),
-  updatedAt: z.string().min(1)
-})
-
-export const dossierNoteIndexSchema = z.object({
-  notes: z.array(dossierNoteIndexEntrySchema).default([]),
-  updatedAt: z.string().min(1),
-  migrated: z.boolean().optional()
-})
-
-export type DossierNoteIndexEntry = z.infer<typeof dossierNoteIndexEntrySchema>
-export type DossierNoteIndex = z.infer<typeof dossierNoteIndexSchema>
 
 export type { DossierNote, DossierNoteDeleteInput, DossierNoteUpsertInput }

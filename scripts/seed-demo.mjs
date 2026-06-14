@@ -67,6 +67,12 @@ async function writeDocx(filePath, { title, bodyHtml }) {
   console.log(`  ✓ ${filePath.replace(ROOT, '.')}`)
 }
 
+function writeDossierNotes(dossierId, notes) {
+  for (const note of notes) {
+    writeJson(join(ROOT, dossierId, '.ordicab', 'notes', `${note.uuid}.json`), note)
+  }
+}
+
 /** En-tête commun (papier à en-tête du cabinet) pour les documents de démo. */
 function letterhead() {
   return `
@@ -95,96 +101,110 @@ const C6_UUID = randomUUID() // Sécuritas Assurances
 const C7_UUID = randomUUID() // Nadia Lemoine (cliente AJ)
 const C8_UUID = randomUUID() // Transports Veyrat SAS (employeur adverse)
 
+// Prestations du catalogue cabinet
+const SVC1_UUID = randomUUID() // Honoraires au temps passé
+const SVC2_UUID = randomUUID() // Forfait divorce
+
 // Conventions d'honoraires
-const FA1_ID = randomUUID()
-const FA2_ID = randomUUID()
-const FA3_ID = randomUUID()
-const FA4_ID = randomUUID() // Convention AJ partielle
+const FA1_UUID = randomUUID()
+const FA2_UUID = randomUUID()
+const FA3_UUID = randomUUID()
+const FA4_UUID = randomUUID() // Convention AJ partielle
 
 // Prestations (billing items)
-const BI1A_ID = randomUUID()
-const BI1B_ID = randomUUID()
-const BI1C_ID = randomUUID()
-const BI1D_ID = randomUUID()
-const BI1E_ID = randomUUID()
-const BI1F_ID = randomUUID()
-const BI1G_ID = randomUUID()
+const BI1A_UUID = randomUUID()
+const BI1B_UUID = randomUUID()
+const BI1C_UUID = randomUUID()
+const BI1D_UUID = randomUUID()
+const BI1E_UUID = randomUUID()
+const BI1F_UUID = randomUUID()
+const BI1G_UUID = randomUUID()
 
-const BI2A_ID = randomUUID()
-const BI2B_ID = randomUUID()
-const BI2C_ID = randomUUID()
-const BI2D_ID = randomUUID()
-const BI2E_ID = randomUUID()
-const BI2F_ID = randomUUID()
+const BI2A_UUID = randomUUID()
+const BI2B_UUID = randomUUID()
+const BI2C_UUID = randomUUID()
+const BI2D_UUID = randomUUID()
+const BI2E_UUID = randomUUID()
+const BI2F_UUID = randomUUID()
 
-const BI3A_ID = randomUUID()
-const BI3B_ID = randomUUID()
-const BI3C_ID = randomUUID()
-const BI3D_ID = randomUUID()
-const BI3E_ID = randomUUID()
+const BI3A_UUID = randomUUID()
+const BI3B_UUID = randomUUID()
+const BI3C_UUID = randomUUID()
+const BI3D_UUID = randomUUID()
+const BI3E_UUID = randomUUID()
 
 // Dossier 4 — AJ partielle : rétribution État + complément client
-const BI4_STATE_ID = randomUUID() // Rétribution AJ - État (exonérée TVA)
-const BI4_COMPL_ID = randomUUID() // Complément d'honoraires - AJ partielle (avec TVA)
+const BI4_STATE_UUID = randomUUID() // Rétribution AJ - État (exonérée TVA)
+const BI4_COMPL_UUID = randomUUID() // Complément d'honoraires - AJ partielle (avec TVA)
 
 // Factures
-const INV1_ID = randomUUID()
-const INV2_ID = randomUUID()
-const INV3_ID = randomUUID()
-const INV4_ID = randomUUID()
-const INV5_ID = randomUUID() // FAC AJ — rétribution État (CARPA)
-const INV6_ID = randomUUID() // FAC AJ — complément client
+const INV1_UUID = randomUUID()
+const INV2_UUID = randomUUID()
+const INV3_UUID = randomUUID()
+const INV4_UUID = randomUUID()
+const INV5_UUID = randomUUID() // FAC AJ — rétribution État (CARPA)
+const INV6_UUID = randomUUID() // FAC AJ — complément client
 
 // Paiements
-const PAY1_ID = randomUUID()
-const PAY3_ID = randomUUID()
-const PAY4_ID = randomUUID()
-const PAY5_ID = randomUUID() // Paiement rétribution État (CARPA)
+const PAY1_UUID = randomUUID()
+const PAY3_UUID = randomUUID()
+const PAY4_UUID = randomUUID()
+const PAY5_UUID = randomUUID() // Paiement rétribution État (CARPA)
 
 // Dates clés
-const KD1A_ID = randomUUID()
-const KD1B_ID = randomUUID()
-const KD1C_ID = randomUUID()
-const KD1D_ID = randomUUID()
-const KD1E_ID = randomUUID()
-const KD1F_ID = randomUUID()
+const KD1A_UUID = randomUUID()
+const KD1B_UUID = randomUUID()
+const KD1C_UUID = randomUUID()
+const KD1D_UUID = randomUUID()
+const KD1E_UUID = randomUUID()
+const KD1F_UUID = randomUUID()
 
-const KD2A_ID = randomUUID()
-const KD2B_ID = randomUUID()
-const KD2C_ID = randomUUID()
-const KD2D_ID = randomUUID()
-const KD2E_ID = randomUUID()
+const KD2A_UUID = randomUUID()
+const KD2B_UUID = randomUUID()
+const KD2C_UUID = randomUUID()
+const KD2D_UUID = randomUUID()
+const KD2E_UUID = randomUUID()
 
-const KD3A_ID = randomUUID()
-const KD3B_ID = randomUUID()
-const KD3C_ID = randomUUID()
-const KD3D_ID = randomUUID()
-const KD3E_ID = randomUUID()
+const KD3A_UUID = randomUUID()
+const KD3B_UUID = randomUUID()
+const KD3C_UUID = randomUUID()
+const KD3D_UUID = randomUUID()
+const KD3E_UUID = randomUUID()
 
-const KD4A_ID = randomUUID()
-const KD4B_ID = randomUUID()
-const KD4C_ID = randomUUID()
-const KD4D_ID = randomUUID()
-const KD4E_ID = randomUUID()
+const KD4A_UUID = randomUUID()
+const KD4B_UUID = randomUUID()
+const KD4C_UUID = randomUUID()
+const KD4D_UUID = randomUUID()
+const KD4E_UUID = randomUUID()
 
 // Références clés
-const KR1_ID = randomUUID()
-const KR2_ID = randomUUID()
-const KR3_ID = randomUUID()
-const KR4_ID = randomUUID()
-const KR5_ID = randomUUID()
-const KR6_ID = randomUUID()
-const KR7_ID = randomUUID()
-const KR8_ID = randomUUID()
-const KR9_ID = randomUUID()
-const KR10_ID = randomUUID()
-const KR11_ID = randomUUID()
-const KR12_ID = randomUUID()
+const KR1_UUID = randomUUID()
+const KR2_UUID = randomUUID()
+const KR3_UUID = randomUUID()
+const KR4_UUID = randomUUID()
+const KR5_UUID = randomUUID()
+const KR6_UUID = randomUUID()
+const KR7_UUID = randomUUID()
+const KR8_UUID = randomUUID()
+const KR9_UUID = randomUUID()
+const KR10_UUID = randomUUID()
+const KR11_UUID = randomUUID()
+const KR12_UUID = randomUUID()
+
+// Notes de dossier
+const NOTE1A_UUID = randomUUID()
+const NOTE1B_UUID = randomUUID()
+const NOTE2A_UUID = randomUUID()
+const NOTE2B_UUID = randomUUID()
+const NOTE3A_UUID = randomUUID()
+const NOTE3B_UUID = randomUUID()
+const NOTE4A_UUID = randomUUID()
+const NOTE4B_UUID = randomUUID()
 
 // ─── Helper: calcul d'une prestation ─────────────────────────────────────────
 
 function makeBillingItem({
-  id,
+  uuid,
   dossierId,
   date,
   label,
@@ -194,15 +214,15 @@ function makeBillingItem({
   unitPriceHtCents,
   vatRateBasisPoints,
   status,
-  sourceFeeAgreementId,
-  invoiceId,
+  sourceFeeAgreementUuid,
+  invoiceUuid,
   invoiceNumber
 }) {
   const subtotalHtCents = Math.round(quantity * unitPriceHtCents)
   const totalHtCents = subtotalHtCents
   const totalTtcCents = Math.round(totalHtCents * (1 + vatRateBasisPoints / 10000))
   return {
-    id,
+    uuid,
     dossierId,
     date,
     label,
@@ -216,8 +236,8 @@ function makeBillingItem({
     vatRateBasisPoints,
     totalTtcCents,
     status,
-    ...(sourceFeeAgreementId ? { sourceFeeAgreementId } : {}),
-    ...(invoiceId ? { invoiceId, invoiceNumber } : {}),
+    ...(sourceFeeAgreementUuid ? { sourceFeeAgreementUuid } : {}),
+    ...(invoiceUuid ? { invoiceUuid, invoiceNumber } : {}),
     createdAt: date + 'T09:00:00.000Z',
     updatedAt: date + 'T09:00:00.000Z'
   }
@@ -225,7 +245,7 @@ function makeBillingItem({
 
 function makeInvoiceLineFromBillingItem(item) {
   return {
-    billingItemId: item.id,
+    billingItemUuid: item.uuid,
     date: item.date,
     label: item.label,
     ...(item.description ? { description: item.description } : {}),
@@ -283,6 +303,34 @@ function applyInvoiceAmounts(lines) {
   }
 }
 
+function makeDossierNote({
+  uuid,
+  dossierId,
+  title,
+  content,
+  kind = 'note',
+  status,
+  tags,
+  pinned,
+  source = 'user',
+  createdAt,
+  updatedAt
+}) {
+  return {
+    uuid,
+    dossierId,
+    title,
+    content,
+    kind,
+    ...(status ? { status } : {}),
+    ...(tags?.length ? { tags } : {}),
+    ...(pinned !== undefined ? { pinned } : {}),
+    source,
+    createdAt,
+    updatedAt: updatedAt ?? createdAt
+  }
+}
+
 // ─── Données du domaine ───────────────────────────────────────────────────────
 
 const domainData = {
@@ -293,25 +341,25 @@ const domainData = {
 const registryData = {
   dossiers: [
     {
-      id: 'Dupont-c-Moreau-SARL',
+      slug: 'Dupont-c-Moreau-SARL',
       uuid: D1_UUID,
       name: 'Dupont c/ Moreau SARL',
       registeredAt: '2026-01-20T10:00:00.000Z'
     },
     {
-      id: 'Renard-Divorce',
+      slug: 'Renard-Divorce',
       uuid: D2_UUID,
       name: 'Renard - Procédure de divorce',
       registeredAt: '2026-02-01T14:00:00.000Z'
     },
     {
-      id: 'Fontaine-Accident',
+      slug: 'Fontaine-Accident',
       uuid: D3_UUID,
       name: 'Fontaine - Accident de la route',
       registeredAt: '2026-03-10T11:00:00.000Z'
     },
     {
-      id: 'Lemoine-Prudhommes-AJ',
+      slug: 'Lemoine-Prudhommes-AJ',
       uuid: D4_UUID,
       name: 'Lemoine c/ Transports Veyrat — Prud’hommes (aide juridictionnelle)',
       registeredAt: '2026-04-02T09:30:00.000Z'
@@ -330,9 +378,14 @@ const entityData = {
   country: 'France',
   vatNumber: 'FR42501234567',
   siren: '501 234 567',
-  legalForm: 'Avocat individuel',
+  legalForm: 'SELARL',
+  shareCapital: '10 000 €',
+  rcsNumber: '501 234 567',
+  rcsCity: 'Lyon',
+  siret: '501 234 567 00012',
   iban: 'FR76 3000 6000 0112 3456 7890 189',
   bic: 'AGRIFRPP',
+  carpaIban: 'FR76 4255 9000 0612 3456 7890 121',
   phone: '+33 4 72 00 10 10',
   email: 'contact@cabinet-delacroix.fr',
   barreau: 'Lyon',
@@ -342,9 +395,10 @@ const entityData = {
 const cabinetBillingData = {
   services: [
     {
-      id: 'svc-horaire-standard',
+      uuid: SVC1_UUID,
       name: 'Honoraires au temps passé',
       description: "Facturation à l'heure pour toutes missions de conseil et contentieux",
+      usage: 'feeAgreement',
       billingType: 'hourly',
       hourlyRateHtCents: 25000,
       vatRateBasisPoints: 2000,
@@ -352,8 +406,9 @@ const cabinetBillingData = {
       updatedAt: '2026-01-10T09:00:00.000Z'
     },
     {
-      id: 'svc-forfait-divorce',
+      uuid: SVC2_UUID,
       name: 'Forfait divorce par consentement mutuel',
+      usage: 'feeAgreement',
       billingType: 'flat',
       flatFeeHtCents: 180000,
       vatRateBasisPoints: 2000,
@@ -361,6 +416,7 @@ const cabinetBillingData = {
       updatedAt: '2026-01-10T09:00:00.000Z'
     }
   ],
+  defaultServiceUuid: SVC1_UUID,
   invoiceSettings: {
     numberPattern: 'FAC-{YYYY}-{SEQ}',
     sequencePadding: 4,
@@ -376,17 +432,88 @@ const cabinetBillingData = {
     stateRetributionNumberPattern: 'RET-{YYYY}-{SEQ}',
     stateRetributionNextSequence: 2,
     stateRetributionCurrentSequenceYear: 2026,
-    issuerName: 'Cabinet Delacroix — Me Sophie Delacroix',
-    issuerAddress: '12, rue de la République — 69001 Lyon',
-    issuerSiret: '501 234 567 00012',
-    issuerVatNumber: 'FR42501234567',
-    issuerIban: 'FR76 3000 6000 0112 3456 7890 189',
     legalFooter:
       'Cabinet Delacroix — SIREN 501 234 567 — TVA FR42501234567 — Barreau de Lyon, toque L-0847',
-    defaultPaymentTerms: 'Paiement à 30 jours à compter de la date de facturation.'
+    defaultPaymentTerms: 'Paiement à 30 jours à compter de la date de facturation.',
+    defaultDueDays: 30
   },
   updatedAt: '2026-01-10T09:00:00.000Z'
 }
+
+// ─── Échéances générales (hors dossier) ──────────────────────────────────────
+// Vie du cabinet : obligations fiscales et ordinales, formation, permanences.
+
+const generalKeyDates = [
+  {
+    uuid: randomUUID(),
+    label: 'Maintenance du logiciel du cabinet',
+    date: '2026-05-15',
+    isClosed: true,
+    note: 'Mise à jour effectuée par le prestataire — RAS.'
+  },
+  {
+    uuid: randomUUID(),
+    label: 'CARPA — point trimestriel des maniements de fonds',
+    date: '2026-06-16',
+    time: '10:00',
+    duration: 60,
+    isClosed: false
+  },
+  {
+    uuid: randomUUID(),
+    label: 'Permanence aide juridictionnelle (Ordre des avocats)',
+    date: '2026-06-19',
+    time: '08:30',
+    duration: 240,
+    isClosed: false
+  },
+  {
+    uuid: randomUUID(),
+    label: 'Formation continue — secret professionnel et RGPD',
+    date: '2026-06-26',
+    time: '09:00',
+    duration: 420,
+    isClosed: false,
+    note: '7 heures validées au titre de la formation continue obligatoire.'
+  },
+  {
+    uuid: randomUUID(),
+    label: 'Cotisation ordinale — échéance de paiement',
+    date: '2026-06-30',
+    tags: ['to_do'],
+    isClosed: false
+  },
+  {
+    uuid: randomUUID(),
+    label: "Assemblée générale de l'Ordre",
+    date: '2026-07-03',
+    time: '18:00',
+    duration: 120,
+    isClosed: false
+  },
+  {
+    uuid: randomUUID(),
+    label: 'Déclaration TVA — 2e trimestre 2026',
+    date: '2026-07-20',
+    tags: ['imperative'],
+    isClosed: false,
+    note: 'Télédéclaration CA3 + télépaiement avant le 20/07.'
+  },
+  {
+    uuid: randomUUID(),
+    label: 'Fermeture estivale du cabinet',
+    date: '2026-08-03',
+    isClosed: false,
+    note: 'Fermeture du 3 au 21 août — prévoir le suivi des délais en cours.'
+  },
+  {
+    uuid: randomUUID(),
+    label: 'Renouvellement assurance RC professionnelle',
+    date: '2026-09-30',
+    tags: ['to_confirm'],
+    isClosed: false
+  }
+]
 
 // ─── Dossier 1 : Dupont c/ Moreau SARL ───────────────────────────────────────
 
@@ -429,7 +556,7 @@ const contacts1 = [
 // FAC-0002 : BI1D (2h) + BI1E (2h) = 4h = 100 000 ct HT
 const billingItems1 = [
   makeBillingItem({
-    id: BI1A_ID,
+    uuid: BI1A_UUID,
     dossierId: D1_ID,
     date: '2026-02-03',
     label: 'Consultation initiale et analyse du dossier',
@@ -439,12 +566,12 @@ const billingItems1 = [
     unitPriceHtCents: 25000,
     vatRateBasisPoints: 2000,
     status: 'billed',
-    sourceFeeAgreementId: FA1_ID,
-    invoiceId: INV1_ID,
+    sourceFeeAgreementUuid: FA1_UUID,
+    invoiceUuid: INV1_UUID,
     invoiceNumber: 'FAC-2026-0001'
   }),
   makeBillingItem({
-    id: BI1B_ID,
+    uuid: BI1B_UUID,
     dossierId: D1_ID,
     date: '2026-02-20',
     label: "Rédaction de l'assignation",
@@ -454,12 +581,12 @@ const billingItems1 = [
     unitPriceHtCents: 25000,
     vatRateBasisPoints: 2000,
     status: 'billed',
-    sourceFeeAgreementId: FA1_ID,
-    invoiceId: INV1_ID,
+    sourceFeeAgreementUuid: FA1_UUID,
+    invoiceUuid: INV1_UUID,
     invoiceNumber: 'FAC-2026-0001'
   }),
   makeBillingItem({
-    id: BI1C_ID,
+    uuid: BI1C_UUID,
     dossierId: D1_ID,
     date: '2026-02-25',
     label: 'Signification et mise en état du dossier',
@@ -469,12 +596,12 @@ const billingItems1 = [
     unitPriceHtCents: 25000,
     vatRateBasisPoints: 2000,
     status: 'billed',
-    sourceFeeAgreementId: FA1_ID,
-    invoiceId: INV1_ID,
+    sourceFeeAgreementUuid: FA1_UUID,
+    invoiceUuid: INV1_UUID,
     invoiceNumber: 'FAC-2026-0001'
   }),
   makeBillingItem({
-    id: BI1D_ID,
+    uuid: BI1D_UUID,
     dossierId: D1_ID,
     date: '2026-03-12',
     label: 'Audience de mise en état',
@@ -484,12 +611,12 @@ const billingItems1 = [
     unitPriceHtCents: 25000,
     vatRateBasisPoints: 2000,
     status: 'billed',
-    sourceFeeAgreementId: FA1_ID,
-    invoiceId: INV2_ID,
+    sourceFeeAgreementUuid: FA1_UUID,
+    invoiceUuid: INV2_UUID,
     invoiceNumber: 'FAC-2026-0005'
   }),
   makeBillingItem({
-    id: BI1E_ID,
+    uuid: BI1E_UUID,
     dossierId: D1_ID,
     date: '2026-03-28',
     label: 'Analyse des pièces adverses',
@@ -499,12 +626,12 @@ const billingItems1 = [
     unitPriceHtCents: 25000,
     vatRateBasisPoints: 2000,
     status: 'billed',
-    sourceFeeAgreementId: FA1_ID,
-    invoiceId: INV2_ID,
+    sourceFeeAgreementUuid: FA1_UUID,
+    invoiceUuid: INV2_UUID,
     invoiceNumber: 'FAC-2026-0005'
   }),
   makeBillingItem({
-    id: BI1F_ID,
+    uuid: BI1F_UUID,
     dossierId: D1_ID,
     date: '2026-04-10',
     label: 'Rédaction des conclusions en réponse',
@@ -514,10 +641,10 @@ const billingItems1 = [
     unitPriceHtCents: 25000,
     vatRateBasisPoints: 2000,
     status: 'draft',
-    sourceFeeAgreementId: FA1_ID
+    sourceFeeAgreementUuid: FA1_UUID
   }),
   makeBillingItem({
-    id: BI1G_ID,
+    uuid: BI1G_UUID,
     dossierId: D1_ID,
     date: '2026-04-28',
     label: "Préparation de l'audience de plaidoirie",
@@ -527,13 +654,13 @@ const billingItems1 = [
     unitPriceHtCents: 25000,
     vatRateBasisPoints: 2000,
     status: 'draft',
-    sourceFeeAgreementId: FA1_ID
+    sourceFeeAgreementUuid: FA1_UUID
   })
 ]
 
 const keyDates1 = [
   {
-    id: KD1A_ID,
+    uuid: KD1A_UUID,
     dossierId: D1_ID,
     label: "Saisine et dépôt de l'assignation",
     date: '2026-02-25',
@@ -541,7 +668,7 @@ const keyDates1 = [
     note: 'Huissier mandaté : Me Bertrand, 69001 Lyon'
   },
   {
-    id: KD1B_ID,
+    uuid: KD1B_UUID,
     dossierId: D1_ID,
     label: 'Audience de mise en état',
     date: '2026-03-12',
@@ -550,7 +677,7 @@ const keyDates1 = [
     isClosed: true
   },
   {
-    id: KD1C_ID,
+    uuid: KD1C_UUID,
     dossierId: D1_ID,
     label: 'Communication des pièces adverses',
     date: '2026-03-25',
@@ -558,7 +685,7 @@ const keyDates1 = [
     note: 'Reçu 12 pièces + conclusions adverses'
   },
   {
-    id: KD1D_ID,
+    uuid: KD1D_UUID,
     dossierId: D1_ID,
     label: 'Dépôt conclusions en réponse',
     date: '2026-04-30',
@@ -567,7 +694,7 @@ const keyDates1 = [
     note: 'Délai impératif fixé par ordonnance du 12/03/2026'
   },
   {
-    id: KD1E_ID,
+    uuid: KD1E_UUID,
     dossierId: D1_ID,
     label: 'Audience de plaidoirie',
     date: '2026-06-18',
@@ -577,17 +704,81 @@ const keyDates1 = [
     isClosed: false
   },
   {
-    id: KD1F_ID,
+    uuid: KD1F_UUID,
     dossierId: D1_ID,
     label: 'Délibéré',
     date: '2026-07-10',
     tags: ['to_confirm'],
     isClosed: false
+  },
+  {
+    uuid: randomUUID(),
+    dossierId: D1_ID,
+    label: 'Relance client — pièces complémentaires',
+    date: '2026-04-18',
+    tags: ['to_do'],
+    isClosed: true,
+    note: 'Échanges de validation des livrables et relevé bancaire reçus le 24/04/2026.'
+  },
+  {
+    uuid: randomUUID(),
+    dossierId: D1_ID,
+    label: 'Audience de plaidoirie (date initiale)',
+    date: '2026-05-28',
+    time: '14:00',
+    duration: 90,
+    tags: ['postponed'],
+    isClosed: true,
+    note: 'Renvoyée au 18/06/2026 à la demande du conseil adverse.'
+  },
+  {
+    uuid: randomUUID(),
+    dossierId: D1_ID,
+    label: 'Communication des pièces nos 9 à 12',
+    date: '2026-06-10',
+    isClosed: true,
+    note: 'Bordereau complémentaire signifié par RPVA.'
+  },
+  {
+    uuid: randomUUID(),
+    dossierId: D1_ID,
+    label: 'Date limite des notes en délibéré',
+    date: '2026-06-25',
+    tags: ['imperative'],
+    isClosed: false,
+    note: 'Sur autorisation du tribunal uniquement.'
   }
 ]
 
+const notes1 = [
+  makeDossierNote({
+    uuid: NOTE1A_UUID,
+    dossierId: D1_ID,
+    title: 'Synthèse stratégie audience',
+    content:
+      'Insister sur la chronologie des livrables acceptés sans réserve. Préparer un tableau simple facture / bon de commande / livraison / règlement partiel pour neutraliser la contestation qualité.',
+    kind: 'note',
+    tags: ['strategie', 'audience', 'pieces'],
+    pinned: true,
+    createdAt: '2026-03-26T09:30:00.000Z',
+    updatedAt: '2026-04-15T16:00:00.000Z'
+  }),
+  makeDossierNote({
+    uuid: NOTE1B_UUID,
+    dossierId: D1_ID,
+    title: 'Relancer le client pour pièces complémentaires',
+    content:
+      'Demander à M. Dupont les échanges de validation des livrables d’octobre et le relevé bancaire montrant les paiements partiels de Moreau SARL.',
+    kind: 'todo',
+    status: 'open',
+    tags: ['client', 'pieces'],
+    createdAt: '2026-04-12T10:15:00.000Z',
+    updatedAt: '2026-04-12T10:15:00.000Z'
+  })
+]
+
 const dossier1 = {
-  id: D1_ID,
+  slug: D1_ID,
   uuid: D1_UUID,
   name: 'Dupont c/ Moreau SARL',
   status: 'active',
@@ -603,21 +794,21 @@ const dossier1 = {
   nextUpcomingKeyDateLabel: 'Audience de plaidoirie',
   keyReferences: [
     {
-      id: KR1_ID,
+      uuid: KR1_UUID,
       dossierId: D1_ID,
       label: 'Nom du dossier',
       value: 'Dupont c/ Moreau SARL',
       note: 'Référence interne utilisée dans les modèles.'
     },
     {
-      id: KR2_ID,
+      uuid: KR2_UUID,
       dossierId: D1_ID,
       label: 'N° RG',
       value: '2026/00123',
       note: 'Numéro confirmé par le greffe après enrôlement.'
     },
     {
-      id: KR3_ID,
+      uuid: KR3_UUID,
       dossierId: D1_ID,
       label: 'Juridiction',
       value: 'Tribunal de Commerce de Lyon',
@@ -626,7 +817,7 @@ const dossier1 = {
   ],
   feeAgreements: [
     {
-      id: FA1_ID,
+      uuid: FA1_UUID,
       createdAt: '2026-01-22T10:00:00.000Z',
       updatedAt: '2026-01-25T14:00:00.000Z',
       isActive: true,
@@ -648,7 +839,9 @@ const dossier1 = {
   ],
   billingItems: [],
   keyDates: [],
-  documents: []
+  notes: [],
+  documents: [],
+  pieces: []
 }
 
 // ─── Dossier 2 : Renard - Procédure de divorce ───────────────────────────────
@@ -692,7 +885,7 @@ const contacts2 = [
 // FAC-0003 : BI2A (1 unité 900 HT) + BI2B (2h) + BI2C (1h) = 130 000 ct HT
 const billingItems2 = [
   makeBillingItem({
-    id: BI2A_ID,
+    uuid: BI2A_UUID,
     dossierId: D2_ID,
     date: '2026-02-15',
     label: 'Rédaction et dépôt de la requête en divorce',
@@ -702,12 +895,12 @@ const billingItems2 = [
     unitPriceHtCents: 90000,
     vatRateBasisPoints: 2000,
     status: 'billed',
-    sourceFeeAgreementId: FA2_ID,
-    invoiceId: INV3_ID,
+    sourceFeeAgreementUuid: FA2_UUID,
+    invoiceUuid: INV3_UUID,
     invoiceNumber: 'FAC-2026-0002'
   }),
   makeBillingItem({
-    id: BI2B_ID,
+    uuid: BI2B_UUID,
     dossierId: D2_ID,
     date: '2026-03-05',
     label: 'Consultations et préparation des pièces',
@@ -718,12 +911,12 @@ const billingItems2 = [
     unitPriceHtCents: 20000,
     vatRateBasisPoints: 2000,
     status: 'billed',
-    sourceFeeAgreementId: FA2_ID,
-    invoiceId: INV3_ID,
+    sourceFeeAgreementUuid: FA2_UUID,
+    invoiceUuid: INV3_UUID,
     invoiceNumber: 'FAC-2026-0002'
   }),
   makeBillingItem({
-    id: BI2C_ID,
+    uuid: BI2C_UUID,
     dossierId: D2_ID,
     date: '2026-03-18',
     label: 'Échanges avec le conseil adverse',
@@ -733,12 +926,12 @@ const billingItems2 = [
     unitPriceHtCents: 20000,
     vatRateBasisPoints: 2000,
     status: 'billed',
-    sourceFeeAgreementId: FA2_ID,
-    invoiceId: INV3_ID,
+    sourceFeeAgreementUuid: FA2_UUID,
+    invoiceUuid: INV3_UUID,
     invoiceNumber: 'FAC-2026-0002'
   }),
   makeBillingItem({
-    id: BI2D_ID,
+    uuid: BI2D_UUID,
     dossierId: D2_ID,
     date: '2026-04-20',
     label: 'Rédaction des conclusions de forme',
@@ -748,10 +941,10 @@ const billingItems2 = [
     unitPriceHtCents: 20000,
     vatRateBasisPoints: 2000,
     status: 'draft',
-    sourceFeeAgreementId: FA2_ID
+    sourceFeeAgreementUuid: FA2_UUID
   }),
   makeBillingItem({
-    id: BI2E_ID,
+    uuid: BI2E_UUID,
     dossierId: D2_ID,
     date: '2026-05-12',
     label: "Préparation de l'audience de conciliation",
@@ -761,10 +954,10 @@ const billingItems2 = [
     unitPriceHtCents: 20000,
     vatRateBasisPoints: 2000,
     status: 'draft',
-    sourceFeeAgreementId: FA2_ID
+    sourceFeeAgreementUuid: FA2_UUID
   }),
   makeBillingItem({
-    id: BI2F_ID,
+    uuid: BI2F_UUID,
     dossierId: D2_ID,
     date: '2026-05-20',
     label: 'Audience JAF — tentative de conciliation',
@@ -774,13 +967,13 @@ const billingItems2 = [
     unitPriceHtCents: 20000,
     vatRateBasisPoints: 2000,
     status: 'draft',
-    sourceFeeAgreementId: FA2_ID
+    sourceFeeAgreementUuid: FA2_UUID
   })
 ]
 
 const keyDates2 = [
   {
-    id: KD2A_ID,
+    uuid: KD2A_UUID,
     dossierId: D2_ID,
     label: 'Dépôt de la requête en divorce',
     date: '2026-02-15',
@@ -788,7 +981,7 @@ const keyDates2 = [
     note: 'Déposée au greffe du TJ Lyon, reçu le 15/02/2026'
   },
   {
-    id: KD2B_ID,
+    uuid: KD2B_UUID,
     dossierId: D2_ID,
     label: 'Notification à M. Renard',
     date: '2026-02-22',
@@ -796,14 +989,14 @@ const keyDates2 = [
     note: "Signifié par voie d'huissier"
   },
   {
-    id: KD2C_ID,
+    uuid: KD2C_UUID,
     dossierId: D2_ID,
     label: 'Convocation audience JAF reçue',
     date: '2026-03-10',
     isClosed: true
   },
   {
-    id: KD2D_ID,
+    uuid: KD2D_UUID,
     dossierId: D2_ID,
     label: 'Rendez-vous avec cliente (préparation audience)',
     date: '2026-05-15',
@@ -814,7 +1007,7 @@ const keyDates2 = [
     note: 'Apporter pièces fiscales N-1 et bulletins de salaire'
   },
   {
-    id: KD2E_ID,
+    uuid: KD2E_UUID,
     dossierId: D2_ID,
     label: 'Audience JAF — tentative de conciliation',
     date: '2026-05-20',
@@ -822,11 +1015,86 @@ const keyDates2 = [
     duration: 60,
     tags: ['important'],
     isClosed: false
+  },
+  {
+    uuid: randomUUID(),
+    dossierId: D2_ID,
+    label: "Séance d'information à la médiation familiale",
+    date: '2026-04-28',
+    time: '15:00',
+    duration: 90,
+    isClosed: true,
+    note: 'Médiation non poursuivie — désaccord persistant sur la résidence.'
+  },
+  {
+    uuid: randomUUID(),
+    dossierId: D2_ID,
+    label: 'RDV cliente — point pension alimentaire',
+    date: '2026-06-20',
+    time: '11:00',
+    duration: 45,
+    tags: ['to_do'],
+    isClosed: false,
+    note: 'Préparer le tableau des charges fixes et frais de garde.'
+  },
+  {
+    uuid: randomUUID(),
+    dossierId: D2_ID,
+    label: 'Remise des attestations de témoins (art. 202 CPC)',
+    date: '2026-06-30',
+    tags: ['to_do'],
+    isClosed: false
+  },
+  {
+    uuid: randomUUID(),
+    dossierId: D2_ID,
+    label: 'Échange confidentiel — éléments médicaux M. Renard',
+    date: '2026-07-02',
+    tags: ['confidential'],
+    isClosed: false,
+    note: 'À ne pas verser au débat sans accord de la cliente.'
+  },
+  {
+    uuid: randomUUID(),
+    dossierId: D2_ID,
+    label: 'Audience JAF — plaidoirie sur les mesures définitives',
+    date: '2026-09-15',
+    time: '09:00',
+    duration: 120,
+    tags: ['important'],
+    isClosed: false
   }
 ]
 
+const notes2 = [
+  makeDossierNote({
+    uuid: NOTE2A_UUID,
+    dossierId: D2_ID,
+    title: 'Points sensibles pour l’audience JAF',
+    content:
+      'Préparer Mme Renard sur les questions relatives à l’organisation quotidienne des enfants. Éviter les griefs personnels non utiles et revenir sur la stabilité scolaire.',
+    kind: 'note',
+    tags: ['audience', 'enfants', 'strategie'],
+    pinned: true,
+    createdAt: '2026-03-11T11:20:00.000Z',
+    updatedAt: '2026-04-20T11:00:00.000Z'
+  }),
+  makeDossierNote({
+    uuid: NOTE2B_UUID,
+    dossierId: D2_ID,
+    title: 'Vérifier les justificatifs revenus',
+    content:
+      'Contrôler que les bulletins de salaire, avis d’imposition et charges de garde couvrent bien les périodes demandées par le juge.',
+    kind: 'to_verify',
+    status: 'open',
+    tags: ['pieces', 'finances'],
+    createdAt: '2026-04-18T09:45:00.000Z',
+    updatedAt: '2026-04-18T09:45:00.000Z'
+  })
+]
+
 const dossier2 = {
-  id: D2_ID,
+  slug: D2_ID,
   uuid: D2_UUID,
   name: 'Renard - Procédure de divorce',
   status: 'active',
@@ -842,21 +1110,21 @@ const dossier2 = {
   nextUpcomingKeyDateLabel: 'Rendez-vous avec cliente (préparation audience)',
   keyReferences: [
     {
-      id: KR4_ID,
+      uuid: KR4_UUID,
       dossierId: D2_ID,
       label: 'Nom du dossier',
       value: 'Renard - Procédure de divorce',
       note: 'Libellé volontairement neutre pour les exports.'
     },
     {
-      id: KR5_ID,
+      uuid: KR5_UUID,
       dossierId: D2_ID,
       label: 'N° RG',
       value: '2026/FAM/00087',
       note: 'À reprendre dans tous les courriers au greffe.'
     },
     {
-      id: KR6_ID,
+      uuid: KR6_UUID,
       dossierId: D2_ID,
       label: 'Juge référent',
       value: 'Mme la juge Martin',
@@ -865,7 +1133,7 @@ const dossier2 = {
   ],
   feeAgreements: [
     {
-      id: FA2_ID,
+      uuid: FA2_UUID,
       createdAt: '2026-02-03T10:00:00.000Z',
       updatedAt: '2026-02-05T09:00:00.000Z',
       isActive: true,
@@ -887,7 +1155,9 @@ const dossier2 = {
   ],
   billingItems: [],
   keyDates: [],
-  documents: []
+  notes: [],
+  documents: [],
+  pieces: []
 }
 
 // ─── Dossier 3 : Fontaine - Accident de la route ─────────────────────────────
@@ -932,7 +1202,7 @@ const contacts3 = [
 // FAC-0004 : BI3A (1,5h) + BI3B (2h) = 3,5h = 87 500 ct HT
 const billingItems3 = [
   makeBillingItem({
-    id: BI3A_ID,
+    uuid: BI3A_UUID,
     dossierId: D3_ID,
     date: '2026-03-15',
     label: 'Consultation initiale et analyse du dossier',
@@ -943,12 +1213,12 @@ const billingItems3 = [
     unitPriceHtCents: 25000,
     vatRateBasisPoints: 2000,
     status: 'billed',
-    sourceFeeAgreementId: FA3_ID,
-    invoiceId: INV4_ID,
+    sourceFeeAgreementUuid: FA3_UUID,
+    invoiceUuid: INV4_UUID,
     invoiceNumber: 'FAC-2026-0004'
   }),
   makeBillingItem({
-    id: BI3B_ID,
+    uuid: BI3B_UUID,
     dossierId: D3_ID,
     date: '2026-04-05',
     label: "Étude du rapport médical et préparation de l'expertise",
@@ -959,12 +1229,12 @@ const billingItems3 = [
     unitPriceHtCents: 25000,
     vatRateBasisPoints: 2000,
     status: 'billed',
-    sourceFeeAgreementId: FA3_ID,
-    invoiceId: INV4_ID,
+    sourceFeeAgreementUuid: FA3_UUID,
+    invoiceUuid: INV4_UUID,
     invoiceNumber: 'FAC-2026-0004'
   }),
   makeBillingItem({
-    id: BI3C_ID,
+    uuid: BI3C_UUID,
     dossierId: D3_ID,
     date: '2026-04-22',
     label: "Mise en demeure de l'assureur",
@@ -974,10 +1244,10 @@ const billingItems3 = [
     unitPriceHtCents: 25000,
     vatRateBasisPoints: 2000,
     status: 'draft',
-    sourceFeeAgreementId: FA3_ID
+    sourceFeeAgreementUuid: FA3_UUID
   }),
   makeBillingItem({
-    id: BI3D_ID,
+    uuid: BI3D_UUID,
     dossierId: D3_ID,
     date: '2026-05-10',
     label: "Préparation de l'expertise médicale amiable",
@@ -988,10 +1258,10 @@ const billingItems3 = [
     unitPriceHtCents: 25000,
     vatRateBasisPoints: 2000,
     status: 'draft',
-    sourceFeeAgreementId: FA3_ID
+    sourceFeeAgreementUuid: FA3_UUID
   }),
   makeBillingItem({
-    id: BI3E_ID,
+    uuid: BI3E_UUID,
     dossierId: D3_ID,
     date: '2026-06-05',
     label: 'Expertise médicale amiable',
@@ -1002,13 +1272,13 @@ const billingItems3 = [
     unitPriceHtCents: 25000,
     vatRateBasisPoints: 2000,
     status: 'draft',
-    sourceFeeAgreementId: FA3_ID
+    sourceFeeAgreementUuid: FA3_UUID
   })
 ]
 
 const keyDates3 = [
   {
-    id: KD3A_ID,
+    uuid: KD3A_UUID,
     dossierId: D3_ID,
     label: "Déclaration sinistre à l'assureur",
     date: '2026-03-12',
@@ -1016,14 +1286,14 @@ const keyDates3 = [
     note: 'Déclaration envoyée par LRAR à Sécuritas Assurances'
   },
   {
-    id: KD3B_ID,
+    uuid: KD3B_UUID,
     dossierId: D3_ID,
     label: "Mise en demeure de l'assureur",
     date: '2026-04-22',
     isClosed: true
   },
   {
-    id: KD3C_ID,
+    uuid: KD3C_UUID,
     dossierId: D3_ID,
     label: 'Réponse assureur reçue',
     date: '2026-05-05',
@@ -1031,7 +1301,7 @@ const keyDates3 = [
     note: 'Assureur conteste le taux de responsabilité. Contre-expertise demandée.'
   },
   {
-    id: KD3D_ID,
+    uuid: KD3D_UUID,
     dossierId: D3_ID,
     label: 'Expertise médicale amiable',
     date: '2026-06-05',
@@ -1042,18 +1312,90 @@ const keyDates3 = [
     note: 'Dr. Moretti (médecin conseil) présent. Lieu : cabinet Dr. Chauvet, 69003 Lyon.'
   },
   {
-    id: KD3E_ID,
+    uuid: KD3E_UUID,
     dossierId: D3_ID,
     label: 'Délai réponse offre indemnitaire',
     date: '2026-09-01',
     tags: ['urgent'],
     isClosed: false,
     note: "Délai légal de réponse à l'offre indemnitaire (art. L211-9 C. assur.)"
+  },
+  {
+    uuid: randomUUID(),
+    dossierId: D3_ID,
+    label: 'Relance du médecin conseil (Dr Moretti)',
+    date: '2026-05-26',
+    tags: ['to_do'],
+    isClosed: true,
+    note: 'Dossier médical complet transmis au médecin conseil.'
+  },
+  {
+    uuid: randomUUID(),
+    dossierId: D3_ID,
+    label: "Contre-visite demandée par l'assureur",
+    date: '2026-06-02',
+    time: '09:00',
+    tags: ['cancelled'],
+    isClosed: true,
+    note: "Annulée par Sécuritas Assurances — fusionnée avec l'expertise amiable du 05/06."
+  },
+  {
+    uuid: randomUUID(),
+    dossierId: D3_ID,
+    label: "Réception du rapport d'expertise amiable",
+    date: '2026-07-15',
+    tags: ['to_confirm'],
+    isClosed: false,
+    note: "Délai annoncé par l'expert : 5 à 6 semaines après la réunion d'expertise."
+  },
+  {
+    uuid: randomUUID(),
+    dossierId: D3_ID,
+    label: 'RDV client — restitution du rapport et stratégie',
+    date: '2026-07-22',
+    time: '14:30',
+    duration: 60,
+    isClosed: false
+  },
+  {
+    uuid: randomUUID(),
+    dossierId: D3_ID,
+    label: 'Point provision complémentaire si offre insuffisante',
+    date: '2026-08-20',
+    tags: ['to_do'],
+    isClosed: false
   }
 ]
 
+const notes3 = [
+  makeDossierNote({
+    uuid: NOTE3A_UUID,
+    dossierId: D3_ID,
+    title: 'Préparer discussion médecin conseil',
+    content:
+      'Lister les séquelles fonctionnelles concrètes : gêne écriture, conduite, port de charges et retentissement professionnel. Demander au client des exemples quotidiens précis.',
+    kind: 'todo',
+    status: 'open',
+    tags: ['expertise', 'medical', 'client'],
+    pinned: true,
+    createdAt: '2026-04-06T14:00:00.000Z',
+    updatedAt: '2026-04-22T09:30:00.000Z'
+  }),
+  makeDossierNote({
+    uuid: NOTE3B_UUID,
+    dossierId: D3_ID,
+    title: 'Hypothèse offre provisionnelle',
+    content:
+      'Si l’assureur maintient la contestation de responsabilité, envisager une demande de provision limitée et documentée avant discussion globale sur les postes de préjudice.',
+    kind: 'idea',
+    tags: ['indemnisation', 'assureur'],
+    createdAt: '2026-05-05T16:10:00.000Z',
+    updatedAt: '2026-05-05T16:10:00.000Z'
+  })
+]
+
 const dossier3 = {
-  id: D3_ID,
+  slug: D3_ID,
   uuid: D3_UUID,
   name: 'Fontaine - Accident de la route',
   status: 'pending',
@@ -1067,21 +1409,21 @@ const dossier3 = {
   nextUpcomingKeyDateLabel: 'Expertise médicale amiable',
   keyReferences: [
     {
-      id: KR7_ID,
+      uuid: KR7_UUID,
       dossierId: D3_ID,
       label: 'Nom du dossier',
       value: 'Fontaine - Accident de la route',
       note: 'Dossier de préjudice corporel en phase amiable.'
     },
     {
-      id: KR8_ID,
+      uuid: KR8_UUID,
       dossierId: D3_ID,
       label: 'N° police adverse',
       value: 'SEC-2025-L3-44821',
       note: 'Référence à rappeler dans les échanges assureur.'
     },
     {
-      id: KR9_ID,
+      uuid: KR9_UUID,
       dossierId: D3_ID,
       label: "Date de l'accident",
       value: '12 novembre 2025',
@@ -1090,7 +1432,7 @@ const dossier3 = {
   ],
   feeAgreements: [
     {
-      id: FA3_ID,
+      uuid: FA3_UUID,
       createdAt: '2026-03-12T10:00:00.000Z',
       updatedAt: '2026-03-12T10:00:00.000Z',
       isActive: true,
@@ -1114,7 +1456,9 @@ const dossier3 = {
   ],
   billingItems: [],
   keyDates: [],
-  documents: []
+  notes: [],
+  documents: [],
+  pieces: []
 }
 
 // ─── Dossier 4 : Lemoine c/ Transports Veyrat — Prud'hommes (aide juridictionnelle) ─
@@ -1177,7 +1521,7 @@ const contacts4 = [
 //   • Complément client :  500 € HT + TVA 20 % (facture FAC-2026-0003)
 const billingItems4 = [
   makeBillingItem({
-    id: BI4_STATE_ID,
+    uuid: BI4_STATE_UUID,
     dossierId: D4_ID,
     date: '2026-04-05',
     label: `Rétribution AJ - État - ${D4_MATTER_LABEL}`,
@@ -1188,12 +1532,12 @@ const billingItems4 = [
     unitPriceHtCents: D4_STATE_RETRIBUTION_HT,
     vatRateBasisPoints: 0,
     status: 'billed',
-    sourceFeeAgreementId: FA4_ID,
-    invoiceId: INV5_ID,
+    sourceFeeAgreementUuid: FA4_UUID,
+    invoiceUuid: INV5_UUID,
     invoiceNumber: 'RET-2026-0001'
   }),
   makeBillingItem({
-    id: BI4_COMPL_ID,
+    uuid: BI4_COMPL_UUID,
     dossierId: D4_ID,
     date: '2026-04-05',
     label: `Complément d'honoraires - AJ partielle - ${D4_MATTER_LABEL}`,
@@ -1204,8 +1548,8 @@ const billingItems4 = [
     unitPriceHtCents: D4_COMPLEMENT_HT,
     vatRateBasisPoints: 2000,
     status: 'billed',
-    sourceFeeAgreementId: FA4_ID,
-    invoiceId: INV6_ID,
+    sourceFeeAgreementUuid: FA4_UUID,
+    invoiceUuid: INV6_UUID,
     invoiceNumber: 'FAC-2026-0003'
   })
 ]
@@ -1215,7 +1559,7 @@ billingItems4[1].sourceFeeAgreementBillingKind = 'legalAidComplement'
 
 const keyDates4 = [
   {
-    id: KD4A_ID,
+    uuid: KD4A_UUID,
     dossierId: D4_ID,
     label: "Décision d'admission à l'aide juridictionnelle (BAJ)",
     date: '2026-03-28',
@@ -1223,7 +1567,7 @@ const keyDates4 = [
     note: 'AJ partielle 55 % — décision n° 2026/0457 du BAJ de Lyon.'
   },
   {
-    id: KD4B_ID,
+    uuid: KD4B_UUID,
     dossierId: D4_ID,
     label: 'AJ — dépôt de la demande / désignation',
     date: '2026-04-09',
@@ -1232,7 +1576,7 @@ const keyDates4 = [
     note: 'Désignation transmise au greffe du Conseil de Prud’hommes.'
   },
   {
-    id: KD4C_ID,
+    uuid: KD4C_UUID,
     dossierId: D4_ID,
     label: 'Audience de conciliation (Bureau de conciliation)',
     date: '2026-06-12',
@@ -1242,7 +1586,7 @@ const keyDates4 = [
     isClosed: false
   },
   {
-    id: KD4D_ID,
+    uuid: KD4D_UUID,
     dossierId: D4_ID,
     label: 'AJ — attestation de fin de mission',
     date: '2026-06-04',
@@ -1251,18 +1595,72 @@ const keyDates4 = [
     note: 'À adresser à la CARPA pour le recouvrement de la rétribution.'
   },
   {
-    id: KD4E_ID,
+    uuid: KD4E_UUID,
     dossierId: D4_ID,
     label: 'AJ — recouvrement de la rétribution (CARPA)',
     date: '2026-07-04',
     tags: ['imperative'],
     isClosed: false,
     note: 'Rétribution État 1 080 € HT — pièce RET-2026-0001.'
+  },
+  {
+    uuid: randomUUID(),
+    dossierId: D4_ID,
+    label: 'Transmission du dossier de pièces au CPH',
+    date: '2026-05-30',
+    isClosed: true,
+    note: 'Bordereau de 14 pièces déposé au greffe.'
+  },
+  {
+    uuid: randomUUID(),
+    dossierId: D4_ID,
+    label: 'Relance CARPA si rétribution non versée',
+    date: '2026-08-15',
+    tags: ['to_do'],
+    isClosed: false
+  },
+  {
+    uuid: randomUUID(),
+    dossierId: D4_ID,
+    label: 'Audience de jugement (bureau de jugement)',
+    date: '2026-10-08',
+    time: '14:00',
+    duration: 120,
+    tags: ['important', 'to_confirm'],
+    isClosed: false,
+    note: 'Date indicative annoncée en conciliation — convocation à confirmer.'
   }
 ]
 
+const notes4 = [
+  makeDossierNote({
+    uuid: NOTE4A_UUID,
+    dossierId: D4_ID,
+    title: 'Chaîne AJ à surveiller',
+    content:
+      'Vérifier que la rétribution État reste séparée de la facture de complément. À la fin de mission, joindre décision BAJ, attestation et référence CARPA AJ-2026-0457.',
+    kind: 'note',
+    tags: ['aide-juridictionnelle', 'carpa', 'facturation'],
+    pinned: true,
+    createdAt: '2026-04-05T12:30:00.000Z',
+    updatedAt: '2026-04-08T12:00:00.000Z'
+  }),
+  makeDossierNote({
+    uuid: NOTE4B_UUID,
+    dossierId: D4_ID,
+    title: 'À vérifier avant audience de conciliation',
+    content:
+      'Contrôler les griefs de licenciement, l’ancienneté exacte et les éléments de préjudice. Préparer une proposition transactionnelle minimale.',
+    kind: 'to_verify',
+    status: 'open',
+    tags: ['prudhommes', 'conciliation'],
+    createdAt: '2026-04-10T10:30:00.000Z',
+    updatedAt: '2026-04-10T10:30:00.000Z'
+  })
+]
+
 const dossier4 = {
-  id: D4_ID,
+  slug: D4_ID,
   uuid: D4_UUID,
   name: D4_MATTER_LABEL,
   status: 'active',
@@ -1292,21 +1690,21 @@ const dossier4 = {
   },
   keyReferences: [
     {
-      id: KR10_ID,
+      uuid: KR10_UUID,
       dossierId: D4_ID,
       label: 'N° RG',
       value: '2026/F/00214',
       note: 'Référence prud’homale communiquée avec la convocation.'
     },
     {
-      id: KR11_ID,
+      uuid: KR11_UUID,
       dossierId: D4_ID,
       label: 'Décision AJ (BAJ)',
       value: '2026/0457 — AJ partielle 55 %',
       note: 'Base du paramétrage AJ et de la convention de complément.'
     },
     {
-      id: KR12_ID,
+      uuid: KR12_UUID,
       dossierId: D4_ID,
       label: 'N° AJ / CARPA',
       value: 'AJ-2026-0457',
@@ -1315,7 +1713,7 @@ const dossier4 = {
   ],
   feeAgreements: [
     {
-      id: FA4_ID,
+      uuid: FA4_UUID,
       createdAt: '2026-04-03T09:00:00.000Z',
       updatedAt: '2026-04-05T11:00:00.000Z',
       isActive: true,
@@ -1343,7 +1741,9 @@ const dossier4 = {
   ],
   billingItems: [],
   keyDates: [],
-  documents: []
+  notes: [],
+  documents: [],
+  pieces: []
 }
 
 // ─── Factures ─────────────────────────────────────────────────────────────────
@@ -1379,7 +1779,7 @@ const invoice6Lines = makeInvoiceLines([billingItems4[1]])
 const invoices = [
   // ── FAC-2026-0001 : Dupont — consultation + assignation + mise en état dossier (5h = 125 000 ct HT) — payée
   {
-    id: INV1_ID,
+    uuid: INV1_UUID,
     documentType: 'invoice',
     number: 'FAC-2026-0001',
     sequenceYear: 2026,
@@ -1392,7 +1792,7 @@ const invoices = [
     clientLabel: 'M. Bernard Dupont',
     clientSnapshot: clientSnapshot1,
     issuerSnapshot,
-    templateId: 'default',
+    templateUuid: 'default',
     ...applyInvoiceAmounts(invoice1Lines),
     status: 'paid',
     paymentStatus: 'paid',
@@ -1401,7 +1801,7 @@ const invoices = [
     paidAt: '2026-03-20',
     payments: [
       {
-        id: PAY1_ID,
+        uuid: PAY1_UUID,
         paidAt: '2026-03-20',
         amountCents: makeInvoiceAmounts(invoice1Lines).totalTtcCents,
         method: 'transfer',
@@ -1420,7 +1820,7 @@ const invoices = [
 
   // ── FAC-2026-0005 : Dupont — audience + analyse pièces adverses (4h = 100 000 ct HT) — émise
   {
-    id: INV2_ID,
+    uuid: INV2_UUID,
     documentType: 'invoice',
     number: 'FAC-2026-0005',
     sequenceYear: 2026,
@@ -1433,7 +1833,7 @@ const invoices = [
     clientLabel: 'M. Bernard Dupont',
     clientSnapshot: clientSnapshot1,
     issuerSnapshot,
-    templateId: 'default',
+    templateUuid: 'default',
     ...applyInvoiceAmounts(invoice2Lines),
     status: 'issued',
     paymentStatus: 'unpaid',
@@ -1450,7 +1850,7 @@ const invoices = [
 
   // ── FAC-2026-0002 : Renard — requête + consultations + échanges adverses (1 u + 3h = 130 000 ct HT) — payée
   {
-    id: INV3_ID,
+    uuid: INV3_UUID,
     documentType: 'invoice',
     number: 'FAC-2026-0002',
     sequenceYear: 2026,
@@ -1463,7 +1863,7 @@ const invoices = [
     clientLabel: 'Mme Claire Renard',
     clientSnapshot: clientSnapshot2,
     issuerSnapshot,
-    templateId: 'default',
+    templateUuid: 'default',
     ...applyInvoiceAmounts(invoice3Lines),
     status: 'paid',
     paymentStatus: 'paid',
@@ -1472,7 +1872,7 @@ const invoices = [
     paidAt: '2026-04-10',
     payments: [
       {
-        id: PAY3_ID,
+        uuid: PAY3_UUID,
         paidAt: '2026-04-10',
         amountCents: makeInvoiceAmounts(invoice3Lines).totalTtcCents,
         method: 'transfer',
@@ -1492,7 +1892,7 @@ const invoices = [
 
   // ── FAC-2026-0004 : Fontaine — provision honoraires (3,5h = 87 500 ct HT) — payée
   {
-    id: INV4_ID,
+    uuid: INV4_UUID,
     documentType: 'invoice',
     number: 'FAC-2026-0004',
     sequenceYear: 2026,
@@ -1505,7 +1905,7 @@ const invoices = [
     clientLabel: 'M. Antoine Fontaine',
     clientSnapshot: clientSnapshot3,
     issuerSnapshot,
-    templateId: 'default',
+    templateUuid: 'default',
     ...applyInvoiceAmounts(invoice4Lines),
     status: 'paid',
     paymentStatus: 'paid',
@@ -1514,7 +1914,7 @@ const invoices = [
     paidAt: '2026-04-22',
     payments: [
       {
-        id: PAY4_ID,
+        uuid: PAY4_UUID,
         paidAt: '2026-04-22',
         amountCents: makeInvoiceAmounts(invoice4Lines).totalTtcCents,
         method: 'transfer',
@@ -1535,7 +1935,7 @@ const invoices = [
 
   // ── RET-2026-0001 : Lemoine (AJ) — rétribution de l'État (pièce distincte), exonérée de TVA, recouvrée CARPA — payée
   {
-    id: INV5_ID,
+    uuid: INV5_UUID,
     documentType: 'stateRetribution',
     number: 'RET-2026-0001',
     sequenceYear: 2026,
@@ -1551,7 +1951,7 @@ const invoices = [
       address: '176, rue de Créqui — 69003 Lyon'
     },
     issuerSnapshot,
-    templateId: 'default',
+    templateUuid: 'default',
     ...applyInvoiceAmounts(invoice5Lines),
     status: 'paid',
     paymentStatus: 'paid',
@@ -1560,7 +1960,7 @@ const invoices = [
     paidAt: '2026-05-02',
     payments: [
       {
-        id: PAY5_ID,
+        uuid: PAY5_UUID,
         paidAt: '2026-05-02',
         amountCents: makeInvoiceAmounts(invoice5Lines).totalTtcCents,
         method: 'transfer',
@@ -1580,7 +1980,7 @@ const invoices = [
 
   // ── FAC-2026-0003 : Lemoine (AJ) — complément d'honoraires négocié (500 € HT + TVA) — émise
   {
-    id: INV6_ID,
+    uuid: INV6_UUID,
     documentType: 'invoice',
     number: 'FAC-2026-0003',
     sequenceYear: 2026,
@@ -1593,7 +1993,7 @@ const invoices = [
     clientLabel: 'Mme Nadia Lemoine',
     clientSnapshot: clientSnapshot4,
     issuerSnapshot,
-    templateId: 'default',
+    templateUuid: 'default',
     ...applyInvoiceAmounts(invoice6Lines),
     status: 'issued',
     paymentStatus: 'unpaid',
@@ -1618,7 +2018,7 @@ function assertEqual(label, actual, expected) {
 }
 
 function assertSeedInvoiceConsistency() {
-  const billingItemsById = new Map(allBillingItems.map((item) => [item.id, item]))
+  const billingItemsById = new Map(allBillingItems.map((item) => [item.uuid, item]))
   const invoicedLineIds = new Set()
 
   for (const invoice of invoices) {
@@ -1642,29 +2042,33 @@ function assertSeedInvoiceConsistency() {
     )
 
     for (const line of invoice.lines) {
-      const item = billingItemsById.get(line.billingItemId)
+      const item = billingItemsById.get(line.billingItemUuid)
       if (!item) {
-        throw new Error(`${invoice.number}: prestation introuvable ${line.billingItemId}`)
+        throw new Error(`${invoice.number}: prestation introuvable ${line.billingItemUuid}`)
       }
       if (item.status !== 'billed') {
-        throw new Error(`${invoice.number}: prestation non facturée ${item.id}`)
+        throw new Error(`${invoice.number}: prestation non facturée ${item.uuid}`)
       }
-      assertEqual(`${invoice.number}/${item.id} invoiceId`, item.invoiceId, invoice.id)
-      assertEqual(`${invoice.number}/${item.id} invoiceNumber`, item.invoiceNumber, invoice.number)
-      assertEqual(`${invoice.number}/${item.id} HT`, line.totalHtCents, item.totalHtCents)
-      assertEqual(`${invoice.number}/${item.id} TTC`, line.totalTtcCents, item.totalTtcCents)
+      assertEqual(`${invoice.number}/${item.uuid} invoiceUuid`, item.invoiceUuid, invoice.uuid)
       assertEqual(
-        `${invoice.number}/${item.id} TVA`,
+        `${invoice.number}/${item.uuid} invoiceNumber`,
+        item.invoiceNumber,
+        invoice.number
+      )
+      assertEqual(`${invoice.number}/${item.uuid} HT`, line.totalHtCents, item.totalHtCents)
+      assertEqual(`${invoice.number}/${item.uuid} TTC`, line.totalTtcCents, item.totalTtcCents)
+      assertEqual(
+        `${invoice.number}/${item.uuid} TVA`,
         line.vatRateBasisPoints,
         item.vatRateBasisPoints
       )
-      invoicedLineIds.add(item.id)
+      invoicedLineIds.add(item.uuid)
     }
   }
 
   for (const item of allBillingItems) {
-    if (item.status === 'billed' && !invoicedLineIds.has(item.id)) {
-      throw new Error(`Prestation facturée absente des factures: ${item.id}`)
+    if (item.status === 'billed' && !invoicedLineIds.has(item.uuid)) {
+      throw new Error(`Prestation facturée absente des factures: ${item.uuid}`)
     }
   }
 }
@@ -1727,14 +2131,49 @@ const documents1 = [
       <h2>Demandes</h2>
       <p>Confirmer la condamnation au paiement du principal, des intérêts et de 2 500 € au titre de l'article 700 du CPC.</p>`
   },
+  // Paire de versions pour la fonctionnalité « Comparaison de conclusions » :
+  // les n° 1 et n° 2 partagent l'essentiel de leurs paragraphes ; la n° 2
+  // modifie les montants, supprime un paragraphe et AJOUTE deux moyens citant
+  // des textes (vérification de citations) et de nouvelles pièces adverses
+  // (détection « pièce n°X »).
   {
     filename: 'Conclusions_adverses_Moreau.docx',
-    title: 'Conclusions en défense — Moreau SARL',
+    title: 'Conclusions en défense n° 1 — Moreau SARL',
     bodyHtml: `${letterhead()}
-      <h1>Conclusions en défense</h1>
+      <h1>Conclusions en défense n° 1</h1>
       <p><strong>Pour :</strong> La société Moreau SARL, défenderesse.</p>
-      <p>La défenderesse conteste la qualité d'une partie des prestations facturées et sollicite une réduction du montant réclamé à hauteur de 6 000 €.</p>
-      <p>Elle produit en ce sens des échanges de courriels faisant état de réserves émises sur les livrables (pièces adverses n° 1 à 12).</p>`
+      <p><strong>Contre :</strong> Monsieur Bernard Dupont, demandeur.</p>
+      <h2>I. Rappel des faits</h2>
+      <p>La société Moreau SARL a confié à M. Dupont diverses prestations de services informatiques au cours de l'année 2025, dans le cadre d'un contrat-cadre conclu le 15 mars 2025.</p>
+      <p>Les livrables remis en septembre et octobre 2025 ont fait l'objet de réserves écrites circonstanciées, demeurées sans réponse du prestataire (pièces adverses n° 1 à 3).</p>
+      <h2>II. Discussion</h2>
+      <p>Plusieurs livrables présentent des défauts de conformité documentés par les comptes rendus de réunion et les échanges de courriels produits (pièces adverses n° 4 à 8).</p>
+      <p>La défenderesse sollicite en conséquence une réduction du montant réclamé à hauteur de 6 000 €.</p>
+      <p>Les paiements partiels intervenus en novembre 2025 démontrent la bonne foi de la société Moreau SARL (pièce adverse n° 9).</p>
+      <h2>III. Par ces motifs</h2>
+      <p>Débouter M. Dupont de ses demandes au-delà de la somme de 9 000 € en principal ;</p>
+      <p>Rejeter la demande formée au titre de l'article 700 du CPC.</p>`
+  },
+  {
+    filename: 'Conclusions_adverses_Moreau_n2.docx',
+    title: 'Conclusions en défense n° 2 — Moreau SARL',
+    bodyHtml: `${letterhead()}
+      <h1>Conclusions en défense n° 2</h1>
+      <p><strong>Pour :</strong> La société Moreau SARL, défenderesse.</p>
+      <p><strong>Contre :</strong> Monsieur Bernard Dupont, demandeur.</p>
+      <h2>I. Rappel des faits</h2>
+      <p>La société Moreau SARL a confié à M. Dupont diverses prestations de services informatiques au cours de l'année 2025, dans le cadre d'un contrat-cadre conclu le 15 mars 2025.</p>
+      <p>Les livrables remis en septembre et octobre 2025 ont fait l'objet de réserves écrites circonstanciées, demeurées sans réponse du prestataire (pièces adverses n° 1 à 3).</p>
+      <h2>II. Discussion</h2>
+      <p>Plusieurs livrables présentent des défauts de conformité documentés par les comptes rendus de réunion et les échanges de courriels produits (pièces adverses n° 4 à 8).</p>
+      <p>La défenderesse sollicite en conséquence une réduction du montant réclamé à hauteur de 8 500 €.</p>
+      <h2>II bis. Sur la prescription partielle des factures</h2>
+      <p>Les factures émises antérieurement au 1er février 2021 sont prescrites par application de l'article L. 110-4 du Code de commerce, qui soumet les obligations nées entre commerçants à une prescription quinquennale. La créance correspondante, soit 2 400 €, ne peut donc être utilement réclamée (pièces adverses nos 13 à 15).</p>
+      <h2>II ter. Sur la charge de la preuve</h2>
+      <p>En application de l'article 1353 du Code civil et de l'article 9 du Code de procédure civile, il appartient au demandeur d'établir la conformité des prestations dont il réclame le paiement. Le rapport d'audit technique versé aux débats établit au contraire la non-conformité de trois livrables sur huit (pièce adverse n° 16).</p>
+      <h2>III. Par ces motifs</h2>
+      <p>Débouter M. Dupont de ses demandes au-delà de la somme de 6 500 € en principal ;</p>
+      <p>Rejeter la demande formée au titre de l'article 700 du CPC.</p>`
   },
   {
     filename: 'Pieces_communiquees_Moreau.docx',
@@ -1791,6 +2230,22 @@ const documents2 = [
       <h2>Contribution à l'entretien et à l'éducation</h2>
       <p>Le père versera une pension alimentaire mensuelle de 350 € par enfant, indexée sur l'indice INSEE des prix à la consommation.</p>
       <p><em>Projet soumis à discussion — non signé.</em></p>`
+  },
+  // Seconde version du projet, pour la comparaison de documents : DVH étendu,
+  // pension réévaluée, clause ajoutée citant le Code civil et une pièce nouvelle.
+  {
+    filename: 'Convention_parentale_projet_v2.docx',
+    title: 'Projet de convention parentale — version 2',
+    bodyHtml: `${letterhead()}
+      <h1>Projet de convention parentale</h1>
+      <p>Entre Mme Claire Renard et M. Julien Renard, parents d'Emma et de Lucas.</p>
+      <h2>Résidence des enfants</h2>
+      <p>La résidence habituelle des enfants est fixée au domicile de la mère. Un droit de visite et d'hébergement est aménagé au profit du père un week-end sur deux, du vendredi soir à la sortie des classes au lundi matin à la rentrée des classes, ainsi que la moitié des vacances scolaires.</p>
+      <h2>Contribution à l'entretien et à l'éducation</h2>
+      <p>Le père versera une pension alimentaire mensuelle de 420 € par enfant, indexée sur l'indice INSEE des prix à la consommation.</p>
+      <h2>Frais exceptionnels</h2>
+      <p>Conformément aux articles 373-2-2 et 373-2-9 du Code civil, les frais scolaires, médicaux et paramédicaux non remboursés seront partagés par moitié entre les parents, sur présentation de justificatifs (pièce n° 9 : attestation de l'employeur de Mme Renard sur ses horaires de travail).</p>
+      <p><em>Projet — version 2 transmise au conseil adverse le 12 mai 2026.</em></p>`
   },
   {
     filename: 'Convocation_audience_JAF.docx',
@@ -1956,24 +2411,14 @@ writeJson(join(ROOT, '.ordicab', 'registry.json'), registryData)
 writeJson(join(ROOT, '.ordicab', 'entity.json'), entityData)
 writeJson(join(ROOT, '.ordicab', 'cabinet-billing.json'), cabinetBillingData)
 
-// Factures : un fichier par facture + index
-const invoiceIndexEntries = invoices.map((inv) => ({
-  id: inv.id,
-  number: inv.number,
-  dossierId: inv.dossierId,
-  status: inv.status,
-  paymentStatus: inv.paymentStatus,
-  totalTtcCents: inv.totalTtcCents,
-  documentType: inv.documentType,
-  issuedAt: inv.issuedAt,
-  updatedAt: inv.updatedAt
-}))
-writeJson(join(ROOT, '.ordicab', 'invoice-records-index.json'), {
-  invoices: invoiceIndexEntries,
-  updatedAt: '2026-04-22T10:00:00.000Z'
-})
+// Échéances générales : un fichier par échéance (hors dossier)
+for (const kd of generalKeyDates) {
+  writeJson(join(ROOT, '.ordicab', 'general-key-dates', `${kd.uuid}.json`), kd)
+}
+
+// Factures : un fichier par facture (records, sans index)
 for (const inv of invoices) {
-  writeJson(join(ROOT, '.ordicab', 'invoice-records', `${inv.id}.json`), inv)
+  writeJson(join(ROOT, '.ordicab', 'invoices', `${inv.uuid}.json`), inv)
 }
 
 // ─── Dossier 1 — Dupont c/ Moreau SARL ───────────────────────────────────────
@@ -1987,50 +2432,19 @@ for (const contact of contacts1) {
     contact
   )
 }
-writeJson(join(ROOT, 'Dupont-c-Moreau-SARL', '.ordicab', 'contacts-index.json'), {
-  contacts: contacts1.map((c) => ({
-    uuid: c.uuid,
-    displayName: c.displayName,
-    role: c.role,
-    updatedAt: '2026-01-20T10:00:00.000Z'
-  })),
-  updatedAt: '2026-01-20T10:00:00.000Z'
-})
 
 for (const item of billingItems1) {
   writeJson(
-    join(ROOT, 'Dupont-c-Moreau-SARL', '.ordicab', 'billing-items', `${item.id}.json`),
+    join(ROOT, 'Dupont-c-Moreau-SARL', '.ordicab', 'billing-items', `${item.uuid}.json`),
     item
   )
 }
-writeJson(join(ROOT, 'Dupont-c-Moreau-SARL', '.ordicab', 'billing-items-index.json'), {
-  items: billingItems1.map((i) => ({
-    id: i.id,
-    dossierId: i.dossierId,
-    label: i.label,
-    status: i.status,
-    date: i.date,
-    totalTtcCents: i.totalTtcCents,
-    invoiceId: i.invoiceId,
-    updatedAt: i.updatedAt
-  })),
-  updatedAt: '2026-04-15T16:00:00.000Z'
-})
 
 for (const kd of keyDates1) {
-  writeJson(join(ROOT, 'Dupont-c-Moreau-SARL', '.ordicab', 'key-dates', `${kd.id}.json`), kd)
+  writeJson(join(ROOT, 'Dupont-c-Moreau-SARL', '.ordicab', 'key-dates', `${kd.uuid}.json`), kd)
 }
-writeJson(join(ROOT, 'Dupont-c-Moreau-SARL', '.ordicab', 'key-dates-index.json'), {
-  keyDates: keyDates1.map((kd) => ({
-    id: kd.id,
-    dossierId: kd.dossierId,
-    label: kd.label,
-    date: kd.date,
-    isClosed: kd.isClosed,
-    updatedAt: kd.date + 'T09:00:00.000Z'
-  })),
-  updatedAt: '2026-04-15T16:00:00.000Z'
-})
+
+writeDossierNotes('Dupont-c-Moreau-SARL', notes1)
 
 for (const doc of documents1) {
   await writeDocx(join(ROOT, 'Dupont-c-Moreau-SARL', doc.filename), doc)
@@ -2044,47 +2458,16 @@ writeJson(join(ROOT, 'Renard-Divorce', '.ordicab', 'dossier.json'), dossier2)
 for (const contact of contacts2) {
   writeJson(join(ROOT, 'Renard-Divorce', '.ordicab', 'contacts', `${contact.uuid}.json`), contact)
 }
-writeJson(join(ROOT, 'Renard-Divorce', '.ordicab', 'contacts-index.json'), {
-  contacts: contacts2.map((c) => ({
-    uuid: c.uuid,
-    displayName: c.displayName,
-    role: c.role,
-    updatedAt: '2026-02-01T14:00:00.000Z'
-  })),
-  updatedAt: '2026-02-01T14:00:00.000Z'
-})
 
 for (const item of billingItems2) {
-  writeJson(join(ROOT, 'Renard-Divorce', '.ordicab', 'billing-items', `${item.id}.json`), item)
+  writeJson(join(ROOT, 'Renard-Divorce', '.ordicab', 'billing-items', `${item.uuid}.json`), item)
 }
-writeJson(join(ROOT, 'Renard-Divorce', '.ordicab', 'billing-items-index.json'), {
-  items: billingItems2.map((i) => ({
-    id: i.id,
-    dossierId: i.dossierId,
-    label: i.label,
-    status: i.status,
-    date: i.date,
-    totalTtcCents: i.totalTtcCents,
-    invoiceId: i.invoiceId,
-    updatedAt: i.updatedAt
-  })),
-  updatedAt: '2026-04-20T11:00:00.000Z'
-})
 
 for (const kd of keyDates2) {
-  writeJson(join(ROOT, 'Renard-Divorce', '.ordicab', 'key-dates', `${kd.id}.json`), kd)
+  writeJson(join(ROOT, 'Renard-Divorce', '.ordicab', 'key-dates', `${kd.uuid}.json`), kd)
 }
-writeJson(join(ROOT, 'Renard-Divorce', '.ordicab', 'key-dates-index.json'), {
-  keyDates: keyDates2.map((kd) => ({
-    id: kd.id,
-    dossierId: kd.dossierId,
-    label: kd.label,
-    date: kd.date,
-    isClosed: kd.isClosed,
-    updatedAt: kd.date + 'T09:00:00.000Z'
-  })),
-  updatedAt: '2026-04-20T11:00:00.000Z'
-})
+
+writeDossierNotes('Renard-Divorce', notes2)
 
 for (const doc of documents2) {
   await writeDocx(join(ROOT, 'Renard-Divorce', doc.filename), doc)
@@ -2101,47 +2484,16 @@ for (const contact of contacts3) {
     contact
   )
 }
-writeJson(join(ROOT, 'Fontaine-Accident', '.ordicab', 'contacts-index.json'), {
-  contacts: contacts3.map((c) => ({
-    uuid: c.uuid,
-    displayName: c.displayName,
-    role: c.role,
-    updatedAt: '2026-03-10T11:00:00.000Z'
-  })),
-  updatedAt: '2026-03-10T11:00:00.000Z'
-})
 
 for (const item of billingItems3) {
-  writeJson(join(ROOT, 'Fontaine-Accident', '.ordicab', 'billing-items', `${item.id}.json`), item)
+  writeJson(join(ROOT, 'Fontaine-Accident', '.ordicab', 'billing-items', `${item.uuid}.json`), item)
 }
-writeJson(join(ROOT, 'Fontaine-Accident', '.ordicab', 'billing-items-index.json'), {
-  items: billingItems3.map((i) => ({
-    id: i.id,
-    dossierId: i.dossierId,
-    label: i.label,
-    status: i.status,
-    date: i.date,
-    totalTtcCents: i.totalTtcCents,
-    invoiceId: i.invoiceId,
-    updatedAt: i.updatedAt
-  })),
-  updatedAt: '2026-04-05T10:00:00.000Z'
-})
 
 for (const kd of keyDates3) {
-  writeJson(join(ROOT, 'Fontaine-Accident', '.ordicab', 'key-dates', `${kd.id}.json`), kd)
+  writeJson(join(ROOT, 'Fontaine-Accident', '.ordicab', 'key-dates', `${kd.uuid}.json`), kd)
 }
-writeJson(join(ROOT, 'Fontaine-Accident', '.ordicab', 'key-dates-index.json'), {
-  keyDates: keyDates3.map((kd) => ({
-    id: kd.id,
-    dossierId: kd.dossierId,
-    label: kd.label,
-    date: kd.date,
-    isClosed: kd.isClosed,
-    updatedAt: kd.date + 'T09:00:00.000Z'
-  })),
-  updatedAt: '2026-04-05T10:00:00.000Z'
-})
+
+writeDossierNotes('Fontaine-Accident', notes3)
 
 for (const doc of documents3) {
   await writeDocx(join(ROOT, 'Fontaine-Accident', doc.filename), doc)
@@ -2155,47 +2507,16 @@ writeJson(join(ROOT, D4_ID, '.ordicab', 'dossier.json'), dossier4)
 for (const contact of contacts4) {
   writeJson(join(ROOT, D4_ID, '.ordicab', 'contacts', `${contact.uuid}.json`), contact)
 }
-writeJson(join(ROOT, D4_ID, '.ordicab', 'contacts-index.json'), {
-  contacts: contacts4.map((c) => ({
-    uuid: c.uuid,
-    displayName: c.displayName,
-    role: c.role,
-    updatedAt: '2026-04-02T09:30:00.000Z'
-  })),
-  updatedAt: '2026-04-02T09:30:00.000Z'
-})
 
 for (const item of billingItems4) {
-  writeJson(join(ROOT, D4_ID, '.ordicab', 'billing-items', `${item.id}.json`), item)
+  writeJson(join(ROOT, D4_ID, '.ordicab', 'billing-items', `${item.uuid}.json`), item)
 }
-writeJson(join(ROOT, D4_ID, '.ordicab', 'billing-items-index.json'), {
-  items: billingItems4.map((i) => ({
-    id: i.id,
-    dossierId: i.dossierId,
-    label: i.label,
-    status: i.status,
-    date: i.date,
-    totalTtcCents: i.totalTtcCents,
-    invoiceId: i.invoiceId,
-    updatedAt: i.updatedAt
-  })),
-  updatedAt: '2026-04-08T12:00:00.000Z'
-})
 
 for (const kd of keyDates4) {
-  writeJson(join(ROOT, D4_ID, '.ordicab', 'key-dates', `${kd.id}.json`), kd)
+  writeJson(join(ROOT, D4_ID, '.ordicab', 'key-dates', `${kd.uuid}.json`), kd)
 }
-writeJson(join(ROOT, D4_ID, '.ordicab', 'key-dates-index.json'), {
-  keyDates: keyDates4.map((kd) => ({
-    id: kd.id,
-    dossierId: kd.dossierId,
-    label: kd.label,
-    date: kd.date,
-    isClosed: kd.isClosed,
-    updatedAt: kd.date + 'T09:00:00.000Z'
-  })),
-  updatedAt: '2026-04-08T12:00:00.000Z'
-})
+
+writeDossierNotes(D4_ID, notes4)
 
 for (const doc of documents4) {
   await writeDocx(join(ROOT, D4_ID, doc.filename), doc)

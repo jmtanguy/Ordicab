@@ -40,11 +40,11 @@ export function CabinetStep({ onComplete }: CabinetStepProps): React.JSX.Element
       <Card className="space-y-4 p-5">
         {hasFirmName ? (
           <div className="space-y-1">
-            <p className="text-sm font-medium text-[#1a1a1a]">{profile?.firmName}</p>
-            <p className="text-sm text-[#5c5c5a]">{t('entity.section_summary')}</p>
+            <p className="text-sm font-medium text-ink">{profile?.firmName}</p>
+            <p className="text-sm text-ink-muted">{t('entity.section_summary')}</p>
           </div>
         ) : (
-          <p className="text-sm text-[#5c5c5a]">{t('entity.emptyHint')}</p>
+          <p className="text-sm text-ink-muted">{t('entity.emptyHint')}</p>
         )}
 
         <div className="flex flex-wrap items-center gap-2">
@@ -52,7 +52,7 @@ export function CabinetStep({ onComplete }: CabinetStepProps): React.JSX.Element
             {hasFirmName ? t('entity.editButton') : t('entity.form.firmName')}
           </Button>
           {hasFirmName ? (
-            <span className="rounded-full bg-[#f1f7ec] px-2 py-0.5 text-xs font-medium text-[#3c6132]">
+            <span className="rounded-full bg-success-tint px-2 py-0.5 text-xs font-medium text-success-deep">
               ✓
             </span>
           ) : null}

@@ -76,7 +76,7 @@ function addEuroDisplayFields(out: Record<string, unknown>, key: string, cents: 
   out[`${stem}Display`] = formatted
 }
 
-export function enrichMoneyFieldsForAi(value: unknown): unknown {
+function enrichMoneyFieldsForAi(value: unknown): unknown {
   if (Array.isArray(value)) return value.map((item) => enrichMoneyFieldsForAi(item))
   if (!isJsonRecord(value)) return value
 
@@ -221,7 +221,7 @@ function isJsonRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function shouldKeepStructuralEntityField(key: string): boolean {
-  return key === 'id' || key === 'uuid'
+  return key === 'id' || key === 'uuid' || key.endsWith('Uuid')
 }
 
 async function pseudonymizeNestedStringsAsync(
@@ -251,13 +251,14 @@ export function resolveDossierRef(
   const normalized = ref.trim().toLowerCase()
   if (!normalized) return undefined
   return (
-    dossiers.find((d) => d.id === ref || d.uuid === ref)?.id ??
-    dossiers.find((d) => d.id.toLowerCase() === normalized || d.uuid?.toLowerCase() === normalized)
-      ?.id
+    dossiers.find((d) => d.slug === ref || d.uuid === ref)?.slug ??
+    dossiers.find(
+      (d) => d.slug.toLowerCase() === normalized || d.uuid?.toLowerCase() === normalized
+    )?.slug
   )
 }
 
-export function buildManagedFieldsToolResult(entityProfile: EntityProfile | null): string {
+function buildManagedFieldsToolResult(entityProfile: EntityProfile | null): string {
   const managedFields = normalizeManagedFieldsConfig(entityProfile?.managedFields)
   const contactFieldMap = new Map(
     managedFields.contacts.map((field) => [getManagedFieldKey(field), field])
@@ -304,7 +305,7 @@ export function buildManagedFieldsToolResult(entityProfile: EntityProfile | null
   })
 }
 
-export function buildEntityProfileToolResult(entityProfile: EntityProfile | null): string {
+function buildEntityProfileToolResult(entityProfile: EntityProfile | null): string {
   if (!entityProfile) {
     return JSON.stringify({ entity: null })
   }
@@ -328,9 +329,9 @@ export function buildEntityProfileToolResult(entityProfile: EntityProfile | null
   })
 }
 
-export function buildDocumentListToolResult(documents: DocumentRecord[]): string {
+function buildDocumentListToolResult(documents: DocumentRecord[]): string {
   const summarized = documents.map((doc) => ({
-    documentId: doc.uuid ?? doc.id,
+    documentUuid: doc.uuid,
     filename: doc.filename,
     modifiedAt: doc.modifiedAt,
     hasMetadata: !!(doc.description || doc.tags.length > 0)
@@ -340,7 +341,7 @@ export function buildDocumentListToolResult(documents: DocumentRecord[]): string
   if (fullResult.length <= DOCUMENT_LIST_TOOL_MAX_CHARS) return fullResult
 
   const truncatedDocuments: Array<{
-    documentId: string
+    documentUuid: string
     filename: string
     modifiedAt: string
     hasMetadata: boolean
@@ -368,7 +369,7 @@ export function buildDocumentListToolResult(documents: DocumentRecord[]): string
  * before feeding it back to the LLM.
  *
  * Only human-readable strings are pseudonymized.
- * Structural fields (success, contactId, dossierId, templateId, entity.id/uuid) are UUIDs
+ * Structural fields (success, contactUuid, dossierId, templateUuid, entity.id/uuid) are UUIDs
  * or booleans that must round-trip verbatim so the LLM can reference them in subsequent calls.
  */
 export async function pseudonymizeActionToolResultAsync(
@@ -385,7 +386,7 @@ export async function pseudonymizeActionToolResultAsync(
     // contact_create/contact_update (and similar) may return `entity` with real saved values,
     // including nested `customFields` / arrays. Pseudonymize every nested string
     // so the tool result can safely be fed back to the LLM. Keep only entity
-    // `id` / `uuid` verbatim: those are structural handles needed by later tool
+    // `id` / `uuid` / `*Uuid` cross-references verbatim: those are structural handles needed by later tool
     // calls, and changing them would break round-trip behavior.
     if (isJsonRecord(obj.entity)) {
       obj.entity = await pseudonymizeNestedStringsAsync(obj.entity, pseudonymize, true)
@@ -675,8 +676,8 @@ export async function runDocumentSearch(args: {
   const alreadyIncluded = new Set<string>()
   const perDocumentCount = new Map<string, number>()
   for (const hit of sorted) {
-    if (perDocumentCount.has(hit.documentId)) continue
-    perDocumentCount.set(hit.documentId, 1)
+    if (perDocumentCount.has(hit.documentPath)) continue
+    perDocumentCount.set(hit.documentPath, 1)
     diversified.push(hit)
     alreadyIncluded.add(hitKey(hit))
     if (diversified.length >= DOCUMENT_SEARCH_MAX_HITS) break
@@ -688,7 +689,7 @@ export async function runDocumentSearch(args: {
       if (alreadyIncluded.has(hitKey(hit))) continue
       diversified.push(hit)
       alreadyIncluded.add(hitKey(hit))
-      perDocumentCount.set(hit.documentId, (perDocumentCount.get(hit.documentId) ?? 0) + 1)
+      perDocumentCount.set(hit.documentPath, (perDocumentCount.get(hit.documentPath) ?? 0) + 1)
       if (diversified.length >= DOCUMENT_SEARCH_MAX_HITS) break
     }
   }
@@ -696,7 +697,7 @@ export async function runDocumentSearch(args: {
   diversified.sort((left, right) => laneRank(left) - laneRank(right) || right.score - left.score)
 
   const matches = diversified.map((hit) => ({
-    documentId: hit.documentId,
+    documentPath: hit.documentPath,
     filename: hit.filename,
     excerpt: hit.snippet,
     matchType: classifyDocumentSearchMatchType(hit.matchKind),
@@ -714,11 +715,11 @@ export async function runDocumentSearch(args: {
   })
 }
 
-function hitKey(hit: { documentId: string; charStart: number; charEnd: number }): string {
-  return `${hit.documentId}:${hit.charStart}:${hit.charEnd}`
+function hitKey(hit: { documentPath: string; charStart: number; charEnd: number }): string {
+  return `${hit.documentPath}:${hit.charStart}:${hit.charEnd}`
 }
 
-export function resolveContactRecord(
+function resolveContactRecord(
   contacts: ContactRecord[],
   rawIdentifier: unknown
 ): ContactRecord | undefined {
@@ -817,7 +818,7 @@ export class DataToolExecutor {
     if (toolName === 'dossier_list') {
       return JSON.stringify({
         dossiers: this.deps.dossiers.map((d) => ({
-          dossierId: d.uuid ?? d.id,
+          dossierId: d.uuid,
           name: d.name,
           status: d.status,
           type: d.type
@@ -826,7 +827,10 @@ export class DataToolExecutor {
     }
 
     if (toolName === 'invoice_list') {
-      const filterDossierId = typeof args.dossierId === 'string' ? args.dossierId.trim() : ''
+      const rawFilterDossierId = typeof args.dossierId === 'string' ? args.dossierId.trim() : ''
+      const filterDossierId = rawFilterDossierId
+        ? (resolveDossierRef(rawFilterDossierId, this.deps.dossiers) ?? rawFilterDossierId)
+        : ''
       const all = await invoiceService.list().catch(() => [])
       const filtered = filterDossierId
         ? all.filter((inv) => inv.dossierId === filterDossierId)
@@ -834,7 +838,7 @@ export class DataToolExecutor {
       return JSON.stringify(
         enrichMoneyFieldsForAi({
           invoices: filtered.map((inv) => ({
-            invoiceId: inv.id,
+            invoiceUuid: inv.uuid,
             number: inv.number,
             documentType: inv.documentType,
             dossierId: inv.dossierId,
@@ -852,10 +856,10 @@ export class DataToolExecutor {
     }
 
     if (toolName === 'invoice_get') {
-      const invoiceId = typeof args.invoiceId === 'string' ? args.invoiceId.trim() : ''
-      if (!invoiceId) return JSON.stringify({ error: 'invoiceId is required.' })
-      const invoice = await invoiceService.get(invoiceId).catch(() => null)
-      if (!invoice) return JSON.stringify({ error: `Invoice not found: ${invoiceId}` })
+      const invoiceUuid = typeof args.invoiceUuid === 'string' ? args.invoiceUuid.trim() : ''
+      if (!invoiceUuid) return JSON.stringify({ error: 'invoiceUuid is required.' })
+      const invoice = await invoiceService.get(invoiceUuid).catch(() => null)
+      if (!invoice) return JSON.stringify({ error: `Invoice not found: ${invoiceUuid}` })
       return JSON.stringify(enrichMoneyFieldsForAi({ invoice }))
     }
 
@@ -953,12 +957,12 @@ export class DataToolExecutor {
     }
 
     if (toolName === 'contact_get') {
-      const contactId = typeof args.contactId === 'string' ? args.contactId : ''
+      const contactUuid = typeof args.contactUuid === 'string' ? args.contactUuid : ''
       const all = await contactService.list(targetDossierId).catch(() => [] as ContactRecord[])
-      const contact = resolveContactRecord(all, contactId)
+      const contact = resolveContactRecord(all, contactUuid)
       return contact
         ? JSON.stringify({ contact })
-        : JSON.stringify({ error: `Contact not found: ${contactId}` })
+        : JSON.stringify({ error: `Contact not found: ${contactUuid}` })
     }
 
     if (toolName === 'document_list') {
@@ -969,12 +973,12 @@ export class DataToolExecutor {
     }
 
     if (toolName === 'document_get') {
-      const documentId = typeof args.documentId === 'string' ? args.documentId : ''
+      const documentUuid = typeof args.documentUuid === 'string' ? args.documentUuid : ''
       const docs = await documentService
         .listDocuments({ dossierId: targetDossierId })
         .catch(() => [] as DocumentRecord[])
-      const doc = docs.find((d) => d.id === documentId || d.uuid === documentId)
-      if (!doc) return JSON.stringify({ error: `Document not found: ${documentId}` })
+      const doc = docs.find((d) => d.uuid === documentUuid || d.path === documentUuid)
+      if (!doc) return JSON.stringify({ error: `Document not found: ${documentUuid}` })
 
       let totalChars = 0
       let totalLines = 0
@@ -1042,8 +1046,10 @@ export class DataToolExecutor {
     }
 
     if (toolName === 'note_search') {
+      // Empty query (or the "*" wildcard) is intentional: it lists ALL notes in
+      // the dossier (optionally filtered by kind/status) — used for "synthèse /
+      // liste des notes". A focused query runs hybrid keyword + semantic search.
       const query = typeof args.query === 'string' ? args.query.trim() : ''
-      if (!query) return JSON.stringify({ error: 'query is required.' })
       const kind = typeof args.kind === 'string' ? (args.kind as NoteKindArg) : undefined
       const status = typeof args.status === 'string' ? (args.status as NoteStatusArg) : undefined
 
@@ -1056,9 +1062,14 @@ export class DataToolExecutor {
         })
         return JSON.stringify({
           notes: hits.map((hit) => ({
-            noteId: hit.noteId,
+            noteUuid: hit.noteUuid,
             title: hit.title,
+            kind: hit.kind,
+            status: hit.status,
             excerpt: hit.snippet,
+            // When true, `excerpt` is only the start of the note: call note_get
+            // with this noteUuid to read the full content before relying on it.
+            truncated: hit.truncated === true,
             matchType: hit.matchKind === 'keyword' ? 'exact' : 'semantic'
           }))
         })
@@ -1066,6 +1077,43 @@ export class DataToolExecutor {
         return JSON.stringify({
           error: `note_search failed: ${err instanceof Error ? err.message : 'unknown error'}`
         })
+      }
+    }
+
+    if (toolName === 'note_get') {
+      const noteUuid = typeof args.noteUuid === 'string' ? args.noteUuid.trim() : ''
+      if (!noteUuid) return JSON.stringify({ error: 'noteUuid is required.' })
+
+      try {
+        // ⚠️ PERF / KNOWN DEBT: reading ONE note by id, but getDossier loads the
+        // WHOLE dossier (contacts, key dates, references, billing items, fee
+        // agreements…) and loadNotes() reads EVERY *.json in the notes/ dir —
+        // so this is O(all notes + full dossier) to fetch a single record.
+        // Fine at today's volume (a handful to a few dozen notes per dossier,
+        // local disk, rare call — only when a truncated note's tail matters).
+        // If notes grow to hundreds per dossier, add a targeted
+        // dossierService.getNote({ dossierId, noteUuid }) that reads the single
+        // file via getDossierNoteRecordPath(dossierPath, noteUuid) and call it
+        // here instead — O(1 file). See dossierRegistryService.ts (saveNote
+        // already uses that direct path).
+        const detail = await dossierService.getDossier({ dossierId: targetDossierId })
+        const note = detail.notes.find((entry) => entry.uuid === noteUuid)
+        if (!note) return JSON.stringify({ error: `Note not found: ${noteUuid}` })
+        return JSON.stringify({
+          note: {
+            noteUuid: note.uuid,
+            title: note.title,
+            content: note.content,
+            kind: note.kind,
+            status: note.status,
+            tags: note.tags ?? [],
+            pinned: note.pinned === true,
+            createdAt: note.createdAt,
+            updatedAt: note.updatedAt
+          }
+        })
+      } catch {
+        return JSON.stringify({ error: `Dossier not found: ${targetDossierId}` })
       }
     }
 

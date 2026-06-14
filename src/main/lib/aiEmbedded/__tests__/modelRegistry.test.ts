@@ -14,7 +14,11 @@ import {
 // `pipelineSpy` and `envRef` are hoisted via vi.hoisted so the factory and
 // the test bodies see the same references.
 const { pipelineSpy, envRef } = vi.hoisted(() => {
-  const env = { localModelPath: undefined as string | undefined, allowRemoteModels: true }
+  const env = {
+    localModelPath: undefined as string | undefined,
+    allowRemoteModels: true,
+    useFSCache: true
+  }
   return {
     pipelineSpy: vi.fn(),
     envRef: env
@@ -31,6 +35,7 @@ beforeEach(() => {
   pipelineSpy.mockReset()
   envRef.localModelPath = undefined
   envRef.allowRemoteModels = true
+  envRef.useFSCache = true
 })
 
 describe('modelRegistry', () => {
@@ -99,6 +104,11 @@ describe('modelRegistry', () => {
     })
     expect(envRef.localModelPath).toBe('/opt/models/bundle-a')
     expect(envRef.allowRemoteModels).toBe(false)
+    expect(envRef.useFSCache).toBe(false)
+    expect(pipelineSpy).toHaveBeenCalledWith('token-classification', 'Xenova/test-ner', {
+      dtype: 'q8',
+      local_files_only: true
+    })
 
     // Second consumer with a different modelPath is ignored — the env is
     // module-global and cannot honour two localModelPath values at once.

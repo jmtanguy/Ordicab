@@ -6,8 +6,8 @@
  * so there is no value in a persistent vector database. For each search the
  * service loads the relevant cache JSONs, decodes their vectors into memory,
  * runs a flat cosine-similarity search, and returns the top-K chunks with
- * snippets + offsets. A typical dossier (~50 docs × ~100 chunks × 384 dims)
- * is well under 10 MB in RAM — cheap to build on demand.
+ * snippets + offsets. A typical dossier (~50 docs × ~100 chunks × 1024 dims)
+ * is well under 50 MB in RAM — cheap to build on demand.
  *
  * Reload-on-query is the right default: content can change between searches
  * (new documents, re-extraction), and the on-disk cache is the source of
@@ -27,6 +27,7 @@ import {
   cosineSimilarity,
   DEFAULT_EMBEDDING_DIM,
   DEFAULT_EMBEDDING_MODEL,
+  DEFAULT_EMBEDDING_POOLING,
   embedBatch,
   type EmbeddingServiceConfig
 } from './embeddingService'
@@ -57,11 +58,7 @@ export interface SemanticSearchParams {
    * Pass the worker-thread client here to keep ONNX inference off the Electron
    * main thread and prevent HandleScope crashes in Electron's CFRunLoop integration.
    */
-  embedder?: (
-    texts: string[],
-    config?: EmbeddingServiceConfig,
-    options?: { inputPrefix?: string }
-  ) => Promise<Float32Array[] | null>
+  embedder?: (texts: string[], config?: EmbeddingServiceConfig) => Promise<Float32Array[] | null>
 }
 
 interface LoadedDocument {
@@ -77,38 +74,27 @@ interface LoadAllResult {
 
 const DEFAULT_TOP_K = 10
 
-// Score assigned to exact-substring hits so they outrank any vector hit.
-// Cosine similarity with L2-normalized vectors lives in [-1, 1], so any
-// value strictly greater than 1 guarantees an exact literal match wins
-// over a near-synonym. 1.25 leaves a small margin for future scoring
-// tweaks while staying well below any plausible noise floor.
-export const SEMANTIC_SEARCH_EXACT_MATCH_SCORE = 1.25
-
-// Embedding models are anisotropic: any two texts share a large common
-// component, so raw cosine has a high noise floor (~0.5-0.6 here) and an
-// off-topic query like "recette de cuisine" can score as high as a real one.
-// We subtract the corpus mean vector ("all-but-the-top" centering) before
-// scoring vector hits — this collapses the shared component so the genuine
-// signal (the *difference* from the average document) dominates. After
-// centering, clearly off-topic queries fall near/below zero.
+// Confidence floor for semantic suggestions, on the RAW query–passage cosine.
+// Vectors are L2-normalized at index time, so cosine is a plain dot product.
 //
-// Relative keep-band: a vector hit survives when its centered score is within
-// this margin of the best centered score for the query. Keeps the strong
-// match plus its near-neighbours; drops documents far below the top.
-const RELATIVE_MARGIN = 0.1
-
-// Absolute guard: only documents MORE similar than the dossier average survive
-// (centered score > 0). A negative centered score means the document is less
-// like the query than a typical document in the dossier — pure noise.
+// We rank and admit on raw cosine directly — no corpus-mean centering. That
+// centering was inherited from the older, strongly-anisotropic E5 model, whose
+// off-topic cosine floor sat around ~0.6 and buried real matches. bge-m3 is
+// different: measured on the demo dossiers its query–passage cosine separates
+// on-topic passages from off-topic probes on a stable, dossier-independent
+// scale. Centering by the corpus mean instead made scores depend on how
+// homogeneous the dossier is (an on-topic hit in a tight medical dossier
+// collapsed to ~0.14 while an off-topic one in a looser dossier reached ~0.20),
+// so no fixed floor could separate them. Raw cosine restores a single,
+// interpretable cut.
 //
-// IMPORTANT: this does NOT separate on-topic from off-topic. Measurements
-// across dossiers showed the vector signal simply cannot make that call in a
-// small homogeneous legal corpus — an off-topic word ("football") can land as
-// close to some document as a real term. No fixed/z-score/gap threshold fixes
-// this. So semantic results are presented honestly as "approximate suggestions"
-// in the UI, and literal keyword matches (keywordSearchService) carry real
-// precision. This guard only trims the obvious negative-similarity noise.
-const RELEVANCE_GUARD = 0
+// This floor is applied AFTER sentence refinement (so a strong chunk can't
+// survive on a weak displayed sentence). Measured on the demo dossiers, the
+// refined picked-sentence cosine of genuine on-topic queries bottoms out at
+// ~0.50, while off-topic probes top out at ~0.46 — 0.47 sits in that gap,
+// keeping real matches while dropping the "least bad" neighbour dense retrieval
+// always returns for an out-of-corpus probe.
+const MIN_SEMANTIC_SCORE = 0.47
 
 // MAX_HITS_PER_DOCUMENT and SNIPPET_MAX_CHARS are shared with the keyword
 // search path — see ./textSearchShared.
@@ -123,50 +109,41 @@ const REFINE_BATCH_SIZE = 32
 const REFINE_MAX_SENTENCE_CHARS = 1200
 const REFINE_MAX_SENTENCES_PER_HIT = 24
 
-// STOP_WORDS, KEYWORD_BONUS_PER_WORD, buildContentWordRegexes, and
-// computeKeywordBonus are shared with the keyword search path — see
-// ./textSearchShared.
+const LOW_SIGNAL_HEADINGS = new Set([
+  'discussion',
+  'objet',
+  'demandes',
+  'moyens',
+  'faits',
+  'procedure',
+  'procédure',
+  'conclusions',
+  'dispositif'
+])
 
-/** Centroid of every chunk vector across the loaded documents, or null if none. */
-function computeMeanVector(docs: LoadedDocument[]): Float32Array | null {
-  let dim = 0
-  let count = 0
-  for (const doc of docs) {
-    for (const chunk of doc.embeddings.chunks) {
-      if (dim === 0) dim = chunk.vector.length
-      count += 1
-    }
-  }
-  if (dim === 0 || count === 0) return null
-  const mean = new Float32Array(dim)
-  for (const doc of docs) {
-    for (const chunk of doc.embeddings.chunks) {
-      const v = chunk.vector
-      for (let i = 0; i < dim; i++) mean[i]! += v[i]!
-    }
-  }
-  for (let i = 0; i < dim; i++) mean[i]! /= count
-  return mean
-}
+function isLowSignalSentence(text: string): boolean {
+  const trimmed = text.trim()
+  if (!trimmed) return true
 
-function subtractVector(a: Float32Array, b: Float32Array): Float32Array {
-  const out = new Float32Array(a.length)
-  for (let i = 0; i < a.length; i++) out[i] = a[i]! - b[i]!
-  return out
-}
+  const lower = trimmed.toLocaleLowerCase()
+  const folded = lower.normalize('NFD').replace(/\p{Diacritic}/gu, '')
+  const heading = lower.replace(/[^\p{L}\p{N}\s-]/gu, '').trim()
+  const foldedHeading = folded.replace(/[^\p{L}\p{N}\s-]/gu, '').trim()
 
-/** Cosine similarity that normalizes by magnitude (for non-unit vectors). */
-function fullCosine(a: Float32Array, b: Float32Array): number {
-  let dot = 0
-  let na = 0
-  let nb = 0
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i]! * b[i]!
-    na += a[i]! * a[i]!
-    nb += b[i]! * b[i]!
+  if (LOW_SIGNAL_HEADINGS.has(heading) || LOW_SIGNAL_HEADINGS.has(foldedHeading)) return true
+  if (trimmed.length <= 40 && /^[\p{L}\p{N}\s'’:-]+$/u.test(trimmed) && !/[.!?]$/.test(trimmed)) {
+    return true
   }
-  const denom = Math.sqrt(na) * Math.sqrt(nb)
-  return denom === 0 ? 0 : dot / denom
+  if (
+    folded.includes('cabinet delacroix') ||
+    folded.includes('avocat au barreau') ||
+    lower.includes('contact@cabinet-delacroix.fr') ||
+    /(?:\+33|0)\s*\d(?:[\s.()-]*\d){6,}/.test(trimmed)
+  ) {
+    return true
+  }
+
+  return false
 }
 
 export async function searchDossier(params: SemanticSearchParams): Promise<SemanticSearchHit[]> {
@@ -180,8 +157,8 @@ export async function searchDossier(params: SemanticSearchParams): Promise<Seman
   const embedder = params.embedder ?? embedBatch
 
   // Kick off query embedding and cache decode in parallel so we don't pay them
-  // sequentially. bge-m3 uses no input prefix, so query and passage embeddings
-  // share the same (empty) prefix — we leave inputPrefix unset.
+  // sequentially. bge-m3 pools the raw text, so the query is embedded the same
+  // way as the indexed passages — no query/passage prefix to apply.
   const [queryVecBatch, loadResult] = await Promise.all([
     embedder([query], params.embeddingConfig),
     loadAll(params.documents, expectedModel, expectedDim)
@@ -197,78 +174,47 @@ export async function searchDossier(params: SemanticSearchParams): Promise<Seman
   if (!queryVec) return []
   if (loadResult.loaded.length === 0) return []
 
-  // Mean-center to defeat embedding anisotropy (see CENTERED_SCORE_FLOOR). The
-  // mean is computed over every chunk vector loaded for this dossier, so it is
-  // the centroid of *this* corpus and adapts to its content. Vectors are
-  // L2-normalized at index time; the centered vectors are not re-normalized
-  // because centered cosine (a correlation) is exactly what separates signal
-  // from the shared component.
+  // Score every chunk by raw cosine against the query. Vectors are L2-normalized
+  // at index time, so cosineSimilarity is a plain dot product. We rank and admit
+  // on this raw cosine directly: bge-m3's off-topic floor (~0.35) sits well below
+  // its on-topic band (~0.5-0.6), so there is no anisotropic common component
+  // worth subtracting first (see MIN_SEMANTIC_SCORE).
   //
-  // Centering needs at least 2 distinct chunk vectors: with a single chunk the
-  // mean equals that chunk, so centering zeroes it out and the score collapses
-  // to 0. Below that threshold we skip centering entirely and rank on raw
-  // cosine with no floor (nothing to denoise against).
-  const totalChunks = loadResult.loaded.reduce((n, d) => n + d.embeddings.chunks.length, 0)
-  const meanVec = totalChunks >= 2 ? computeMeanVector(loadResult.loaded) : null
-  const centeredQuery = meanVec ? subtractVector(queryVec, meanVec) : queryVec
-
-  // Pure cosine search — no keyword bonus yet. The bonus is applied later,
-  // on the refined snippet, so only hits whose displayed sentence actually
-  // contains the query terms benefit. Applying it on the raw chunk (~2000
-  // chars) was causing chunks to be over-ranked when the keyword appeared
-  // in a different sentence than the one eventually displayed.
+  // Two-stage ranking:
+  //   1. Candidate selection on the CHUNK cosine — order the pool by closeness
+  //      so the chunks we refine are the genuinely-closest ones.
+  //   2. FINAL ranking on the picked SENTENCE's cosine (set by refineSnippets).
+  //      A ~800-char chunk's signal can be carried by a different sentence than
+  //      the one we highlight, so ranking on the displayed sentence is finer.
   //
-  // We rank/filter on the CENTERED cosine (defeats the noise floor) but keep
-  // the raw cosine for display, since centered scores can be negative and are
-  // not intuitive to show.
-  //
-  // Filtering uses a RELATIVE threshold rather than a fixed centered floor:
-  // a hit is kept when its centered score is within RELATIVE_MARGIN of the
-  // best centered score for this query. This adapts per query — when a strong
-  // match exists we keep its near-neighbours; when everything is weak we keep
-  // little. A low absolute guard (RELEVANCE_GUARD) still applies so a query
-  // with no real match (e.g. "recette de cuisine", whose best centered score
-  // is near zero) doesn't drag in a pile of equally-irrelevant documents.
+  // searchDossier returns PURE VECTOR (meaning-based) results; literal keyword
+  // matches are handled separately by keywordSearchService and merged upstream.
   type ScoredChunk = {
     doc: LoadedDocument
     chunk: StoredEmbeddings['chunks'][number]
-    centered: number
+    score: number
   }
   const scored: ScoredChunk[] = []
   for (const doc of loadResult.loaded) {
     for (const chunk of doc.embeddings.chunks) {
-      const centeredChunk = meanVec ? subtractVector(chunk.vector, meanVec) : chunk.vector
-      // Centered vectors are not unit-length, so use a full cosine (with
-      // magnitude normalization), not the dot-product fast path.
-      const centered = fullCosine(centeredQuery, centeredChunk)
-      scored.push({ doc, chunk, centered })
+      scored.push({ doc, chunk, score: cosineSimilarity(queryVec, chunk.vector) })
     }
   }
-  const bestCentered = scored.reduce((max, s) => Math.max(max, s.centered), -Infinity)
-  // Keep threshold: relative to the best, but never below the absolute guard.
-  const keepThreshold = Math.max(bestCentered - RELATIVE_MARGIN, RELEVANCE_GUARD)
+  scored.sort((a, b) => b.score - a.score)
 
-  const vectorHits: SemanticSearchHit[] = []
-  for (const s of scored) {
-    if (s.centered < keepThreshold) continue
-    vectorHits.push({
-      documentId: s.doc.meta.documentId,
-      displayName: s.doc.meta.displayName,
-      charStart: s.chunk.charStart,
-      charEnd: s.chunk.charEnd,
-      score: cosineSimilarity(queryVec, s.chunk.vector),
-      snippet: ''
-    })
-  }
-
-  // searchDossier returns PURE VECTOR (meaning-based) results. Literal keyword
-  // matches are handled separately by keywordSearchService and merged upstream
-  // in documentService.semanticSearch — doing exact-match here too would inject
-  // duplicate 1.25-scored hits that pollute the "approximate" (semantic) lane.
-  vectorHits.sort((a, b) => b.score - a.score)
+  const vectorHits: SemanticSearchHit[] = scored.map((s) => ({
+    itemId: s.doc.meta.itemId,
+    displayName: s.doc.meta.displayName,
+    charStart: s.chunk.charStart,
+    charEnd: s.chunk.charEnd,
+    // Raw chunk cosine — a placeholder that refineSnippets overwrites with the
+    // picked sentence's cosine when sentence refinement runs.
+    score: s.score,
+    snippet: ''
+  }))
 
   // Take a generous candidate pool (topK * 2) so relevant documents are not
-  // excluded before the snippet-based re-ranking below. A light per-doc cap
+  // excluded before the sentence-level re-ranking below. A light per-doc cap
   // (MAX_HITS_PER_DOCUMENT + 1) prevents one document from monopolising the
   // pool while still giving it more than its final allocation.
   const candidatePool = limitHitsPerDocument(vectorHits, MAX_HITS_PER_DOCUMENT + 1).slice(
@@ -280,7 +226,7 @@ export async function searchDossier(params: SemanticSearchParams): Promise<Seman
   // down to the sentence(s) that best match the query. For exact hits the
   // containing sentence is located directly; for vector hits the sentences
   // are re-embedded and scored.
-  const loadedById = new Map(loadResult.loaded.map((doc) => [doc.meta.documentId, doc]))
+  const loadedById = new Map(loadResult.loaded.map((doc) => [doc.meta.itemId, doc]))
   try {
     await refineSnippets(candidatePool, loadedById, queryVec, params.embeddingConfig, embedder)
   } catch (err) {
@@ -293,7 +239,7 @@ export async function searchDossier(params: SemanticSearchParams): Promise<Seman
     )
     for (const hit of candidatePool) {
       if (hit.snippet) continue
-      const doc = loadedById.get(hit.documentId)
+      const doc = loadedById.get(hit.itemId)
       if (!doc) continue
       const chunk = doc.embeddings.chunks.find(
         (c) => c.charStart < hit.charEnd && hit.charStart < c.charEnd
@@ -306,11 +252,14 @@ export async function searchDossier(params: SemanticSearchParams): Promise<Seman
     }
   }
 
-  // Pure vector ranking — no keyword bonus here (the keyword lane is separate;
-  // see comment above). Apply the final per-doc limit and slice to topK.
-  candidatePool.sort((a, b) => b.score - a.score)
+  // Stage 2: rank on the picked-sentence cosine that refineSnippets wrote back
+  // into hit.score (falls back to the chunk cosine for hits it couldn't refine).
+  // Drop weak semantic neighbours before the final per-doc limit so approximate
+  // search remains useful without showing forced matches.
+  const confidentHits = candidatePool.filter((hit) => hit.score >= MIN_SEMANTIC_SCORE)
+  confidentHits.sort((a, b) => b.score - a.score)
 
-  return limitHitsPerDocument(candidatePool, MAX_HITS_PER_DOCUMENT).slice(0, topK)
+  return limitHitsPerDocument(confidentHits, MAX_HITS_PER_DOCUMENT).slice(0, topK)
 }
 
 // Sentence, splitIntoSentences, BuiltSnippet, and buildSnippetWithContext are
@@ -323,8 +272,7 @@ async function refineSnippets(
   embeddingConfig?: EmbeddingServiceConfig,
   embedder: (
     texts: string[],
-    config?: EmbeddingServiceConfig,
-    options?: { inputPrefix?: string }
+    config?: EmbeddingServiceConfig
   ) => Promise<Float32Array[] | null> = embedBatch
 ): Promise<void> {
   interface Plan {
@@ -332,12 +280,11 @@ async function refineSnippets(
     chunkStart: number
     chunkText: string
     sentences: Sentence[]
-    isExact: boolean
   }
 
   const plans: Plan[] = []
   for (const hit of hits) {
-    const doc = loadedById.get(hit.documentId)
+    const doc = loadedById.get(hit.itemId)
     if (!doc) {
       hit.snippet = hit.snippet || ''
       continue
@@ -350,29 +297,26 @@ async function refineSnippets(
     const chunkText = doc.text.slice(chunkStart, chunkEnd)
     let sentences = splitIntoSentences(chunkText)
     // Discard pathological inputs that can blow up the ONNX runtime:
-    // empty/whitespace, or single sentences longer than the model context.
+    // empty/whitespace, single sentences longer than the model context, and
+    // structural boilerplate ("Discussion", letterhead/contact lines) that
+    // otherwise becomes the repeated best-looking snippet for unrelated queries.
     sentences = sentences
       .filter((s) => s.text.length >= 5 && s.text.length <= REFINE_MAX_SENTENCE_CHARS)
+      .filter((s) => !isLowSignalSentence(s.text))
       .slice(0, REFINE_MAX_SENTENCES_PER_HIT)
     if (sentences.length === 0) {
       hit.snippet = chunkText.trim().slice(0, SNIPPET_MAX_CHARS)
       continue
     }
-    plans.push({
-      hit,
-      chunkStart,
-      chunkText,
-      sentences,
-      isExact: hit.score >= SEMANTIC_SEARCH_EXACT_MATCH_SCORE
-    })
+    plans.push({ hit, chunkStart, chunkText, sentences })
   }
 
-  // Vector hits with more than one sentence need re-embedding to locate
-  // the best sub-span. We chunk the batch so a single inference call never
-  // exceeds REFINE_BATCH_SIZE inputs — large batches on E5-small are the
-  // most likely native-crash trigger (OOM inside the ONNX runtime, which
-  // would hard-quit the whole Electron process).
-  const refinable = plans.filter((p) => !p.isExact && p.sentences.length > 1)
+  // Hits with more than one sentence need re-embedding to locate the best
+  // sub-span. We chunk the batch so a single inference call never exceeds
+  // REFINE_BATCH_SIZE inputs — large batches are the most likely native-crash
+  // trigger (OOM inside the ONNX runtime, which would hard-quit the whole
+  // Electron process).
+  const refinable = plans.filter((p) => p.sentences.length > 1)
   let sentenceVecs: Float32Array[] | null = null
   if (refinable.length > 0) {
     const allSentences = refinable.flatMap((p) => p.sentences.map((s) => s.text))
@@ -392,13 +336,7 @@ async function refineSnippets(
   let cursor = 0
   for (const plan of plans) {
     let pickedIdx: number
-    if (plan.isExact) {
-      const localStart = plan.hit.charStart - plan.chunkStart
-      const found = plan.sentences.findIndex(
-        (s) => s.charStart <= localStart && localStart < s.charEnd
-      )
-      pickedIdx = found >= 0 ? found : 0
-    } else if (plan.sentences.length === 1) {
+    if (plan.sentences.length === 1) {
       pickedIdx = 0
     } else if (!sentenceVecs) {
       // Re-embedding failed (e.g. model unavailable). Highlight the first
@@ -418,6 +356,10 @@ async function refineSnippets(
       }
       cursor += plan.sentences.length
       pickedIdx = bestIdx
+      // Re-rank on the displayed sentence: replace the coarse chunk score with
+      // the cosine of the sentence we actually highlight, so the ranking
+      // reflects the passage the user sees (stage 2 in searchDossier).
+      if (bestScore > -Infinity) plan.hit.score = bestScore
     }
 
     const built = buildSnippetWithContext(plan.sentences, pickedIdx)
@@ -432,7 +374,7 @@ async function refineSnippets(
     // get absolute offsets into the document text. Trim the leading/trailing
     // boundary whitespace that splitIntoSentences keeps in charStart/charEnd.
     const picked = plan.sentences[pickedIdx]!
-    const doc = loadedById.get(plan.hit.documentId)
+    const doc = loadedById.get(plan.hit.itemId)
     if (doc) {
       const absStart = plan.chunkStart + picked.charStart
       const absEnd = plan.chunkStart + picked.charEnd
@@ -479,7 +421,17 @@ async function loadAll(
       const loaded = await readDocumentCache(meta.cachePath)
       if (!loaded) return null
       const { text, embeddings } = loaded
-      if (embeddings.model !== expectedModel || embeddings.dim !== expectedDim) return 'mismatch'
+      // Pooling is part of the identity: a doc still pooled with the old mode
+      // must not be scored against a query pooled with the current mode (mixed
+      // pooling = meaningless cosine). Treat it like a model/dim mismatch so the
+      // warn log nudges a re-index; the startup catch-up rebuilds it.
+      if (
+        embeddings.model !== expectedModel ||
+        embeddings.dim !== expectedDim ||
+        embeddings.pooling !== DEFAULT_EMBEDDING_POOLING
+      ) {
+        return 'mismatch'
+      }
       if (embeddings.chunks.length === 0) return null
       return { meta, text, embeddings }
     })

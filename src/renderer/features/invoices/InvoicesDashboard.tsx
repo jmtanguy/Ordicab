@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import type { DossierBillingItem, InvoiceRecord, InvoiceStatus } from '@shared/types'
+import { ConfirmDialog } from '@renderer/components/ui'
+import { useToast } from '@renderer/contexts/ToastContext'
+import { formatEurosFromCents } from '@renderer/lib/billingFormatters'
+import { invoiceStatusLabel } from '@renderer/lib/domainLabels'
 import { useInvoiceStore, type UnbilledDossierGroup } from '@renderer/stores/invoiceStore'
 
 import {
@@ -16,13 +20,12 @@ import { CreditNoteDialog } from './CreditNoteDialog'
 import { InvoiceCreationDialog } from './InvoiceCreationDialog'
 import { InvoicePreviewDialog } from './InvoicePreviewDialog'
 import { InvoiceRowActions } from './InvoiceRowActions'
+import { KpiPanel } from './KpiPanel'
+import { PaymentDialog } from './PaymentDialog'
+import { computeOverdueInfo } from './overdue'
 
 interface InvoicesDashboardProps {
   onOpenDossier: (id: string) => void | Promise<void>
-}
-
-function formatCents(cents: number): string {
-  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(cents / 100)
 }
 
 function formatDateIso(iso: string): string {
@@ -35,14 +38,6 @@ function formatDateIso(iso: string): string {
   }
 }
 
-const STATUS_LABEL: Record<InvoiceStatus, string> = {
-  issued: 'Émise',
-  partiallyPaid: 'Partielle',
-  paid: 'Payée',
-  overpaid: 'Trop payé',
-  cancelled: 'Annulée',
-  corrected: 'Rectifiée'
-}
 const STATUS_STYLE: Record<InvoiceStatus, string> = {
   issued: 'bg-sky-50 text-sky-700 border-sky-200',
   partiallyPaid: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -52,10 +47,11 @@ const STATUS_STYLE: Record<InvoiceStatus, string> = {
   corrected: 'bg-indigo-50 text-indigo-700 border-indigo-200'
 }
 
-type StatusFilter = 'all' | InvoiceStatus
+type StatusFilter = 'all' | 'overdue' | InvoiceStatus
 
 export function InvoicesDashboard({ onOpenDossier }: InvoicesDashboardProps): React.JSX.Element {
   const { t } = useTranslation()
+  const { showToast } = useToast()
   const invoices = useInvoiceStore((s) => s.invoices)
   const unbilledGroups = useInvoiceStore((s) => s.unbilledGroups)
   const isLoading = useInvoiceStore((s) => s.isLoading)
@@ -64,9 +60,9 @@ export function InvoicesDashboard({ onOpenDossier }: InvoicesDashboardProps): Re
   const load = useInvoiceStore((s) => s.load)
   const loadUnbilled = useInvoiceStore((s) => s.loadUnbilled)
   const markPaid = useInvoiceStore((s) => s.markPaid)
-  const addPayment = useInvoiceStore((s) => s.addPayment)
   const cancel = useInvoiceStore((s) => s.cancel)
   const exportCsv = useInvoiceStore((s) => s.exportCsv)
+  const exportFec = useInvoiceStore((s) => s.exportFec)
   const loadSettings = useInvoiceStore((s) => s.loadSettings)
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
@@ -78,6 +74,9 @@ export function InvoicesDashboard({ onOpenDossier }: InvoicesDashboardProps): Re
   const [previewInvoice, setPreviewInvoice] = useState<InvoiceRecord | null>(null)
   const [creditNoteInvoice, setCreditNoteInvoice] = useState<InvoiceRecord | null>(null)
   const [correctiveInvoice, setCorrectiveInvoice] = useState<InvoiceRecord | null>(null)
+  const [paymentInvoice, setPaymentInvoice] = useState<InvoiceRecord | null>(null)
+  const [cancelInvoice, setCancelInvoice] = useState<InvoiceRecord | null>(null)
+  const [isCancelling, setIsCancelling] = useState(false)
 
   useEffect(() => {
     void load()
@@ -112,11 +111,16 @@ export function InvoicesDashboard({ onOpenDossier }: InvoicesDashboardProps): Re
     const legalAidIssuedTtc = legalAid.reduce((acc, e) => acc + e.totalTtcCents, 0)
     const legalAidPaidTtc = legalAid.reduce((acc, e) => acc + e.paidAmountCents, 0)
     const legalAidPendingTtc = legalAid.reduce((acc, e) => acc + e.remainingAmountCents, 0)
+    // Échu non payé : toutes années confondues, une facture en retard reste à relancer.
+    const overdueTtc = list
+      .filter((e) => computeOverdueInfo(e))
+      .reduce((acc, e) => acc + e.remainingAmountCents, 0)
     return {
       totalIssuedHt,
       totalIssuedTtc,
       totalPaidTtc,
       totalPendingTtc,
+      overdueTtc,
       legalAidIssuedTtc,
       legalAidPaidTtc,
       legalAidPendingTtc
@@ -126,7 +130,11 @@ export function InvoicesDashboard({ onOpenDossier }: InvoicesDashboardProps): Re
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return list.filter((entry) => {
-      if (statusFilter !== 'all' && entry.status !== statusFilter) return false
+      if (statusFilter === 'overdue') {
+        if (!computeOverdueInfo(entry)) return false
+      } else if (statusFilter !== 'all' && entry.status !== statusFilter) {
+        return false
+      }
       if (!q) return true
       return (
         entry.number.toLowerCase().includes(q) ||
@@ -135,6 +143,9 @@ export function InvoicesDashboard({ onOpenDossier }: InvoicesDashboardProps): Re
       )
     })
   }, [list, statusFilter, search])
+
+  const collectionPct =
+    kpis.totalIssuedTtc > 0 ? Math.round((kpis.totalPaidTtc / kpis.totalIssuedTtc) * 100) : null
 
   const unbilled = unbilledGroups ?? []
   const unbilledTotalTtc = unbilled.reduce((acc, g) => acc + g.totalTtcCents, 0)
@@ -151,31 +162,77 @@ export function InvoicesDashboard({ onOpenDossier }: InvoicesDashboardProps): Re
         }
       />
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <KpiCard label={`CA ${currentYear} HT`} value={formatCents(kpis.totalIssuedHt)} />
-        <KpiCard label={`CA ${currentYear} TTC`} value={formatCents(kpis.totalIssuedTtc)} />
-        <KpiCard label="Encaissé TTC" value={formatCents(kpis.totalPaidTtc)} accent="emerald" />
-        <KpiCard label="En attente TTC" value={formatCents(kpis.totalPendingTtc)} accent="amber" />
+      <div
+        className={`grid grid-cols-1 gap-3 ${
+          kpis.legalAidIssuedTtc > 0 ? 'lg:grid-cols-3' : 'lg:grid-cols-2'
+        }`}
+      >
+        <KpiPanel
+          title={t('invoices.kpi_revenue_title', {
+            year: currentYear,
+            defaultValue: `Chiffre d'affaires ${currentYear}`
+          })}
+          value={formatEurosFromCents(kpis.totalIssuedHt)}
+          caption={t('invoices.kpi_revenue_ht', { defaultValue: 'HT' })}
+          rows={[
+            {
+              label: t('invoices.kpi_revenue_ttc', { defaultValue: 'TTC' }),
+              value: formatEurosFromCents(kpis.totalIssuedTtc)
+            }
+          ]}
+        />
+        <KpiPanel
+          title={t('invoices.kpi_collections_title', {
+            year: currentYear,
+            defaultValue: `Encaissements ${currentYear}`
+          })}
+          value={formatEurosFromCents(kpis.totalPaidTtc)}
+          valueAccent="emerald"
+          caption={
+            collectionPct != null
+              ? t('invoices.kpi_collections_caption', {
+                  pct: collectionPct,
+                  defaultValue: `encaissés · ${collectionPct} % du CA TTC`
+                })
+              : t('invoices.kpi_collections_caption_no_pct', { defaultValue: 'encaissés' })
+          }
+          progress={collectionPct}
+          rows={[
+            {
+              label: t('invoices.kpi_pending', { defaultValue: 'En attente' }),
+              value: formatEurosFromCents(kpis.totalPendingTtc),
+              accent: 'amber'
+            },
+            {
+              label: t('invoices.dashboard_kpi_overdue', { defaultValue: 'Échu impayé' }),
+              value: formatEurosFromCents(kpis.overdueTtc),
+              accent: kpis.overdueTtc > 0 ? 'red' : undefined
+            }
+          ]}
+        />
+        {kpis.legalAidIssuedTtc > 0 ? (
+          <KpiPanel
+            title={t('invoices.kpi_aj_title', {
+              year: currentYear,
+              defaultValue: `Aide juridictionnelle ${currentYear}`
+            })}
+            value={formatEurosFromCents(kpis.legalAidIssuedTtc)}
+            caption={t('invoices.kpi_aj_issued_caption', { defaultValue: 'émise' })}
+            rows={[
+              {
+                label: t('invoices.kpi_aj_paid', { defaultValue: 'Encaissée CARPA' }),
+                value: formatEurosFromCents(kpis.legalAidPaidTtc),
+                accent: 'emerald'
+              },
+              {
+                label: t('invoices.kpi_aj_pending', { defaultValue: 'À recouvrer' }),
+                value: formatEurosFromCents(kpis.legalAidPendingTtc),
+                accent: kpis.legalAidPendingTtc > 0 ? 'amber' : undefined
+              }
+            ]}
+          />
+        ) : null}
       </div>
-
-      {kpis.legalAidIssuedTtc > 0 ? (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-          <KpiCard
-            label={`Rétribution AJ ${currentYear} (émise)`}
-            value={formatCents(kpis.legalAidIssuedTtc)}
-          />
-          <KpiCard
-            label="Rétribution AJ encaissée (CARPA)"
-            value={formatCents(kpis.legalAidPaidTtc)}
-            accent="emerald"
-          />
-          <KpiCard
-            label="Rétribution AJ à recouvrer"
-            value={formatCents(kpis.legalAidPendingTtc)}
-            accent="amber"
-          />
-        </div>
-      ) : null}
 
       {error ? (
         <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -185,10 +242,10 @@ export function InvoicesDashboard({ onOpenDossier }: InvoicesDashboardProps): Re
 
       <section className="space-y-2">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-[#1a1a1a]">
+          <h3 className="text-sm font-semibold text-ink">
             {t('invoices.dashboard_unbilled_title', { defaultValue: 'Prestations non facturées' })}
             {unbilledCount > 0
-              ? ` — ${unbilledCount} prestation(s), ${formatCents(unbilledTotalTtc)} TTC`
+              ? ` — ${unbilledCount} prestation(s), ${formatEurosFromCents(unbilledTotalTtc)} TTC`
               : ''}
           </h3>
           <div className="flex items-center gap-3">
@@ -203,20 +260,62 @@ export function InvoicesDashboard({ onOpenDossier }: InvoicesDashboardProps): Re
               type="button"
               onClick={async () => {
                 const result = await exportCsv({})
-                if (result) window.alert(`Export généré : ${result.relativePath}`)
+                if (result?.canceled) return
+                if (result?.outputPath) {
+                  showToast(
+                    t('invoices.dashboard_export_success', {
+                      path: result.outputPath,
+                      defaultValue: 'Export généré : {{path}}'
+                    }),
+                    'success'
+                  )
+                } else {
+                  showToast(
+                    t('invoices.dashboard_export_error', {
+                      defaultValue: "Échec de l'export CSV."
+                    }),
+                    'error'
+                  )
+                }
               }}
               className="text-xs text-aurora underline-offset-2 hover:underline"
             >
               {t('invoices.dashboard_export_csv', { defaultValue: 'Export CSV' })}
             </button>
+            <button
+              type="button"
+              onClick={async () => {
+                const result = await exportFec({})
+                if (result?.canceled) return
+                if (result?.outputPath) {
+                  showToast(
+                    t('invoices.dashboard_export_fec_success', {
+                      path: result.outputPath,
+                      defaultValue: 'FEC généré : {{path}}'
+                    }),
+                    'success'
+                  )
+                } else {
+                  showToast(
+                    t('invoices.dashboard_export_fec_error', {
+                      defaultValue: "Échec de l'export FEC."
+                    }),
+                    'error'
+                  )
+                }
+              }}
+              className="text-xs text-aurora underline-offset-2 hover:underline"
+            >
+              {t('invoices.dashboard_export_fec', { defaultValue: 'Export FEC' })}
+            </button>
           </div>
         </div>
         {isLoadingUnbilled && !unbilledGroups ? (
-          <p className="text-sm text-[#8a8a85]">
+          <p className="text-sm text-ink-subtle">
             {t('invoices.dashboard_loading', { defaultValue: 'Chargement…' })}
           </p>
         ) : unbilled.length === 0 ? (
-          <p className="rounded-2xl border border-dashed border-[#e5e3da] bg-white p-3 text-sm text-[#5c5c5a]">
+          <p className="rounded-2xl border border-dashed border-hairline bg-white p-3 text-sm text-ink-muted">
             {t('invoices.dashboard_unbilled_empty', {
               defaultValue: 'Aucune prestation en attente de facturation.'
             })}
@@ -279,6 +378,9 @@ export function InvoicesDashboard({ onOpenDossier }: InvoicesDashboardProps): Re
           <option value="partiallyPaid">
             {t('invoices.dashboard_filter_partial', { defaultValue: 'Partiellement payées' })}
           </option>
+          <option value="overdue">
+            {t('invoices.dashboard_filter_overdue', { defaultValue: 'En retard' })}
+          </option>
           <option value="paid">
             {t('invoices.dashboard_filter_paid', { defaultValue: 'Payées' })}
           </option>
@@ -295,11 +397,11 @@ export function InvoicesDashboard({ onOpenDossier }: InvoicesDashboardProps): Re
       </div>
 
       {isLoading && !invoices ? (
-        <p className="text-sm text-[#8a8a85]">
+        <p className="text-sm text-ink-subtle">
           {t('invoices.dashboard_loading', { defaultValue: 'Chargement…' })}
         </p>
       ) : filtered.length === 0 ? (
-        <p className="rounded-2xl border border-dashed border-[#e5e3da] bg-white p-3 text-sm text-[#5c5c5a]">
+        <p className="rounded-2xl border border-dashed border-hairline bg-white p-3 text-sm text-ink-muted">
           {t('invoices.dashboard_invoices_empty', {
             defaultValue: 'Aucune facture ne correspond aux filtres.'
           })}
@@ -322,7 +424,7 @@ export function InvoicesDashboard({ onOpenDossier }: InvoicesDashboardProps): Re
             <span className="w-28 text-right">
               {t('invoices.dashboard_col_ttc', { defaultValue: 'TTC' })}
             </span>
-            <span className="w-24 text-center">
+            <span className="w-32 shrink-0 text-center">
               {t('invoices.dashboard_col_status', { defaultValue: 'Statut' })}
             </span>
             <span className="w-16 text-right">
@@ -332,26 +434,15 @@ export function InvoicesDashboard({ onOpenDossier }: InvoicesDashboardProps): Re
           <ul className="divide-y divide-deep-space">
             {filtered.map((invoice) => (
               <InvoiceRow
-                key={invoice.id}
+                key={invoice.uuid}
                 invoice={invoice}
                 onOpenDossier={onOpenDossier}
                 onPreview={() => setPreviewInvoice(invoice)}
-                onMarkPaid={() => void markPaid({ invoiceId: invoice.id })}
-                onAddPayment={() => {
-                  const raw = window.prompt(
-                    'Montant du règlement TTC (€)',
-                    String(invoice.remainingAmountCents / 100)
-                  )
-                  const amount = raw ? Math.round(Number(raw.replace(',', '.')) * 100) : 0
-                  if (amount > 0) void addPayment({ invoiceId: invoice.id, amountCents: amount })
-                }}
+                onMarkPaid={() => void markPaid({ invoiceUuid: invoice.uuid })}
+                onAddPayment={() => setPaymentInvoice(invoice)}
                 onCreateCreditNote={() => setCreditNoteInvoice(invoice)}
                 onCorrect={() => setCorrectiveInvoice(invoice)}
-                onCancel={() => {
-                  if (window.confirm(`Annuler la facture ${invoice.number} ?`)) {
-                    void cancel({ invoiceId: invoice.id })
-                  }
-                }}
+                onCancel={() => setCancelInvoice(invoice)}
               />
             ))}
           </ul>
@@ -371,6 +462,37 @@ export function InvoicesDashboard({ onOpenDossier }: InvoicesDashboardProps): Re
 
       {previewInvoice ? (
         <InvoicePreviewDialog invoice={previewInvoice} onClose={() => setPreviewInvoice(null)} />
+      ) : null}
+
+      {paymentInvoice ? (
+        <PaymentDialog invoice={paymentInvoice} onClose={() => setPaymentInvoice(null)} />
+      ) : null}
+
+      {cancelInvoice ? (
+        <ConfirmDialog
+          title={t('invoices.cancel_confirm_title', {
+            number: cancelInvoice.number,
+            defaultValue: 'Annuler la facture {{number}} ?'
+          })}
+          description={t('invoices.cancel_confirm_description', {
+            defaultValue: 'La facture sera marquée comme annulée. Cette action est irréversible.'
+          })}
+          confirmLabel={t('invoices.cancel_confirm_action', {
+            defaultValue: 'Annuler la facture'
+          })}
+          cancelLabel={t('invoices.cancel_confirm_keep', { defaultValue: 'Conserver' })}
+          tone="danger"
+          isBusy={isCancelling}
+          onConfirm={() => {
+            void (async () => {
+              setIsCancelling(true)
+              const done = await cancel({ invoiceUuid: cancelInvoice.uuid })
+              setIsCancelling(false)
+              if (done) setCancelInvoice(null)
+            })()
+          }}
+          onCancel={() => setCancelInvoice(null)}
+        />
       ) : null}
 
       {creditNoteInvoice ? (
@@ -411,7 +533,7 @@ function UnbilledRow({
 }: UnbilledRowProps): React.JSX.Element {
   const { t } = useTranslation()
   return (
-    <li className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#fbf9f4]">
+    <li className="flex items-center gap-3 px-4 py-2.5 hover:bg-parchment-bright">
       <span className="min-w-0 flex-1">
         <button
           type="button"
@@ -421,14 +543,14 @@ function UnbilledRow({
           {group.dossierName}
         </button>
       </span>
-      <span className="w-24 text-right text-sm tabular-nums text-[#5c5c5a]">
+      <span className="w-24 text-right text-sm tabular-nums text-ink-muted">
         {group.items.length}
       </span>
-      <span className="w-28 text-right text-sm tabular-nums text-[#5c5c5a]">
-        {formatCents(group.totalHtCents)}
+      <span className="w-28 text-right text-sm tabular-nums text-ink-muted">
+        {formatEurosFromCents(group.totalHtCents)}
       </span>
-      <span className="w-28 text-right text-sm tabular-nums text-[#1a1a1a]">
-        {formatCents(group.totalTtcCents)}
+      <span className="w-28 text-right text-sm tabular-nums text-ink">
+        {formatEurosFromCents(group.totalTtcCents)}
       </span>
       <span className="w-32 text-right text-xs">
         <button
@@ -440,27 +562,6 @@ function UnbilledRow({
         </button>
       </span>
     </li>
-  )
-}
-
-interface KpiCardProps {
-  label: string
-  value: string
-  accent?: 'emerald' | 'amber'
-}
-
-function KpiCard({ label, value, accent }: KpiCardProps): React.JSX.Element {
-  const accentClass =
-    accent === 'emerald'
-      ? 'text-emerald-700'
-      : accent === 'amber'
-        ? 'text-amber-700'
-        : 'text-[#1a1a1a]'
-  return (
-    <div className="rounded-2xl border border-[#e5e3da] bg-white px-3 py-2">
-      <p className="text-xs uppercase tracking-widest text-[#8a8a85]">{label}</p>
-      <p className={`mt-1 text-base font-semibold tabular-nums ${accentClass}`}>{value}</p>
-    </div>
   )
 }
 
@@ -486,6 +587,7 @@ function InvoiceRow({
   onCancel
 }: InvoiceRowProps): React.JSX.Element {
   const { t } = useTranslation()
+  const overdue = computeOverdueInfo(invoice)
   return (
     <li
       role="button"
@@ -498,9 +600,9 @@ function InvoiceRow({
           onPreview()
         }
       }}
-      className="flex cursor-pointer items-center gap-3 px-4 py-2.5 hover:bg-[#fbf9f4] focus:bg-[#fbf9f4] focus:outline-none"
+      className="flex cursor-pointer items-center gap-3 px-4 py-2.5 hover:bg-parchment-bright focus:bg-parchment-bright focus:outline-none"
     >
-      <span className="w-32 shrink-0 text-sm font-medium tabular-nums text-[#1a1a1a]">
+      <span className="w-32 shrink-0 text-sm font-medium tabular-nums text-ink">
         {invoice.number}
         {invoice.documentType === 'stateRetribution' ? (
           <span className="mt-0.5 block text-[10px] font-normal uppercase tracking-wide text-violet-600">
@@ -508,7 +610,7 @@ function InvoiceRow({
           </span>
         ) : null}
       </span>
-      <span className="w-28 shrink-0 text-sm tabular-nums text-[#5c5c5a]">
+      <span className="w-28 shrink-0 text-sm tabular-nums text-ink-muted">
         {formatDateIso(invoice.issuedAt)}
       </span>
       <span className="min-w-0 flex-1">
@@ -523,21 +625,29 @@ function InvoiceRow({
           {invoice.dossierLabel}
         </button>
         {invoice.clientLabel ? (
-          <span className="block truncate text-xs text-[#8a8a85]">{invoice.clientLabel}</span>
+          <span className="block truncate text-xs text-ink-subtle">{invoice.clientLabel}</span>
         ) : null}
       </span>
-      <span className="w-28 text-right text-sm tabular-nums text-[#5c5c5a]">
-        {formatCents(invoice.totalHtCents)}
+      <span className="w-28 text-right text-sm tabular-nums text-ink-muted">
+        {formatEurosFromCents(invoice.totalHtCents)}
       </span>
-      <span className="w-28 text-right text-sm tabular-nums text-[#1a1a1a]">
-        {formatCents(invoice.totalTtcCents)}
+      <span className="w-28 text-right text-sm tabular-nums text-ink">
+        {formatEurosFromCents(invoice.totalTtcCents)}
       </span>
-      <span className="w-24 text-center">
+      <span className="w-32 shrink-0 text-center">
         <span
-          className={`inline-block rounded-full border px-2 py-0.5 text-xs ${STATUS_STYLE[invoice.status]}`}
+          className={`inline-block whitespace-nowrap rounded-full border px-2 py-0.5 text-xs ${STATUS_STYLE[invoice.status]}`}
         >
-          {STATUS_LABEL[invoice.status]}
+          {invoiceStatusLabel(invoice.status, t)}
         </span>
+        {overdue ? (
+          <span className="mt-0.5 inline-block whitespace-nowrap rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700">
+            {t('invoices.overdue_badge', {
+              count: overdue.daysOverdue,
+              defaultValue: 'En retard · {{count}} j'
+            })}
+          </span>
+        ) : null}
       </span>
       <div className="w-16 shrink-0">
         <InvoiceRowActions

@@ -58,6 +58,10 @@ function parseRetryAfterMs(header: string | null): number | undefined {
   return undefined
 }
 
+function isDeliberateFetchAbort(error: unknown): boolean {
+  return error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')
+}
+
 /**
  * Fetch wrapper that retries transient failures (429 / 5xx / network errors)
  * with exponential backoff, honouring a `Retry-After` header when present.
@@ -74,8 +78,9 @@ async function fetchWithRetry(url: string, init: RequestInit): Promise<Response>
       const retryAfter = parseRetryAfterMs(response.headers?.get?.('Retry-After') ?? null)
       await delayMs(retryAfter ?? RETRY_BASE_DELAY_MS * 2 ** attempt)
     } catch (error) {
-      // AbortSignal.timeout fires an AbortError — do not retry a deliberate timeout.
-      if (error instanceof Error && error.name === 'AbortError') throw error
+      // AbortSignal.timeout rejects fetch with TimeoutError in Node and modern
+      // browsers; manual aborts reject with AbortError. Neither should retry.
+      if (isDeliberateFetchAbort(error)) throw error
       lastError = error
       if (attempt === MAX_RETRIES) break
       await delayMs(RETRY_BASE_DELAY_MS * 2 ** attempt)
@@ -281,14 +286,17 @@ function buildLegifranceSearchBody(input: LegifranceSearchInput): Record<string,
   const operateur = input.operateur ?? 'ET'
   const codeName = input.code ?? (isStructured ? parsed.codeName : undefined)
   // A structured citation builds a CODE-specific body (typeChamp NUM_ARTICLE +
-  // NOM_CODE facette). The DILA `/search` endpoint returns an unhandled 500
-  // ("Une exception non gérée est survenue") if that body is sent against the
+  // optional NOM_CODE facette). The DILA `/search` endpoint returns an unhandled
+  // 500 ("Une exception non gérée est survenue") if that body is sent against the
   // cross-fond `ALL` fond — NUM_ARTICLE / NOM_CODE only exist on the CODE fonds.
-  // So when the query is a citation with a detected code, the parsed CODE fond
-  // takes precedence over an explicit/default `fond: 'ALL'`. Free-text queries
-  // keep honouring the caller's chosen fond (defaulting to ALL).
+  // So whenever the body will carry an article number we MUST use a CODE fond,
+  // even when no code name was detected (e.g. "article 1240" with no code): the
+  // parsed CODE fond wins, then any explicit non-ALL fond, then a CODE_DATE
+  // default — never ALL. Free-text queries keep honouring the caller's fond.
   const explicitFond = input.fond && input.fond !== 'ALL' ? input.fond : undefined
-  const fond = isStructured ? (parsed.fond ?? explicitFond ?? 'ALL') : (input.fond ?? 'ALL')
+  const fond = isStructured
+    ? (parsed.fond ?? explicitFond ?? (parsed.articleNumber ? 'CODE_DATE' : 'ALL'))
+    : (input.fond ?? 'ALL')
 
   const champs =
     isStructured && parsed.articleNumber

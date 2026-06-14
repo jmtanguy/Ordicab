@@ -3,7 +3,7 @@ import { access } from 'node:fs/promises'
 import { relative, sep } from 'node:path'
 
 import type { DocumentChangeEvent, DocumentWatchStatus, DossierScopedQuery } from '@shared/types'
-import { ORDICAB_DIRECTORY_NAME } from './ordicabPaths'
+import { COWORK_DIRECTORY_NAME, ORDICAB_DIRECTORY_NAME } from './ordicabPaths'
 
 export interface FileWatcherLike {
   on(event: string, listener: (...args: unknown[]) => void): this
@@ -12,9 +12,9 @@ export interface FileWatcherLike {
 
 export type WatchFactory = (path: string, options: ChokidarOptions) => FileWatcherLike
 
-export type FileEventKind = 'add' | 'change' | 'unlink'
+type FileEventKind = 'add' | 'change' | 'unlink'
 
-export interface FileLevelEvent {
+interface FileLevelEvent {
   dossierId: string
   dossierPath: string
   kind: FileEventKind
@@ -23,7 +23,7 @@ export interface FileLevelEvent {
   relativePath: string
 }
 
-export type FileEventListener = (event: FileLevelEvent) => void
+type FileEventListener = (event: FileLevelEvent) => void
 
 interface AggregatedSubscriber {
   onDocumentsChanged: (event: DocumentChangeEvent) => void
@@ -125,8 +125,16 @@ function isIgnoredGeneratedPath(path: string): boolean {
   return normalizePath(path).endsWith('/CLAUDE.md')
 }
 
+function isCoworkPath(path: string): boolean {
+  const normalized = normalizePath(path)
+  return (
+    normalized.includes(`/${COWORK_DIRECTORY_NAME}/`) ||
+    normalized.endsWith(`/${COWORK_DIRECTORY_NAME}`)
+  )
+}
+
 function shouldIgnoreDossierWatchPath(path: string): boolean {
-  return isOrdicabPath(path) || isIgnoredGeneratedPath(path)
+  return isOrdicabPath(path) || isIgnoredGeneratedPath(path) || isCoworkPath(path)
 }
 
 function toRelativePosix(dossierPath: string, absolutePath: string): string {
@@ -262,6 +270,8 @@ export function createFileWatcherService(
         return (
           normalized.includes(`/${ORDICAB_DIRECTORY_NAME}/`) ||
           normalized.endsWith(`/${ORDICAB_DIRECTORY_NAME}`) ||
+          normalized.includes(`/${COWORK_DIRECTORY_NAME}/`) ||
+          normalized.endsWith(`/${COWORK_DIRECTORY_NAME}`) ||
           normalized.endsWith('/CLAUDE.md') ||
           /\/~\$[^/]+$/.test(normalized)
         )

@@ -34,10 +34,14 @@ function fakeFetch(opts: { failOn?: string } = {}): typeof fetch {
     if (opts.failOn && href.includes(opts.failOn)) {
       return { ok: false, status: 404, statusText: 'Not Found', body: null } as unknown as Response
     }
-    const content = `content-of:${href.split('/resolve/main/')[1]}`
+    const rel = href.split('/resolve/main/')[1]
+    const content =
+      rel === 'onnx/model_quantized.onnx'
+        ? new Uint8Array(1024 * 1024 + 1).fill(1)
+        : new TextEncoder().encode(JSON.stringify({ file: rel }))
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
-        controller.enqueue(new TextEncoder().encode(content))
+        controller.enqueue(content)
         controller.close()
       }
     })
@@ -45,7 +49,7 @@ function fakeFetch(opts: { failOn?: string } = {}): typeof fetch {
       ok: true,
       status: 200,
       statusText: 'OK',
-      headers: new Headers({ 'content-length': String(content.length) }),
+      headers: new Headers({ 'content-length': String(content.byteLength) }),
       body: stream
     } as unknown as Response
   }) as typeof fetch
@@ -57,9 +61,11 @@ describe('modelDownloadService', () => {
     await downloadModel(root, NER_MODEL, undefined, { fetch: fakeFetch() })
 
     const dir = modelDirFor(root, NER_MODEL.modelId)
-    expect(await readFile(join(dir, 'config.json'), 'utf8')).toContain('content-of:config.json')
-    expect(await readFile(join(dir, 'onnx/model_quantized.onnx'), 'utf8')).toContain(
-      'content-of:onnx/model_quantized.onnx'
+    expect(JSON.parse(await readFile(join(dir, 'config.json'), 'utf8'))).toEqual({
+      file: 'config.json'
+    })
+    expect((await readFile(join(dir, 'onnx/model_quantized.onnx'))).byteLength).toBeGreaterThan(
+      1024 * 1024
     )
     expect(await isModelPresent(root, NER_MODEL)).toBe(true)
   })
@@ -100,10 +106,34 @@ describe('modelDownloadService', () => {
     const model: ManagedModel = NER_MODEL
     const dir = modelDirFor(root, model.modelId)
     await mkdir(join(dir, 'onnx'), { recursive: true })
-    await writeFile(join(dir, 'config.json'), 'x')
-    await writeFile(join(dir, 'tokenizer.json'), 'x')
-    await writeFile(join(dir, 'tokenizer_config.json'), 'x')
+    await writeFile(join(dir, 'config.json'), '{}')
+    await writeFile(join(dir, 'tokenizer.json'), '{}')
+    await writeFile(join(dir, 'tokenizer_config.json'), '{}')
     await writeFile(join(dir, 'onnx/model_quantized.onnx'), '') // empty → not present
+    expect(await isModelPresent(root, model)).toBe(false)
+  })
+
+  it('isModelPresent returns false when the ONNX file is suspiciously small', async () => {
+    const root = await makeRoot()
+    const model: ManagedModel = EMBEDDING_MODEL
+    const dir = modelDirFor(root, model.modelId)
+    await mkdir(join(dir, 'onnx'), { recursive: true })
+    await writeFile(join(dir, 'config.json'), '{}')
+    await writeFile(join(dir, 'tokenizer.json'), '{}')
+    await writeFile(join(dir, 'tokenizer_config.json'), '{}')
+    await writeFile(join(dir, 'onnx/model_quantized.onnx'), new Uint8Array(651_835).fill(1))
+    expect(await isModelPresent(root, model)).toBe(false)
+  })
+
+  it('isModelPresent returns false when JSON metadata is invalid', async () => {
+    const root = await makeRoot()
+    const model: ManagedModel = NER_MODEL
+    const dir = modelDirFor(root, model.modelId)
+    await mkdir(join(dir, 'onnx'), { recursive: true })
+    await writeFile(join(dir, 'config.json'), 'not-json')
+    await writeFile(join(dir, 'tokenizer.json'), '{}')
+    await writeFile(join(dir, 'tokenizer_config.json'), '{}')
+    await writeFile(join(dir, 'onnx/model_quantized.onnx'), new Uint8Array(1024 * 1024 + 1).fill(1))
     expect(await isModelPresent(root, model)).toBe(false)
   })
 })

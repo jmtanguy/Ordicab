@@ -44,8 +44,8 @@ const mockContacts: ContactRecord[] = [
 ]
 
 const mockTemplates: TemplateRecord[] = [
-  { id: 'tpl1', name: 'NDA Standard' } as unknown as TemplateRecord,
-  { id: 'tpl2', name: 'Bail commercial' } as unknown as TemplateRecord
+  { uuid: 'tpl1', name: 'NDA Standard' } as unknown as TemplateRecord,
+  { uuid: 'tpl2', name: 'Bail commercial' } as unknown as TemplateRecord
 ]
 
 const mockDossierService = {
@@ -171,11 +171,11 @@ describe('intentDispatcher', () => {
   })
 
   describe('contact_get', () => {
-    it('resolves a contact even when contactId contains a contact name', async () => {
+    it('resolves a contact even when contactUuid contains a contact name', async () => {
       const services = makeServices()
       const dispatcher = createInternalAICommandDispatcher(services)
       const result = await dispatcher.dispatch(
-        { type: 'contact_get', contactId: 'Contact EXEMPLE-C' },
+        { type: 'contact_get', contactUuid: 'Contact EXEMPLE-C' },
         { dossierId: 'dos1' }
       )
 
@@ -190,14 +190,14 @@ describe('intentDispatcher', () => {
       const dispatcher = createInternalAICommandDispatcher(services)
 
       await dispatcher.dispatch(
-        { type: 'contact_update', contactId: 'c1', phone: '0600000000' },
+        { type: 'contact_update', contactUuid: 'c1', phone: '0600000000' },
         { dossierId: 'dos1' }
       )
 
       expect(services.contactService.list).toHaveBeenCalledWith('dos1')
       expect(services.contactService.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
-          id: 'c1',
+          uuid: 'c1',
           dossierId: 'dos1',
           firstName: 'Contact',
           lastName: 'Exemple',
@@ -214,17 +214,17 @@ describe('intentDispatcher', () => {
       await dispatcher.dispatch(
         {
           type: 'contact_update',
-          contactId: 'c1',
+          contactUuid: 'c1',
           customFields: {
             Nationalité: 'Française'
           }
         },
-        { dossierId: 'dos1', contactId: 'c1' }
+        { dossierId: 'dos1', contactUuid: 'c1' }
       )
 
       expect(services.contactService.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
-          id: 'c1',
+          uuid: 'c1',
           dossierId: 'dos1',
           firstName: 'Contact',
           lastName: 'Exemple',
@@ -242,7 +242,7 @@ describe('intentDispatcher', () => {
       const result = await dispatcher.dispatch(
         {
           type: 'contact_update',
-          contactId: 'unknown-contact',
+          contactUuid: 'unknown-contact',
           customFields: {
             Nationalité: 'Française',
             Profession: 'Sans profession'
@@ -306,7 +306,7 @@ describe('intentDispatcher', () => {
       const dispatcher = createInternalAICommandDispatcher(services)
 
       const result = await dispatcher.dispatch(
-        { type: 'contact_delete', contactId: 'Contact EXEMPLE-C' },
+        { type: 'contact_delete', contactUuid: 'Contact EXEMPLE-C' },
         { dossierId: 'dos1' }
       )
 
@@ -337,7 +337,7 @@ describe('intentDispatcher', () => {
       const dispatcher = createInternalAICommandDispatcher(services)
 
       const result = await dispatcher.dispatch(
-        { type: 'contact_delete', contactId: 'Merlin' },
+        { type: 'contact_delete', contactUuid: 'Merlin' },
         { dossierId: 'dos1' }
       )
 
@@ -390,7 +390,7 @@ describe('intentDispatcher', () => {
       const services = makeServices()
       const dispatcher = createInternalAICommandDispatcher(services)
       const result = await dispatcher.dispatch(
-        { type: 'field_populate', contactId: 'c1', templateId: 'tpl1' },
+        { type: 'field_populate', contactUuid: 'c1', templateUuid: 'tpl1' },
         { dossierId: 'dos1' }
       )
       expect(result.feedback).toContain('Contact Exemple')
@@ -402,11 +402,15 @@ describe('intentDispatcher', () => {
       const services = makeServices()
       const dispatcher = createInternalAICommandDispatcher(services)
       const result = await dispatcher.dispatch(
-        { type: 'document_generate', dossierId: 'dos1', templateId: 'tpl1', contactId: 'c1' },
+        { type: 'document_generate', dossierId: 'dos1', templateUuid: 'tpl1', contactUuid: 'c1' },
         { dossierId: 'dos1' }
       )
       expect(services.generateService.generateDocument).toHaveBeenCalledWith(
-        expect.objectContaining({ dossierId: 'dos1', templateId: 'tpl1', primaryContactId: 'c1' })
+        expect.objectContaining({
+          dossierId: 'dos1',
+          templateUuid: 'tpl1',
+          primaryContactUuid: 'c1'
+        })
       )
       expect(result.feedback).toContain('doc.docx')
     })
@@ -419,8 +423,8 @@ describe('intentDispatcher', () => {
         status: 'active',
         type: '',
         keyDates: [
-          { id: 'kd1', dossierId: 'dos1', label: "Date d'audience", date: '2026-04-21' },
-          { id: 'kd2', dossierId: 'dos1', label: 'Date de renvoi', date: '2026-06-08' }
+          { uuid: 'kd1', dossierId: 'dos1', label: "Date d'audience", date: '2026-04-21' },
+          { uuid: 'kd2', dossierId: 'dos1', label: 'Date de renvoi', date: '2026-06-08' }
         ],
         keyReferences: []
       })
@@ -439,7 +443,7 @@ describe('intentDispatcher', () => {
 
       const dispatcher = createInternalAICommandDispatcher(services)
       const result = await dispatcher.dispatch(
-        { type: 'document_generate', dossierId: 'dos1', templateId: 'tpl1', contactId: 'c1' },
+        { type: 'document_generate', dossierId: 'dos1', templateUuid: 'tpl1', contactUuid: 'c1' },
         { dossierId: 'dos1' }
       )
 
@@ -461,7 +465,9 @@ describe('intentDispatcher', () => {
         name: 'Test',
         status: 'active',
         type: '',
-        keyDates: [{ id: 'kd1', dossierId: 'dos1', label: "Date d'audience", date: '2026-04-21' }],
+        keyDates: [
+          { uuid: 'kd1', dossierId: 'dos1', label: "Date d'audience", date: '2026-04-21' }
+        ],
         keyReferences: []
       })
 
@@ -473,7 +479,7 @@ describe('intentDispatcher', () => {
 
       const dispatcher = createInternalAICommandDispatcher(services)
       const result = await dispatcher.dispatch(
-        { type: 'document_generate', dossierId: 'dos1', templateId: 'tpl1', contactId: 'c1' },
+        { type: 'document_generate', dossierId: 'dos1', templateUuid: 'tpl1', contactUuid: 'c1' },
         { dossierId: 'dos1' }
       )
 
@@ -490,7 +496,7 @@ describe('intentDispatcher', () => {
       const dispatcher = createInternalAICommandDispatcher(services)
 
       const result = await dispatcher.dispatch(
-        { type: 'document_metadata_save', documentId: 'doc1', tags: [] },
+        { type: 'document_metadata_save', documentUuid: 'doc1', tags: [] },
         { dossierId: 'dos1' }
       )
 
@@ -510,6 +516,30 @@ describe('intentDispatcher', () => {
       expect(services.dossierService.updateDossier).not.toHaveBeenCalled()
     })
 
+    it('resolves dossier_update UUID ids to dossier slugs', async () => {
+      const services = makeServices()
+      services.dossierService.listRegisteredDossiers = vi.fn().mockResolvedValue([
+        {
+          slug: 'dos1',
+          uuid: 'uuid-dos1',
+          name: 'Test',
+          status: 'active',
+          type: ''
+        }
+      ])
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const result = await dispatcher.dispatch(
+        { type: 'dossier_update', id: 'uuid-dos1', status: 'active' },
+        {}
+      )
+
+      expect(result.feedback).toBe('Dossier "dos1" mis à jour.')
+      expect(services.dossierService.updateDossier).toHaveBeenCalledWith(
+        expect.objectContaining({ slug: 'dos1' })
+      )
+    })
+
     it('creates and updates key dates through explicit tools', async () => {
       const services = makeServices()
       services.dossierService.upsertKeyDate = vi.fn().mockResolvedValue({
@@ -518,8 +548,8 @@ describe('intentDispatcher', () => {
         status: 'active',
         type: '',
         keyDates: [
-          { id: 'kd1', label: 'Audience', date: '2026-05-02', note: 'Initiale' },
-          { id: 'kd2', label: 'Audience', date: '2026-05-02', note: 'Reportee' }
+          { uuid: 'kd1', label: 'Audience', date: '2026-05-02', note: 'Initiale' },
+          { uuid: 'kd2', label: 'Audience', date: '2026-05-02', note: 'Reportee' }
         ],
         keyReferences: []
       })
@@ -540,7 +570,7 @@ describe('intentDispatcher', () => {
         {
           type: 'dossier_update_key_date',
           dossierId: 'dos1',
-          keyDateId: 'kd2',
+          keyDateUuid: 'kd2',
           label: 'Audience',
           date: '2026-05-02',
           note: 'Reportee'
@@ -550,11 +580,11 @@ describe('intentDispatcher', () => {
 
       expect(services.dossierService.upsertKeyDate).toHaveBeenNthCalledWith(
         1,
-        expect.objectContaining({ dossierId: 'dos1', id: undefined, label: 'Audience' })
+        expect.objectContaining({ dossierId: 'dos1', uuid: undefined, label: 'Audience' })
       )
       expect(services.dossierService.upsertKeyDate).toHaveBeenNthCalledWith(
         2,
-        expect.objectContaining({ dossierId: 'dos1', id: 'kd2', label: 'Audience' })
+        expect.objectContaining({ dossierId: 'dos1', uuid: 'kd2', label: 'Audience' })
       )
       expect(created.feedback).toBe('Événement "Audience" ajouté.')
       expect(updated.feedback).toBe('Événement "Audience" mis à jour.')
@@ -569,7 +599,7 @@ describe('intentDispatcher', () => {
         {
           type: 'dossier_update_key_date',
           dossierId: 'dos1',
-          keyDateId: 'kd1',
+          keyDateUuid: 'kd1',
           label: 'Audience',
           date: '2026-05-02'
         },
@@ -589,8 +619,8 @@ describe('intentDispatcher', () => {
         type: '',
         keyDates: [],
         keyReferences: [
-          { id: 'kr1', label: 'N° RG', value: '24/0001', note: 'Creation' },
-          { id: 'kr2', label: 'N° RG', value: '24/0001', note: 'Correction' }
+          { uuid: 'kr1', label: 'N° RG', value: '24/0001', note: 'Creation' },
+          { uuid: 'kr2', label: 'N° RG', value: '24/0001', note: 'Correction' }
         ]
       })
       const dispatcher = createInternalAICommandDispatcher(services)
@@ -610,7 +640,7 @@ describe('intentDispatcher', () => {
         {
           type: 'dossier_update_key_reference',
           dossierId: 'dos1',
-          keyReferenceId: 'kr2',
+          keyReferenceUuid: 'kr2',
           label: 'N° RG',
           value: '24/0001',
           note: 'Correction'
@@ -620,11 +650,11 @@ describe('intentDispatcher', () => {
 
       expect(services.dossierService.upsertKeyReference).toHaveBeenNthCalledWith(
         1,
-        expect.objectContaining({ dossierId: 'dos1', id: undefined, label: 'N° RG' })
+        expect.objectContaining({ dossierId: 'dos1', uuid: undefined, label: 'N° RG' })
       )
       expect(services.dossierService.upsertKeyReference).toHaveBeenNthCalledWith(
         2,
-        expect.objectContaining({ dossierId: 'dos1', id: 'kr2', label: 'N° RG' })
+        expect.objectContaining({ dossierId: 'dos1', uuid: 'kr2', label: 'N° RG' })
       )
       expect(created.feedback).toBe('Référence clé "N° RG" ajoutée.')
       expect(updated.feedback).toBe('Référence clé "N° RG" mise à jour.')
@@ -639,7 +669,7 @@ describe('intentDispatcher', () => {
         {
           type: 'dossier_update_key_reference',
           dossierId: 'dos1',
-          keyReferenceId: 'kr1',
+          keyReferenceUuid: 'kr1',
           label: 'N° RG',
           value: '24/0001'
         },
@@ -672,7 +702,7 @@ describe('intentDispatcher', () => {
         type: '',
         billingItems: [
           {
-            id: 'bi1',
+            uuid: 'bi1',
             label: 'Consultation',
             date: '2026-05-12',
             quantity: 2,
@@ -694,7 +724,7 @@ describe('intentDispatcher', () => {
       expect(services.dossierService.upsertBillingItem).toHaveBeenCalledWith(
         expect.objectContaining({
           dossierId: 'dos1',
-          id: undefined,
+          uuid: undefined,
           label: 'Consultation',
           quantity: 2,
           quantityUnit: 'hours',
@@ -713,24 +743,24 @@ describe('intentDispatcher', () => {
       )
     })
 
-    it('passes the billingItemId through on update', async () => {
+    it('passes the billingItemUuid through on update', async () => {
       const services = makeServices()
       services.dossierService.upsertBillingItem = vi.fn().mockResolvedValue({
         id: 'dos1',
         name: 'Test',
         status: 'active',
         type: '',
-        billingItems: [{ id: 'bi1', label: 'Consultation', date: '2026-05-12', status: 'draft' }]
+        billingItems: [{ uuid: 'bi1', label: 'Consultation', date: '2026-05-12', status: 'draft' }]
       })
       const dispatcher = createInternalAICommandDispatcher(services)
 
       const result = await dispatcher.dispatch(
-        { type: 'dossier_update_billing_item', billingItemId: 'bi1', ...baseBillingItemFields },
+        { type: 'dossier_update_billing_item', billingItemUuid: 'bi1', ...baseBillingItemFields },
         {}
       )
 
       expect(services.dossierService.upsertBillingItem).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 'bi1', label: 'Consultation' })
+        expect.objectContaining({ uuid: 'bi1', label: 'Consultation' })
       )
       expect(result.feedback).toBe('Prestation "Consultation" mise à jour.')
     })
@@ -747,13 +777,13 @@ describe('intentDispatcher', () => {
       const dispatcher = createInternalAICommandDispatcher(services)
 
       const result = await dispatcher.dispatch(
-        { type: 'dossier_delete_billing_item', dossierId: 'dos1', billingItemId: 'bi1' },
+        { type: 'dossier_delete_billing_item', dossierId: 'dos1', billingItemUuid: 'bi1' },
         {}
       )
 
       expect(services.dossierService.deleteBillingItem).toHaveBeenCalledWith({
         dossierId: 'dos1',
-        billingItemId: 'bi1'
+        billingItemUuid: 'bi1'
       })
       expect(result.feedback).toBe('Prestation supprimée.')
     })
@@ -766,7 +796,7 @@ describe('intentDispatcher', () => {
       const dispatcher = createInternalAICommandDispatcher(services)
 
       const result = await dispatcher.dispatch(
-        { type: 'dossier_update_billing_item', billingItemId: 'bi1', ...baseBillingItemFields },
+        { type: 'dossier_update_billing_item', billingItemUuid: 'bi1', ...baseBillingItemFields },
         {}
       )
 
@@ -783,7 +813,7 @@ describe('intentDispatcher', () => {
       const dispatcher = createInternalAICommandDispatcher(services)
 
       const result = await dispatcher.dispatch(
-        { type: 'dossier_delete_billing_item', dossierId: 'dos1', billingItemId: 'bi1' },
+        { type: 'dossier_delete_billing_item', dossierId: 'dos1', billingItemUuid: 'bi1' },
         {}
       )
 
@@ -800,7 +830,7 @@ describe('intentDispatcher', () => {
         name: 'Test',
         status: 'active',
         type: '',
-        notes: [{ id: 'note-1', title: 'Vérifier la prescription' }]
+        notes: [{ uuid: 'note-1', title: 'Vérifier la prescription' }]
       })
       const dispatcher = createInternalAICommandDispatcher(services)
 
@@ -833,7 +863,7 @@ describe('intentDispatcher', () => {
         name: 'Test',
         status: 'active',
         type: '',
-        notes: [{ id: 'note-1', title: 'Tâche' }]
+        notes: [{ uuid: 'note-1', title: 'Tâche' }]
       })
       const dispatcher = createInternalAICommandDispatcher(services)
 
@@ -841,7 +871,7 @@ describe('intentDispatcher', () => {
         {
           type: 'note_update',
           dossierId: 'dos1',
-          noteId: 'note-1',
+          noteUuid: 'note-1',
           title: 'Tâche',
           status: 'done'
         },
@@ -849,7 +879,7 @@ describe('intentDispatcher', () => {
       )
 
       expect(services.dossierService.upsertNote).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 'note-1', status: 'done', source: 'ai' })
+        expect.objectContaining({ uuid: 'note-1', status: 'done', source: 'ai' })
       )
       expect(result.feedback).toBe('Note "Tâche" mise à jour.')
     })
@@ -866,13 +896,13 @@ describe('intentDispatcher', () => {
       const dispatcher = createInternalAICommandDispatcher(services)
 
       const result = await dispatcher.dispatch(
-        { type: 'note_delete', dossierId: 'dos1', noteId: 'note-1' },
+        { type: 'note_delete', dossierId: 'dos1', noteUuid: 'note-1' },
         {}
       )
 
       expect(services.dossierService.deleteNote).toHaveBeenCalledWith({
         dossierId: 'dos1',
-        noteId: 'note-1'
+        noteUuid: 'note-1'
       })
       expect(result.feedback).toBe('Note supprimée.')
     })
@@ -883,7 +913,7 @@ describe('intentDispatcher', () => {
       const services = makeServices()
       const dispatcher = createInternalAICommandDispatcher(services)
 
-      const result = await dispatcher.dispatch({ type: 'template_update', id: 'tpl1' }, {})
+      const result = await dispatcher.dispatch({ type: 'template_update', uuid: 'tpl1' }, {})
 
       expect(result.feedback).toBe('Aucune modification de modèle fournie.')
       expect(services.templateService.update).not.toHaveBeenCalled()
@@ -900,8 +930,8 @@ describe('intentDispatcher', () => {
           type: 'document_relocate',
           documentUuid: 'doc-uuid-1',
           dossierId: 'dos1',
-          fromDocumentId: 'piece-a.pdf',
-          toDocumentId: 'piece-a.pdf'
+          fromDocumentPath: 'piece-a.pdf',
+          toDocumentPath: 'piece-a.pdf'
         },
         {}
       )

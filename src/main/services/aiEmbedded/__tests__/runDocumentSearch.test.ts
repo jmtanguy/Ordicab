@@ -7,7 +7,7 @@ import { runDocumentSearch } from '../dataToolExecutor'
 
 function makeHit(overrides: Partial<SemanticSearchHit>): SemanticSearchHit {
   return {
-    documentId: 'doc-a.pdf',
+    documentPath: 'doc-a.pdf',
     filename: 'doc-a.pdf',
     charStart: 0,
     charEnd: 80,
@@ -33,8 +33,8 @@ describe('runDocumentSearch', () => {
       dossierId: 'dos-1',
       query: 'pension',
       hits: [
-        makeHit({ documentId: 'a.pdf', score: 2, snippet: 'a-exact', matchKind: 'keyword' }),
-        makeHit({ documentId: 'b.pdf', score: 0.82, snippet: 'b-vector', matchKind: 'semantic' })
+        makeHit({ documentPath: 'a.pdf', score: 2, snippet: 'a-exact', matchKind: 'keyword' }),
+        makeHit({ documentPath: 'b.pdf', score: 0.82, snippet: 'b-vector', matchKind: 'semantic' })
       ]
     })
 
@@ -44,7 +44,7 @@ describe('runDocumentSearch', () => {
       query: 'pension'
     })
     const parsed = JSON.parse(raw) as {
-      matches: Array<{ documentId: string; score?: number; matchType: string }>
+      matches: Array<{ documentPath: string; score?: number; matchType: string }>
     }
 
     // Exact (keyword) hit ranks first and reports NO score (word-count is
@@ -61,7 +61,7 @@ describe('runDocumentSearch', () => {
       query: 'pension',
       hits: [
         makeHit({
-          documentId: 'a.pdf',
+          documentPath: 'a.pdf',
           score: 1.0,
           snippet: 'vector-perfect',
           matchKind: 'semantic'
@@ -75,7 +75,7 @@ describe('runDocumentSearch', () => {
       query: 'pension'
     })
     const parsed = JSON.parse(raw) as {
-      matches: Array<{ documentId: string; score?: number; matchType: string }>
+      matches: Array<{ documentPath: string; score?: number; matchType: string }>
     }
 
     expect(parsed.matches).toHaveLength(1)
@@ -88,9 +88,9 @@ describe('runDocumentSearch', () => {
       dossierId: 'dos-1',
       query: 'x',
       hits: [
-        makeHit({ documentId: 'low.pdf', score: 0.3, charStart: 0, charEnd: 10 }),
-        makeHit({ documentId: 'high.pdf', score: 1.25, charStart: 0, charEnd: 10 }),
-        makeHit({ documentId: 'mid.pdf', score: 0.72, charStart: 0, charEnd: 10 })
+        makeHit({ documentPath: 'low.pdf', score: 0.3, charStart: 0, charEnd: 10 }),
+        makeHit({ documentPath: 'high.pdf', score: 1.25, charStart: 0, charEnd: 10 }),
+        makeHit({ documentPath: 'mid.pdf', score: 0.72, charStart: 0, charEnd: 10 })
       ]
     })
 
@@ -99,9 +99,9 @@ describe('runDocumentSearch', () => {
       dossierId: 'dos-1',
       query: 'x'
     })
-    const parsed = JSON.parse(raw) as { matches: Array<{ documentId: string; score: number }> }
+    const parsed = JSON.parse(raw) as { matches: Array<{ documentPath: string; score: number }> }
 
-    expect(parsed.matches.map((m) => m.documentId)).toEqual(['high.pdf', 'mid.pdf', 'low.pdf'])
+    expect(parsed.matches.map((m) => m.documentPath)).toEqual(['high.pdf', 'mid.pdf', 'low.pdf'])
   })
 
   it('diversifies output: one best chunk per document first, then backfills', async () => {
@@ -112,10 +112,10 @@ describe('runDocumentSearch', () => {
       dossierId: 'dos-1',
       query: 'x',
       hits: [
-        makeHit({ documentId: 'a.pdf', score: 0.95, charStart: 0, charEnd: 10 }),
-        makeHit({ documentId: 'a.pdf', score: 0.94, charStart: 20, charEnd: 30 }),
-        makeHit({ documentId: 'a.pdf', score: 0.93, charStart: 40, charEnd: 50 }),
-        makeHit({ documentId: 'b.pdf', score: 0.5, charStart: 0, charEnd: 10 })
+        makeHit({ documentPath: 'a.pdf', score: 0.95, charStart: 0, charEnd: 10 }),
+        makeHit({ documentPath: 'a.pdf', score: 0.94, charStart: 20, charEnd: 30 }),
+        makeHit({ documentPath: 'a.pdf', score: 0.93, charStart: 40, charEnd: 50 }),
+        makeHit({ documentPath: 'b.pdf', score: 0.5, charStart: 0, charEnd: 10 })
       ]
     })
 
@@ -124,8 +124,8 @@ describe('runDocumentSearch', () => {
       dossierId: 'dos-1',
       query: 'x'
     })
-    const parsed = JSON.parse(raw) as { matches: Array<{ documentId: string }> }
-    const uniqueDocs = new Set(parsed.matches.map((m) => m.documentId))
+    const parsed = JSON.parse(raw) as { matches: Array<{ documentPath: string }> }
+    const uniqueDocs = new Set(parsed.matches.map((m) => m.documentPath))
 
     expect(uniqueDocs.has('b.pdf')).toBe(true)
     expect(uniqueDocs.has('a.pdf')).toBe(true)

@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { CABINET_SERVICE_USAGE_VALUES, DEFAULT_CABINET_SERVICE_GROUP } from '@shared/types'
+import {
+  BILLING_TYPE_VALUES,
+  CABINET_SERVICE_USAGE_VALUES,
+  DEFAULT_CABINET_SERVICE_GROUP
+} from '@shared/types'
 import { ENTITY_TITLE_SHORT } from '@shared/validation'
 import type {
   BillingType,
@@ -23,6 +27,7 @@ import {
   parseEurosToCents,
   parsePercentToBasisPoints
 } from '@renderer/lib/billingFormatters'
+import { billingTypeLabel } from '@renderer/lib/domainLabels'
 import { useCabinetBillingStore, useEntityStore, useTemplateStore } from '@renderer/stores'
 import {
   AlertBanner,
@@ -76,10 +81,10 @@ function DetailField({
   if (!value) return null
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8a8a85]">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-subtle">
         {label}
       </span>
-      <span className="whitespace-pre-wrap text-sm text-[#1a1a1a]">{value}</span>
+      <span className="whitespace-pre-wrap text-sm text-ink">{value}</span>
     </div>
   )
 }
@@ -110,7 +115,7 @@ function createEditorState(service?: CabinetServicePreset | null): ServicePreset
   }
 
   return {
-    id: service.id,
+    id: service.uuid,
     name: service.name,
     description: service.description ?? '',
     group: service.group?.trim() || DEFAULT_CABINET_SERVICE_GROUP,
@@ -133,7 +138,7 @@ function buildUpsertInputFromEditor(
   state: ServicePresetEditorState
 ): CabinetServicePresetUpsertInput | null {
   const candidate = {
-    id: state.id,
+    uuid: state.id,
     name: state.name.trim(),
     description: state.description.trim() || undefined,
     group: state.group.trim() || DEFAULT_CABINET_SERVICE_GROUP,
@@ -153,16 +158,6 @@ function buildUpsertInputFromEditor(
 
   const parsed = cabinetServicePresetUpsertInputSchema.safeParse(candidate)
   return parsed.success ? parsed.data : null
-}
-
-function billingTypeLabel(value: BillingType, t: ReturnType<typeof useTranslation>['t']): string {
-  if (value === 'flat') {
-    return t('cabinet.billing_type.flat', { defaultValue: 'Forfait' })
-  }
-  if (value === 'hourly') {
-    return t('cabinet.billing_type.hourly', { defaultValue: 'Horaire' })
-  }
-  return t('cabinet.billing_type.mixed', { defaultValue: 'Mixte' })
 }
 
 function serviceUsageLabel(
@@ -289,10 +284,10 @@ export function ServiceLibraryDialog({
     >
       <div className="flex max-h-[80vh] flex-col gap-4">
         <div className="space-y-1">
-          <h3 className="text-base font-semibold text-[#1a1a1a]">
+          <h3 className="text-base font-semibold text-ink">
             {t('cabinet.library_dialog_title', { defaultValue: 'Bibliothèque de prestations' })}
           </h3>
-          <p className="text-sm text-[#5c5c5a]">
+          <p className="text-sm text-ink-muted">
             {t('cabinet.library_dialog_description', {
               defaultValue:
                 "Prestations types prêtes à l'emploi. Importez celles qui vous intéressent — elles seront copiées dans votre catalogue et resteront éditables. Tarifs indicatifs 2026."
@@ -305,12 +300,12 @@ export function ServiceLibraryDialog({
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Rechercher dans la bibliothèque…"
-          className="w-full rounded-lg border border-[#e5e3da] bg-white px-3 py-2 text-sm"
+          className="w-full rounded-lg border border-hairline bg-white px-3 py-2 text-sm"
         />
 
         <div className="flex-1 overflow-y-auto pr-1">
           {filteredThemes.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-[#e5e3da] bg-white p-4 text-sm text-[#5c5c5a]">
+            <p className="rounded-lg border border-dashed border-hairline bg-white p-4 text-sm text-ink-muted">
               {t('cabinet.library_dialog_no_results', {
                 defaultValue: 'Aucune prestation ne correspond.'
               })}
@@ -321,13 +316,13 @@ export function ServiceLibraryDialog({
                 const selectedInTheme = theme.items.filter((i) => selected.has(i.id)).length
                 const allSelected = theme.items.every((item) => selected.has(item.id))
                 return (
-                  <div key={theme.id} className="rounded-lg border border-[#e5e3da] bg-white p-3">
+                  <div key={theme.id} className="rounded-lg border border-hairline bg-white p-3">
                     <div className="mb-2 flex items-center justify-between gap-2">
-                      <p className="text-sm font-semibold text-[#1a1a1a]">{theme.label}</p>
+                      <p className="text-sm font-semibold text-ink">{theme.label}</p>
                       <button
                         type="button"
                         onClick={() => toggleTheme(theme)}
-                        className="text-xs text-[#5c5c5a] hover:text-[#1a1a1a]"
+                        className="text-xs text-ink-muted hover:text-ink"
                       >
                         {allSelected
                           ? 'Tout désélectionner'
@@ -336,7 +331,7 @@ export function ServiceLibraryDialog({
                             : `Tout sélectionner (${theme.items.length})`}
                       </button>
                     </div>
-                    <ul className="divide-y divide-[#e5e3da]">
+                    <ul className="divide-y divide-hairline">
                       {theme.items.map((item) => {
                         const checked = selected.has(item.id)
                         const price = formatLibraryItemPrice(item)
@@ -351,10 +346,8 @@ export function ServiceLibraryDialog({
                               />
                               <div className="min-w-0 flex-1">
                                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                  <span className="text-sm font-medium text-[#1a1a1a]">
-                                    {item.name}
-                                  </span>
-                                  <span className="rounded-full bg-[#f4f3ee] px-2 py-0.5 text-[11px] font-medium text-[#5c5c5a]">
+                                  <span className="text-sm font-medium text-ink">{item.name}</span>
+                                  <span className="rounded-full bg-parchment px-2 py-0.5 text-[11px] font-medium text-ink-muted">
                                     {billingTypeLabel(item.billingType, t)}
                                   </span>
                                   <span className="rounded-full bg-aurora/10 px-2 py-0.5 text-[11px] font-medium text-aurora">
@@ -367,7 +360,7 @@ export function ServiceLibraryDialog({
                                   ) : null}
                                 </div>
                                 {item.description ? (
-                                  <p className="mt-0.5 text-xs text-[#5c5c5a]">
+                                  <p className="mt-0.5 text-xs text-ink-muted">
                                     {item.description}
                                   </p>
                                 ) : null}
@@ -384,8 +377,8 @@ export function ServiceLibraryDialog({
           )}
         </div>
 
-        <div className="flex items-center justify-between border-t border-[#e5e3da] pt-3">
-          <p className="text-xs text-[#5c5c5a]">
+        <div className="flex items-center justify-between border-t border-hairline pt-3">
+          <p className="text-xs text-ink-muted">
             {t('cabinet.library_selected_count', {
               count: selected.size,
               defaultValue: '{{count}} sélectionnée(s)'
@@ -431,6 +424,13 @@ export function CabinetPanel(): React.JSX.Element {
   )
   const [isTemplateBusy, setIsTemplateBusy] = useState(false)
   const [confirmingTemplateRemove, setConfirmingTemplateRemove] = useState(false)
+  const stampDataUrl = useEntityStore((state) => state.stampDataUrl)
+  const loadStampPreview = useEntityStore((state) => state.loadStampPreview)
+  const importStamp = useEntityStore((state) => state.importStamp)
+  const removeStamp = useEntityStore((state) => state.removeStamp)
+  const saveEntity = useEntityStore((state) => state.save)
+  const [isStampBusy, setIsStampBusy] = useState(false)
+  const [confirmingStampRemove, setConfirmingStampRemove] = useState(false)
   const [propagateConfirm, setPropagateConfirm] = useState<{ count: number } | null>(null)
   const [isPropagating, setIsPropagating] = useState(false)
 
@@ -501,7 +501,8 @@ export function CabinetPanel(): React.JSX.Element {
   useEffect(() => {
     void loadEntity()
     void loadCatalog()
-  }, [loadCatalog, loadEntity])
+    void loadStampPreview()
+  }, [loadCatalog, loadEntity, loadStampPreview])
 
   const services = useMemo(() => {
     const entries = [...(catalog?.services ?? [])]
@@ -567,9 +568,9 @@ export function CabinetPanel(): React.JSX.Element {
             </Button>
           }
         />
-        <div className="rounded-2xl border border-[#e5e3da] bg-white p-4 shadow-[0_1px_2px_rgba(15,122,138,0.04)]">
+        <div className="rounded-2xl border border-hairline bg-white p-4 shadow-[0_1px_2px_rgba(15,122,138,0.04)]">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <p className="text-sm font-semibold text-[#1a1a1a]">
+            <p className="text-sm font-semibold text-ink">
               {entityProfile?.firmName ?? t('entity.emptyHint')}
             </p>
           </div>
@@ -690,14 +691,14 @@ export function CabinetPanel(): React.JSX.Element {
             )
           }
         />
-        <div className="rounded-2xl border border-[#e5e3da] bg-white p-4 shadow-[0_1px_2px_rgba(15,122,138,0.04)]">
+        <div className="rounded-2xl border border-hairline bg-white p-4 shadow-[0_1px_2px_rgba(15,122,138,0.04)]">
           {entityProfile?.defaultTemplateFileName ? (
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-[#1a1a1a]">
+                <p className="truncate text-sm font-semibold text-ink">
                   {entityProfile.defaultTemplateFileName}
                 </p>
-                <p className="mt-0.5 text-xs text-[#8a8a85]">
+                <p className="mt-0.5 text-xs text-ink-subtle">
                   {entityProfile.defaultTemplateImportedAt
                     ? t('cabinet.default_template_imported_at', {
                         defaultValue: 'Importé le {{date}}',
@@ -749,7 +750,7 @@ export function CabinetPanel(): React.JSX.Element {
               </div>
             </div>
           ) : (
-            <p className="text-sm text-[#5c5c5a]">
+            <p className="text-sm text-ink-muted">
               {entityProfile
                 ? t('cabinet.default_template_empty', {
                     defaultValue:
@@ -761,6 +762,141 @@ export function CabinetPanel(): React.JSX.Element {
                   })}
             </p>
           )}
+        </div>
+      </div>
+
+      <div className="shrink-0 space-y-2">
+        <SectionHeader
+          badge={t('cabinet.stamp_section_title', { defaultValue: 'Tampon de cotation' })}
+          actions={
+            <Button
+              type="button"
+              variant={entityProfile?.stampImageFileName ? 'ghost' : 'default'}
+              size="sm"
+              disabled={isStampBusy || !entityProfile}
+              onClick={async () => {
+                setIsStampBusy(true)
+                try {
+                  const result = await importStamp()
+                  if (result.imported) {
+                    showToast(
+                      t('cabinet.stamp_toast_imported', { defaultValue: 'Tampon importé.' })
+                    )
+                  } else if (result.error) {
+                    showToast(result.error)
+                  }
+                } finally {
+                  setIsStampBusy(false)
+                }
+              }}
+            >
+              {entityProfile?.stampImageFileName
+                ? t('cabinet.stamp_replace', { defaultValue: 'Remplacer' })
+                : t('cabinet.stamp_import', { defaultValue: 'Importer une image' })}
+            </Button>
+          }
+        />
+        <div className="rounded-2xl border border-hairline bg-white p-4 shadow-[0_1px_2px_rgba(15,122,138,0.04)]">
+          <div className="flex flex-wrap items-center gap-4">
+            {stampDataUrl ? (
+              <img
+                src={stampDataUrl}
+                alt={t('cabinet.stamp_preview_alt', { defaultValue: 'Aperçu du tampon' })}
+                className="h-20 w-20 shrink-0 rounded-full border border-hairline object-contain"
+              />
+            ) : (
+              <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full border border-dashed border-hairline-strong text-[10px] text-ink-subtle">
+                {t('cabinet.stamp_generated_badge', { defaultValue: 'Généré' })}
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-ink">
+                {entityProfile?.stampImageFileName ??
+                  t('cabinet.stamp_generated_title', {
+                    defaultValue: 'Tampon généré automatiquement'
+                  })}
+              </p>
+              <p className="mt-0.5 text-xs text-ink-subtle">
+                {entityProfile?.stampImageFileName
+                  ? t('cabinet.stamp_helper_imported', {
+                      defaultValue:
+                        'Apposé sur la première page de chaque pièce cotée, avec le numéro au centre.'
+                    })
+                  : t('cabinet.stamp_helper_generated', {
+                      defaultValue:
+                        'Sans image importée, un tampon rond (cabinet, barreau, toque) est dessiné automatiquement. Importez une image PNG/JPG de votre vrai tampon pour le remplacer.'
+                    })}
+              </p>
+              <label className="mt-2 inline-flex items-center gap-2 text-xs text-ink-muted">
+                {t('cabinet.stamp_position_label', { defaultValue: 'Position sur la page :' })}
+                <select
+                  className="rounded-lg border border-hairline-strong bg-white px-2 py-1 text-xs text-ink outline-none focus:border-aurora"
+                  value={entityProfile?.stampPosition ?? 'top-right'}
+                  disabled={!entityProfile || isStampBusy}
+                  onChange={(event) => {
+                    if (!entityProfile) return
+                    void saveEntity({
+                      ...entityProfile,
+                      stampPosition: event.target.value as NonNullable<
+                        typeof entityProfile.stampPosition
+                      >
+                    })
+                  }}
+                >
+                  <option value="top-right">
+                    {t('cabinet.stamp_position_top_right', { defaultValue: 'Haut droite' })}
+                  </option>
+                  <option value="top-left">
+                    {t('cabinet.stamp_position_top_left', { defaultValue: 'Haut gauche' })}
+                  </option>
+                  <option value="bottom-right">
+                    {t('cabinet.stamp_position_bottom_right', { defaultValue: 'Bas droite' })}
+                  </option>
+                  <option value="bottom-left">
+                    {t('cabinet.stamp_position_bottom_left', { defaultValue: 'Bas gauche' })}
+                  </option>
+                </select>
+              </label>
+            </div>
+            {entityProfile?.stampImageFileName ? (
+              <div className="relative flex items-center gap-2">
+                {confirmingStampRemove ? (
+                  <DeleteConfirmTray
+                    label={t('cabinet.stamp_remove_confirm_label', {
+                      defaultValue: 'Supprimer ce tampon ?'
+                    })}
+                    confirmLabel={t('common.confirm', { defaultValue: 'Confirmer' })}
+                    cancelLabel={t('common.cancel', { defaultValue: 'Annuler' })}
+                    onConfirm={async () => {
+                      setIsStampBusy(true)
+                      try {
+                        const result = await removeStamp()
+                        setConfirmingStampRemove(false)
+                        if (result.ok) {
+                          showToast(
+                            t('cabinet.stamp_toast_removed', { defaultValue: 'Tampon supprimé.' })
+                          )
+                        } else if (result.error) {
+                          showToast(result.error)
+                        }
+                      } finally {
+                        setIsStampBusy(false)
+                      }
+                    }}
+                    onCancel={() => setConfirmingStampRemove(false)}
+                  />
+                ) : (
+                  <IconButton
+                    label={t('common.delete', { defaultValue: 'Supprimer' })}
+                    tone="danger"
+                    onClick={() => setConfirmingStampRemove(true)}
+                  >
+                    <TrashIcon />
+                  </IconButton>
+                )}
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -781,13 +917,13 @@ export function CabinetPanel(): React.JSX.Element {
         />
 
         {isLoading ? (
-          <p className="text-sm text-[#5c5c5a]">
+          <p className="text-sm text-ink-muted">
             {t('cabinet.services_loading', { defaultValue: 'Chargement des prestations...' })}
           </p>
         ) : services.length === 0 ? (
-          <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-[#d1cfc6] bg-white px-6 py-12 text-center">
+          <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-hairline-strong bg-white px-6 py-12 text-center">
             <div className="space-y-5">
-              <p className="text-sm text-[#5c5c5a]">
+              <p className="text-sm text-ink-muted">
                 {t('cabinet.services_empty', {
                   defaultValue:
                     'Votre catalogue est vide. Importez depuis la bibliothèque de prestations types ou créez une prestation personnalisée.'
@@ -795,7 +931,9 @@ export function CabinetPanel(): React.JSX.Element {
               </p>
               <div className="flex flex-wrap justify-center gap-3">
                 <Button type="button" onClick={() => setLibraryOpen(true)}>
-                  {t('cabinet.library_action', { defaultValue: 'Bibliothèque de prestations' })}
+                  {t('cabinet.library_action_long', {
+                    defaultValue: 'Bibliothèque de prestations'
+                  })}
                 </Button>
                 <Button
                   type="button"
@@ -823,7 +961,7 @@ export function CabinetPanel(): React.JSX.Element {
               />
             </div>
             {filteredServices.length === 0 ? (
-              <p className="shrink-0 rounded-2xl border border-dashed border-[#e5e3da] bg-white p-4 text-sm text-[#1a1a1a]">
+              <p className="shrink-0 rounded-2xl border border-dashed border-hairline bg-white p-4 text-sm text-ink">
                 {t('cabinet.services_no_results', {
                   defaultValue: 'Aucune prestation ne correspond à votre recherche.'
                 })}
@@ -833,7 +971,7 @@ export function CabinetPanel(): React.JSX.Element {
                 <div className="h-full overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
                   <table className="w-full border-collapse text-sm">
                     <thead className="sticky top-0 z-10">
-                      <tr className="border-b border-deep-space bg-[#fbf9f4] text-left text-[11px] font-medium uppercase tracking-[0.12em] text-[#8a8a85]">
+                      <tr className="border-b border-deep-space bg-parchment-bright text-left text-[11px] font-medium uppercase tracking-[0.12em] text-ink-subtle">
                         <th className="px-4 py-2.5">
                           {t('cabinet.column.service', { defaultValue: 'Prestation' })}
                         </th>
@@ -851,13 +989,13 @@ export function CabinetPanel(): React.JSX.Element {
                     </thead>
                     <tbody>
                       {groupedFilteredServices.flatMap((group) => [
-                        <tr key={`group-${group.label}`} className="bg-[#f4f3ee]">
+                        <tr key={`group-${group.label}`} className="bg-parchment">
                           <td
                             colSpan={4}
-                            className="px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#5c5c5a]"
+                            className="px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-muted"
                           >
                             <span>{group.label}</span>
-                            <span className="ml-2 text-[10px] font-normal text-[#8a8a85]">
+                            <span className="ml-2 text-[10px] font-normal text-ink-subtle">
                               {group.items.length}
                             </span>
                           </td>
@@ -871,15 +1009,15 @@ export function CabinetPanel(): React.JSX.Element {
                           }
                           return (
                             <tr
-                              key={service.id}
-                              className="group border-b border-[#eeede5] align-top transition-colors last:border-b-0 hover:bg-[#fbf9f4]"
+                              key={service.uuid}
+                              className="group border-b border-[#eeede5] align-top transition-colors last:border-b-0 hover:bg-parchment-bright"
                             >
                               <td className="px-4 py-3">
                                 <div className="flex items-start gap-2">
                                   <div className="min-w-0">
-                                    <div className="font-medium text-[#1a1a1a]">{service.name}</div>
+                                    <div className="font-medium text-ink">{service.name}</div>
                                     {service.description ? (
-                                      <p className="mt-0.5 line-clamp-2 text-xs text-[#5c5c5a]">
+                                      <p className="mt-0.5 line-clamp-2 text-xs text-ink-muted">
                                         {service.description}
                                       </p>
                                     ) : null}
@@ -888,7 +1026,7 @@ export function CabinetPanel(): React.JSX.Element {
                               </td>
                               <td className="px-3 py-3">
                                 <div className="flex flex-col items-start gap-1">
-                                  <span className="inline-flex rounded-full bg-[#f4f3ee] px-2.5 py-1 text-[11px] font-medium text-[#5c5c5a]">
+                                  <span className="inline-flex rounded-full bg-parchment px-2.5 py-1 text-[11px] font-medium text-ink-muted">
                                     {billingTypeLabel(service.billingType, t)}
                                   </span>
                                   <span className="inline-flex rounded-full bg-aurora/10 px-2.5 py-1 text-[11px] font-medium text-aurora">
@@ -898,9 +1036,9 @@ export function CabinetPanel(): React.JSX.Element {
                               </td>
                               <td className="px-3 py-3">
                                 {pricing.length === 0 ? (
-                                  <span className="text-xs text-[#8a8a85]">—</span>
+                                  <span className="text-xs text-ink-subtle">—</span>
                                 ) : (
-                                  <ul className="space-y-0.5 text-[13px] text-[#1a1a1a]">
+                                  <ul className="space-y-0.5 text-[13px] text-ink">
                                     {pricing.map((line) => (
                                       <li key={line}>{line}</li>
                                     ))}
@@ -911,7 +1049,7 @@ export function CabinetPanel(): React.JSX.Element {
                                 <div className="relative flex items-center justify-end gap-1">
                                   <div
                                     className={
-                                      confirmingDeleteId === service.id
+                                      confirmingDeleteId === service.uuid
                                         ? 'invisible flex items-center gap-1'
                                         : 'flex items-center gap-1'
                                     }
@@ -928,12 +1066,12 @@ export function CabinetPanel(): React.JSX.Element {
                                     <IconButton
                                       label={t('common.delete', { defaultValue: 'Supprimer' })}
                                       tone="danger"
-                                      onClick={() => setConfirmingDeleteId(service.id)}
+                                      onClick={() => setConfirmingDeleteId(service.uuid)}
                                     >
                                       <TrashIcon />
                                     </IconButton>
                                   </div>
-                                  {confirmingDeleteId === service.id ? (
+                                  {confirmingDeleteId === service.uuid ? (
                                     <div className="absolute right-0 top-1/2 -translate-y-1/2">
                                       <DeleteConfirmTray
                                         label={t('cabinet.service_delete_confirm_label', {
@@ -946,7 +1084,7 @@ export function CabinetPanel(): React.JSX.Element {
                                           defaultValue: 'Annuler'
                                         })}
                                         onConfirm={async () => {
-                                          const ok = await deleteService({ id: service.id })
+                                          const ok = await deleteService({ uuid: service.uuid })
                                           setConfirmingDeleteId(null)
                                           if (ok) {
                                             showToast(
@@ -994,12 +1132,12 @@ export function CabinetPanel(): React.JSX.Element {
           }}
         >
           <div>
-            <h2 className="text-lg font-semibold text-[#1a1a1a]">
+            <h2 className="text-lg font-semibold text-ink">
               {editor.id
                 ? t('cabinet.editor_edit_title', { defaultValue: 'Modifier la prestation' })
                 : t('cabinet.editor_create_title', { defaultValue: 'Créer une prestation' })}
             </h2>
-            <p className="mt-1 text-sm text-[#5c5c5a]">
+            <p className="mt-1 text-sm text-ink-muted">
               {t('cabinet.editor_summary', {
                 defaultValue:
                   'Définissez les montants et clauses qui seront proposés par défaut dans les nouveaux dossiers.'
@@ -1074,15 +1212,11 @@ export function CabinetPanel(): React.JSX.Element {
                     )
                   }
                 >
-                  <option value="flat">
-                    {t('cabinet.billing_type.flat', { defaultValue: 'Forfait' })}
-                  </option>
-                  <option value="hourly">
-                    {t('cabinet.billing_type.hourly', { defaultValue: 'Horaire' })}
-                  </option>
-                  <option value="mixed">
-                    {t('cabinet.billing_type.mixed', { defaultValue: 'Mixte' })}
-                  </option>
+                  {BILLING_TYPE_VALUES.map((type) => (
+                    <option key={type} value={type}>
+                      {billingTypeLabel(type, t)}
+                    </option>
+                  ))}
                 </Select>
               </Field>
 
@@ -1210,7 +1344,7 @@ export function CabinetPanel(): React.JSX.Element {
                 />
               </Field>
               <Field
-                label={t('cabinet.success_fee_label', {
+                label={t('cabinet.success_fee_percent_label', {
                   defaultValue: 'Honoraires de résultat (%)'
                 })}
               >
@@ -1327,12 +1461,12 @@ export function CabinetPanel(): React.JSX.Element {
           onDismiss={() => (isPropagating ? undefined : setPropagateConfirm(null))}
         >
           <div className="flex flex-col gap-4">
-            <h3 className="text-base font-semibold text-[#1a1a1a]">
+            <h3 className="text-base font-semibold text-ink">
               {t('cabinet.default_template_propagate_title', {
                 defaultValue: 'Mettre à jour les modèles existants ?'
               })}
             </h3>
-            <p className="text-sm text-[#5c5c5a]">
+            <p className="text-sm text-ink-muted">
               {t('cabinet.default_template_propagate_body', {
                 defaultValue:
                   '{{count}} modèle(s) non-email utilisent l’ancien modèle Word du cabinet. Voulez-vous appliquer le nouveau modèle à tous ? Les contenus actuels (y compris vos modifications dans Word) seront préservés ; seul l’en-tête, le pied de page et la mise en page seront remplacés.',

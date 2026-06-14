@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Ordicab — DOCX to PDF</title>
+    <!--
+      Hidden conversion page: docx-preview injects inline styles and blob: URLs
+      for embedded images/fonts, hence the relaxed style/img/font sources.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'sha256-Z2/iFzh9VMlVkEOar1f/oSHWwQk3ve1qk/C2WdsC4Xk='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data: blob:"
+    />
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #fff;
+      }
+      /* docx-preview renders one <section class="docx2pdf"> per page, sized in
+         pt with document margins as padding — print each as its own PDF page. */
+      section.docx2pdf {
+        margin: 0 !important;
+        box-shadow: none !important;
+        break-after: page;
+      }
+      section.docx2pdf:last-of-type {
+        break-after: auto;
+      }
+      * {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="style-host"></div>
+    <div id="body-host"></div>
+    <script type="module" src="./docx2pdf/main.ts"></script>
+  </body>
+</html>

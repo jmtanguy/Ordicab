@@ -72,7 +72,7 @@ describe('templateService — Partie A: auto-DOCX on create', () => {
     expect(created.hasDocxSource).toBe(true)
     expect(created.tags).toEqual(['client'])
 
-    const docxPath = join(domainPath, '.ordicab', 'templates', `${created.id}.docx`)
+    const docxPath = join(domainPath, '.ordicab', 'templates', `${created.uuid}.docx`)
     const xml = await readDocxBodyText(docxPath)
     expect(xml).toContain('CABINET_MARKER_XYZ')
     expect(xml).toContain('TEMPLATE_BODY_ABC')
@@ -90,7 +90,7 @@ describe('templateService — Partie A: auto-DOCX on create', () => {
     })
 
     expect(created.hasDocxSource).toBe(true)
-    const docxPath = join(domainPath, '.ordicab', 'templates', `${created.id}.docx`)
+    const docxPath = join(domainPath, '.ordicab', 'templates', `${created.uuid}.docx`)
     const xml = await readDocxBodyText(docxPath)
     expect(xml).toContain('STANDALONE_DOCX_CONTENT')
   })
@@ -110,7 +110,7 @@ describe('templateService — Partie A: auto-DOCX on create', () => {
     expect(created.hasDocxSource).toBe(false)
     expect(created.tags).toEqual(['email', 'rdv'])
 
-    const docxPath = join(domainPath, '.ordicab', 'templates', `${created.id}.docx`)
+    const docxPath = join(domainPath, '.ordicab', 'templates', `${created.uuid}.docx`)
     await expect(readFile(docxPath)).rejects.toThrow()
   })
 
@@ -128,6 +128,37 @@ describe('templateService — Partie A: auto-DOCX on create', () => {
     const fresh = createService(domainPath)
     const listed = await fresh.list()
     expect(listed[0]?.tags).toEqual(['alpha', 'beta'])
+  })
+
+  it('persists the category on create, moves it on lightweight update, and clears it with an empty string', async () => {
+    const domainPath = await createTempDir()
+    await mkdir(join(domainPath, '.ordicab'), { recursive: true })
+
+    const service = createService(domainPath)
+    const created = await service.create({
+      name: 'Courrier RDV',
+      content: '<p>BODY_KEPT</p>',
+      tags: ['email'],
+      category: 'Correspondance'
+    })
+    expect(created.category).toBe('Correspondance')
+
+    // Reloaded from templates.json
+    const fresh = createService(domainPath)
+    expect((await fresh.list())[0]?.category).toBe('Correspondance')
+
+    // Lightweight category move (no content) keeps the stored body
+    const moved = await service.update({
+      uuid: created.uuid,
+      name: created.name,
+      category: 'Procédure'
+    })
+    expect(moved.category).toBe('Procédure')
+    await expect(service.getContent(created.uuid)).resolves.toContain('BODY_KEPT')
+
+    // Empty string clears the category
+    const cleared = await service.update({ uuid: created.uuid, name: created.name, category: '' })
+    expect(cleared.category).toBeUndefined()
   })
 })
 
@@ -227,7 +258,7 @@ describe('templateService — Partie C: applyCabinetDocxToAllExisting', () => {
 
     // Sanity: V1 marker is in the non-email DOCX, not in the email (which has no DOCX).
     expect(
-      await readDocxBodyText(join(domainPath, '.ordicab', 'templates', `${a.id}.docx`))
+      await readDocxBodyText(join(domainPath, '.ordicab', 'templates', `${a.uuid}.docx`))
     ).toContain('CABINET_V1')
 
     // Replace cabinet with V2.
@@ -245,17 +276,17 @@ describe('templateService — Partie C: applyCabinetDocxToAllExisting', () => {
     // marker is in the cabinet body and is preserved as part of the body —
     // that is the documented "copy current body content into the new wrapper"
     // contract.
-    const aXml = await readDocxBodyText(join(domainPath, '.ordicab', 'templates', `${a.id}.docx`))
+    const aXml = await readDocxBodyText(join(domainPath, '.ordicab', 'templates', `${a.uuid}.docx`))
     expect(aXml).toContain('CABINET_V2')
     expect(aXml).toContain('BODY_A')
 
-    const bXml = await readDocxBodyText(join(domainPath, '.ordicab', 'templates', `${b.id}.docx`))
+    const bXml = await readDocxBodyText(join(domainPath, '.ordicab', 'templates', `${b.uuid}.docx`))
     expect(bXml).toContain('CABINET_V2')
     expect(bXml).toContain('BODY_B')
 
     // Email is unchanged: no .docx exists.
     await expect(
-      readFile(join(domainPath, '.ordicab', 'templates', `${email.id}.docx`))
+      readFile(join(domainPath, '.ordicab', 'templates', `${email.uuid}.docx`))
     ).rejects.toThrow()
   })
 
@@ -282,13 +313,15 @@ describe('templateService — Partie C: applyCabinetDocxToAllExisting', () => {
     const editedBuffer = Buffer.isBuffer(editedOutput)
       ? editedOutput
       : Buffer.from(editedOutput as ArrayBuffer)
-    await writeFile(join(domainPath, '.ordicab', 'templates', `${tpl.id}.docx`), editedBuffer)
+    await writeFile(join(domainPath, '.ordicab', 'templates', `${tpl.uuid}.docx`), editedBuffer)
 
     await writeCabinetDocx(domainPath, 'CABINET_V2')
     const result = await service.applyCabinetDocxToAllExisting()
     expect(result.updated).toBe(1)
 
-    const xml = await readDocxBodyText(join(domainPath, '.ordicab', 'templates', `${tpl.id}.docx`))
+    const xml = await readDocxBodyText(
+      join(domainPath, '.ordicab', 'templates', `${tpl.uuid}.docx`)
+    )
     expect(xml).toContain('CABINET_V2')
     expect(xml).toContain('MANUAL_WORD_EDIT_ZZZ')
   })
@@ -341,17 +374,17 @@ describe('templateService — Partie C: applyCabinetDocxToAllExisting', () => {
     // Corrupt one template's DOCX by overwriting with garbage that PizZip
     // cannot parse as a Word document.
     await writeFile(
-      join(domainPath, '.ordicab', 'templates', `${broken.id}.docx`),
+      join(domainPath, '.ordicab', 'templates', `${broken.uuid}.docx`),
       Buffer.from('not a real docx')
     )
 
     await writeCabinetDocx(domainPath, 'CABINET_V2')
     const result = await service.applyCabinetDocxToAllExisting()
     expect(result.updated).toBe(1)
-    expect(result.failed).toEqual([broken.id])
+    expect(result.failed).toEqual([broken.uuid])
 
     const goodXml = await readDocxBodyText(
-      join(domainPath, '.ordicab', 'templates', `${good.id}.docx`)
+      join(domainPath, '.ordicab', 'templates', `${good.uuid}.docx`)
     )
     expect(goodXml).toContain('CABINET_V2')
     expect(goodXml).toContain('GOOD_BODY')

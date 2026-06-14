@@ -20,13 +20,13 @@ describe('buildToolSystemPrompt', () => {
     expect(fr).toContain(
       'write your replies, questions, and clarification options to the user in French'
     )
-    expect(fr).toContain('`Oui` and `Non`')
+    expect(fr).toContain('`Oui`/`Non`')
 
     const en = buildToolSystemPrompt({ locale: 'en' })
     expect(en).toContain(
       'write your replies, questions, and clarification options to the user in English'
     )
-    expect(en).toContain('`Yes` and `No`')
+    expect(en).toContain('`Yes`/`No`')
 
     // Defaults to French when no locale is provided.
     expect(buildToolSystemPrompt({})).toContain('to the user in French')
@@ -36,28 +36,28 @@ describe('buildToolSystemPrompt', () => {
     const prompt = buildToolSystemPrompt({})
     expect(prompt).toContain('For destructive actions (`contact_delete`, `template_delete`')
     expect(prompt).toContain('`dossier_delete_billing_item`')
-    expect(prompt).toContain('`clarification_request` with exactly two options: `Oui` and `Non`')
+    expect(prompt).toContain('`clarification_request` with exactly two options (`Oui`/`Non`)')
     expect(prompt).toContain('## Professional entity / Cabinet')
     expect(prompt).toContain('call `entity_get` first')
-    expect(prompt).toContain('the sender / letterhead is ALWAYS the cabinet')
-    expect(prompt).toContain('NEVER leave placeholders')
+    expect(prompt).toContain('the sender/letterhead is ALWAYS the cabinet')
+    expect(prompt).toContain('NEVER emit placeholders')
     expect(prompt).toContain('## Grounding')
     expect(prompt).toContain('answer only from tool results')
     expect(prompt).toContain('display amounts excluding VAT (HT) first')
-    expect(prompt).toContain('End the answer with a total HT')
+    expect(prompt).toContain('then VAT/tax, then TTC when taxes apply')
   })
 
   it('keeps template-first generation workflow', () => {
     const prompt = buildToolSystemPrompt({})
-    expect(prompt).toContain('## Document and text generation workflow')
-    expect(prompt).toContain('prefer template-based generation')
-    expect(prompt).toContain('Use `text_generate` only when no suitable template exists')
+    expect(prompt).toContain('## Document and text generation')
+    expect(prompt).toContain('Prefer template-based generation')
+    expect(prompt).toContain('`text_generate` only when no suitable template exists')
   })
 
   it('guides whole-dossier synthesis to dossier_summarize', () => {
     const prompt = buildToolSystemPrompt({})
     expect(prompt).toContain('## Dossier synthesis')
     expect(prompt).toContain('call `dossier_summarize`')
-    expect(prompt).toContain('do NOT write the synthesis yourself')
+    expect(prompt).toContain('never write it yourself')
   })
 })

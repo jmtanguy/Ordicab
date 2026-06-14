@@ -77,7 +77,7 @@ describe('documentService semanticSearch', () => {
       stateFilePath,
       now: () => new Date('2026-04-24T08:30:00.000Z')
     })
-    await dossierService.registerDossier({ id: dossierId })
+    await dossierService.registerDossier({ slug: dossierId })
 
     const fakePipe = vi.fn(async (inputs: string[]) => {
       const values = inputs.flatMap((input) => {
@@ -101,7 +101,7 @@ describe('documentService semanticSearch', () => {
     expect(result.hits.length).toBeGreaterThan(0)
     expect(result.hits[0]).toEqual(
       expect.objectContaining({
-        documentId: 'Assignation-2026-03-17.md',
+        documentPath: 'Assignation-2026-03-17.md',
         filename: 'Assignation-2026-03-17.md'
       })
     )
@@ -125,7 +125,7 @@ describe('documentService semanticSearch', () => {
       stateFilePath,
       now: () => new Date('2026-04-24T08:30:00.000Z')
     })
-    await dossierService.registerDossier({ id: dossierId })
+    await dossierService.registerDossier({ slug: dossierId })
 
     // Embedding model unavailable → semantic side yields nothing; keyword side
     // must still surface the document because it literally contains "école".
@@ -135,7 +135,7 @@ describe('documentService semanticSearch', () => {
     const result = await service.semanticSearch({ dossierId, query: 'école' })
 
     expect(result.hits).toHaveLength(1)
-    expect(result.hits[0]?.documentId).toBe('scolarite.md')
+    expect(result.hits[0]?.documentPath).toBe('scolarite.md')
     expect(result.hits[0]?.matchKind).toBe('keyword')
   })
 
@@ -154,7 +154,7 @@ describe('documentService semanticSearch', () => {
       stateFilePath,
       now: () => new Date('2026-04-24T08:30:00.000Z')
     })
-    await dossierService.registerDossier({ id: dossierId })
+    await dossierService.registerDossier({ slug: dossierId })
 
     pipelineSpy.mockResolvedValue(null)
 

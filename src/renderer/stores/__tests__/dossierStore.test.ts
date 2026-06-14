@@ -13,7 +13,8 @@ type MutableGlobal = typeof globalThis & { ordicabAPI?: OrdicabAPI }
 
 function createDossier(options: Partial<DossierSummary> = {}): DossierSummary {
   return {
-    id: 'Client Alpha',
+    slug: 'Client Alpha',
+    uuid: 'uuid-client-alpha',
     name: 'Client Alpha',
     status: 'active',
     type: '',
@@ -51,11 +52,11 @@ describe('dossier store', () => {
           success: true as const,
           data: [
             {
-              id: '.ordicab-configuration',
+              slug: '.ordicab-configuration',
               name: '.ordicab-configuration',
               path: '/tmp/domain/.ordicab-configuration'
             },
-            { id: 'Client Alpha', name: 'Client Alpha', path: '/tmp/domain/Client Alpha' }
+            { slug: 'Client Alpha', name: 'Client Alpha', path: '/tmp/domain/Client Alpha' }
           ]
         })),
         list: vi.fn(async () => ({ success: true as const, data: [] })),
@@ -80,7 +81,7 @@ describe('dossier store', () => {
 
     await useDossierStore.getState().loadEligibleFolders()
     expect(useDossierStore.getState().eligibleFolders).toEqual([
-      { id: 'Client Alpha', name: 'Client Alpha', path: '/tmp/domain/Client Alpha' }
+      { slug: 'Client Alpha', name: 'Client Alpha', path: '/tmp/domain/Client Alpha' }
     ])
 
     await useDossierStore.getState().register('Client Alpha')
@@ -196,7 +197,7 @@ describe('dossier store', () => {
     await useDossierStore.getState().openDetail('Client Alpha')
 
     expect(useDossierStore.getState().activeDossier).toMatchObject({
-      id: 'Client Alpha',
+      slug: 'Client Alpha',
       status: 'pending',
       type: 'Civil litigation'
     })
@@ -245,11 +246,107 @@ describe('dossier store', () => {
     await useDossierStore.getState().loadDetail('Client Alpha')
 
     expect(useDossierStore.getState().activeDossier).toMatchObject({
-      id: 'Client Alpha',
+      slug: 'Client Alpha',
       lastOpenedAt: '2026-03-13T09:05:00.000Z'
     })
     expect(api.dossier.get).toHaveBeenCalledWith({ dossierId: 'Client Alpha' })
     expect(api.dossier.open).not.toHaveBeenCalled()
+  })
+
+  it('updates dossier metadata and refreshes detail plus dashboard summary', async () => {
+    const updated = createDossierDetail({
+      status: 'completed',
+      type: 'Contentieux civil',
+      juridiction: 'Tribunal judiciaire',
+      tribunal: 'Paris'
+    })
+    const update = vi.fn(async () => ({ success: true as const, data: updated }))
+    const api = {
+      dossier: {
+        update
+      }
+    } as unknown as OrdicabAPI
+
+    ;(globalThis as MutableGlobal).ordicabAPI = api
+
+    const ok = await useDossierStore.getState().updateDossier({
+      slug: 'Client Alpha',
+      status: 'completed',
+      type: 'Contentieux civil',
+      information: '',
+      juridiction: 'Tribunal judiciaire',
+      tribunal: 'Paris'
+    })
+
+    expect(ok).toBe(true)
+    expect(update).toHaveBeenCalledWith({
+      slug: 'Client Alpha',
+      status: 'completed',
+      type: 'Contentieux civil',
+      information: '',
+      juridiction: 'Tribunal judiciaire',
+      tribunal: 'Paris'
+    })
+    expect(useDossierStore.getState().activeDossier).toEqual(updated)
+    expect(useDossierStore.getState().dossiers).toEqual([
+      createDossier({
+        status: 'completed',
+        type: 'Contentieux civil'
+      })
+    ])
+    expect(useDossierStore.getState().detailNotice).toEqual({
+      kind: 'dossier-saved',
+      dossierName: 'Client Alpha'
+    })
+  })
+
+  it('clears saving state when a dossier metadata update throws', async () => {
+    const update = vi.fn(async () => {
+      throw new Error('Bridge method missing')
+    })
+    const api = {
+      dossier: {
+        update
+      }
+    } as unknown as OrdicabAPI
+
+    ;(globalThis as MutableGlobal).ordicabAPI = api
+
+    const ok = await useDossierStore.getState().updateDossier({
+      slug: 'Client Alpha',
+      status: 'completed',
+      type: '',
+      information: '',
+      juridiction: '',
+      tribunal: ''
+    })
+
+    expect(ok).toBe(false)
+    expect(useDossierStore.getState().isSavingDetail).toBe(false)
+    expect(useDossierStore.getState().detailError).toBe('Bridge method missing')
+    expect(useDossierStore.getState().detailErrorCode).toBe(IpcErrorCode.UNKNOWN)
+  })
+
+  it('reports a controlled error when the preload bridge misses dossier.update', async () => {
+    const api = {
+      dossier: {}
+    } as unknown as OrdicabAPI
+
+    ;(globalThis as MutableGlobal).ordicabAPI = api
+
+    const ok = await useDossierStore.getState().updateDossier({
+      slug: 'Client Alpha',
+      status: 'completed',
+      type: '',
+      information: '',
+      juridiction: '',
+      tribunal: ''
+    })
+
+    expect(ok).toBe(false)
+    expect(useDossierStore.getState().isSavingDetail).toBe(false)
+    expect(useDossierStore.getState().detailError).toContain('bridge Electron')
+    expect(useDossierStore.getState().detailErrorCode).toBe(IpcErrorCode.NOT_IMPLEMENTED)
   })
 
   it('keeps key date and key reference mutations in the active dossier and dashboard summary', async () => {
@@ -267,7 +364,7 @@ describe('dossier store', () => {
             nextUpcomingKeyDate: '2026-03-18',
             keyDates: [
               {
-                id: 'kd-1',
+                uuid: 'kd-1',
                 dossierId: 'Client Alpha',
                 label: 'Hearing',
                 date: '2026-03-18'
@@ -287,7 +384,7 @@ describe('dossier store', () => {
           data: createDossierDetail({
             keyReferences: [
               {
-                id: 'kr-1',
+                uuid: 'kr-1',
                 dossierId: 'Client Alpha',
                 label: 'Case number',
                 value: 'RG 26/001'
@@ -327,17 +424,19 @@ describe('dossier store', () => {
 
     expect(useDossierStore.getState().activeDossier?.keyReferences).toEqual([
       {
-        id: 'kr-1',
+        uuid: 'kr-1',
         dossierId: 'Client Alpha',
         label: 'Case number',
         value: 'RG 26/001'
       }
     ])
 
-    await useDossierStore.getState().deleteKeyDate({ dossierId: 'Client Alpha', keyDateId: 'kd-1' })
     await useDossierStore
       .getState()
-      .deleteKeyReference({ dossierId: 'Client Alpha', keyReferenceId: 'kr-1' })
+      .deleteKeyDate({ dossierId: 'Client Alpha', keyDateUuid: 'kd-1' })
+    await useDossierStore
+      .getState()
+      .deleteKeyReference({ dossierId: 'Client Alpha', keyReferenceUuid: 'kr-1' })
 
     expect(useDossierStore.getState().activeDossier?.keyDates).toEqual([])
     expect(useDossierStore.getState().activeDossier?.keyReferences).toEqual([])
@@ -345,7 +444,7 @@ describe('dossier store', () => {
   })
 
   it('adds a freshly created dossier to the dashboard immediately', async () => {
-    const created = createDossier({ id: 'Client Gamma', name: 'Client Gamma' })
+    const created = createDossier({ slug: 'Client Gamma', name: 'Client Gamma' })
     const create = vi.fn(async () => ({ success: true as const, data: created }))
     const api = {
       dossier: {

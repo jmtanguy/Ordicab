@@ -66,17 +66,17 @@ async function setup(
   })
 
   // Default extract writes the cache JSON so the queue can later persist a hash.
-  const extractMock = vi.fn(async (input: { dossierId: string; documentId: string }) => {
+  const extractMock = vi.fn(async (input: { dossierId: string; documentPath: string }) => {
     const cacheDir = getDossierContentCachePath(dossierRoot)
     await mkdir(cacheDir, { recursive: true })
-    const abs = join(dossierRoot, input.documentId)
+    const abs = join(dossierRoot, input.documentPath)
     const cachePath = getDocumentContentCachePath(cacheDir, abs)
     await atomicWrite(
       cachePath,
       JSON.stringify(
         {
           version: 3,
-          name: input.documentId,
+          name: input.documentPath,
           method: 'direct',
           extractedAt: new Date().toISOString(),
           text: 'simulated extracted text'
@@ -170,6 +170,7 @@ describe('IndexingQueueService — basic processing', () => {
           embeddings: {
             model: 'Xenova/bge-m3',
             dim: 1024,
+            pooling: 'cls',
             chunks: [
               {
                 charStart: 0,
@@ -246,10 +247,10 @@ describe('IndexingQueueService — dedup and priorities', () => {
       }
     })
     h.extractMock.mockImplementation(async (input) => {
-      order.push(input.documentId)
+      order.push(input.documentPath)
       const cacheDir = getDossierContentCachePath(h.dossierRoot)
       await mkdir(cacheDir, { recursive: true })
-      const abs = join(h.dossierRoot, input.documentId)
+      const abs = join(h.dossierRoot, input.documentPath)
       const cachePath = getDocumentContentCachePath(cacheDir, abs)
       await atomicWrite(cachePath, JSON.stringify({ version: 3, text: 'x' }))
     })

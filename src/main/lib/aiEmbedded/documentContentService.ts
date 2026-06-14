@@ -28,7 +28,7 @@ import { IpcErrorCode } from '@shared/types'
 
 import { OCR_COMMON_WORDS, OCR_KEYWORDS, OCR_LANGUAGES } from './ocrLexicon'
 
-export class DocumentContentError extends Error {
+class DocumentContentError extends Error {
   constructor(
     readonly code: IpcErrorCode,
     message: string
@@ -70,7 +70,7 @@ export function isPlainTextDocument(filePath: string): boolean {
   return PLAIN_TEXT_EXTENSIONS.has(extname(filePath).toLowerCase())
 }
 
-export type ExtractMethod = 'direct' | 'docx' | 'embedded' | 'tesseract' | 'cached'
+type ExtractMethod = 'direct' | 'docx' | 'embedded' | 'tesseract' | 'cached'
 
 interface ContentCacheEntry {
   version: 3
@@ -86,9 +86,9 @@ export interface ExtractResult {
   method: ExtractMethod
 }
 
-export type ExtractPhase = 'embedded' | 'ocr'
+type ExtractPhase = 'embedded' | 'ocr'
 
-export interface ExtractProgress {
+interface ExtractProgress {
   phase: ExtractPhase
   page: number
   totalPages: number

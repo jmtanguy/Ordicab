@@ -1,15 +1,24 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { AlertBanner } from '@renderer/components/ui'
+
+interface ToastOptions {
+  actionLabel?: string
+  onAction?: () => void
+  durationMs?: number
+}
 
 interface Toast {
   id: string
   message: string
   tone: 'success' | 'error' | 'warning'
+  actionLabel?: string
+  onAction?: () => void
 }
 
 interface ToastContextValue {
-  showToast: (message: string, tone?: Toast['tone']) => void
+  showToast: (message: string, tone?: Toast['tone'], options?: ToastOptions) => void
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null)
@@ -17,6 +26,7 @@ const ToastContext = createContext<ToastContextValue | null>(null)
 const TOAST_DURATION_MS = 4000
 
 export function ToastProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
+  const { t } = useTranslation()
   const [toasts, setToasts] = useState<Toast[]>([])
   const timers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
@@ -26,11 +36,14 @@ export function ToastProvider({ children }: { children: React.ReactNode }): Reac
   }, [])
 
   const showToast = useCallback(
-    (message: string, tone: Toast['tone'] = 'success') => {
+    (message: string, tone: Toast['tone'] = 'success', options?: ToastOptions) => {
       const id = `${Date.now()}-${Math.random()}`
-      setToasts((prev) => [...prev, { id, message, tone }])
+      setToasts((prev) => [
+        ...prev,
+        { id, message, tone, actionLabel: options?.actionLabel, onAction: options?.onAction }
+      ])
 
-      const timer = setTimeout(() => dismiss(id), TOAST_DURATION_MS)
+      const timer = setTimeout(() => dismiss(id), options?.durationMs ?? TOAST_DURATION_MS)
       timers.current.set(id, timer)
     },
     [dismiss]
@@ -55,13 +68,27 @@ export function ToastProvider({ children }: { children: React.ReactNode }): Reac
           {toasts.map((toast) => (
             <div key={toast.id} className="flex items-center gap-3 min-w-64 max-w-sm">
               <AlertBanner tone={toast.tone} className="flex-1 shadow-lg">
-                {toast.message}
+                <span className="flex items-center gap-3">
+                  <span className="flex-1">{toast.message}</span>
+                  {toast.actionLabel && toast.onAction ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        toast.onAction?.()
+                        dismiss(toast.id)
+                      }}
+                      className="shrink-0 rounded-full border border-current px-2.5 py-0.5 text-xs font-semibold underline-offset-2 transition hover:underline"
+                    >
+                      {toast.actionLabel}
+                    </button>
+                  ) : null}
+                </span>
               </AlertBanner>
               <button
                 type="button"
                 onClick={() => dismiss(toast.id)}
-                className="shrink-0 rounded-lg p-1 text-[#5c5c5a] transition hover:bg-[#e4e1d5] hover:text-[#1a1a1a]"
-                aria-label="Fermer"
+                className="shrink-0 rounded-lg p-1 text-ink-muted transition hover:bg-parchment-dim hover:text-ink"
+                aria-label={t('common.close', { defaultValue: 'Fermer' })}
               >
                 ✕
               </button>

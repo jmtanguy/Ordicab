@@ -3,7 +3,11 @@ import { z } from 'zod'
 import type {
   DossierKeyDateDeleteInput,
   DossierKeyDateUpsertInput,
-  KeyDate
+  GeneralKeyDate,
+  GeneralKeyDateDeleteInput,
+  GeneralKeyDateUpsertInput,
+  KeyDate,
+  KeyDateMoveInput
 } from '@shared/domain/dossier'
 import { KEY_DATE_TAG_VALUES } from '@shared/domain/dossier'
 
@@ -18,7 +22,7 @@ const timeString = z.string().regex(/^\d{2}:\d{2}$/, 'Expected a time in HH:MM f
 const tagsArray = z.array(z.enum(KEY_DATE_TAG_VALUES)).optional()
 
 export const keyDateSchema = z.object({
-  id: z.string().min(1),
+  uuid: z.string().min(1),
   dossierId: dossierIdSchema,
   label: z.string().min(1),
   date: isoDateString,
@@ -30,7 +34,7 @@ export const keyDateSchema = z.object({
 })
 
 export const dossierKeyDateUpsertInputSchema = z.object({
-  id: z.string().min(1).optional(),
+  uuid: z.string().min(1).optional(),
   dossierId: dossierIdSchema,
   label: z.string().min(1),
   date: isoDateString,
@@ -43,25 +47,57 @@ export const dossierKeyDateUpsertInputSchema = z.object({
 
 export const dossierKeyDateDeleteInputSchema = z.object({
   dossierId: dossierIdSchema,
-  keyDateId: z.string().min(1)
+  keyDateUuid: z.string().min(1)
 })
 
-export const keyDateIndexEntrySchema = z.object({
-  id: z.string().min(1),
-  dossierId: dossierIdSchema,
+// Déplacement d'un événement : `null` = « hors dossier ». Porte les champs
+// édités, qui seront réécrits à la cible.
+export const keyDateMoveInputSchema = z.object({
+  keyDateUuid: z.string().min(1),
+  fromDossierId: dossierIdSchema.nullable(),
+  toDossierId: dossierIdSchema.nullable(),
   label: z.string().min(1),
   date: isoDateString,
+  time: timeString.optional(),
+  duration: z.number().int().min(1).optional(),
+  tags: tagsArray,
   isClosed: z.boolean().optional(),
-  updatedAt: z.string().min(1)
+  note: z.string().optional()
 })
 
-export const keyDateIndexSchema = z.object({
-  keyDates: z.array(keyDateIndexEntrySchema).default([]),
-  updatedAt: z.string().min(1),
-  migrated: z.boolean().optional()
+// Événements « hors dossier » : même forme qu'un key date sans `dossierId`.
+export const generalKeyDateSchema = z.object({
+  uuid: z.string().min(1),
+  label: z.string().min(1),
+  date: isoDateString,
+  time: timeString.optional(),
+  duration: z.number().int().min(1).optional(),
+  tags: tagsArray,
+  isClosed: z.boolean().optional(),
+  note: z.string().optional()
 })
 
-export type KeyDateIndexEntry = z.infer<typeof keyDateIndexEntrySchema>
-export type KeyDateIndex = z.infer<typeof keyDateIndexSchema>
+export const generalKeyDateUpsertInputSchema = z.object({
+  uuid: z.string().min(1).optional(),
+  label: z.string().min(1),
+  date: isoDateString,
+  time: timeString.optional(),
+  duration: z.number().int().min(1).optional(),
+  tags: tagsArray,
+  isClosed: z.boolean().optional(),
+  note: z.string().optional()
+})
 
-export type { DossierKeyDateDeleteInput, DossierKeyDateUpsertInput, KeyDate }
+export const generalKeyDateDeleteInputSchema = z.object({
+  keyDateUuid: z.string().min(1)
+})
+
+export type {
+  DossierKeyDateDeleteInput,
+  DossierKeyDateUpsertInput,
+  GeneralKeyDate,
+  GeneralKeyDateDeleteInput,
+  GeneralKeyDateUpsertInput,
+  KeyDate,
+  KeyDateMoveInput
+}

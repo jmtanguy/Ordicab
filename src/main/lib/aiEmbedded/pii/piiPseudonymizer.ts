@@ -13,7 +13,12 @@
  */
 
 import { labelToKey } from '@shared/templateContent/tagPaths'
-import { PiiMapping, type MappingEntry, type MappingSnapshotEntry } from './piiMapping'
+import {
+  PiiMapping,
+  MIN_REVERTIBLE_FAKE_LENGTH,
+  type MappingEntry,
+  type MappingSnapshotEntry
+} from './piiMapping'
 import {
   detectPii,
   detectStructuralPii,
@@ -27,7 +32,7 @@ import * as fake from './fakegen'
 import type { Locale, Gender } from './fakegen'
 import { buildDiacriticInsensitivePattern, normalizeMatchKey } from './textMatching'
 
-export interface PiiContact {
+interface PiiContact {
   id: string
   role?: string
   gender?: 'M' | 'F' | 'N'
@@ -47,6 +52,17 @@ export interface PiiContact {
   information?: string
 }
 
+/**
+ * Stable fake identity for a contact role (see @shared/types/piiPersonas).
+ * Keyed by `labelToKey(contact.role)`; only name identity and institution are
+ * persona-fixed — every other field keeps the deterministic fakegen pools.
+ */
+export interface PiiPersonaIdentity {
+  firstName: string
+  lastName: string
+  institution?: string
+}
+
 export interface PiiContext {
   contacts?: PiiContact[]
   keyDates?: Array<{ label: string; value: string; note?: string }>
@@ -55,6 +71,13 @@ export interface PiiContext {
   allowlist?: string[]
   locale?: Locale
   ner?: NerConfig
+  /**
+   * Role personas: the first contact carrying a role gets the persona's
+   * identity as its fake (attempt 0), so the same role reads as the same
+   * person in every dossier. Collisions and later contacts with the same
+   * role rotate into the regular fakegen pools.
+   */
+  personas?: Record<string, PiiPersonaIdentity>
   /**
    * Mapping entries from earlier turns of the same conversation. When supplied,
    * the pseudonymizer pre-registers them so a real value that already had a
@@ -110,6 +133,24 @@ function genderForFake(g?: 'M' | 'F' | 'N'): Gender {
   if (g === 'M') return 'M'
   if (g === 'F') return 'F'
   return null
+}
+
+/** Persona value for a contact field, when that field is persona-fixed. */
+function personaValueForField(
+  persona: PiiPersonaIdentity,
+  markerSuffix: string
+): string | undefined {
+  switch (markerSuffix) {
+    case 'firstName':
+      return persona.firstName
+    case 'lastName':
+    case 'maidenName':
+      return persona.lastName
+    case 'institution':
+      return persona.institution
+    default:
+      return undefined
+  }
 }
 
 const CONTACT_PII_FIELDS: ContactFieldDef[] = [
@@ -329,17 +370,29 @@ export class PiiPseudonymizer {
     for (const contact of context.contacts ?? []) {
       const roleKey = contact.role ? labelToKey(contact.role) : null
       const candidatePrefix = roleKey ? `contact.${roleKey}` : null
-      const prefix =
-        candidatePrefix && !seenPrefixes.has(candidatePrefix)
-          ? candidatePrefix
-          : this.mapping.nextMarker('contact')
+      const usedSemanticPrefix = candidatePrefix !== null && !seenPrefixes.has(candidatePrefix)
+      const prefix = usedSemanticPrefix ? candidatePrefix : this.mapping.nextMarker('contact')
       seenPrefixes.add(prefix)
+      // Persona only for the first contact of a role: later same-role contacts
+      // already fell back to the counter prefix and must not share the persona
+      // identity (one fake may map to only one original).
+      const persona = usedSemanticPrefix && roleKey ? context.personas?.[roleKey] : undefined
 
       for (const { field, markerSuffix, generate } of CONTACT_PII_FIELDS) {
         const value = contact[field] as string | undefined
+        // Prior-turn / persisted entries imported in the constructor win over
+        // the persona here (hasOriginal skip): decode correctness of already-
+        // exported text beats cosmetic persona adoption after a settings change.
         if (!value || this.mapping.hasOriginal(value)) continue
+        const personaValue = persona ? personaValueForField(persona, markerSuffix) : undefined
+        // Persona identity is attempt 0; every collision-safety net stays
+        // active because pickUniqueFake rotates into the pools (attempt - 1
+        // re-anchors the pool sequence) when the persona value is taken or
+        // matches a real name from the context.
         const fakeValue = this.pickUniqueFake(value, (attempt) =>
-          generate(value, contact, loc, attempt)
+          personaValue !== undefined && attempt === 0
+            ? personaValue
+            : generate(value, contact, loc, personaValue !== undefined ? attempt - 1 : attempt)
         )
         this.addEntry(value, `${prefix}.${markerSuffix}`, fakeValue, markerSuffix)
       }
@@ -538,6 +591,10 @@ export class PiiPseudonymizer {
   private isFakeCandidateSafe(candidate: string, original: string): boolean {
     const candidateKey = normalizeMatchKey(candidate)
     if (!candidateKey) return false
+    // A fake shorter than the revert floor can never be decoded on the way back
+    // and would leak verbatim. Treat it as unsafe so addEntry() falls through to
+    // the always-revertible opaque PII_* fake instead of masking with it.
+    if (candidate.length < MIN_REVERTIBLE_FAKE_LENGTH) return false
     const originalKey = normalizeMatchKey(original)
     if (candidateKey === originalKey) return false
     if (this.mapping.isFakeValueBlocked(candidate, original)) return false

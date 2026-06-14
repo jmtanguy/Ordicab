@@ -1,23 +1,55 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
+import {
+  copyFile,
+  cp,
+  mkdir,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile
+} from 'node:fs/promises'
 import { basename, dirname, extname, join, relative, resolve, sep } from 'node:path'
 
 import type {
   DocumentExtractedContent,
-  DocumentFileDeleteInput,
+  DocumentFileMoveInput,
   DocumentFileRenameInput,
   DocumentFolderCreateInput,
   DocumentFolderDeleteInput,
+  DocumentFolderMoveInput,
   DocumentFolderRenameInput,
+  DocumentFolderDeleteResult,
+  DocumentImportInput,
+  DocumentImportResult,
   DocumentMetadataUpdate,
+  DocumentMoveResult,
+  DocumentTrashEntry,
+  DocumentTrashInput,
+  DocumentTrashResult,
+  DocumentTrashRestoreInput,
+  DocumentTrashRestoreResult,
+  EmailAttachmentSaveInput,
+  EmailAttachmentSaveResult,
+  PdfExtractPagesInput,
+  PdfMergeInput,
+  PdfOperationResult,
+  PdfPageRange,
+  PdfSplitInput,
   DocumentTextExtractionStatus,
   DocumentPreview,
+  EmailAttachmentSummary,
   EmailDocumentPreview,
   ImageDocumentPreview,
   DocumentPreviewInput,
   DocumentPreviewSourceType,
   DocumentRecord,
   DossierScopedQuery,
+  GlobalSearchHit,
+  GlobalSearchQuery,
+  GlobalSearchResult,
+  SemanticSearchHit,
   SemanticSearchQuery,
   SemanticSearchResult
 } from '@shared/types'
@@ -25,11 +57,19 @@ import { IpcErrorCode } from '@shared/types'
 import {
   dossierMetadataFileSchema,
   dossierScopedQuerySchema,
-  documentFileDeleteInputSchema,
+  documentFileMoveInputSchema,
   documentFileRenameInputSchema,
   documentFolderCreateInputSchema,
   documentFolderDeleteInputSchema,
+  documentFolderMoveInputSchema,
   documentFolderRenameInputSchema,
+  documentImportInputSchema,
+  documentTrashInputSchema,
+  documentTrashRestoreInputSchema,
+  emailAttachmentSaveInputSchema,
+  pdfExtractPagesInputSchema,
+  pdfMergeInputSchema,
+  pdfSplitInputSchema,
   documentRelocationInputSchema,
   documentMetadataUpdateSchema,
   type DossierMetadataFile,
@@ -39,11 +79,13 @@ import {
 } from '@shared/validation'
 
 import {
+  COWORK_DIRECTORY_NAME,
   getDomainRegistryPath,
   getDossierMetadataPath,
   ORDICAB_DIRECTORY_NAME
 } from '../../lib/ordicab/ordicabPaths'
 import { atomicWrite } from '../../lib/system/atomicWrite'
+import { mapWithConcurrency } from '../../lib/system/concurrency'
 import { loadDomainState, pathExists } from '../../lib/system/domainState'
 import {
   extractDocumentText,
@@ -73,7 +115,7 @@ import {
 } from '../../lib/aiEmbedded/embeddings/embeddingService'
 
 interface DossierRegistryEntry {
-  id: string
+  slug: string
   uuid?: string
   name: string
   registeredAt: string
@@ -110,11 +152,23 @@ export interface DocumentService {
   relocateMetadata: (input: DocumentRelocationInput) => Promise<DocumentRecord>
   resolveRegisteredDossierRoot: (input: DossierScopedQuery) => Promise<string>
   semanticSearch: (input: SemanticSearchQuery) => Promise<SemanticSearchResult>
+  searchAllDossiers: (input: GlobalSearchQuery) => Promise<GlobalSearchResult>
   createFolder: (input: DocumentFolderCreateInput) => Promise<string>
   renameFolder: (input: DocumentFolderRenameInput) => Promise<string>
-  deleteFolder: (input: DocumentFolderDeleteInput) => Promise<void>
+  deleteFolder: (input: DocumentFolderDeleteInput) => Promise<DocumentFolderDeleteResult>
   renameFile: (input: DocumentFileRenameInput) => Promise<DocumentRecord>
-  deleteFile: (input: DocumentFileDeleteInput) => Promise<void>
+  trashFiles: (input: DocumentTrashInput) => Promise<DocumentTrashResult>
+  restoreTrash: (input: DocumentTrashRestoreInput) => Promise<DocumentTrashRestoreResult>
+  listTrash: (input: DossierScopedQuery) => Promise<DocumentTrashEntry[]>
+  deleteTrashEntry: (input: DocumentTrashRestoreInput) => Promise<void>
+  purgeExpiredTrash: (input: DossierScopedQuery) => Promise<void>
+  moveFiles: (input: DocumentFileMoveInput) => Promise<DocumentMoveResult>
+  moveFolder: (input: DocumentFolderMoveInput) => Promise<string>
+  importFiles: (input: DocumentImportInput) => Promise<DocumentImportResult>
+  saveEmailAttachments: (input: EmailAttachmentSaveInput) => Promise<EmailAttachmentSaveResult>
+  extractPdfPages: (input: PdfExtractPagesInput) => Promise<PdfOperationResult>
+  mergePdfs: (input: PdfMergeInput) => Promise<PdfOperationResult>
+  splitPdf: (input: PdfSplitInput) => Promise<PdfOperationResult>
 }
 
 interface DocumentFileSnapshot {
@@ -137,11 +191,12 @@ interface ParsedEmailPreview {
   to: string | null
   cc: string | null
   date: string | null
-  attachments: string[]
+  attachments: EmailAttachmentSummary[]
   text: string
 }
 
 type ImagePreviewSourceType = ImageDocumentPreview['sourceType']
+type OutlookAttachmentShape = { fileName?: string; name?: string; contentLength?: number }
 type OutlookMessageShape = {
   getFileData(): {
     subject?: string
@@ -151,8 +206,9 @@ type OutlookMessageShape = {
     messageDeliveryTime?: string
     clientSubmitTime?: string
     recipients?: Array<{ recipType?: string; email?: string; name?: string }>
-    attachments?: Array<{ fileName?: string; name?: string }>
+    attachments?: OutlookAttachmentShape[]
   }
+  getAttachment(attachment: OutlookAttachmentShape): { fileName: string; content: Uint8Array }
 }
 type MsgReaderConstructor = new (arrayBuffer: ArrayBuffer | DataView) => OutlookMessageShape
 
@@ -208,7 +264,7 @@ async function loadRegistry(domainPath: string): Promise<DossierRegistryFile> {
       ? parsed.dossiers.filter(
           (entry): entry is DossierRegistryEntry =>
             isRecord(entry) &&
-            typeof entry.id === 'string' &&
+            typeof entry.slug === 'string' &&
             typeof entry.name === 'string' &&
             typeof entry.registeredAt === 'string' &&
             (typeof (entry as { uuid?: unknown }).uuid === 'string' ||
@@ -241,10 +297,10 @@ function resolveRegistryEntryByRef(
   const normalizedRef = dossierRef.trim().toLowerCase()
 
   return (
-    registry.dossiers.find((entry) => entry.id === dossierRef || entry.uuid === dossierRef) ??
+    registry.dossiers.find((entry) => entry.slug === dossierRef || entry.uuid === dossierRef) ??
     registry.dossiers.find(
       (entry) =>
-        entry.id.toLowerCase() === normalizedRef || entry.uuid?.toLowerCase() === normalizedRef
+        entry.slug.toLowerCase() === normalizedRef || entry.uuid?.toLowerCase() === normalizedRef
     ) ??
     null
   )
@@ -397,7 +453,7 @@ function resolveReboundDocumentEntries(
 
 function createDefaultDossierMetadata(entry: DossierRegistryEntry): DossierMetadataFile {
   return dossierMetadataFileSchema.parse({
-    id: entry.id,
+    slug: entry.slug,
     uuid: entry.uuid ?? randomUUID(),
     name: entry.name,
     registeredAt: entry.registeredAt,
@@ -409,15 +465,18 @@ function createDefaultDossierMetadata(entry: DossierRegistryEntry): DossierMetad
     nextUpcomingKeyDateLabel: null,
     keyDates: [],
     keyReferences: [],
-    documents: []
+    documents: [],
+    pieces: []
   })
 }
 
-type ReadDossierMetadataResult =
+export type ReadDossierMetadataResult =
   | { ok: true; metadata: DossierMetadataFile }
   | { ok: false; reason: 'no-metadata' | 'unreadable-metadata' | 'invalid-metadata' }
 
-async function readDossierMetadataFile(dossierPath: string): Promise<ReadDossierMetadataResult> {
+export async function readDossierMetadataFile(
+  dossierPath: string
+): Promise<ReadDossierMetadataResult> {
   const metadataPath = getDossierMetadataPath(dossierPath)
   if (!(await pathExists(metadataPath))) {
     return { ok: false, reason: 'no-metadata' }
@@ -438,7 +497,7 @@ async function readDossierMetadataFile(dossierPath: string): Promise<ReadDossier
   }
 }
 
-async function writeDossierMetadataFile(
+export async function writeDossierMetadataFile(
   dossierPath: string,
   metadata: DossierMetadataFile
 ): Promise<void> {
@@ -471,7 +530,10 @@ async function loadOrInitDossierMetadata(
 // the classic last-writer-wins corruption.
 const dossierMetadataLocks = new Map<string, Promise<unknown>>()
 
-function withDossierMetadataLock<T>(dossierPath: string, operation: () => Promise<T>): Promise<T> {
+export function withDossierMetadataLock<T>(
+  dossierPath: string,
+  operation: () => Promise<T>
+): Promise<T> {
   // Queue behind whatever is currently holding the lock. We gate on a
   // .catch-wrapped copy so a thrown error in one holder doesn't break the
   // chain for everyone queued after it.
@@ -535,8 +597,23 @@ async function loadStoredDocumentMetadata(
   }
 }
 
-function validateDocumentRelativePath(documentId: string): string {
-  const normalized = normalizeRelativePath(documentId)
+/**
+ * The top-level `Cowork/` folder is reserved for the pseudonymized Claude
+ * Cowork export: it is excluded from listing/watching, so letting a user
+ * create or move a regular folder there would silently hide their documents.
+ */
+function assertNotReservedCoworkPath(relativePath: string): void {
+  const firstSegment = normalizeRelativePath(relativePath).split('/')[0]
+  if (firstSegment === COWORK_DIRECTORY_NAME) {
+    throw new DocumentServiceError(
+      IpcErrorCode.VALIDATION_FAILED,
+      `"${COWORK_DIRECTORY_NAME}" is reserved for the Claude Cowork export.`
+    )
+  }
+}
+
+function validateDocumentRelativePath(documentPath: string): string {
+  const normalized = normalizeRelativePath(documentPath)
 
   if (
     !normalized ||
@@ -586,8 +663,8 @@ async function buildDocumentRecord(options: {
   }
 
   return {
-    id: options.relativePath,
-    uuid: options.metadata?.uuid,
+    path: options.relativePath,
+    uuid: options.metadata?.uuid ?? randomUUID(),
     dossierId: options.dossierId,
     filename: basename(filePath),
     byteLength: fileStats.size,
@@ -741,9 +818,11 @@ async function defaultParseMimeEmail(buffer: Buffer): Promise<ParsedEmailPreview
     cc: normalizeOptionalText(parsed.cc?.text),
     date: normalizePreviewDate(parsed.date),
     attachments:
-      parsed.attachments
-        ?.map((attachment) => normalizeOptionalText(attachment.filename))
-        .filter((value): value is string => value !== null) ?? [],
+      parsed.attachments?.map((attachment, index) => ({
+        index,
+        filename: normalizeOptionalText(attachment.filename) ?? `piece-jointe-${index + 1}`,
+        byteLength: typeof attachment.size === 'number' ? attachment.size : null
+      })) ?? [],
     text: normalizePreviewText(parsed.text)
   }
 }
@@ -794,15 +873,114 @@ async function defaultParseOutlookMessage(buffer: Buffer): Promise<ParsedEmailPr
     cc: normalizeOptionalText(cc),
     date: normalizePreviewDate(parsed.messageDeliveryTime ?? parsed.clientSubmitTime),
     attachments:
-      parsed.attachments
-        ?.map((attachment) => normalizeOptionalText(attachment.fileName ?? attachment.name))
-        .filter((value): value is string => value !== null) ?? [],
+      parsed.attachments?.map((attachment, index) => ({
+        index,
+        filename:
+          normalizeOptionalText(attachment.fileName ?? attachment.name) ??
+          `piece-jointe-${index + 1}`,
+        byteLength: typeof attachment.contentLength === 'number' ? attachment.contentLength : null
+      })) ?? [],
     text: normalizePreviewText(parsed.body)
   }
 }
 
+interface ExtractedEmailAttachment {
+  index: number
+  filename: string
+  content: Buffer | Uint8Array
+}
+
+/**
+ * Re-parse the raw email and return attachment buffers. Index-based addressing
+ * matches the EmailAttachmentSummary list produced by the preview parsers.
+ */
+async function extractEmailAttachments(
+  buffer: Buffer,
+  extension: '.eml' | '.msg'
+): Promise<ExtractedEmailAttachment[]> {
+  if (extension === '.eml') {
+    const { simpleParser } = await import('mailparser')
+    const parsed = await simpleParser(buffer)
+    return (parsed.attachments ?? []).map((attachment, index) => ({
+      index,
+      filename: normalizeOptionalText(attachment.filename) ?? '',
+      content: attachment.content
+    }))
+  }
+
+  const msgReaderModule = await import('@kenjiuno/msgreader')
+  const MsgReader = resolveMsgReaderConstructor(msgReaderModule)
+  const reader = new MsgReader(toArrayBuffer(buffer))
+  const parsed = reader.getFileData()
+  return (parsed.attachments ?? []).map((attachment, index) => {
+    const resolved = reader.getAttachment(attachment)
+    return {
+      index,
+      filename:
+        normalizeOptionalText(resolved.fileName) ??
+        normalizeOptionalText(attachment.fileName ?? attachment.name) ??
+        '',
+      content: resolved.content
+    }
+  })
+}
+
+/** Load a PDF for page operations, mapping missing files and encrypted PDFs to typed errors. */
+async function loadPdfDocument(absolutePath: string): Promise<import('pdf-lib').PDFDocument> {
+  const fileStats = await stat(absolutePath).catch(() => null)
+  if (!fileStats?.isFile()) {
+    throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'The document was not found.')
+  }
+
+  const buffer = await readFile(absolutePath)
+  const { PDFDocument } = await import('pdf-lib')
+  try {
+    return await PDFDocument.load(new Uint8Array(buffer))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (message.toLowerCase().includes('encrypted')) {
+      throw new DocumentServiceError(
+        IpcErrorCode.VALIDATION_FAILED,
+        'This PDF is password-protected and cannot be processed.'
+      )
+    }
+    throw new DocumentServiceError(IpcErrorCode.FILE_SYSTEM_ERROR, 'This PDF could not be read.')
+  }
+}
+
+/** Expand validated 1-based ranges into 0-based page indexes, bounds-checked against the document. */
+function resolvePdfPageIndexes(ranges: PdfPageRange[], pageCount: number): number[] {
+  const pageIndexes: number[] = []
+  for (const range of ranges) {
+    if (range.to > pageCount) {
+      throw new DocumentServiceError(
+        IpcErrorCode.VALIDATION_FAILED,
+        `Page range ${range.from}-${range.to} exceeds the document (${pageCount} pages).`
+      )
+    }
+    for (let page = range.from; page <= range.to; page += 1) {
+      pageIndexes.push(page - 1)
+    }
+  }
+  return pageIndexes
+}
+
+const ATTACHMENT_FORBIDDEN_CHARS = /[\\/:*?"<>|]/g
+// eslint-disable-next-line no-control-regex
+const ATTACHMENT_CONTROL_CHARS = /[\u0000-\u001f]/g
+
+function sanitizeAttachmentFilename(raw: string, index: number): string {
+  const cleaned = raw
+    .replace(ATTACHMENT_FORBIDDEN_CHARS, ' ')
+    .replace(ATTACHMENT_CONTROL_CHARS, '')
+    .trim()
+    .replace(/^\.+/, '')
+    .trim()
+  return cleaned || `piece-jointe-${index + 1}`
+}
+
 function buildEmailPreview(options: {
-  documentId: string
+  documentPath: string
   filename: string
   byteLength: number
   sourceType: EmailDocumentPreview['sourceType']
@@ -811,7 +989,7 @@ function buildEmailPreview(options: {
 }): EmailDocumentPreview {
   return {
     kind: 'email',
-    documentId: options.documentId,
+    documentPath: options.documentPath,
     filename: options.filename,
     byteLength: options.byteLength,
     sourceType: options.sourceType,
@@ -827,7 +1005,7 @@ function buildEmailPreview(options: {
 }
 
 function buildUnsupportedPreview(options: {
-  documentId: string
+  documentPath: string
   filename: string
   byteLength: number
   sourceType: DocumentPreviewSourceType
@@ -835,7 +1013,7 @@ function buildUnsupportedPreview(options: {
 }): DocumentPreview {
   return {
     kind: 'unsupported',
-    documentId: options.documentId,
+    documentPath: options.documentPath,
     filename: options.filename,
     byteLength: options.byteLength,
     sourceType: options.sourceType,
@@ -877,6 +1055,8 @@ async function collectFiles(rootPath: string): Promise<string[]> {
       }
 
       if (entry.isDirectory()) {
+        // Cowork/ holds pseudonymized exports for Claude Cowork — not dossier documents.
+        if (entry.name === COWORK_DIRECTORY_NAME) return []
         return collectFiles(entryPath)
       }
 
@@ -904,6 +1084,7 @@ async function collectDirectories(rootPath: string): Promise<string[]> {
     for (const entry of entries) {
       if (!entry.isDirectory()) continue
       if (entry.name.startsWith('.')) continue
+      if (entry.name === COWORK_DIRECTORY_NAME) continue
       const entryPath = join(current, entry.name)
       directories.push(entryPath)
       await walk(entryPath)
@@ -914,7 +1095,99 @@ async function collectDirectories(rootPath: string): Promise<string[]> {
   return directories
 }
 
-function resolveSafePathInDossier(dossierPath: string, relativePath: string): string {
+// App-managed trash under {dossier}/.ordicab/trash/{deletionId}/. The watcher
+// ignores .ordicab, so trashing emits only the source unlink; the payload keeps
+// its relative layout so restore is a plain rename back. The manifest snapshots
+// the stored metadata so description/tags/uuid survive an undo, and the trash
+// directory syncs with the dossier on shared drives.
+const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+const TRASH_PAYLOAD_DIRECTORY = 'payload'
+const TRASH_MANIFEST_FILENAME = 'manifest.json'
+
+interface TrashManifestItem {
+  relativePath: string
+  storedMetadata: StoredDocumentMetadata | null
+}
+
+interface TrashManifest {
+  deletedAt: string
+  kind: 'files' | 'folder'
+  folderPath?: string
+  items: TrashManifestItem[]
+}
+
+function getDossierTrashPath(dossierPath: string): string {
+  return join(dossierPath, ORDICAB_DIRECTORY_NAME, 'trash')
+}
+
+async function readTrashManifest(deletionDir: string): Promise<TrashManifest | null> {
+  try {
+    const parsed = JSON.parse(
+      await readFile(join(deletionDir, TRASH_MANIFEST_FILENAME), 'utf8')
+    ) as unknown
+    if (
+      !isRecord(parsed) ||
+      typeof parsed.deletedAt !== 'string' ||
+      (parsed.kind !== 'files' && parsed.kind !== 'folder') ||
+      !Array.isArray(parsed.items)
+    ) {
+      return null
+    }
+    return parsed as unknown as TrashManifest
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Find a non-colliding target path inside `absoluteDir` for `filename`,
+ * suffixing ` (2)`, ` (3)`, … before the extension until the name is free.
+ */
+async function resolveCollisionFreeTarget(absoluteDir: string, filename: string): Promise<string> {
+  const extension = extname(filename)
+  const stem = filename.slice(0, filename.length - extension.length)
+  let candidate = join(absoluteDir, filename)
+  let counter = 2
+
+  while (await pathExists(candidate)) {
+    candidate = join(absoluteDir, `${stem} (${counter})${extension}`)
+    counter += 1
+  }
+
+  return candidate
+}
+
+/**
+ * Carry the extraction cache over to a file's new name. The cache key is
+ * derived from the basename, so this only matters when the basename changes
+ * (rename) — moves across folders keep the same key. Best-effort: a missing
+ * source cache or a target entry already owned by another same-named file
+ * simply leaves the cache to be rebuilt on the next extraction.
+ */
+async function relocateContentCache(
+  dossierPath: string,
+  fromAbsolute: string,
+  toAbsolute: string
+): Promise<void> {
+  const cacheDir = getDossierContentCachePath(dossierPath)
+  const fromCachePath = getDocumentContentCachePath(cacheDir, fromAbsolute)
+  const toCachePath = getDocumentContentCachePath(cacheDir, toAbsolute)
+
+  if (fromCachePath === toCachePath) {
+    return
+  }
+
+  try {
+    if (await pathExists(toCachePath)) {
+      return
+    }
+    await rename(fromCachePath, toCachePath)
+  } catch {
+    // Best-effort: the next extraction pass recreates the cache.
+  }
+}
+
+export function resolveSafePathInDossier(dossierPath: string, relativePath: string): string {
   const target = resolve(join(dossierPath, relativePath))
   const root = resolve(dossierPath)
   if (target !== root && !target.startsWith(root + sep)) {
@@ -953,7 +1226,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
       throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'This dossier is not registered.')
     }
 
-    return join(domainPath, registryEntry.id)
+    return join(domainPath, registryEntry.slug)
   }
 
   return {
@@ -1028,9 +1301,9 @@ export function createDocumentService(options: DocumentServiceOptions): Document
             normalizedEntries.push(normalizedMetadata)
 
             return {
-              id: snapshot.relativePath,
+              path: snapshot.relativePath,
               uuid: normalizedMetadata.uuid,
-              dossierId: registryEntry.id,
+              dossierId: registryEntry.slug,
               filename: snapshot.filename,
               byteLength: snapshot.byteLength,
               relativePath: snapshot.relativePath,
@@ -1064,7 +1337,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
 
     getPreview: async (input): Promise<DocumentPreview> => {
       const dossierPath = await resolveRegisteredDossierRoot({ dossierId: input.dossierId })
-      const relativePath = validateDocumentRelativePath(input.documentId)
+      const relativePath = validateDocumentRelativePath(input.documentPath)
       const filePath = join(dossierPath, relativePath)
       const fileStats = await stat(filePath).catch(() => null)
 
@@ -1080,7 +1353,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
 
       if (fileStats.size > previewLoaders.maxPreviewBytes) {
         return buildUnsupportedPreview({
-          documentId: relativePath,
+          documentPath: relativePath,
           filename,
           byteLength: fileStats.size,
           sourceType,
@@ -1093,7 +1366,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
           const buffer = await readFile(filePath)
           return {
             kind: 'pdf',
-            documentId: relativePath,
+            documentPath: relativePath,
             filename,
             byteLength: buffer.byteLength,
             sourceType,
@@ -1106,7 +1379,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
           const text = await readFile(filePath, 'utf8')
           return {
             kind: 'text',
-            documentId: relativePath,
+            documentPath: relativePath,
             filename,
             byteLength: fileStats.size,
             sourceType,
@@ -1119,7 +1392,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
           const buffer = await readFile(filePath)
           return {
             kind: 'docx',
-            documentId: relativePath,
+            documentPath: relativePath,
             filename,
             byteLength: buffer.byteLength,
             sourceType,
@@ -1133,7 +1406,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
           const text = await previewLoaders.extractLegacyDocText(buffer)
           return {
             kind: 'text',
-            documentId: relativePath,
+            documentPath: relativePath,
             filename,
             byteLength: buffer.byteLength,
             sourceType,
@@ -1146,7 +1419,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
           const buffer = await readFile(filePath)
           const parsed = await previewLoaders.parseMimeEmail(buffer)
           return buildEmailPreview({
-            documentId: relativePath,
+            documentPath: relativePath,
             filename,
             byteLength: buffer.byteLength,
             sourceType,
@@ -1159,7 +1432,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
           const buffer = await readFile(filePath)
           const parsed = await previewLoaders.parseOutlookMessage(buffer)
           return buildEmailPreview({
-            documentId: relativePath,
+            documentPath: relativePath,
             filename,
             byteLength: buffer.byteLength,
             sourceType,
@@ -1179,7 +1452,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
           const buffer = await readFile(filePath)
           return {
             kind: 'image',
-            documentId: relativePath,
+            documentPath: relativePath,
             filename,
             byteLength: buffer.byteLength,
             sourceType,
@@ -1190,7 +1463,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
 
         default:
           return buildUnsupportedPreview({
-            documentId: relativePath,
+            documentPath: relativePath,
             filename,
             byteLength: fileStats.size,
             sourceType,
@@ -1201,7 +1474,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
 
     getContentStatus: async (input): Promise<DocumentTextExtractionStatus> => {
       const dossierPath = await resolveRegisteredDossierRoot({ dossierId: input.dossierId })
-      const relativePath = validateDocumentRelativePath(input.documentId)
+      const relativePath = validateDocumentRelativePath(input.documentPath)
       const filePath = join(dossierPath, relativePath)
       const fileStats = await stat(filePath).catch(() => null)
 
@@ -1217,7 +1490,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
 
     extractContent: async (input, onProgress): Promise<DocumentExtractedContent> => {
       const dossierPath = await resolveRegisteredDossierRoot({ dossierId: input.dossierId })
-      const relativePath = validateDocumentRelativePath(input.documentId)
+      const relativePath = validateDocumentRelativePath(input.documentPath)
       const filePath = join(dossierPath, relativePath)
       const fileStats = await stat(filePath).catch(() => null)
 
@@ -1240,7 +1513,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
         await markDocumentExtractionEmpty(filePath, cacheDir)
         const status = await getDocumentExtractionStatus(dossierPath, relativePath)
         return {
-          documentId: relativePath,
+          documentPath: relativePath,
           filename: basename(filePath),
           text: '',
           textLength: 0,
@@ -1298,7 +1571,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
         const status = await getDocumentExtractionStatus(dossierPath, relativePath)
 
         return {
-          documentId: relativePath,
+          documentPath: relativePath,
           filename: basename(filePath),
           text: '',
           textLength: 0,
@@ -1338,7 +1611,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
       })
 
       return {
-        documentId: relativePath,
+        documentPath: relativePath,
         filename: basename(filePath),
         text: result.text,
         textLength: result.text.length,
@@ -1365,8 +1638,8 @@ export function createDocumentService(options: DocumentServiceOptions): Document
         throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'This dossier is not registered.')
       }
 
-      const canonicalDossierId = registryEntry.id
-      const relativePath = validateDocumentRelativePath(parsed.documentId)
+      const canonicalDossierId = registryEntry.slug
+      const relativePath = validateDocumentRelativePath(parsed.documentPath)
       const snapshot = await createDocumentFileSnapshot(dossierPath, relativePath)
 
       return withDossierMetadataLock(dossierPath, async () => {
@@ -1418,8 +1691,8 @@ export function createDocumentService(options: DocumentServiceOptions): Document
         throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'This dossier is not registered.')
       }
 
-      const canonicalDossierId = registryEntry.id
-      const targetRelativePath = validateDocumentRelativePath(parsed.toDocumentId)
+      const canonicalDossierId = registryEntry.slug
+      const targetRelativePath = validateDocumentRelativePath(parsed.toDocumentPath)
       const targetSnapshot = await createDocumentFileSnapshot(dossierPath, targetRelativePath)
 
       return withDossierMetadataLock(dossierPath, async () => {
@@ -1433,7 +1706,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
           throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'This document was not found.')
         }
 
-        if (parsed.fromDocumentId && matchingEntry.relativePath !== parsed.fromDocumentId) {
+        if (parsed.fromDocumentPath && matchingEntry.relativePath !== parsed.fromDocumentPath) {
           throw new DocumentServiceError(
             IpcErrorCode.NOT_FOUND,
             'The document no longer matches the expected previous location.'
@@ -1505,6 +1778,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
       const dossierPath = await resolveRegisteredDossierRoot({ dossierId: parsed.dossierId })
       const parentPath = parsed.parentPath ?? ''
       const newRelativePath = parentPath ? `${parentPath}/${parsed.name}` : parsed.name
+      assertNotReservedCoworkPath(newRelativePath)
       const absoluteTarget = resolveSafePathInDossier(dossierPath, newRelativePath)
 
       if (parentPath) {
@@ -1541,6 +1815,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
       const fromPath = parsed.fromPath
       const parentPath = fromPath.includes('/') ? fromPath.slice(0, fromPath.lastIndexOf('/')) : ''
       const newPath = parentPath ? `${parentPath}/${parsed.newName}` : parsed.newName
+      assertNotReservedCoworkPath(newPath)
 
       if (newPath === fromPath) {
         return newPath
@@ -1590,22 +1865,61 @@ export function createDocumentService(options: DocumentServiceOptions): Document
       return newPath
     },
 
-    deleteFolder: async (input): Promise<void> => {
+    deleteFolder: async (input): Promise<DocumentFolderDeleteResult> => {
       const parsed = documentFolderDeleteInputSchema.parse(input)
       const dossierPath = await resolveRegisteredDossierRoot({ dossierId: parsed.dossierId })
-      const absoluteTarget = resolveSafePathInDossier(dossierPath, parsed.path)
+      const domainPath = dirname(dossierPath)
+      const registry = await loadRegistry(domainPath)
+      const registryEntry = resolveRegistryEntryByRef(registry, parsed.dossierId)
 
+      if (!registryEntry) {
+        throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'This dossier is not registered.')
+      }
+
+      const absoluteTarget = resolveSafePathInDossier(dossierPath, parsed.path)
       const targetStats = await stat(absoluteTarget).catch(() => null)
       if (!targetStats?.isDirectory()) {
         throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'The folder was not found.')
       }
 
-      const filesInside = await collectFiles(absoluteTarget)
-      if (filesInside.length > 0) {
-        throw new DocumentServiceError(IpcErrorCode.VALIDATION_FAILED, 'The folder is not empty.')
-      }
+      const deletionId = randomUUID()
+      const deletionDir = join(getDossierTrashPath(dossierPath), deletionId)
+      const payloadTarget = join(deletionDir, TRASH_PAYLOAD_DIRECTORY, parsed.path)
 
-      await rm(absoluteTarget, { recursive: true, force: true })
+      await mkdir(dirname(payloadTarget), { recursive: true })
+      await rename(absoluteTarget, payloadTarget)
+
+      await withDossierMetadataLock(dossierPath, async () => {
+        const currentMetadata = await loadOrInitDossierMetadata(dossierPath, registryEntry)
+        const prefix = `${parsed.path}/`
+        const items: TrashManifestItem[] = currentMetadata.documents
+          .filter((entry) => entry.relativePath.startsWith(prefix))
+          .map((entry) => ({ relativePath: entry.relativePath, storedMetadata: entry }))
+        const nextDocuments = currentMetadata.documents.filter(
+          (entry) => !entry.relativePath.startsWith(prefix)
+        )
+
+        if (nextDocuments.length !== currentMetadata.documents.length) {
+          const nextMetadata = dossierMetadataFileSchema.parse({
+            ...currentMetadata,
+            documents: nextDocuments
+          })
+          await writeDossierMetadataFile(dossierPath, nextMetadata)
+        }
+
+        const manifest: TrashManifest = {
+          deletedAt: new Date().toISOString(),
+          kind: 'folder',
+          folderPath: parsed.path,
+          items
+        }
+        await atomicWrite(
+          join(deletionDir, TRASH_MANIFEST_FILENAME),
+          `${JSON.stringify(manifest, null, 2)}\n`
+        )
+      })
+
+      return { deletionId }
     },
 
     renameFile: async (input): Promise<DocumentRecord> => {
@@ -1619,8 +1933,8 @@ export function createDocumentService(options: DocumentServiceOptions): Document
         throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'This dossier is not registered.')
       }
 
-      const canonicalDossierId = registryEntry.id
-      const fromRelativePath = validateDocumentRelativePath(parsed.documentId)
+      const canonicalDossierId = registryEntry.slug
+      const fromRelativePath = validateDocumentRelativePath(parsed.documentPath)
       const parentDir = fromRelativePath.includes('/')
         ? fromRelativePath.slice(0, fromRelativePath.lastIndexOf('/'))
         : ''
@@ -1653,6 +1967,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
       }
 
       await rename(fromAbsolute, toAbsolute)
+      await relocateContentCache(dossierPath, fromAbsolute, toAbsolute)
 
       return withDossierMetadataLock(dossierPath, async () => {
         const currentMetadata = await loadOrInitDossierMetadata(dossierPath, registryEntry)
@@ -1697,8 +2012,8 @@ export function createDocumentService(options: DocumentServiceOptions): Document
       })
     },
 
-    deleteFile: async (input): Promise<void> => {
-      const parsed = documentFileDeleteInputSchema.parse(input)
+    trashFiles: async (input): Promise<DocumentTrashResult> => {
+      const parsed = documentTrashInputSchema.parse(input)
       const dossierPath = await resolveRegisteredDossierRoot({ dossierId: parsed.dossierId })
       const domainPath = dirname(dossierPath)
       const registry = await loadRegistry(domainPath)
@@ -1708,88 +2023,824 @@ export function createDocumentService(options: DocumentServiceOptions): Document
         throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'This dossier is not registered.')
       }
 
-      const relativePath = validateDocumentRelativePath(parsed.documentId)
-      const absolute = resolveSafePathInDossier(dossierPath, relativePath)
-      const fileStats = await stat(absolute).catch(() => null)
+      const deletionId = randomUUID()
+      const deletionDir = join(getDossierTrashPath(dossierPath), deletionId)
+      const payloadDir = join(deletionDir, TRASH_PAYLOAD_DIRECTORY)
 
+      const failed: DocumentTrashResult['failed'] = []
+      const trashedPaths: string[] = []
+
+      for (const documentPath of parsed.documentPaths) {
+        try {
+          const relativePath = validateDocumentRelativePath(documentPath)
+          const absolute = resolveSafePathInDossier(dossierPath, relativePath)
+          const fileStats = await stat(absolute).catch(() => null)
+          if (!fileStats?.isFile()) {
+            throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'The document was not found.')
+          }
+
+          // The extraction cache is intentionally kept: a restored file reuses
+          // its OCR result instead of re-extracting.
+          const payloadTarget = join(payloadDir, relativePath)
+          await mkdir(dirname(payloadTarget), { recursive: true })
+          await rename(absolute, payloadTarget)
+          trashedPaths.push(relativePath)
+        } catch (error) {
+          failed.push({
+            documentPath,
+            error: error instanceof Error ? error.message : String(error)
+          })
+        }
+      }
+
+      if (trashedPaths.length === 0) {
+        await rm(deletionDir, { recursive: true, force: true }).catch(() => undefined)
+        return { deletionId: null, trashedCount: 0, failed }
+      }
+
+      await withDossierMetadataLock(dossierPath, async () => {
+        const currentMetadata = await loadOrInitDossierMetadata(dossierPath, registryEntry)
+        const trashedSet = new Set(trashedPaths)
+        const items: TrashManifestItem[] = trashedPaths.map((relativePath) => ({
+          relativePath,
+          storedMetadata:
+            currentMetadata.documents.find((entry) => entry.relativePath === relativePath) ?? null
+        }))
+        const nextDocuments = currentMetadata.documents.filter(
+          (entry) => !trashedSet.has(entry.relativePath)
+        )
+
+        if (nextDocuments.length !== currentMetadata.documents.length) {
+          const nextMetadata = dossierMetadataFileSchema.parse({
+            ...currentMetadata,
+            documents: nextDocuments
+          })
+          await writeDossierMetadataFile(dossierPath, nextMetadata)
+        }
+
+        const manifest: TrashManifest = {
+          deletedAt: new Date().toISOString(),
+          kind: 'files',
+          items
+        }
+        await atomicWrite(
+          join(deletionDir, TRASH_MANIFEST_FILENAME),
+          `${JSON.stringify(manifest, null, 2)}\n`
+        )
+      })
+
+      return { deletionId, trashedCount: trashedPaths.length, failed }
+    },
+
+    restoreTrash: async (input): Promise<DocumentTrashRestoreResult> => {
+      const parsed = documentTrashRestoreInputSchema.parse(input)
+      const dossierPath = await resolveRegisteredDossierRoot({ dossierId: parsed.dossierId })
+      const domainPath = dirname(dossierPath)
+      const registry = await loadRegistry(domainPath)
+      const registryEntry = resolveRegistryEntryByRef(registry, parsed.dossierId)
+
+      if (!registryEntry) {
+        throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'This dossier is not registered.')
+      }
+
+      const deletionDir = join(getDossierTrashPath(dossierPath), parsed.deletionId)
+      const manifest = await readTrashManifest(deletionDir)
+      if (!manifest) {
+        throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'This trash entry no longer exists.')
+      }
+
+      const payloadDir = join(deletionDir, TRASH_PAYLOAD_DIRECTORY)
+
+      if (manifest.kind === 'folder' && manifest.folderPath) {
+        const folderPath = manifest.folderPath
+        const source = join(payloadDir, folderPath)
+        const parentRelative = folderPath.includes('/')
+          ? folderPath.slice(0, folderPath.lastIndexOf('/'))
+          : ''
+        const parentAbsolute = parentRelative ? join(dossierPath, parentRelative) : dossierPath
+
+        await mkdir(parentAbsolute, { recursive: true })
+        const target = await resolveCollisionFreeTarget(parentAbsolute, basename(folderPath))
+        await rename(source, target)
+        const restoredFolderPath = normalizeRelativePath(relative(dossierPath, target))
+
+        await withDossierMetadataLock(dossierPath, async () => {
+          const currentMetadata = await loadOrInitDossierMetadata(dossierPath, registryEntry)
+          const entriesByPath = new Map(
+            currentMetadata.documents.map((entry) => [entry.relativePath, entry])
+          )
+          for (const item of manifest.items) {
+            if (!item.storedMetadata) continue
+            const tail = item.relativePath.slice(folderPath.length)
+            const restoredPath = `${restoredFolderPath}${tail}`
+            entriesByPath.set(
+              restoredPath,
+              normalizeStoredDocumentEntry(
+                { ...item.storedMetadata, relativePath: restoredPath },
+                restoredPath
+              )
+            )
+          }
+
+          const nextMetadata = dossierMetadataFileSchema.parse({
+            ...currentMetadata,
+            documents: [...entriesByPath.values()].sort((left, right) =>
+              left.relativePath.localeCompare(right.relativePath)
+            )
+          })
+          await writeDossierMetadataFile(dossierPath, nextMetadata)
+        })
+
+        await rm(deletionDir, { recursive: true, force: true }).catch(() => undefined)
+        return { restoredCount: Math.max(manifest.items.length, 1) }
+      }
+
+      const restored: Array<{ item: TrashManifestItem; restoredPath: string }> = []
+
+      for (const item of manifest.items) {
+        const source = join(payloadDir, item.relativePath)
+        const sourceStats = await stat(source).catch(() => null)
+        if (!sourceStats?.isFile()) {
+          continue
+        }
+
+        const parentRelative = item.relativePath.includes('/')
+          ? item.relativePath.slice(0, item.relativePath.lastIndexOf('/'))
+          : ''
+        const parentAbsolute = parentRelative ? join(dossierPath, parentRelative) : dossierPath
+
+        await mkdir(parentAbsolute, { recursive: true })
+        const target = await resolveCollisionFreeTarget(parentAbsolute, basename(item.relativePath))
+        await rename(source, target)
+        restored.push({
+          item,
+          restoredPath: normalizeRelativePath(relative(dossierPath, target))
+        })
+      }
+
+      if (restored.length > 0) {
+        await withDossierMetadataLock(dossierPath, async () => {
+          const currentMetadata = await loadOrInitDossierMetadata(dossierPath, registryEntry)
+          const entriesByPath = new Map(
+            currentMetadata.documents.map((entry) => [entry.relativePath, entry])
+          )
+          for (const { item, restoredPath } of restored) {
+            if (!item.storedMetadata) continue
+            const snapshot = await createDocumentFileSnapshot(dossierPath, restoredPath)
+            entriesByPath.set(
+              restoredPath,
+              normalizeStoredDocumentEntry(
+                { ...item.storedMetadata, relativePath: restoredPath },
+                restoredPath,
+                snapshot
+              )
+            )
+          }
+
+          const nextMetadata = dossierMetadataFileSchema.parse({
+            ...currentMetadata,
+            documents: [...entriesByPath.values()].sort((left, right) =>
+              left.relativePath.localeCompare(right.relativePath)
+            )
+          })
+          await writeDossierMetadataFile(dossierPath, nextMetadata)
+        })
+      }
+
+      await rm(deletionDir, { recursive: true, force: true }).catch(() => undefined)
+      return { restoredCount: restored.length }
+    },
+
+    listTrash: async (input): Promise<DocumentTrashEntry[]> => {
+      const parsed = dossierScopedQuerySchema.parse(input)
+      const dossierPath = await resolveRegisteredDossierRoot(parsed)
+      const trashRoot = getDossierTrashPath(dossierPath)
+
+      let entries
+      try {
+        entries = await readdir(trashRoot, { withFileTypes: true })
+      } catch {
+        return []
+      }
+
+      const result: DocumentTrashEntry[] = []
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        const manifest = await readTrashManifest(join(trashRoot, entry.name))
+        if (!manifest) continue
+        result.push({
+          deletionId: entry.name,
+          deletedAt: manifest.deletedAt,
+          kind: manifest.kind,
+          folderPath: manifest.folderPath,
+          items: manifest.items.map((item) => ({ relativePath: item.relativePath }))
+        })
+      }
+
+      return result.sort((left, right) => right.deletedAt.localeCompare(left.deletedAt))
+    },
+
+    deleteTrashEntry: async (input): Promise<void> => {
+      const parsed = documentTrashRestoreInputSchema.parse(input)
+      const dossierPath = await resolveRegisteredDossierRoot({ dossierId: parsed.dossierId })
+      const deletionDir = join(getDossierTrashPath(dossierPath), parsed.deletionId)
+
+      const dirStats = await stat(deletionDir).catch(() => null)
+      if (!dirStats?.isDirectory()) {
+        throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'This trash entry no longer exists.')
+      }
+
+      await rm(deletionDir, { recursive: true, force: true })
+    },
+
+    purgeExpiredTrash: async (input): Promise<void> => {
+      const parsed = dossierScopedQuerySchema.parse(input)
+      const dossierPath = await resolveRegisteredDossierRoot(parsed)
+      const trashRoot = getDossierTrashPath(dossierPath)
+
+      let entries
+      try {
+        entries = await readdir(trashRoot, { withFileTypes: true })
+      } catch {
+        return
+      }
+
+      const now = Date.now()
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        const deletionDir = join(trashRoot, entry.name)
+        const manifest = await readTrashManifest(deletionDir)
+        // Fall back to the directory mtime when the manifest is unreadable
+        // (interrupted trash op) so orphaned payloads still age out instead of
+        // being purged immediately or kept forever.
+        let referenceMs = manifest ? Date.parse(manifest.deletedAt) : Number.NaN
+        if (!Number.isFinite(referenceMs)) {
+          const dirStats = await stat(deletionDir).catch(() => null)
+          referenceMs = dirStats ? dirStats.mtime.getTime() : Number.NaN
+        }
+        if (Number.isFinite(referenceMs) && now - referenceMs > TRASH_RETENTION_MS) {
+          await rm(deletionDir, { recursive: true, force: true }).catch(() => undefined)
+        }
+      }
+    },
+
+    saveEmailAttachments: async (input): Promise<EmailAttachmentSaveResult> => {
+      const parsed = emailAttachmentSaveInputSchema.parse(input)
+      const dossierPath = await resolveRegisteredDossierRoot({ dossierId: parsed.dossierId })
+      const relativePath = validateDocumentRelativePath(parsed.documentPath)
+      const absolute = resolveSafePathInDossier(dossierPath, relativePath)
+
+      const extension = extname(absolute).toLowerCase()
+      if (extension !== '.eml' && extension !== '.msg') {
+        throw new DocumentServiceError(
+          IpcErrorCode.VALIDATION_FAILED,
+          'Attachments can only be extracted from .eml or .msg files.'
+        )
+      }
+
+      const fileStats = await stat(absolute).catch(() => null)
       if (!fileStats?.isFile()) {
         throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'The document was not found.')
       }
 
-      const cacheDir = getDossierContentCachePath(dossierPath)
-      const cachePath = getDocumentContentCachePath(cacheDir, absolute)
+      // Reads the raw email directly — the preview size cap does not apply here.
+      const buffer = await readFile(absolute)
+      const attachments = await extractEmailAttachments(buffer, extension)
 
-      await rm(absolute, { force: true })
-      await rm(cachePath, { force: true })
+      const emailParentPath = relativePath.includes('/')
+        ? relativePath.slice(0, relativePath.lastIndexOf('/'))
+        : ''
+      const targetFolderPath = parsed.targetFolderPath ?? emailParentPath
+      const targetDir = targetFolderPath
+        ? resolveSafePathInDossier(dossierPath, targetFolderPath)
+        : dossierPath
 
-      await withDossierMetadataLock(dossierPath, async () => {
+      const targetStats = await stat(targetDir).catch(() => null)
+      if (!targetStats?.isDirectory()) {
+        throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'The target folder was not found.')
+      }
+
+      const indexes = parsed.attachmentIndexes ?? attachments.map((attachment) => attachment.index)
+      const saved: EmailAttachmentSaveResult['saved'] = []
+      const failed: EmailAttachmentSaveResult['failed'] = []
+
+      for (const index of indexes) {
+        const attachment = attachments.find((candidate) => candidate.index === index)
+        if (!attachment) {
+          failed.push({ index, filename: '', error: 'Attachment index not found.' })
+          continue
+        }
+
+        try {
+          const filename = sanitizeAttachmentFilename(attachment.filename, index)
+          const target = await resolveCollisionFreeTarget(targetDir, filename)
+          await writeFile(target, attachment.content)
+          saved.push({
+            index,
+            relativePath: normalizeRelativePath(relative(dossierPath, target))
+          })
+        } catch (error) {
+          failed.push({
+            index,
+            filename: attachment.filename,
+            error: error instanceof Error ? error.message : String(error)
+          })
+        }
+      }
+
+      return { saved, failed }
+    },
+
+    extractPdfPages: async (input): Promise<PdfOperationResult> => {
+      const parsed = pdfExtractPagesInputSchema.parse(input)
+      const dossierPath = await resolveRegisteredDossierRoot({ dossierId: parsed.dossierId })
+      const relativePath = validateDocumentRelativePath(parsed.documentPath)
+      const absolute = resolveSafePathInDossier(dossierPath, relativePath)
+      const sourceDocument = await loadPdfDocument(absolute)
+
+      const pageIndexes = resolvePdfPageIndexes(parsed.ranges, sourceDocument.getPageCount())
+      const { PDFDocument } = await import('pdf-lib')
+      const output = await PDFDocument.create()
+      const copiedPages = await output.copyPages(sourceDocument, pageIndexes)
+      for (const page of copiedPages) {
+        output.addPage(page)
+      }
+
+      const stem = basename(relativePath).replace(/\.pdf$/i, '')
+      const rangeLabel = parsed.ranges
+        .map((range) => (range.from === range.to ? `${range.from}` : `${range.from}-${range.to}`))
+        .join(', ')
+      const outputFilename = parsed.outputFilename ?? `${stem} (pages ${rangeLabel}).pdf`
+      const targetDir = dirname(absolute)
+      const target = await resolveCollisionFreeTarget(targetDir, outputFilename)
+      await writeFile(target, await output.save())
+
+      return { relativePaths: [normalizeRelativePath(relative(dossierPath, target))] }
+    },
+
+    mergePdfs: async (input): Promise<PdfOperationResult> => {
+      const parsed = pdfMergeInputSchema.parse(input)
+      const dossierPath = await resolveRegisteredDossierRoot({ dossierId: parsed.dossierId })
+
+      const sourcePaths = parsed.documentPaths.map((documentPath) =>
+        resolveSafePathInDossier(dossierPath, validateDocumentRelativePath(documentPath))
+      )
+
+      const { PDFDocument } = await import('pdf-lib')
+      const output = await PDFDocument.create()
+      for (const sourcePath of sourcePaths) {
+        const source = await loadPdfDocument(sourcePath)
+        const copiedPages = await output.copyPages(source, source.getPageIndices())
+        for (const page of copiedPages) {
+          output.addPage(page)
+        }
+      }
+
+      const firstRelative = validateDocumentRelativePath(parsed.documentPaths[0]!)
+      const defaultDir = firstRelative.includes('/')
+        ? firstRelative.slice(0, firstRelative.lastIndexOf('/'))
+        : ''
+      const targetFolderPath = parsed.targetFolderPath ?? defaultDir
+      const targetDir = targetFolderPath
+        ? resolveSafePathInDossier(dossierPath, targetFolderPath)
+        : dossierPath
+
+      const targetStats = await stat(targetDir).catch(() => null)
+      if (!targetStats?.isDirectory()) {
+        throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'The target folder was not found.')
+      }
+
+      const outputFilename = parsed.outputFilename.toLowerCase().endsWith('.pdf')
+        ? parsed.outputFilename
+        : `${parsed.outputFilename}.pdf`
+      const target = await resolveCollisionFreeTarget(targetDir, outputFilename)
+      await writeFile(target, await output.save())
+
+      return { relativePaths: [normalizeRelativePath(relative(dossierPath, target))] }
+    },
+
+    splitPdf: async (input): Promise<PdfOperationResult> => {
+      const parsed = pdfSplitInputSchema.parse(input)
+      const dossierPath = await resolveRegisteredDossierRoot({ dossierId: parsed.dossierId })
+      const relativePath = validateDocumentRelativePath(parsed.documentPath)
+      const absolute = resolveSafePathInDossier(dossierPath, relativePath)
+      const sourceDocument = await loadPdfDocument(absolute)
+      const pageCount = sourceDocument.getPageCount()
+
+      const segments: Array<{ label: string; pageIndexes: number[] }> =
+        parsed.mode === 'each-page'
+          ? Array.from({ length: pageCount }, (_, index) => ({
+              label: `page ${index + 1}`,
+              pageIndexes: [index]
+            }))
+          : parsed.mode.ranges.map((range) => ({
+              label:
+                range.from === range.to ? `page ${range.from}` : `pages ${range.from}-${range.to}`,
+              pageIndexes: resolvePdfPageIndexes([range], pageCount)
+            }))
+
+      const { PDFDocument } = await import('pdf-lib')
+      const stem = basename(relativePath).replace(/\.pdf$/i, '')
+      const targetDir = dirname(absolute)
+      const relativePaths: string[] = []
+
+      for (const segment of segments) {
+        const output = await PDFDocument.create()
+        const copiedPages = await output.copyPages(sourceDocument, segment.pageIndexes)
+        for (const page of copiedPages) {
+          output.addPage(page)
+        }
+        const target = await resolveCollisionFreeTarget(targetDir, `${stem} (${segment.label}).pdf`)
+        await writeFile(target, await output.save())
+        relativePaths.push(normalizeRelativePath(relative(dossierPath, target)))
+      }
+
+      return { relativePaths }
+    },
+
+    moveFiles: async (input): Promise<DocumentMoveResult> => {
+      const parsed = documentFileMoveInputSchema.parse(input)
+      const dossierPath = await resolveRegisteredDossierRoot({ dossierId: parsed.dossierId })
+      const domainPath = dirname(dossierPath)
+      const registry = await loadRegistry(domainPath)
+      const registryEntry = resolveRegistryEntryByRef(registry, parsed.dossierId)
+
+      if (!registryEntry) {
+        throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'This dossier is not registered.')
+      }
+
+      const canonicalDossierId = registryEntry.slug
+      const targetFolderPath = parsed.targetFolderPath
+
+      if (targetFolderPath) {
+        const targetAbsolute = resolveSafePathInDossier(dossierPath, targetFolderPath)
+        const targetStats = await stat(targetAbsolute).catch(() => null)
+        if (!targetStats?.isDirectory()) {
+          throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'The target folder was not found.')
+        }
+      }
+
+      const failed: DocumentMoveResult['failed'] = []
+      const movedPairs: Array<{ from: string; to: string }> = []
+
+      for (const documentPath of parsed.documentPaths) {
+        try {
+          const fromRelativePath = validateDocumentRelativePath(documentPath)
+          const filename = fromRelativePath.includes('/')
+            ? fromRelativePath.slice(fromRelativePath.lastIndexOf('/') + 1)
+            : fromRelativePath
+          const toRelativePath = targetFolderPath ? `${targetFolderPath}/${filename}` : filename
+
+          if (toRelativePath === fromRelativePath) {
+            continue
+          }
+
+          const fromAbsolute = resolveSafePathInDossier(dossierPath, fromRelativePath)
+          const toAbsolute = resolveSafePathInDossier(dossierPath, toRelativePath)
+
+          const fromStats = await stat(fromAbsolute).catch(() => null)
+          if (!fromStats?.isFile()) {
+            throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'The document was not found.')
+          }
+
+          const conflict = await stat(toAbsolute).catch(() => null)
+          if (conflict) {
+            throw new DocumentServiceError(
+              IpcErrorCode.VALIDATION_FAILED,
+              'A file with that name already exists in the target folder.'
+            )
+          }
+
+          await rename(fromAbsolute, toAbsolute)
+          movedPairs.push({ from: fromRelativePath, to: toRelativePath })
+        } catch (error) {
+          failed.push({
+            documentPath,
+            error: error instanceof Error ? error.message : String(error)
+          })
+        }
+      }
+
+      if (movedPairs.length === 0) {
+        return { moved: [], failed }
+      }
+
+      return withDossierMetadataLock(dossierPath, async () => {
         const currentMetadata = await loadOrInitDossierMetadata(dossierPath, registryEntry)
-        const nextDocuments = currentMetadata.documents.filter(
-          (entry) => entry.relativePath !== relativePath
+        const entriesByPath = new Map(
+          currentMetadata.documents.map((entry) => [entry.relativePath, entry])
         )
+        const moved: DocumentMoveResult['moved'] = []
 
-        if (nextDocuments.length === currentMetadata.documents.length) {
-          return
+        for (const { from, to } of movedPairs) {
+          const snapshot = await createDocumentFileSnapshot(dossierPath, to)
+          const existingEntry = entriesByPath.get(from)
+          const nextEntry = normalizeStoredDocumentEntry(
+            existingEntry
+              ? { ...existingEntry, relativePath: to }
+              : storedDocumentMetadataSchema.parse({
+                  uuid: randomUUID(),
+                  relativePath: to,
+                  filename: snapshot.filename,
+                  byteLength: snapshot.byteLength,
+                  modifiedAt: snapshot.modifiedAt,
+                  description: undefined,
+                  tags: []
+                }),
+            to,
+            snapshot
+          )
+
+          entriesByPath.delete(from)
+          entriesByPath.set(to, nextEntry)
+          moved.push({
+            fromPath: from,
+            record: await buildDocumentRecord({
+              dossierId: canonicalDossierId,
+              dossierPath,
+              relativePath: to,
+              metadata: nextEntry
+            })
+          })
         }
 
         const nextMetadata = dossierMetadataFileSchema.parse({
           ...currentMetadata,
-          documents: nextDocuments
+          documents: [...entriesByPath.values()].sort((left, right) =>
+            left.relativePath.localeCompare(right.relativePath)
+          )
+        })
+        await writeDossierMetadataFile(dossierPath, nextMetadata)
+
+        return { moved, failed }
+      })
+    },
+
+    moveFolder: async (input): Promise<string> => {
+      const parsed = documentFolderMoveInputSchema.parse(input)
+      const dossierPath = await resolveRegisteredDossierRoot({ dossierId: parsed.dossierId })
+      const domainPath = dirname(dossierPath)
+      const registry = await loadRegistry(domainPath)
+      const registryEntry = resolveRegistryEntryByRef(registry, parsed.dossierId)
+
+      if (!registryEntry) {
+        throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'This dossier is not registered.')
+      }
+
+      const fromPath = parsed.fromPath
+      const targetFolderPath = parsed.targetFolderPath
+      const folderName = fromPath.includes('/')
+        ? fromPath.slice(fromPath.lastIndexOf('/') + 1)
+        : fromPath
+      const newPath = targetFolderPath ? `${targetFolderPath}/${folderName}` : folderName
+      assertNotReservedCoworkPath(newPath)
+
+      if (newPath === fromPath) {
+        return newPath
+      }
+
+      if (targetFolderPath === fromPath || targetFolderPath.startsWith(`${fromPath}/`)) {
+        throw new DocumentServiceError(
+          IpcErrorCode.VALIDATION_FAILED,
+          'A folder cannot be moved into itself or one of its subfolders.'
+        )
+      }
+
+      const fromAbsolute = resolveSafePathInDossier(dossierPath, fromPath)
+      const toAbsolute = resolveSafePathInDossier(dossierPath, newPath)
+
+      const fromStats = await stat(fromAbsolute).catch(() => null)
+      if (!fromStats?.isDirectory()) {
+        throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'The folder was not found.')
+      }
+
+      if (targetFolderPath) {
+        const targetAbsolute = resolveSafePathInDossier(dossierPath, targetFolderPath)
+        const targetStats = await stat(targetAbsolute).catch(() => null)
+        if (!targetStats?.isDirectory()) {
+          throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'The target folder was not found.')
+        }
+      }
+
+      const conflict = await stat(toAbsolute).catch(() => null)
+      if (conflict) {
+        throw new DocumentServiceError(
+          IpcErrorCode.VALIDATION_FAILED,
+          'A file or folder with that name already exists.'
+        )
+      }
+
+      await rename(fromAbsolute, toAbsolute)
+
+      await withDossierMetadataLock(dossierPath, async () => {
+        const currentMetadata = await loadOrInitDossierMetadata(dossierPath, registryEntry)
+        const prefix = `${fromPath}/`
+        const nextDocuments = currentMetadata.documents.map((entry) => {
+          if (entry.relativePath === fromPath || entry.relativePath.startsWith(prefix)) {
+            const tail = entry.relativePath.slice(fromPath.length)
+            return normalizeStoredDocumentEntry(
+              { ...entry, relativePath: `${newPath}${tail}` },
+              `${newPath}${tail}`
+            )
+          }
+          return entry
+        })
+
+        const nextMetadata = dossierMetadataFileSchema.parse({
+          ...currentMetadata,
+          documents: nextDocuments.sort((left, right) =>
+            left.relativePath.localeCompare(right.relativePath)
+          )
         })
         await writeDossierMetadataFile(dossierPath, nextMetadata)
       })
+
+      return newPath
+    },
+
+    importFiles: async (input): Promise<DocumentImportResult> => {
+      const parsed = documentImportInputSchema.parse(input)
+      const dossierPath = await resolveRegisteredDossierRoot({ dossierId: parsed.dossierId })
+      const dossierRoot = resolve(dossierPath)
+      const targetFolderPath = parsed.targetFolderPath
+      const targetDir = targetFolderPath
+        ? resolveSafePathInDossier(dossierPath, targetFolderPath)
+        : dossierPath
+
+      const targetStats = await stat(targetDir).catch(() => null)
+      if (!targetStats?.isDirectory()) {
+        throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'The target folder was not found.')
+      }
+
+      const imported: DocumentImportResult['imported'] = []
+      const failed: DocumentImportResult['failed'] = []
+
+      for (const sourcePath of parsed.sourcePaths) {
+        try {
+          const resolvedSource = resolve(sourcePath)
+          if (resolvedSource === dossierRoot || resolvedSource.startsWith(dossierRoot + sep)) {
+            throw new DocumentServiceError(
+              IpcErrorCode.VALIDATION_FAILED,
+              'The file is already inside the dossier.'
+            )
+          }
+
+          const sourceStats = await stat(resolvedSource).catch(() => null)
+          if (!sourceStats || (!sourceStats.isFile() && !sourceStats.isDirectory())) {
+            throw new DocumentServiceError(IpcErrorCode.NOT_FOUND, 'The source was not found.')
+          }
+
+          const target = await resolveCollisionFreeTarget(targetDir, basename(resolvedSource))
+
+          if (sourceStats.isDirectory()) {
+            await cp(resolvedSource, target, { recursive: true, errorOnExist: true, force: false })
+          } else {
+            await copyFile(resolvedSource, target)
+          }
+
+          imported.push({
+            sourcePath,
+            relativePath: normalizeRelativePath(relative(dossierPath, target))
+          })
+        } catch (error) {
+          failed.push({
+            sourcePath,
+            error: error instanceof Error ? error.message : String(error)
+          })
+        }
+      }
+
+      return { imported, failed }
     },
 
     semanticSearch: async (input): Promise<SemanticSearchResult> => {
       const parsed = dossierScopedQuerySchema.parse({ dossierId: input.dossierId })
       const dossierPath = await resolveRegisteredDossierRoot(parsed)
-      const cacheDir = getDossierContentCachePath(dossierPath)
-
-      const documents = await listDocumentsForSemanticSearch(
+      const hits = await runHybridSearch(
         dossierPath,
-        cacheDir,
+        input.query,
+        input.topK,
         options.embeddingConfig,
         options.embedder
       )
 
-      // Hybrid search. Keyword search is the reliable relevance signal in a
-      // tightly-clustered legal corpus (documents that literally contain the
-      // query word); semantic search supplements it with meaning-based matches.
-      // Keyword runs first and always works (no model required); semantic is
-      // best-effort and yields nothing when no embeddings exist yet.
-      const [keywordHits, semanticHits] = await Promise.all([
-        keywordSearchDossier({ documents, query: input.query, topK: input.topK }),
-        searchDossier({
-          documents,
-          query: input.query,
-          topK: input.topK,
-          embeddingConfig: options.embeddingConfig,
-          dim: DEFAULT_EMBEDDING_DIM,
-          embedder: options.embedder
-        })
-      ])
-
-      // Merge: keyword (exact) results first, then semantic results that don't
-      // duplicate a keyword hit on the same document span. Shared with note search.
-      const merged = mergeHybridHits(keywordHits, semanticHits)
-
       return {
         dossierId: input.dossierId,
         query: input.query,
-        hits: merged.map(({ hit, matchKind }) => ({
-          documentId: hit.documentId,
-          filename: hit.displayName ?? basename(hit.documentId),
-          charStart: hit.charStart,
-          charEnd: hit.charEnd,
-          score: hit.score,
-          snippet: hit.snippet,
-          snippetMatchStart: hit.snippetMatchStart,
-          snippetMatchEnd: hit.snippetMatchEnd,
-          matchKind
-        }))
+        hits
       }
+    },
+
+    searchAllDossiers: async (input): Promise<GlobalSearchResult> => {
+      const domainPath = await resolveActiveDomainPath(options.stateFilePath)
+      const registry = await loadRegistry(domainPath)
+
+      // Run the same per-dossier hybrid search over every registered dossier,
+      // bounded so a large domain doesn't flood the embedder. A failure in one
+      // dossier (missing folder, unreadable cache) must not sink the whole
+      // search, so each worker fails open to no hits.
+      const perDossier = await mapWithConcurrency(
+        registry.dossiers,
+        GLOBAL_SEARCH_CONCURRENCY,
+        async (entry): Promise<GlobalSearchHit[]> => {
+          const dossierPath = join(domainPath, entry.slug)
+          try {
+            const hits = await runHybridSearch(
+              dossierPath,
+              input.query,
+              input.topK,
+              options.embeddingConfig,
+              options.embedder
+            )
+            return hits.map((hit) => ({
+              ...hit,
+              dossierId: entry.slug,
+              dossierName: entry.name
+            }))
+          } catch (error) {
+            console.error(
+              `[DocumentService] Global search failed for dossier "${entry.slug}":`,
+              error
+            )
+            return []
+          }
+        }
+      )
+
+      // Surface exact (keyword) hits ahead of approximate (semantic) ones, each
+      // group ordered by descending score so the strongest matches across all
+      // dossiers come first. Scores are only compared within a single matchKind
+      // (keyword score is a word count, semantic score a cosine similarity), so
+      // the kind ordering is decided before any score comparison. Cap the merged
+      // list to keep the payload and the panel responsive.
+      const rank = (hit: GlobalSearchHit): number => (hit.matchKind === 'keyword' ? 0 : 1)
+      const hits = perDossier
+        .flat()
+        .sort((a, b) => rank(a) - rank(b) || b.score - a.score)
+        .slice(0, GLOBAL_SEARCH_MAX_HITS)
+
+      return { query: input.query, hits }
     }
   }
+}
+
+// Cross-dossier search fans out over every registered dossier. Bound the number
+// running at once so the embedding worker isn't overwhelmed, and cap the merged
+// result so a broad query over a large domain stays responsive.
+const GLOBAL_SEARCH_CONCURRENCY = 4
+const GLOBAL_SEARCH_MAX_HITS = 50
+
+// One dossier's slice of the hybrid keyword + semantic search, shared by the
+// dossier-scoped semanticSearch and the cross-dossier searchAllDossiers.
+async function runHybridSearch(
+  dossierPath: string,
+  query: string,
+  topK: number | undefined,
+  embeddingConfig: EmbeddingServiceConfig | undefined,
+  embedder:
+    | ((texts: string[], config?: EmbeddingServiceConfig) => Promise<Float32Array[] | null>)
+    | undefined
+): Promise<SemanticSearchHit[]> {
+  const cacheDir = getDossierContentCachePath(dossierPath)
+  const documents = await listDocumentsForSemanticSearch(
+    dossierPath,
+    cacheDir,
+    embeddingConfig,
+    embedder
+  )
+
+  // Hybrid search. Keyword search is the reliable relevance signal in a
+  // tightly-clustered legal corpus (documents that literally contain the
+  // query word); semantic search supplements it with meaning-based matches.
+  // Keyword runs first and always works (no model required); semantic is
+  // best-effort and yields nothing when no embeddings exist yet.
+  const [keywordHits, semanticHits] = await Promise.all([
+    keywordSearchDossier({ documents, query, topK }),
+    searchDossier({
+      documents,
+      query,
+      topK,
+      embeddingConfig,
+      dim: DEFAULT_EMBEDDING_DIM,
+      embedder
+    })
+  ])
+
+  // Merge: keyword (exact) results first, then semantic results that don't
+  // duplicate a keyword hit on the same document span. Shared with note search.
+  const merged = mergeHybridHits(keywordHits, semanticHits)
+
+  return merged.map(({ hit, matchKind }) => ({
+    documentPath: hit.itemId,
+    filename: hit.displayName ?? basename(hit.itemId),
+    charStart: hit.charStart,
+    charEnd: hit.charEnd,
+    score: hit.score,
+    snippet: hit.snippet,
+    snippetMatchStart: hit.snippetMatchStart,
+    snippetMatchEnd: hit.snippetMatchEnd,
+    matchKind
+  }))
 }
 
 async function listDocumentsForSemanticSearch(
@@ -1817,6 +2868,7 @@ async function listDocumentsForSemanticSearch(
       const absolute = join(current, entry.name)
       if (entry.isDirectory()) {
         if (entry.name === ORDICAB_DIRECTORY_NAME) continue
+        if (entry.name === COWORK_DIRECTORY_NAME) continue
         await walk(absolute, rel)
         continue
       }
@@ -1839,7 +2891,7 @@ async function listDocumentsForSemanticSearch(
         })
       }
       documents.push({
-        documentId: rel,
+        itemId: rel,
         displayName: entry.name,
         cachePath
       })

@@ -94,7 +94,7 @@ describe('dossierBillingItemUpsertInputSchema — source XOR refine', () => {
   it('accepts a billing item sourced from a key date only', () => {
     const result = dossierBillingItemUpsertInputSchema.safeParse({
       ...billingItemBase(),
-      sourceKeyDateId: 'kd-123'
+      sourceKeyDateUuid: 'kd-123'
     })
     expect(result.success).toBe(true)
   })
@@ -102,7 +102,7 @@ describe('dossierBillingItemUpsertInputSchema — source XOR refine', () => {
   it('accepts a billing item sourced from a fee agreement with billing kind', () => {
     const result = dossierBillingItemUpsertInputSchema.safeParse({
       ...billingItemBase(),
-      sourceFeeAgreementId: 'fa-123',
+      sourceFeeAgreementUuid: 'fa-123',
       sourceFeeAgreementBillingKind: 'retainer'
     })
     expect(result.success).toBe(true)
@@ -111,13 +111,13 @@ describe('dossierBillingItemUpsertInputSchema — source XOR refine', () => {
   it('rejects a billing item referencing both a key date and a fee agreement', () => {
     const result = dossierBillingItemUpsertInputSchema.safeParse({
       ...billingItemBase(),
-      sourceKeyDateId: 'kd-123',
-      sourceFeeAgreementId: 'fa-123'
+      sourceKeyDateUuid: 'kd-123',
+      sourceFeeAgreementUuid: 'fa-123'
     })
     expect(result.success).toBe(false)
   })
 
-  it('rejects sourceFeeAgreementBillingKind without a sourceFeeAgreementId', () => {
+  it('rejects sourceFeeAgreementBillingKind without a sourceFeeAgreementUuid', () => {
     const result = dossierBillingItemUpsertInputSchema.safeParse({
       ...billingItemBase(),
       sourceFeeAgreementBillingKind: 'finalBalance'

@@ -40,17 +40,17 @@ export function DomainOnboardingCard({
   return (
     <Card className="mx-auto w-full max-w-3xl space-y-8 p-5 md:p-6">
       <div>
-        <h2 className="text-balance text-xl font-semibold leading-snug text-[#1a1a1a] md:text-2xl">
+        <h2 className="text-balance text-xl font-semibold leading-snug text-ink md:text-2xl">
           {t('domain.setup_title')}
         </h2>
-        <p className="mt-2 max-w-2xl text-pretty text-base leading-relaxed text-[#5c5c5a]">
+        <p className="mt-2 max-w-2xl text-pretty text-base leading-relaxed text-ink-muted">
           {t('domain.setup_summary_onboarding')}
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           {driveProviders.map((provider) => (
             <span
               key={provider}
-              className="rounded-full border border-[#d1cfc6] bg-white px-3 py-1 text-xs font-medium text-[#5c5c5a]"
+              className="rounded-full border border-hairline-strong bg-white px-3 py-1 text-xs font-medium text-ink-muted"
             >
               {provider}
             </span>
@@ -59,7 +59,7 @@ export function DomainOnboardingCard({
       </div>
 
       {error ? (
-        <div className="rounded-xl border border-[#e8c7c7] bg-[#fbf0f0] px-4 py-3 text-base text-[#9c2f2f]">
+        <div className="rounded-xl border border-destructive-border bg-destructive-tint px-4 py-3 text-base text-destructive">
           <p className="text-[11px] uppercase tracking-[0.18em] opacity-80">
             {t('domain.error_label_action_required')}
           </p>
@@ -69,15 +69,15 @@ export function DomainOnboardingCard({
         </div>
       ) : null}
 
-      <div className="space-y-3 border-l border-[#e5e3da] pl-4">
+      <div className="space-y-3 border-l border-hairline pl-4">
         {steps.map((step) => (
           <div key={step.number} className="flex items-start gap-3">
             <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-aurora/12 text-xs font-semibold text-aurora">
               {step.number}
             </span>
             <span>
-              <span className="block text-base leading-relaxed text-[#1a1a1a]">{step.title}</span>
-              <span className="mt-0.5 block text-sm leading-5 text-[#5c5c5a]">{step.body}</span>
+              <span className="block text-base leading-relaxed text-ink">{step.title}</span>
+              <span className="mt-0.5 block text-sm leading-5 text-ink-muted">{step.body}</span>
             </span>
           </div>
         ))}
@@ -91,7 +91,7 @@ export function DomainOnboardingCard({
         >
           {t('domain.onboarding_action_select')}
         </Button>
-        <p className="text-sm leading-5 text-[#8a8a85]">{t('domain.setup_hint')}</p>
+        <p className="text-sm leading-5 text-ink-subtle">{t('domain.setup_hint')}</p>
       </div>
     </Card>
   )

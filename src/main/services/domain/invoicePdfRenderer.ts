@@ -1,36 +1,15 @@
 /**
  * Builds a self-contained, printable HTML representation of an invoice.
  *
- * Two entry points:
- *  - `buildInvoiceHtmlFromDocx(path)` — preferred. Reads the generated DOCX
- *    (the contractual document, rendered from the user-selected template)
- *    and converts it to HTML via mammoth, so the PDF mirrors the DOCX
- *    template choices (layout, headings, table structure).
- *  - `buildInvoiceHtml(record)` — fallback for legacy invoices that have no
- *    DOCX on disk. Renders a generic, template-agnostic layout from the
- *    persisted record.
+ * `buildInvoiceHtml(record)` renders a generic, template-agnostic layout from
+ * the persisted record. It is the fallback when no trustworthy DOCX exists on
+ * disk — the normal path converts the generated DOCX directly to PDF via the
+ * injected docxToPdf (docx-preview window).
  *
  * Pure (no `electron` import) so the domain service can stay decoupled from
  * Electron — the BrowserWindow + printToPDF step is injected by the container.
  */
-import { readFile } from 'node:fs/promises'
-
-import mammoth from 'mammoth'
-
 import type { InvoiceRecord } from '@shared/types'
-
-const DOCX_STYLE_MAP = [
-  "p[style-name='Heading 1'] => h1:fresh",
-  "p[style-name='Heading 2'] => h2:fresh",
-  "p[style-name='Heading 3'] => h3:fresh",
-  "p[style-name='Titre 1'] => h1:fresh",
-  "p[style-name='Titre 2'] => h2:fresh",
-  "p[style-name='Titre 3'] => h3:fresh",
-  'b => strong',
-  'i => em',
-  'u => u',
-  'strike => s'
-]
 
 function escapeHtml(value: string | number | undefined | null): string {
   if (value === undefined || value === null) return ''
@@ -289,36 +268,6 @@ export function buildInvoiceHtml(invoice: InvoiceRecord): string {
   ${legalFooter}
 
   <p class="footer">${escapeHtml(docTypeLabel)} ${escapeHtml(invoice.number)} — ${escapeHtml(formatDateIso(invoice.issuedAt))}</p>
-</body>
-</html>`
-}
-
-export async function buildInvoiceHtmlFromDocx(docxPath: string, title: string): Promise<string> {
-  const docxBuffer = await readFile(docxPath)
-  const result = await mammoth.convertToHtml({ buffer: docxBuffer }, { styleMap: DOCX_STYLE_MAP })
-  const body = result.value ?? ''
-  return `<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="utf-8" />
-<title>${escapeHtml(title)}</title>
-<style>
-  @page { size: A4; }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; color: #1a1a1a; font-size: 11pt; line-height: 1.4; }
-  h1 { font-size: 18pt; margin: 0 0 12px 0; }
-  h2 { font-size: 14pt; margin: 16px 0 8px 0; }
-  h3 { font-size: 12pt; margin: 12px 0 6px 0; }
-  p { margin: 0 0 6px 0; }
-  table { border-collapse: collapse; width: 100%; margin: 8px 0; }
-  th, td { border: 1px solid #c8c8c0; padding: 4px 6px; vertical-align: top; font-size: 10pt; }
-  thead th { background: #f4f3ee; text-align: left; }
-  ul, ol { margin: 6px 0 6px 24px; padding: 0; }
-  img { max-width: 100%; height: auto; }
-</style>
-</head>
-<body>
-${body}
 </body>
 </html>`
 }

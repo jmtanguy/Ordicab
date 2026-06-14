@@ -12,7 +12,7 @@ interface DomainMetadataFile {
   initializedAt: string
 }
 
-export interface OpenDirectoryDialogResult {
+interface OpenDirectoryDialogResult {
   canceled: boolean
   filePaths: string[]
 }
@@ -28,7 +28,7 @@ export interface DomainService {
   getStatus: () => Promise<DomainStatusSnapshot>
 }
 
-export class DomainServiceError extends Error {
+class DomainServiceError extends Error {
   constructor(
     readonly code: IpcErrorCode,
     message: string

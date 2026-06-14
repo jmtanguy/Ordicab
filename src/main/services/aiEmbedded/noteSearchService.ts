@@ -16,8 +16,6 @@
  * the next upsert retries indexing.
  */
 
-import { readFile } from 'node:fs/promises'
-
 import type { DossierNote } from '@shared/domain/dossierNote'
 
 import {
@@ -38,7 +36,7 @@ import {
 } from '../../lib/aiEmbedded/embeddings/textSearchShared'
 import { saveRecord } from '../../lib/system/perFileStore'
 
-export type NoteEmbedder = (
+type NoteEmbedder = (
   texts: string[],
   config?: EmbeddingServiceConfig
 ) => Promise<Float32Array[] | null>
@@ -69,7 +67,7 @@ export interface IndexNoteOptions {
  * signal `indexDocumentEmbeddings` relies on to re-index after an edit.
  */
 export async function indexNoteEmbeddings(options: IndexNoteOptions): Promise<void> {
-  const cachePath = getDossierNoteEmbeddingCachePath(options.dossierPath, options.note.id)
+  const cachePath = getDossierNoteEmbeddingCachePath(options.dossierPath, options.note.uuid)
   const text = buildNoteText(options.note)
   try {
     await saveRecord(getDossierNotesDirectoryPath(options.dossierPath), cachePath, { text })
@@ -82,14 +80,14 @@ export async function indexNoteEmbeddings(options: IndexNoteOptions): Promise<vo
   } catch (error) {
     // Best-effort: notes remain searchable by keyword/tag without embeddings.
     console.warn(
-      `[noteSearchService] Failed to index embeddings for note ${options.note.id}.`,
+      `[noteSearchService] Failed to index embeddings for note ${options.note.uuid}.`,
       error instanceof Error ? error.message : error
     )
   }
 }
 
 export interface NoteSearchHit {
-  noteId: string
+  noteUuid: string
   title: string
   snippet: string
   score: number
@@ -114,11 +112,11 @@ export async function searchNotes(params: SearchNotesParams): Promise<NoteSearch
   const query = params.query.trim()
   if (!query || params.notes.length === 0) return []
 
-  const titleById = new Map(params.notes.map((note) => [note.id, note.title]))
+  const titleById = new Map(params.notes.map((note) => [note.uuid, note.title]))
   const documents: IndexedDocument[] = params.notes.map((note) => ({
-    documentId: note.id,
+    itemId: note.uuid,
     displayName: note.title,
-    cachePath: getDossierNoteEmbeddingCachePath(params.dossierPath, note.id)
+    cachePath: getDossierNoteEmbeddingCachePath(params.dossierPath, note.uuid)
   }))
 
   const topK = params.topK ?? 10
@@ -136,27 +134,10 @@ export async function searchNotes(params: SearchNotesParams): Promise<NoteSearch
 
   const merged = mergeHybridHits(keywordHits, semanticHits)
   return merged.slice(0, topK).map(({ hit, matchKind }) => ({
-    noteId: hit.documentId,
-    title: titleById.get(hit.documentId) ?? hit.displayName ?? hit.documentId,
+    noteUuid: hit.itemId,
+    title: titleById.get(hit.itemId) ?? hit.displayName ?? hit.itemId,
     snippet: hit.snippet,
     score: hit.score,
     matchKind
   }))
-}
-
-/**
- * Read the persisted indexed text for a note's embedding cache (used by tests
- * and diagnostics). Returns null when the cache is missing or unreadable.
- */
-export async function readNoteIndexedText(
-  dossierPath: string,
-  noteId: string
-): Promise<string | null> {
-  try {
-    const raw = await readFile(getDossierNoteEmbeddingCachePath(dossierPath, noteId), 'utf8')
-    const parsed = JSON.parse(raw) as { text?: unknown }
-    return typeof parsed.text === 'string' ? parsed.text : null
-  } catch {
-    return null
-  }
 }

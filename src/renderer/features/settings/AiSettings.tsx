@@ -14,6 +14,7 @@ import {
 import { Button, Card, DialogShell, Field, Input, Select } from '@renderer/components/ui'
 import { useAiStore } from '@renderer/stores/aiStore'
 import { ModelManagerCard } from './ModelManagerCard'
+import { PersonaSettings } from './PersonaSettings'
 
 function AiRow({
   label,
@@ -25,10 +26,10 @@ function AiRow({
   if (!value) return null
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8a8a85]">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-subtle">
         {label}
       </span>
-      <span className="text-sm text-[#1a1a1a]">{value}</span>
+      <span className="text-sm text-ink">{value}</span>
     </div>
   )
 }
@@ -48,14 +49,14 @@ function CloudAvailabilityBadge({
 
   if (status.available) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-[#5c8a4e]/20 px-2 py-0.5 text-xs font-medium text-[#3c6132]">
+      <span className="inline-flex items-center gap-1 rounded-full bg-success/20 px-2 py-0.5 text-xs font-medium text-success-deep">
         ✓ {t('ai_settings.cloud_provider_available')}
       </span>
     )
   }
 
   return (
-    <span className="text-xs text-[#b88800]">
+    <span className="text-xs text-warning">
       ⚠ {t('ai_settings.cloud_provider_unavailable')}
       {status.reason ? ` — ${status.reason}` : ''}
     </span>
@@ -103,12 +104,12 @@ function ConnectionStatusBadge(): React.JSX.Element | null {
   if (connectionStatus === 'idle') return null
 
   if (connectionStatus === 'checking') {
-    return <span className="text-xs text-[#5c5c5a]">{t('ai_settings.connection_checking')}</span>
+    return <span className="text-xs text-ink-muted">{t('ai_settings.connection_checking')}</span>
   }
 
   if (connectionStatus === 'connected') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-[#5c8a4e]/20 px-2 py-0.5 text-xs font-medium text-[#3c6132]">
+      <span className="inline-flex items-center gap-1 rounded-full bg-success/20 px-2 py-0.5 text-xs font-medium text-success-deep">
         ✓ {t('ai_settings.connection_connected')}
       </span>
     )
@@ -259,29 +260,29 @@ export function AiDialog({
     <DialogShell
       aria-label={t('ai_settings.section_title')}
       size="lg"
-      panelClassName="max-w-[60rem]"
+      panelClassName="max-w-[60rem] overflow-hidden"
     >
       <div className="mb-4 flex shrink-0 items-center justify-between">
-        <h2 className="text-lg font-semibold text-[#1a1a1a]">{t('ai_settings.section_title')}</h2>
+        <h2 className="text-lg font-semibold text-ink">{t('ai_settings.section_title')}</h2>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-lg p-1.5 text-[#5c5c5a] transition hover:bg-[#e4e1d5] hover:text-[#1a1a1a]"
+          className="rounded-lg p-1.5 text-ink-muted transition hover:bg-parchment-dim hover:text-ink"
           aria-label={t('common.close')}
         >
           ✕
         </button>
       </div>
 
-      <div className="flex flex-col gap-3">
+      {/* Scrollable settings area — the dialog footer stays pinned below so
+          Cancel/Save never leave the viewport however long the cards grow. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
         {/* API Access card */}
-        <div className="overflow-hidden rounded-xl border border-[#d1cfc6] bg-[#f4f3ee]">
+        <div className="overflow-hidden rounded-xl border border-hairline-strong bg-parchment">
           <div className="flex items-center justify-between p-3">
             <div className="flex flex-col gap-0.5">
-              <span className="text-sm font-semibold text-[#1a1a1a]">
-                {t('ai_settings.mode_remote')}
-              </span>
-              <span className="text-xs text-[#5c5c5a]">
+              <span className="text-sm font-semibold text-ink">{t('ai_settings.mode_remote')}</span>
+              <span className="text-xs text-ink-muted">
                 {t('ai_settings.api_access_description')}
               </span>
             </div>
@@ -291,7 +292,7 @@ export function AiDialog({
               aria-checked={apiEnabled}
               onClick={() => handleToggleApi(!apiEnabled)}
               disabled={loading}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${apiEnabled ? 'bg-aurora' : 'bg-[#d1cfc6]'}`}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${apiEnabled ? 'bg-aurora' : 'bg-hairline-strong'}`}
             >
               <span
                 className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform ${apiEnabled ? 'translate-x-5' : 'translate-x-0'}`}
@@ -300,9 +301,9 @@ export function AiDialog({
           </div>
 
           {apiEnabled && (
-            <div className="space-y-3 border-t border-[#d1cfc6] p-3">
+            <div className="space-y-3 border-t border-hairline-strong p-3">
               {/* Warning — compact single line */}
-              <p className="rounded-lg border border-[#e8d5a3] bg-[#fbf5e3] px-3 py-2 text-xs text-[#7a5a00]">
+              <p className="rounded-lg border border-warning-border bg-warning-tint px-3 py-2 text-xs text-warning-deep">
                 {t('ai_settings.remote_warning')}
               </p>
 
@@ -429,14 +430,14 @@ export function AiDialog({
                   <ConnectionStatusBadge />
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-[#5c5c5a]">{t('ai_settings.pii_label')}</span>
+                  <span className="text-xs text-ink-muted">{t('ai_settings.pii_label')}</span>
                   <button
                     type="button"
                     role="switch"
                     aria-checked={piiEnabled}
                     onClick={() => setDrafts((d) => ({ ...d, piiEnabled: !d.piiEnabled }))}
                     disabled={loading}
-                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${piiEnabled ? 'bg-aurora' : 'bg-[#d1cfc6]'}`}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${piiEnabled ? 'bg-aurora' : 'bg-hairline-strong'}`}
                   >
                     <span
                       className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform ${piiEnabled ? 'translate-x-5' : 'translate-x-0'}`}
@@ -464,13 +465,13 @@ export function AiDialog({
         </div>
 
         {/* Claude Cowork card */}
-        <div className="overflow-hidden rounded-xl border border-[#d1cfc6] bg-[#f4f3ee]">
+        <div className="overflow-hidden rounded-xl border border-hairline-strong bg-parchment">
           <div className="flex items-center justify-between p-3">
             <div className="flex flex-col gap-0.5">
-              <span className="text-sm font-semibold text-[#1a1a1a]">
+              <span className="text-sm font-semibold text-ink">
                 {t('ai_settings.mode_claude_code')}
               </span>
-              <span className="text-xs text-[#5c5c5a]">
+              <span className="text-xs text-ink-muted">
                 {t('ai_settings.claude_cowork_description')}
               </span>
             </div>
@@ -480,7 +481,7 @@ export function AiDialog({
               aria-checked={claudeCoworkEnabled}
               onClick={() => handleToggleClaudeCowork(!claudeCoworkEnabled)}
               disabled={loading}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${claudeCoworkEnabled ? 'bg-aurora' : 'bg-[#d1cfc6]'}`}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${claudeCoworkEnabled ? 'bg-aurora' : 'bg-hairline-strong'}`}
             >
               <span
                 className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform ${claudeCoworkEnabled ? 'translate-x-5' : 'translate-x-0'}`}
@@ -489,12 +490,12 @@ export function AiDialog({
           </div>
 
           {claudeCoworkEnabled && (
-            <div className="border-t border-[#d1cfc6] p-3">
-              <div className="space-y-1 rounded-lg border border-[#e8d5a3] bg-[#fbf5e3] px-3 py-2">
-                <p className="text-xs font-semibold text-[#7a5a00]">
+            <div className="border-t border-hairline-strong p-3">
+              <div className="space-y-1 rounded-lg border border-warning-border bg-warning-tint px-3 py-2">
+                <p className="text-xs font-semibold text-warning-deep">
                   {t('ai_settings.cloud_managed_title')}
                 </p>
-                <p className="text-xs text-[#7a5a00]">{t('ai_settings.cloud_managed_info')}</p>
+                <p className="text-xs text-warning-deep">{t('ai_settings.cloud_managed_info')}</p>
                 <CloudAvailabilityBadge status={cloudAvailability} />
                 {AI_DELEGATED_INSTRUCTIONS_FILES['claude-code'] && (
                   <p className="text-xs text-[#8a7400]">
@@ -505,7 +506,7 @@ export function AiDialog({
                 )}
               </div>
               {apiEnabled && (
-                <p className="mt-2 text-xs text-[#5c5c5a]">
+                <p className="mt-2 text-xs text-ink-muted">
                   {t('ai_settings.claude_cowork_parallel_note')}
                 </p>
               )}
@@ -513,24 +514,29 @@ export function AiDialog({
           )}
         </div>
 
-        <div className="flex justify-end gap-2 pt-1">
-          <Button type="button" variant="ghost" onClick={onClose}>
-            {t('common.cancel')}
-          </Button>
-          <Button onClick={() => void handleSave()} disabled={loading || isProjectRefMissing}>
-            {loading ? t('common.saving') : t('common.save')}
-          </Button>
-        </div>
+        {/* Role personas — stable fake identities shared by the embedded AI
+            pseudonymizer and the Cowork export. Saves independently. */}
+        {(apiEnabled || claudeCoworkEnabled) && <PersonaSettings />}
+      </div>
+
+      {/* Pinned footer — outside the scrollable area. */}
+      <div className="flex shrink-0 justify-end gap-2 pt-3">
+        <Button type="button" variant="ghost" onClick={onClose}>
+          {t('common.cancel')}
+        </Button>
+        <Button onClick={() => void handleSave()} disabled={loading || isProjectRefMissing}>
+          {loading ? t('common.saving') : t('common.save')}
+        </Button>
       </div>
 
       {/* Privacy warning modal overlay */}
       {privacyWarningPending && pendingMode && (
         <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-[rgba(15,122,138,0.18)] backdrop-blur-sm">
-          <div className="mx-4 w-full max-w-sm rounded-2xl border border-[#d1cfc6] bg-[#f4f3ee] p-6 shadow-[0_30px_80px_rgba(10,92,104,0.28)] ring-1 ring-aurora/15">
-            <h2 className="mb-3 text-lg font-semibold text-[#b88800]">
+          <div className="mx-4 w-full max-w-sm rounded-2xl border border-hairline-strong bg-parchment p-6 shadow-[0_30px_80px_rgba(10,92,104,0.28)] ring-1 ring-aurora/15">
+            <h2 className="mb-3 text-lg font-semibold text-warning">
               {t('ai_settings.privacy_warning_title')}
             </h2>
-            <p className="mb-5 text-sm text-[#5c5c5a]">{t('ai_settings.privacy_warning_body')}</p>
+            <p className="mb-5 text-sm text-ink-muted">{t('ai_settings.privacy_warning_body')}</p>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={cancelRemoteMode}>
                 {t('common.cancel')}
@@ -569,10 +575,8 @@ export function AiSettings(): React.JSX.Element {
       <Card className="space-y-5">
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-2">
-            <h3 className="text-base font-semibold text-[#1a1a1a]">
-              {t('ai_settings.section_title')}
-            </h3>
-            <p className="text-sm text-[#1a1a1a]">{t('ai_settings.section_summary')}</p>
+            <h3 className="text-base font-semibold text-ink">{t('ai_settings.section_title')}</h3>
+            <p className="text-sm text-ink">{t('ai_settings.section_summary')}</p>
           </div>
           <Button type="button" variant="ghost" size="sm" onClick={() => setDialogOpen(true)}>
             {t('entity.editButton')}
@@ -582,7 +586,7 @@ export function AiSettings(): React.JSX.Element {
         {error ? <p className="text-sm text-red-400">{error}</p> : null}
 
         {loading ? (
-          <p className="text-sm text-[#5c5c5a]">{t('common.loading')}</p>
+          <p className="text-sm text-ink-muted">{t('common.loading')}</p>
         ) : settings ? (
           <div className="grid gap-x-6 gap-y-4 md:grid-cols-2">
             <div className="flex items-center gap-2">

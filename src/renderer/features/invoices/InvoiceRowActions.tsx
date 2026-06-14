@@ -127,14 +127,14 @@ export function InvoiceRowActions({
           aria-label="Actions"
           title="Actions"
           onClick={() => setOpen((value) => !value)}
-          className="flex h-7 w-7 items-center justify-center rounded-full text-[#5c5c5a] transition hover:bg-aurora/10 hover:text-aurora focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aurora/40"
+          className="flex h-7 w-7 items-center justify-center rounded-full text-ink-muted transition hover:bg-aurora/10 hover:text-aurora focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aurora/40"
         >
           <PencilIcon />
         </button>
         {open ? (
           <div
             role="menu"
-            className="absolute right-0 top-8 z-30 w-56 overflow-hidden rounded-xl border border-[#e5e3da] bg-white shadow-lg"
+            className="absolute right-0 top-8 z-30 w-56 overflow-hidden rounded-xl border border-hairline bg-white shadow-lg"
           >
             {items.map((item) => (
               <MenuItem
@@ -155,19 +155,19 @@ export function InvoiceRowActions({
 }
 
 const TONE_TEXT: Record<ActionTone, string> = {
-  default: 'text-[#1a1a1a]',
+  default: 'text-ink',
   emerald: 'text-emerald-700',
   amber: 'text-amber-700',
   indigo: 'text-indigo-700',
-  danger: 'text-[#9c2f2f]'
+  danger: 'text-destructive'
 }
 
 const TONE_HOVER: Record<ActionTone, string> = {
-  default: 'hover:bg-[#fbf9f4]',
+  default: 'hover:bg-parchment-bright',
   emerald: 'hover:bg-emerald-50',
   amber: 'hover:bg-amber-50',
   indigo: 'hover:bg-indigo-50',
-  danger: 'hover:bg-[#fbf0f0]'
+  danger: 'hover:bg-destructive-tint'
 }
 
 interface MenuItemProps {

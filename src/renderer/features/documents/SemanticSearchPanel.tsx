@@ -9,7 +9,7 @@ import { SearchField, SectionHeader } from '@renderer/features/dossiers/sectionL
 
 interface SemanticSearchPanelProps {
   dossierId: string
-  onOpenDocument: (input: { dossierId: string; documentId: string }) => void | Promise<void>
+  onOpenDocument: (input: { dossierId: string; documentPath: string }) => void | Promise<void>
 }
 
 function renderSnippet(
@@ -32,7 +32,7 @@ function renderSnippet(
   return (
     <>
       {before}
-      <mark className="bg-aurora/10 text-[#1a1a1a] font-medium rounded px-0.5">{match}</mark>
+      <mark className="bg-aurora/10 text-ink font-medium rounded px-0.5">{match}</mark>
       {after}
     </>
   )
@@ -53,21 +53,21 @@ function HitButton({
       type="button"
       onClick={() => onSelect(hit)}
       className={`w-full rounded-lg border bg-white px-3 py-2 text-left transition hover:border-aurora/50 hover:bg-aurora/5 ${
-        isActive ? 'border-aurora/60 bg-aurora/5' : 'border-[#e5e3da]'
+        isActive ? 'border-aurora/60 bg-aurora/5' : 'border-hairline'
       }`}
     >
       <div className="mb-1 flex items-baseline justify-between gap-3">
-        <p className="min-w-0 truncate text-sm font-semibold text-[#1a1a1a]">{hit.filename}</p>
+        <p className="min-w-0 truncate text-sm font-semibold text-ink">{hit.filename}</p>
         {/* Score is a cosine similarity for semantic hits; for keyword hits it
             is a word-count, not meaningful to show — so display it only for
             approximate (semantic) results. */}
         {hit.matchKind !== 'keyword' ? (
-          <span className="shrink-0 text-xs tabular-nums text-[#5c5c5a]">
+          <span className="shrink-0 text-xs tabular-nums text-ink-muted">
             {t('documents.semantic_search_score', { score: hit.score.toFixed(2) })}
           </span>
         ) : null}
       </div>
-      <p className="line-clamp-3 select-text whitespace-pre-line text-xs leading-relaxed text-[#8a8a85]">
+      <p className="line-clamp-3 select-text whitespace-pre-line text-xs leading-relaxed text-ink-subtle">
         {renderSnippet(hit.snippet, hit.snippetMatchStart, hit.snippetMatchEnd)}
       </p>
     </button>
@@ -97,17 +97,15 @@ function ExtractedText({
     charEnd > text.length
   ) {
     return (
-      <pre className="whitespace-pre-wrap wrap-break-word text-sm leading-6 text-[#1a1a1a]">
-        {text}
-      </pre>
+      <pre className="whitespace-pre-wrap wrap-break-word text-sm leading-6 text-ink">{text}</pre>
     )
   }
   return (
-    <pre className="whitespace-pre-wrap wrap-break-word text-sm leading-6 text-[#1a1a1a]">
+    <pre className="whitespace-pre-wrap wrap-break-word text-sm leading-6 text-ink">
       {text.slice(0, charStart)}
       <mark
         ref={matchRef as React.RefObject<HTMLElement>}
-        className="rounded bg-aurora/30 px-0.5 font-medium text-[#1a1a1a]"
+        className="rounded bg-aurora/30 px-0.5 font-medium text-ink"
       >
         {text.slice(charStart, charEnd)}
       </mark>
@@ -155,7 +153,7 @@ export function SemanticSearchPanel({
   const handleSelect = useCallback(
     (hit: SemanticSearchHit) => {
       setActiveHit(hit)
-      void extractContent({ dossierId, documentId: hit.documentId })
+      void extractContent({ dossierId, documentPath: hit.documentPath })
     },
     [dossierId, extractContent]
   )
@@ -167,7 +165,7 @@ export function SemanticSearchPanel({
   const exactHits = useMemo(() => hits.filter((h) => h.matchKind === 'keyword'), [hits])
   const approxHits = useMemo(() => hits.filter((h) => h.matchKind !== 'keyword'), [hits])
 
-  const activeContentState = activeHit ? (contentStates?.[activeHit.documentId] ?? null) : null
+  const activeContentState = activeHit ? (contentStates?.[activeHit.documentPath] ?? null) : null
   const activeContentStatus = activeContentState?.status ?? 'idle'
   const activeText = activeContentState?.content?.text ?? ''
 
@@ -225,20 +223,20 @@ export function SemanticSearchPanel({
                   : t('documents.semantic_search_submit')}
               </Button>
             </form>
-            <p className="text-xs text-[#8a8a85]">
+            <p className="text-xs text-ink-subtle">
               {t('documents.semantic_search_hint_extraction')}
             </p>
           </Card>
 
           <div className="min-h-0 flex-1 overflow-y-auto">
             {status === 'error' && state ? (
-              <p className="rounded-lg border border-[#e8c7c7] bg-[#fbf0f0] px-3 py-2 text-sm text-[#9c2f2f]">
+              <p className="rounded-lg border border-destructive-border bg-destructive-tint px-3 py-2 text-sm text-destructive">
                 {t('documents.semantic_search_error', { error: state.error ?? '' })}
               </p>
             ) : null}
 
             {status === 'ready' && hits.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-[#e5e3da] bg-white px-3 py-2 text-sm text-[#5c5c5a]">
+              <p className="rounded-lg border border-dashed border-hairline bg-white px-3 py-2 text-sm text-ink-muted">
                 {t('documents.semantic_search_no_results')}
               </p>
             ) : null}
@@ -247,15 +245,15 @@ export function SemanticSearchPanel({
               <div className="space-y-4">
                 {exactHits.length > 0 ? (
                   <div className="space-y-2">
-                    <p className="px-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#5c5c5a]">
+                    <p className="px-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
                       {t('documents.search_group_exact')}
                     </p>
                     {exactHits.map((hit, index) => (
                       <HitButton
-                        key={`kw-${hit.documentId}-${hit.charStart}-${index}`}
+                        key={`kw-${hit.documentPath}-${hit.charStart}-${index}`}
                         hit={hit}
                         isActive={
-                          activeHit?.documentId === hit.documentId &&
+                          activeHit?.documentPath === hit.documentPath &&
                           activeHit?.charStart === hit.charStart
                         }
                         onSelect={handleSelect}
@@ -266,20 +264,20 @@ export function SemanticSearchPanel({
 
                 {approxHits.length > 0 ? (
                   <div className="space-y-2">
-                    <p className="px-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#5c5c5a]">
+                    <p className="px-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
                       {t('documents.search_group_approximate')}
                     </p>
-                    <p className="px-1 text-xs text-[#8a8a85]">
+                    <p className="px-1 text-xs text-ink-subtle">
                       {exactHits.length === 0
                         ? t('documents.search_no_exact_hint')
                         : t('documents.search_approximate_caveat')}
                     </p>
                     {approxHits.map((hit, index) => (
                       <HitButton
-                        key={`sem-${hit.documentId}-${hit.charStart}-${index}`}
+                        key={`sem-${hit.documentPath}-${hit.charStart}-${index}`}
                         hit={hit}
                         isActive={
-                          activeHit?.documentId === hit.documentId &&
+                          activeHit?.documentPath === hit.documentPath &&
                           activeHit?.charStart === hit.charStart
                         }
                         onSelect={handleSelect}
@@ -297,11 +295,9 @@ export function SemanticSearchPanel({
             <>
               <div className="mb-3 flex shrink-0 items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <h2 className="truncate text-sm font-semibold text-[#1a1a1a]">
-                    {activeHit.filename}
-                  </h2>
+                  <h2 className="truncate text-sm font-semibold text-ink">{activeHit.filename}</h2>
                   {activeContentState?.content ? (
-                    <p className="mt-0.5 text-xs text-[#8a8a85]">
+                    <p className="mt-0.5 text-xs text-ink-subtle">
                       {t('documents.extraction_chars_label', {
                         count: activeContentState.content.textLength
                       })}
@@ -313,19 +309,19 @@ export function SemanticSearchPanel({
                   size="sm"
                   variant="ghost"
                   onClick={() =>
-                    void onOpenDocument({ dossierId, documentId: activeHit.documentId })
+                    void onOpenDocument({ dossierId, documentPath: activeHit.documentPath })
                   }
                 >
                   {t('documents.preview_open_action')}
                 </Button>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto rounded-lg bg-[#f4f3ee] p-3">
+              <div className="min-h-0 flex-1 overflow-y-auto rounded-lg bg-parchment p-3">
                 {activeContentStatus === 'loading' ? (
-                  <p className="text-sm text-[#5c5c5a]">
+                  <p className="text-sm text-ink-muted">
                     {t('documents.semantic_search_searching')}
                   </p>
                 ) : activeContentStatus === 'error' ? (
-                  <p className="text-sm text-[#9c2f2f]">
+                  <p className="text-sm text-destructive">
                     {activeContentState?.error ?? t('documents.extraction_error_body')}
                   </p>
                 ) : activeContentStatus === 'ready' ? (
@@ -337,13 +333,13 @@ export function SemanticSearchPanel({
                       matchRef={matchRef}
                     />
                   ) : (
-                    <p className="text-sm text-[#5c5c5a]">{t('documents.preview_text_empty')}</p>
+                    <p className="text-sm text-ink-muted">{t('documents.preview_text_empty')}</p>
                   )
                 ) : null}
               </div>
             </>
           ) : (
-            <p className="text-sm text-[#5c5c5a]">
+            <p className="text-sm text-ink-muted">
               {t('documents.semantic_search_viewer_empty', {
                 defaultValue: 'Sélectionnez un résultat pour consulter le document.'
               })}

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import {
   dossierNoteDeleteInputSchema,
-  dossierNoteIndexSchema,
   dossierNoteSchema,
   dossierNoteUpsertInputSchema
 } from '../dossierNote'
@@ -10,7 +9,7 @@ import {
 describe('dossierNote validation', () => {
   it('accepts a full note record and defaults content to empty', () => {
     const parsed = dossierNoteSchema.parse({
-      id: 'note-1',
+      uuid: 'note-1',
       dossierId: 'Client Alpha',
       title: 'Vérifier la prescription',
       kind: 'to_verify',
@@ -27,7 +26,7 @@ describe('dossierNote validation', () => {
   it('rejects an unknown kind and an empty title', () => {
     expect(() =>
       dossierNoteSchema.parse({
-        id: 'note-1',
+        uuid: 'note-1',
         dossierId: 'Client Alpha',
         title: 'X',
         kind: 'reminder',
@@ -50,12 +49,9 @@ describe('dossierNote validation', () => {
     expect(parsed.kind).toBeUndefined()
   })
 
-  it('validates the delete input and the index shape', () => {
+  it('validates the delete input', () => {
     expect(
-      dossierNoteDeleteInputSchema.parse({ dossierId: 'Client Alpha', noteId: 'note-1' })
-    ).toEqual({ dossierId: 'Client Alpha', noteId: 'note-1' })
-
-    const index = dossierNoteIndexSchema.parse({ updatedAt: '2026-03-21T09:00:00.000Z' })
-    expect(index.notes).toEqual([])
+      dossierNoteDeleteInputSchema.parse({ dossierId: 'Client Alpha', noteUuid: 'note-1' })
+    ).toEqual({ dossierId: 'Client Alpha', noteUuid: 'note-1' })
   })
 })

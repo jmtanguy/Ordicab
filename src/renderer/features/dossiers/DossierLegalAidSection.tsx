@@ -102,18 +102,18 @@ export function DossierLegalAidSection({
   }
 
   const handleSave = async (): Promise<void> => {
-    await updateLegalAid({ dossierId: dossier.id, legalAid: buildLegalAid(state, autoSetupDone) })
+    await updateLegalAid({ dossierId: dossier.slug, legalAid: buildLegalAid(state, autoSetupDone) })
   }
 
   const handleAutoSetup = async (): Promise<void> => {
     const saved = await updateLegalAid({
-      dossierId: dossier.id,
+      dossierId: dossier.slug,
       legalAid: buildLegalAid(state, autoSetupDone)
     })
     if (!saved) {
       return
     }
-    await setupLegalAid({ dossierId: dossier.id, force: Boolean(autoSetupDone) })
+    await setupLegalAid({ dossierId: dossier.slug, force: Boolean(autoSetupDone) })
   }
 
   const canAutoSetup = state.enabled && state.status === 'granted' && !busy
@@ -137,7 +137,7 @@ export function DossierLegalAidSection({
               disabled={busy}
               onClick={() => update('enabled', !state.enabled)}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${
-                state.enabled ? 'bg-aurora' : 'bg-[#d1cfc6]'
+                state.enabled ? 'bg-aurora' : 'bg-hairline-strong'
               }`}
             >
               <span
@@ -286,7 +286,7 @@ export function DossierLegalAidSection({
             />
           </Field>
 
-          <div className="rounded-md border border-[#e5e3da] bg-[#f6f4ec] p-3 text-xs text-[#5c5c5a]">
+          <div className="rounded-md border border-hairline bg-[#f6f4ec] p-3 text-xs text-ink-muted">
             <p className="font-medium text-[#3c3c3a]">
               {t('dossiers.legal_aid_auto_setup_title', {
                 defaultValue: 'À quoi sert « Tout configurer automatiquement » ?'

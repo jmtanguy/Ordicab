@@ -9,9 +9,7 @@ describe('aiToolDefinitions', () => {
     expect(tools.legal_search_legifrance?.description).toContain(
       'Mandatory before answering legal-research questions'
     )
-    expect(tools.legal_search_legifrance?.description).toContain(
-      'https://www.legifrance.gouv.fr'
-    )
+    expect(tools.legal_search_legifrance?.description).toContain('https://www.legifrance.gouv.fr')
     expect(tools.legal_consult_legifrance?.description).toContain('returned `url`')
 
     expect(tools.legal_search_judilibre?.description).toContain(

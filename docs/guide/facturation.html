@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Facturation & honoraires — Ordicab Documentation</title>
+  <meta name="description" content="Conventions d'honoraires, aide juridictionnelle, saisie des prestations et préparation des factures, avec un suivi consolidé au niveau du cabinet." />
+  <link rel="canonical" href="https://www.ordicab.com/guide/facturation.html" />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <meta property="og:type" content="article" />
+  <meta property="og:locale" content="fr_FR" />
+  <meta property="og:site_name" content="Ordicab" />
+  <meta property="og:title" content="Facturation & honoraires — Ordicab Documentation" />
+  <meta property="og:description" content="Conventions d'honoraires, aide juridictionnelle, saisie des prestations et préparation des factures, avec un suivi consolidé au niveau du cabinet." />
+  <meta property="og:url" content="https://www.ordicab.com/guide/facturation.html" />
+  <meta property="og:image" content="https://www.ordicab.com/docs/guide/img/factures-cabinet.png" />
+  <link rel="icon" href="../ordicab-logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="_layout.css" />
+</head>
+<body>
+
+<button class="mobile-nav-toggle" type="button" aria-label="Ouvrir le menu de navigation" aria-controls="guide-sidebar" aria-expanded="false" data-guide-nav-toggle>
+  <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <line x1="4" y1="7" x2="20" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <line x1="4" y1="12" x2="20" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <line x1="4" y1="17" x2="20" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  </svg>
+</button>
+<div class="mobile-nav-overlay" hidden data-guide-nav-overlay></div>
+
+<aside class="sidebar" id="guide-sidebar">
+  <div class="sidebar-brand">
+    <a href="../">
+      <span class="name">Ordicab</span>
+      <span class="tagline">Documentation utilisateur</span>
+    </a>
+  </div>
+  <div class="sidebar-section">Démarrage</div>
+  <nav>
+    <a href="introduction.html">Introduction</a>
+    <a href="installation.html">Installation &amp; mise en route</a>
+  </nav>
+  <div class="sidebar-section">Le cabinet</div>
+  <nav>
+    <a href="cabinet.html">Cabinet &amp; paramètres</a>
+    <a href="agenda.html">Agenda &amp; chronologie</a>
+  </nav>
+  <div class="sidebar-section">Les dossiers</div>
+  <nav>
+    <a href="dossiers.html">Vue d'ensemble</a>
+    <a href="facturation.html" class="active">Facturation &amp; honoraires</a>
+    <a href="documents.html">Documents &amp; pièces</a>
+  </nav>
+  <div class="sidebar-section">Outils</div>
+  <nav>
+    <a href="modeles.html">Modèles &amp; génération</a>
+    <a href="recherche.html">Recherche &amp; vérification</a>
+  </nav>
+  <div class="sidebar-section">Intelligence artificielle</div>
+  <nav>
+    <a href="ia-vue-ensemble.html">Vue d'ensemble &amp; comparatif</a>
+    <a href="ia-assistant.html" class="sub">Assistant intégré</a>
+    <a href="ia-cowork.html" class="sub">IA Cowork (agents externes)</a>
+  </nav>
+</aside>
+
+<main class="main">
+  <div class="badge">Les dossiers</div>
+  <h1>Facturation &amp; honoraires</h1>
+  <p class="page-lead">
+    Ordicab relie convention, prestations et factures : vous décrivez les modalités d'honoraires une fois, saisissez le travail au fil de l'eau, et les factures se préparent sans ressaisie. Un tableau de bord au niveau du cabinet consolide le tout.
+  </p>
+
+  <h2>Convention d'honoraires</h2>
+  <p>L'onglet <strong>Convention</strong> formalise les modalités de la mission&nbsp;: type (forfait, temps passé, résultat, mixte), client contractant, forfait HT/TTC, taux horaire, TVA, honoraires de résultat et périmètre de mission. Une convention peut être marquée <span class="pill pill-green">Signée</span> et <span class="pill pill-blue">Active</span>, et vous pouvez lier le document signé.</p>
+
+    <img src="img/dossier-convention.png" alt="Convention d'honoraires — modalités, forfaits, TVA et périmètre de mission" class="doc-screenshot" />
+  <p class="doc-screenshot-caption">Convention d'honoraires — modalités, forfaits, TVA et périmètre de mission</p>
+
+  <h2>Aide juridictionnelle</h2>
+  <p>Quand un dossier est à l'aide juridictionnelle, activez le suivi dédié&nbsp;: statut (demandée, accordée…), n°&nbsp;de décision du BAJ, date, juridiction et référence CARPA. Le bouton <strong>« Tout configurer automatiquement »</strong> aligne d'un clic la convention, les compléments d'honoraires, les factures de rétribution et les échéances.</p>
+
+    <img src="img/dossier-aide-juridictionnelle.png" alt="Aide juridictionnelle — suivi de la décision du BAJ et configuration automatique" class="doc-screenshot" />
+  <p class="doc-screenshot-caption">Aide juridictionnelle — suivi de la décision du BAJ et configuration automatique</p>
+
+  <h2>Prestations</h2>
+  <p>Saisissez le travail effectué au fil de l'eau&nbsp;: date, libellé, quantité, prix unitaire, remise éventuelle. Chaque ligne calcule son total HT/TTC et porte un statut (<span class="pill">À facturer</span> / <span class="pill pill-green">Facturée</span>). Les prestations « à facturer » alimentent directement vos factures.</p>
+
+    <img src="img/dossier-prestations.png" alt="Prestations — saisie du travail effectué, totaux et statut de facturation" class="doc-screenshot" />
+  <p class="doc-screenshot-caption">Prestations — saisie du travail effectué, totaux et statut de facturation</p>
+
+  <h2>Factures du dossier</h2>
+  <p>L'onglet <strong>Factures</strong> récapitule, pour le dossier, le chiffre d'affaires, les encaissements et le reste en attente, puis la liste des factures avec leur statut (<span class="pill pill-blue">Émise</span>, <span class="pill pill-green">Payée</span>…). Les factures se génèrent à partir des prestations non facturées.</p>
+
+    <img src="img/dossier-factures.png" alt="Factures du dossier — indicateurs et liste des factures émises" class="doc-screenshot" />
+  <p class="doc-screenshot-caption">Factures du dossier — indicateurs et liste des factures émises</p>
+
+  <h2>Vue consolidée du cabinet</h2>
+  <p>Au niveau du cabinet, la page <strong>Factures</strong> agrège l'ensemble&nbsp;: chiffre d'affaires de l'année, encaissements, suivi de l'aide juridictionnelle et de la CARPA, prestations non facturées par dossier, et toutes les factures avec leur statut. Un export <strong>CSV</strong> et <strong>FEC</strong> est disponible.</p>
+
+    <img src="img/factures-cabinet.png" alt="Factures du cabinet — indicateurs, prestations non facturées et registre des factures" class="doc-screenshot" />
+  <p class="doc-screenshot-caption">Factures du cabinet — indicateurs, prestations non facturées et registre des factures</p>
+
+  <a href="documents.html" class="next-link">Suivant : Documents &amp; pièces →</a>
+</main>
+
+<script src="_layout.js"></script>
+<script src="../lightbox.js"></script>
+</body>
+</html>

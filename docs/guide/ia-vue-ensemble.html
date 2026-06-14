@@ -3,18 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>IA — Vue d'ensemble — Ordicab Documentation</title>
-  <meta name="description" content="Comparez les deux modes IA d'Ordicab : assistant intégré et IA Cowork (agents externes). Choisissez selon vos exigences de confidentialité." />
+  <title>IA : vue d'ensemble & comparatif — Ordicab Documentation</title>
+  <meta name="description" content="Les deux approches IA d'Ordicab : assistant intégré (local ou API) et IA Cowork avec des agents externes, et comment choisir selon la confidentialité." />
   <link rel="canonical" href="https://www.ordicab.com/guide/ia-vue-ensemble.html" />
   <meta name="robots" content="index, follow, max-image-preview:large" />
   <meta property="og:type" content="article" />
   <meta property="og:locale" content="fr_FR" />
   <meta property="og:site_name" content="Ordicab" />
-  <meta property="og:title" content="IA — Vue d'ensemble — Ordicab Documentation" />
-  <meta property="og:description" content="Comparez les deux modes IA d'Ordicab : assistant intégré et IA Cowork (agents externes)." />
+  <meta property="og:title" content="IA : vue d'ensemble & comparatif — Ordicab Documentation" />
+  <meta property="og:description" content="Les deux approches IA d'Ordicab : assistant intégré (local ou API) et IA Cowork avec des agents externes, et comment choisir selon la confidentialité." />
   <meta property="og:url" content="https://www.ordicab.com/guide/ia-vue-ensemble.html" />
-  <meta property="og:image" content="https://www.ordicab.com/docs/Dossier-Assistant-IA.png" />
-  <link rel="icon" href="../../resources/icon.png" />
+  <meta property="og:image" content="https://www.ordicab.com/docs/guide/img/dossier-assistant-ia.png" />
+  <link rel="icon" href="../ordicab-logo.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -23,7 +23,7 @@
 <body>
 
 <button class="mobile-nav-toggle" type="button" aria-label="Ouvrir le menu de navigation" aria-controls="guide-sidebar" aria-expanded="false" data-guide-nav-toggle>
-  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+  <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <line x1="4" y1="7" x2="20" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
     <line x1="4" y1="12" x2="20" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
     <line x1="4" y1="17" x2="20" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -33,17 +33,31 @@
 
 <aside class="sidebar" id="guide-sidebar">
   <div class="sidebar-brand">
-    <a href="../"><span class="name">Ordicab</span><span class="tagline">Documentation utilisateur</span></a>
+    <a href="../">
+      <span class="name">Ordicab</span>
+      <span class="tagline">Documentation utilisateur</span>
+    </a>
   </div>
   <div class="sidebar-section">Démarrage</div>
   <nav>
     <a href="introduction.html">Introduction</a>
     <a href="installation.html">Installation &amp; mise en route</a>
   </nav>
-  <div class="sidebar-section">Fonctionnalités</div>
+  <div class="sidebar-section">Le cabinet</div>
   <nav>
-    <a href="dossiers.html">Dossiers</a>
-    <a href="modeles.html">Modèles de documents</a>
+    <a href="cabinet.html">Cabinet &amp; paramètres</a>
+    <a href="agenda.html">Agenda &amp; chronologie</a>
+  </nav>
+  <div class="sidebar-section">Les dossiers</div>
+  <nav>
+    <a href="dossiers.html">Vue d'ensemble</a>
+    <a href="facturation.html">Facturation &amp; honoraires</a>
+    <a href="documents.html">Documents &amp; pièces</a>
+  </nav>
+  <div class="sidebar-section">Outils</div>
+  <nav>
+    <a href="modeles.html">Modèles &amp; génération</a>
+    <a href="recherche.html">Recherche &amp; vérification</a>
   </nav>
   <div class="sidebar-section">Intelligence artificielle</div>
   <nav>
@@ -55,123 +69,32 @@
 
 <main class="main">
   <div class="badge">Intelligence artificielle</div>
-  <h1>IA — Vue d'ensemble</h1>
+  <h1>IA&nbsp;: vue d'ensemble &amp; comparatif</h1>
   <p class="page-lead">
-    Ordicab intègre l'IA au travail réel du dossier, pas en marge. Elle exploite les contacts, documents, notes et informations structurées pour des tâches concrètes. Deux modes d'intégration couvrent tous les niveaux d'exigence — de la simplicité maximale à la confidentialité absolue.
+    Ordicab propose deux manières de travailler avec l'IA, complémentaires et non exclusives. Le choix dépend surtout du niveau de confidentialité requis et de la puissance souhaitée.
   </p>
 
-  <h2>Les traitements IA embarqués</h2>
-  <p>Certains traitements fonctionnent <strong>localement, sans connexion</strong>, grâce aux modèles embarqués dans Ordicab&nbsp;:</p>
+  <h2>Deux approches</h2>
   <ul>
-    <li><strong>Reconnaissance d'entités</strong> — identification automatique des noms, dates, adresses et références dans les documents.</li>
-    <li><strong>Recherche sémantique</strong> — retrouvez une information dans un dossier par le sens, pas seulement par les mots-clés exacts.</li>
-    <li><strong>Pseudonymisation</strong> — remplacement automatique des données personnelles avant envoi à une IA externe.</li>
-  </ul>
-  <p>Ces traitements sont actifs en permanence dans l'application, sans configuration requise.</p>
-
-  <h2>Les deux modes d'interaction IA</h2>
-
-  <table>
-    <thead>
-      <tr>
-        <th>Mode</th>
-        <th>En un mot</th>
-        <th>Accès</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td><strong><a href="ia-assistant.html" style="color:var(--teal);text-decoration:none;">Assistant intégré</a></strong></td>
-        <td>Chat IA dans le dossier, connecté à votre API cloud ou à un modèle local Ollama</td>
-        <td>Paramètres → IA → Assistant</td>
-      </tr>
-      <tr>
-        <td><strong><a href="ia-cowork.html" style="color:var(--teal);text-decoration:none;">IA Cowork</a></strong></td>
-        <td>Collaboration directe avec un agent IA externe (Claude Code, Codex…) qui lit et écrit dans vos dossiers</td>
-        <td>Paramètres → IA → Cowork</td>
-      </tr>
-    </tbody>
-  </table>
-
-  <h2>Pseudonymisation avant envoi</h2>
-  <p>Quand vous utilisez l'assistant intégré via API, Ordicab peut remplacer automatiquement les données identifiantes avant de les transmettre au modèle&nbsp;: noms de personnes, adresses, emails, numéros de téléphone. L'IA travaille sur des alias cohérents sans accéder aux vraies identités.</p>
-
-  <div class="callout">
-    <strong>La clé de correspondance reste sur votre machine.</strong> La pseudonymisation n'est pas réversible automatiquement dans le chat — elle protège les données transmises, mais le décodage des réponses est à votre charge. Elle est optionnelle et configurable par dossier.
-  </div>
-
-  <h2>Comparatif des modes</h2>
-
-  <table>
-    <thead>
-      <tr>
-        <th>Critère</th>
-        <th>Assistant intégré<br/><small style="font-weight:400;text-transform:none;letter-spacing:0;">(API ou Ollama)</small></th>
-        <th>IA Cowork</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td><strong>Puissance IA</strong></td>
-        <td><span class="pill pill-blue">Élevée (API) / Faible (local)</span></td>
-        <td><span class="pill pill-green">Maximale</span></td>
-      </tr>
-      <tr>
-        <td><strong>Facilité d'usage</strong></td>
-        <td><span class="pill pill-green">Simple</span></td>
-        <td><span class="pill pill-yellow">Intermédiaire</span></td>
-      </tr>
-      <tr>
-        <td><strong>Prérequis</strong></td>
-        <td>Clé API ou Ollama installé</td>
-        <td>Claude Code, Codex CLI ou agent compatible</td>
-      </tr>
-      <tr>
-        <td><strong>Données quittent la machine</strong></td>
-        <td><span class="pill pill-red">Oui (API) / Non (Ollama)</span></td>
-        <td><span class="pill pill-red">Oui — cloud</span></td>
-      </tr>
-      <tr>
-        <td><strong>Pseudonymisation</strong></td>
-        <td><span class="pill pill-green">Optionnelle (API)</span></td>
-        <td><span class="pill pill-red">Non</span></td>
-      </tr>
-      <tr>
-        <td><strong>Création de documents</strong></td>
-        <td><span class="pill pill-yellow">Via modèles</span></td>
-        <td><span class="pill pill-green">Directement</span></td>
-      </tr>
-      <tr>
-        <td><strong>Mise à jour du dossier</strong></td>
-        <td><span class="pill pill-green">Directe</span></td>
-        <td><span class="pill pill-green">Directe</span></td>
-      </tr>
-      <tr>
-        <td><strong>100 % local possible</strong></td>
-        <td><span class="pill pill-green">Oui (Ollama)</span></td>
-        <td><span class="pill pill-red">Non</span></td>
-      </tr>
-    </tbody>
-  </table>
-
-  <div class="callout">
-    <strong>Quel mode choisir&nbsp;?</strong><br/>
-    Commencez avec l'<strong>assistant intégré via API</strong> pour la simplicité et la puissance. Choisissez <strong>Ollama</strong> si la confidentialité absolue est prioritaire (données 100 % locales). Optez pour <strong>IA Cowork</strong> pour des tâches complexes nécessitant la création de documents ou une analyse approfondie.
-  </div>
-
-  <h2>Ce que l'IA peut faire dans Ordicab</h2>
-  <p>Quelle que soit l'approche choisie, l'IA dans Ordicab peut intervenir sur&nbsp;:</p>
-  <ul>
-    <li>retrouver une information précise dans un dossier (date, contact, référence…)&nbsp;;</li>
-    <li>résumer des documents ou un ensemble de pièces&nbsp;;</li>
-    <li>préparer un courrier, un projet d'email ou une note interne&nbsp;;</li>
-    <li>extraire des contacts, dates et références depuis un document scanné ou importé&nbsp;;</li>
-    <li>générer ou compléter des documents depuis les modèles du cabinet&nbsp;;</li>
-    <li>accompagner l'organisation d'un dossier complexe&nbsp;;</li>
-    <li>effectuer des recherches sémantiques dans vos dossiers.</li>
+    <li><strong>L'assistant intégré</strong> — un chat directement dans le dossier, qui exploite son contexte (contacts, pièces, notes, chronologie). Il fonctionne avec un <strong>modèle local</strong> (aucune donnée ne quitte la machine) ou via une <strong>clé API</strong> externe pour plus de puissance.</li>
+    <li><strong>IA Cowork</strong> — vous exportez une copie pseudonymisée du dossier pour la confier à un agent externe (par exemple Claude Code), puis réimportez les livrables. Les identités sont remplacées à l'export et restaurées au retour.</li>
   </ul>
 
-  <p><strong>Ordicab conserve toujours le contrôle.</strong> L'IA peut proposer, extraire, rédiger ou organiser — mais la validation, la structure et l'exécution des actions sur les données restent dans l'application.</p>
+    <img src="img/dossier-assistant-ia.png" alt="Assistant IA intégré au dossier — chat avec actions suggérées et choix du modèle" class="doc-screenshot" />
+  <p class="doc-screenshot-caption">Assistant IA intégré au dossier — chat avec actions suggérées et choix du modèle</p>
+
+  <h2>Comment choisir&nbsp;?</h2>
+  <ul>
+    <li><strong>Données sensibles, traitement simple</strong> → assistant intégré en <strong>modèle local</strong>.</li>
+    <li><strong>Besoin de puissance, données maîtrisées</strong> → assistant intégré via <strong>clé API</strong>, avec essai de pseudonymisation.</li>
+    <li><strong>Travail volumineux ou outillé</strong> (analyse de nombreuses pièces, rédaction longue) → <strong>IA Cowork</strong> avec export pseudonymisé.</li>
+  </ul>
+
+  <div class="callout">
+    <strong>Pseudonymisation.</strong> Que ce soit pour l'assistant via API ou pour Cowork, Ordicab peut remplacer les identités par des marqueurs neutres avant l'envoi, puis les restaurer dans les résultats.
+  </div>
+
+  <p>Les deux approches sont détaillées dans <a href="ia-assistant.html">Assistant intégré</a> et <a href="ia-cowork.html">IA Cowork</a>. La configuration du modèle se fait dans <a href="cabinet.html">Paramètres → Configuration IA</a>.</p>
 
   <a href="ia-assistant.html" class="next-link">Suivant : Assistant intégré →</a>
 </main>

@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agenda & chronologie — Ordicab Documentation</title>
+  <meta name="description" content="Suivre toutes les échéances du cabinet et de chaque dossier : vue liste ou calendrier, filtres par statut et par priorité, événements hors dossier." />
+  <link rel="canonical" href="https://www.ordicab.com/guide/agenda.html" />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <meta property="og:type" content="article" />
+  <meta property="og:locale" content="fr_FR" />
+  <meta property="og:site_name" content="Ordicab" />
+  <meta property="og:title" content="Agenda & chronologie — Ordicab Documentation" />
+  <meta property="og:description" content="Suivre toutes les échéances du cabinet et de chaque dossier : vue liste ou calendrier, filtres par statut et par priorité, événements hors dossier." />
+  <meta property="og:url" content="https://www.ordicab.com/guide/agenda.html" />
+  <meta property="og:image" content="https://www.ordicab.com/docs/guide/img/chronologie-cabinet.png" />
+  <link rel="icon" href="../ordicab-logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="_layout.css" />
+</head>
+<body>
+
+<button class="mobile-nav-toggle" type="button" aria-label="Ouvrir le menu de navigation" aria-controls="guide-sidebar" aria-expanded="false" data-guide-nav-toggle>
+  <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <line x1="4" y1="7" x2="20" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <line x1="4" y1="12" x2="20" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <line x1="4" y1="17" x2="20" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  </svg>
+</button>
+<div class="mobile-nav-overlay" hidden data-guide-nav-overlay></div>
+
+<aside class="sidebar" id="guide-sidebar">
+  <div class="sidebar-brand">
+    <a href="../">
+      <span class="name">Ordicab</span>
+      <span class="tagline">Documentation utilisateur</span>
+    </a>
+  </div>
+  <div class="sidebar-section">Démarrage</div>
+  <nav>
+    <a href="introduction.html">Introduction</a>
+    <a href="installation.html">Installation &amp; mise en route</a>
+  </nav>
+  <div class="sidebar-section">Le cabinet</div>
+  <nav>
+    <a href="cabinet.html">Cabinet &amp; paramètres</a>
+    <a href="agenda.html" class="active">Agenda &amp; chronologie</a>
+  </nav>
+  <div class="sidebar-section">Les dossiers</div>
+  <nav>
+    <a href="dossiers.html">Vue d'ensemble</a>
+    <a href="facturation.html">Facturation &amp; honoraires</a>
+    <a href="documents.html">Documents &amp; pièces</a>
+  </nav>
+  <div class="sidebar-section">Outils</div>
+  <nav>
+    <a href="modeles.html">Modèles &amp; génération</a>
+    <a href="recherche.html">Recherche &amp; vérification</a>
+  </nav>
+  <div class="sidebar-section">Intelligence artificielle</div>
+  <nav>
+    <a href="ia-vue-ensemble.html">Vue d'ensemble &amp; comparatif</a>
+    <a href="ia-assistant.html" class="sub">Assistant intégré</a>
+    <a href="ia-cowork.html" class="sub">IA Cowork (agents externes)</a>
+  </nav>
+</aside>
+
+<main class="main">
+  <div class="badge">Le cabinet</div>
+  <h1>Agenda &amp; chronologie</h1>
+  <p class="page-lead">
+    La chronologie est votre fil du temps. Au niveau du cabinet, elle agrège toutes les échéances — celles des dossiers et celles « hors dossier » (obligations ordinales, déclarations, formation…). Au niveau d'un dossier, elle ne montre que ses propres événements.
+  </p>
+
+  <h2>Vue liste ou calendrier</h2>
+  <p>Basculez entre une <strong>liste</strong> chronologique et un <strong>calendrier</strong> (semaine ouvrée, semaine, mois). La liste affiche pour chaque événement sa date, son libellé, ses tags et une information complémentaire.</p>
+
+    <img src="img/chronologie-cabinet.png" alt="Chronologie du cabinet — agenda agrégé des échéances, ici les événements « hors dossier »" class="doc-screenshot" />
+  <p class="doc-screenshot-caption">Chronologie du cabinet — agenda agrégé des échéances, ici les événements « hors dossier »</p>
+
+  <h2>Filtres et priorités</h2>
+  <p>Filtrez par état (<span class="pill pill-blue">À venir</span> <span class="pill">Passé</span> <span class="pill">Annulé</span> <span class="pill">Reporté</span>) et par priorité (<span class="pill pill-red">Urgent</span> <span class="pill pill-yellow">Impératif</span> <span class="pill">Important</span> <span class="pill">À confirmer</span> <span class="pill">Confidentiel</span> <span class="pill">À faire</span>). Combinez les filtres pour ne garder, par exemple, que les échéances impératives à venir.</p>
+
+  <h2>Événements de dossier</h2>
+  <p>Dans un dossier, la chronologie liste audiences, assignations, délais de procédure, courriers et événements personnalisés. Chaque événement peut porter une date, une heure, des tags et une note.</p>
+
+    <img src="img/dossier-chronologie.png" alt="Chronologie d'un dossier — événements datés, tags de priorité et informations" class="doc-screenshot" />
+  <p class="doc-screenshot-caption">Chronologie d'un dossier — événements datés, tags de priorité et informations</p>
+
+  <div class="callout">
+    <strong>De l'échéance à la facturation.</strong> Une échéance de la chronologie peut être convertie en prestation : Ordicab ouvre alors directement l'onglet <a href="facturation.html">Prestations</a> du dossier avec le pré-remplissage.
+  </div>
+
+  <a href="dossiers.html" class="next-link">Suivant : Dossiers : vue d'ensemble →</a>
+</main>
+
+<script src="_layout.js"></script>
+<script src="../lightbox.js"></script>
+</body>
+</html>

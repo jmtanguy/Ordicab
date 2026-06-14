@@ -3,18 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Dossiers — Ordicab Documentation</title>
-  <meta name="description" content="Gérez vos dossiers dans Ordicab : contacts, documents, chronologie, conventions d'honoraires, prestations et factures." />
+  <title>Dossiers : vue d'ensemble — Ordicab Documentation</title>
+  <meta name="description" content="Le dossier est l'unité centrale d'Ordicab : informations, contacts, notes, références et navigation par sections." />
   <link rel="canonical" href="https://www.ordicab.com/guide/dossiers.html" />
   <meta name="robots" content="index, follow, max-image-preview:large" />
   <meta property="og:type" content="article" />
   <meta property="og:locale" content="fr_FR" />
   <meta property="og:site_name" content="Ordicab" />
-  <meta property="og:title" content="Dossiers — Ordicab Documentation" />
-  <meta property="og:description" content="Gérez vos dossiers dans Ordicab : contacts, documents, chronologie, conventions d'honoraires, prestations et factures." />
+  <meta property="og:title" content="Dossiers : vue d'ensemble — Ordicab Documentation" />
+  <meta property="og:description" content="Le dossier est l'unité centrale d'Ordicab : informations, contacts, notes, références et navigation par sections." />
   <meta property="og:url" content="https://www.ordicab.com/guide/dossiers.html" />
-  <meta property="og:image" content="https://www.ordicab.com/docs/Dossier.png" />
-  <link rel="icon" href="../../resources/icon.png" />
+  <meta property="og:image" content="https://www.ordicab.com/docs/guide/img/dossier-contacts.png" />
+  <link rel="icon" href="../ordicab-logo.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -23,7 +23,7 @@
 <body>
 
 <button class="mobile-nav-toggle" type="button" aria-label="Ouvrir le menu de navigation" aria-controls="guide-sidebar" aria-expanded="false" data-guide-nav-toggle>
-  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+  <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <line x1="4" y1="7" x2="20" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
     <line x1="4" y1="12" x2="20" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
     <line x1="4" y1="17" x2="20" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -33,17 +33,31 @@
 
 <aside class="sidebar" id="guide-sidebar">
   <div class="sidebar-brand">
-    <a href="../"><span class="name">Ordicab</span><span class="tagline">Documentation utilisateur</span></a>
+    <a href="../">
+      <span class="name">Ordicab</span>
+      <span class="tagline">Documentation utilisateur</span>
+    </a>
   </div>
   <div class="sidebar-section">Démarrage</div>
   <nav>
     <a href="introduction.html">Introduction</a>
     <a href="installation.html">Installation &amp; mise en route</a>
   </nav>
-  <div class="sidebar-section">Fonctionnalités</div>
+  <div class="sidebar-section">Le cabinet</div>
   <nav>
-    <a href="dossiers.html" class="active">Dossiers</a>
-    <a href="modeles.html">Modèles de documents</a>
+    <a href="cabinet.html">Cabinet &amp; paramètres</a>
+    <a href="agenda.html">Agenda &amp; chronologie</a>
+  </nav>
+  <div class="sidebar-section">Les dossiers</div>
+  <nav>
+    <a href="dossiers.html" class="active">Vue d'ensemble</a>
+    <a href="facturation.html">Facturation &amp; honoraires</a>
+    <a href="documents.html">Documents &amp; pièces</a>
+  </nav>
+  <div class="sidebar-section">Outils</div>
+  <nav>
+    <a href="modeles.html">Modèles &amp; génération</a>
+    <a href="recherche.html">Recherche &amp; vérification</a>
   </nav>
   <div class="sidebar-section">Intelligence artificielle</div>
   <nav>
@@ -54,113 +68,43 @@
 </aside>
 
 <main class="main">
-  <div class="badge">Fonctionnalités</div>
-  <h1>Dossiers</h1>
+  <div class="badge">Les dossiers</div>
+  <h1>Dossiers&nbsp;: vue d'ensemble</h1>
   <p class="page-lead">
-    Chaque dossier est l'unité centrale d'Ordicab. Il regroupe toutes les informations d'une affaire : contacts, documents, chronologie, convention d'honoraires, prestations, factures et assistant IA.
+    Chaque dossier est l'unité centrale d'Ordicab. Il regroupe tout ce qui concerne une affaire : suivi (notes, contacts, références, chronologie), facturation (convention, prestations, factures, aide juridictionnelle), documents (pièces, bordereau, comparaison, génération) et outils de recherche &amp; IA.
   </p>
 
   <h2>La liste des dossiers</h2>
-  <p>La vue <strong>Dossiers</strong> affiche l'ensemble de vos affaires sous forme de cartes. Chaque carte indique&nbsp;:</p>
-  <ul>
-    <li>le nom du dossier et sa référence&nbsp;;</li>
-    <li>son statut : <em>Actif, En attente, Terminé, Archivé</em>&nbsp;;</li>
-    <li>les intervenants principaux (client, adversaire…)&nbsp;;</li>
-    <li>les dates clés et échéances proches.</li>
-  </ul>
+  <p>La colonne de gauche liste vos affaires. Vous pouvez les filtrer par statut (<em>Actif, En attente, Terminé, Archivé</em>) et les trier (alphabétique, prochaine date clé, dernier ouvert). Le bouton <strong>+</strong> enregistre un nouveau dossier à partir d'un sous-dossier du domaine.</p>
 
-  <img src="../Dossier.png" alt="Vue d'ensemble d'un dossier" class="doc-screenshot" />
-  <p class="doc-screenshot-caption">Vue d'ensemble d'un dossier — informations principales et navigation par onglets</p>
-
-  <h2>Informations principales</h2>
-  <p>L'onglet principal du dossier centralise&nbsp;:</p>
+  <h2>Navigation d'un dossier</h2>
+  <p>Une fois un dossier ouvert, une barre latérale de second niveau organise toutes ses sections en quatre blocs&nbsp;:</p>
   <ul>
-    <li><strong>Nom et référence</strong> — identifiant unique de l'affaire dans votre cabinet.</li>
-    <li><strong>Type de dossier</strong> — catégorie juridique ou métier (configurable).</li>
-    <li><strong>Statut</strong> — Actif, En attente, Terminé, Archivé.</li>
-    <li><strong>Dates clés</strong> — ouverture, audience, délais, échéances importantes.</li>
-    <li><strong>Notes libres</strong> — zone de saisie riche pour les résumés, contexte et observations.</li>
+    <li><strong>Suivi</strong> — Chronologie, Notes, Contacts, Références&nbsp;;</li>
+    <li><strong>Facturation</strong> — Prestations, Factures, Convention, Aide juridictionnelle&nbsp;;</li>
+    <li><strong>Documents</strong> — Pièces, Bordereau, Comparaison, Générer un document&nbsp;;</li>
+    <li><strong>Recherche &amp; IA</strong> — Assistant IA, Claude Cowork, Recherche Dossier, Recherche Droit, Vérification Droit.</li>
   </ul>
 
   <h2>Contacts</h2>
-  <p>Chaque dossier dispose de sa propre liste de contacts, classés par rôle&nbsp;:</p>
-  <ul>
-    <li><strong>Client(s)</strong> — particuliers ou personnes morales représentés.</li>
-    <li><strong>Adversaire(s)</strong> — la partie adverse.</li>
-    <li><strong>Confrères</strong> — avocats collaborant sur le dossier.</li>
-    <li><strong>Juridiction</strong> — tribunal, cour ou autorité compétente.</li>
-    <li><strong>Tiers</strong> — experts, huissiers, notaires et autres intervenants.</li>
-  </ul>
+  <p>Chaque dossier a sa propre liste de contacts, classés par rôle&nbsp;: <strong>client</strong>, <strong>adversaire</strong>, confrère, juridiction, tiers (expert, huissier, notaire…). Leurs coordonnées alimentent la génération de documents et le contexte de l'IA.</p>
 
-  <img src="../Dossier-Contacts.png" alt="Contacts d'un dossier" class="doc-screenshot" />
-  <p class="doc-screenshot-caption">Onglet Contacts — intervenants classés par rôle</p>
+    <img src="img/dossier-contacts.png" alt="Onglet Contacts — intervenants du dossier classés par rôle" class="doc-screenshot" />
+  <p class="doc-screenshot-caption">Onglet Contacts — intervenants du dossier classés par rôle</p>
 
-  <p>Les contacts sont propres à chaque dossier. Leurs coordonnées (nom, email, téléphone, adresse) sont disponibles pour la génération de documents depuis les modèles et pour l'assistant IA.</p>
+  <h2>Notes</h2>
+  <p>Consignez vos observations sous forme de notes typées (note libre ou « à faire »), avec des tags pour les retrouver. Les notes font partie du contexte exploité par l'assistant IA du dossier.</p>
 
-  <h2>Documents</h2>
-  <p>L'onglet <strong>Documents</strong> permet de classer et consulter les pièces liées au dossier. Ordicab prévisualise les PDF, les fichiers Word (<code>.docx</code>) et les images directement dans l'application.</p>
-  <p>Les documents sont associés au dossier par référence de chemin — Ordicab ne déplace ni ne copie jamais vos fichiers.</p>
+    <img src="img/dossier-notes.png" alt="Onglet Notes — notes typées et taguées (stratégie, audience, pièces…)" class="doc-screenshot" />
+  <p class="doc-screenshot-caption">Onglet Notes — notes typées et taguées (stratégie, audience, pièces…)</p>
 
-  <h2>Chronologie</h2>
-  <p>La chronologie présente les événements du dossier dans l'ordre chronologique&nbsp;:</p>
-  <ul>
-    <li>audiences, assignations, délais de procédure&nbsp;;</li>
-    <li>courriers envoyés et reçus&nbsp;;</li>
-    <li>événements personnalisés (réunion, expertise, dépôt de pièce…).</li>
-  </ul>
+  <h2>Références</h2>
+  <p>Les <strong>références</strong> sont les variables structurées du dossier (nom, statut, type, juridiction, tribunal, n°&nbsp;RG, informations…). Elles sont injectées automatiquement dans les documents générés depuis vos modèles.</p>
 
-  <img src="../Chronologie.png" alt="Chronologie d'un dossier" class="doc-screenshot" />
-  <p class="doc-screenshot-caption">Chronologie — vision structurée des événements et dates clés</p>
+    <img src="img/dossier-references.png" alt="Onglet Références — variables structurées du dossier, réutilisées dans les modèles" class="doc-screenshot" />
+  <p class="doc-screenshot-caption">Onglet Références — variables structurées du dossier, réutilisées dans les modèles</p>
 
-  <h2>Convention d'honoraires</h2>
-  <p>L'onglet <strong>Convention</strong> suit les modalités contractuelles de la mission&nbsp;:</p>
-  <ul>
-    <li>type de convention (forfait, temps passé, résultat, mixte)&nbsp;;</li>
-    <li>phases ou tranches de mission avec leurs forfaits&nbsp;;</li>
-    <li>taux horaires applicables et conditions particulières.</li>
-  </ul>
-
-  <img src="../Dossier-Convention.png" alt="Convention d'honoraires" class="doc-screenshot" />
-  <p class="doc-screenshot-caption">Convention d'honoraires — phases, forfaits et modalités</p>
-
-  <h2>Prestations</h2>
-  <p>Saisissez le travail effectué au fil de l'eau dans l'onglet <strong>Prestations</strong>&nbsp;:</p>
-  <ul>
-    <li>date et description de la prestation&nbsp;;</li>
-    <li>durée (temps passé) ou montant forfaitaire&nbsp;;</li>
-    <li>rattachement à une phase de la convention.</li>
-  </ul>
-  <p>Les prestations alimentent directement la facturation — aucune ressaisie n'est nécessaire.</p>
-
-  <img src="../Dossier-Prestations.png" alt="Prestations du dossier" class="doc-screenshot" />
-  <p class="doc-screenshot-caption">Prestations — saisie du travail effectué et lien avec la facturation</p>
-
-  <h2>Factures</h2>
-  <p>L'onglet <strong>Factures</strong> regroupe les éléments facturables du dossier&nbsp;:</p>
-  <ul>
-    <li>génération à partir des prestations saisies&nbsp;;</li>
-    <li>ajout de débours, frais et honoraires hors temps passé&nbsp;;</li>
-    <li>suivi du statut de règlement.</li>
-  </ul>
-
-  <img src="../Factures.png" alt="Factures" class="doc-screenshot" />
-  <p class="doc-screenshot-caption">Factures — préparation et suivi des éléments facturables</p>
-
-  <h2>Assistant IA</h2>
-  <p>Chaque dossier intègre un <strong>assistant IA</strong> qui exploite le contexte de l'affaire — contacts, documents, notes, chronologie — pour vous aider à&nbsp;:</p>
-  <ul>
-    <li>retrouver une information précise dans le dossier&nbsp;;</li>
-    <li>rédiger un courrier ou un email depuis les données du dossier&nbsp;;</li>
-    <li>extraire des dates, contacts ou références depuis un document&nbsp;;</li>
-    <li>préparer une synthèse ou un résumé.</li>
-  </ul>
-
-  <img src="../Dossier-Assistant-IA.png" alt="Assistant IA dans un dossier" class="doc-screenshot" />
-  <p class="doc-screenshot-caption">Assistant IA — chat intégré au dossier avec contexte complet</p>
-
-  <p>La configuration de l'assistant (local ou API distante) est décrite dans la section <a href="ia-vue-ensemble.html" style="color:var(--teal);">Intelligence artificielle</a>.</p>
-
-  <a href="modeles.html" class="next-link">Suivant : Modèles de documents →</a>
+  <a href="facturation.html" class="next-link">Suivant : Facturation &amp; honoraires →</a>
 </main>
 
 <script src="_layout.js"></script>

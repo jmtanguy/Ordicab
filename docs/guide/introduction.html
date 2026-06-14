@@ -4,17 +4,17 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Introduction — Ordicab Documentation</title>
-  <meta name="description" content="Découvrez Ordicab, l'outil de pilotage de dossiers pour avocats. Présentation du produit, architecture de données et cas d'usage." />
+  <meta name="description" content="Découvrez Ordicab, l'application de bureau de pilotage de dossiers pour avocats : architecture locale, dossiers, facturation, modèles et IA." />
   <link rel="canonical" href="https://www.ordicab.com/guide/introduction.html" />
   <meta name="robots" content="index, follow, max-image-preview:large" />
   <meta property="og:type" content="article" />
   <meta property="og:locale" content="fr_FR" />
   <meta property="og:site_name" content="Ordicab" />
   <meta property="og:title" content="Introduction — Ordicab Documentation" />
-  <meta property="og:description" content="Découvrez Ordicab, l'outil de pilotage de dossiers pour avocats. Présentation du produit, architecture de données et cas d'usage." />
+  <meta property="og:description" content="Découvrez Ordicab, l'application de bureau de pilotage de dossiers pour avocats : architecture locale, dossiers, facturation, modèles et IA." />
   <meta property="og:url" content="https://www.ordicab.com/guide/introduction.html" />
-  <meta property="og:image" content="https://www.ordicab.com/docs/Dossier.png" />
-  <link rel="icon" href="../../resources/icon.png" />
+  <meta property="og:image" content="https://www.ordicab.com/docs/guide/img/dossier-contacts.png" />
+  <link rel="icon" href="../ordicab-logo.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -43,10 +43,21 @@
     <a href="introduction.html" class="active">Introduction</a>
     <a href="installation.html">Installation &amp; mise en route</a>
   </nav>
-  <div class="sidebar-section">Fonctionnalités</div>
+  <div class="sidebar-section">Le cabinet</div>
   <nav>
-    <a href="dossiers.html">Dossiers</a>
-    <a href="modeles.html">Modèles de documents</a>
+    <a href="cabinet.html">Cabinet &amp; paramètres</a>
+    <a href="agenda.html">Agenda &amp; chronologie</a>
+  </nav>
+  <div class="sidebar-section">Les dossiers</div>
+  <nav>
+    <a href="dossiers.html">Vue d'ensemble</a>
+    <a href="facturation.html">Facturation &amp; honoraires</a>
+    <a href="documents.html">Documents &amp; pièces</a>
+  </nav>
+  <div class="sidebar-section">Outils</div>
+  <nav>
+    <a href="modeles.html">Modèles &amp; génération</a>
+    <a href="recherche.html">Recherche &amp; vérification</a>
   </nav>
   <div class="sidebar-section">Intelligence artificielle</div>
   <nav>
@@ -57,54 +68,53 @@
 </aside>
 
 <main class="main">
-  <div class="badge">Introduction</div>
+  <div class="badge">Démarrage</div>
   <h1>Qu'est-ce qu'Ordicab&nbsp;?</h1>
   <p class="page-lead">
-    Ordicab est une application de bureau pour avocats solo et petites structures. Elle centralise la gestion des dossiers, des contacts, des documents, des conventions d'honoraires, de la facturation et des modèles — et intègre des assistants IA adaptés aux exigences de confidentialité d'un cabinet.
+    Ordicab est une application de bureau pour avocats solo et petites structures. Elle centralise vos dossiers, contacts, documents, conventions d'honoraires, prestations, factures et modèles — et intègre des assistants IA pensés pour la confidentialité d'un cabinet. Tout fonctionne en local, sur votre machine.
   </p>
 
   <h2>À qui s'adresse Ordicab&nbsp;?</h2>
-  <p>Ordicab est conçu pour vous si vous&nbsp;:</p>
+  <p>Ordicab est fait pour vous si vous&nbsp;:</p>
   <ul>
-    <li>gérez un portefeuille de dossiers avec des contacts, des documents et des échéances&nbsp;;</li>
-    <li>travaillez en solo ou en petite structure et souhaitez un outil simple sans abonnement serveur&nbsp;;</li>
-    <li>voulez intégrer l'IA dans votre travail sans exposer les données de vos clients&nbsp;;</li>
-    <li>tenez à garder vos données en local, sur votre propre machine.</li>
+    <li>pilotez un portefeuille d'affaires avec des contacts, des pièces et des échéances&nbsp;;</li>
+    <li>travaillez en solo ou en petite structure et voulez un outil simple, sans abonnement serveur&nbsp;;</li>
+    <li>souhaitez intégrer l'IA à votre quotidien sans exposer les données de vos clients&nbsp;;</li>
+    <li>tenez à conserver vos données sur votre propre poste.</li>
   </ul>
 
-  <h2>Architecture de données</h2>
-  <p>Ordicab repose sur une structure à trois niveaux&nbsp;:</p>
+  <h2>Une architecture à trois niveaux</h2>
+  <p>Toute l'application s'organise autour de trois niveaux&nbsp;:</p>
   <ul>
-    <li><strong>Cabinet</strong> — les informations de votre structure : nom, coordonnées, taux, paramètres. La base de référence partagée par toute l'application.</li>
-    <li><strong>Dossiers</strong> — chaque affaire est un dossier autonome avec ses contacts, ses documents, sa chronologie, sa convention, ses prestations et ses factures.</li>
-    <li><strong>Éléments</strong> — les pièces constitutives d'un dossier : contacts, documents, prestations, etc. Chacun est structuré et exploitable par l'IA.</li>
+    <li><strong>Le cabinet</strong> — l'identité de votre structure (nom, coordonnées, SIREN, TVA), votre catalogue de prestations et de tarifs, et vos paramètres. C'est la base de référence partagée par toute l'application.</li>
+    <li><strong>Les dossiers</strong> — chaque affaire est un dossier autonome avec ses contacts, ses pièces, sa chronologie, sa convention, ses prestations et ses factures.</li>
+    <li><strong>Les éléments</strong> — les briques d'un dossier (contacts, documents, prestations, références…), structurées et directement exploitables par les modèles et l'IA.</li>
   </ul>
+
+    <img src="img/dossier-contacts.png" alt="Un dossier ouvert : en-tête de l'affaire, navigation par sections à gauche, contenu à droite" class="doc-screenshot" />
+  <p class="doc-screenshot-caption">Un dossier ouvert : en-tête de l'affaire, navigation par sections à gauche, contenu à droite</p>
 
   <div class="callout">
-    <strong>Données locales.</strong> Ordicab stocke tout dans un dossier ordinaire sur votre machine. Pas de base de données distante, pas de compte obligatoire. Vous pouvez placer ce dossier où vous voulez — sur votre disque local, ou dans un service cloud (kDrive, iCloud, OneDrive).
+    <strong>100&nbsp;% local.</strong> Ordicab range tout dans un dossier ordinaire sur votre machine — aucune base de données distante, aucun compte obligatoire. Vous choisissez l'emplacement de ce dossier : disque local, ou espace synchronisé (kDrive, iCloud, OneDrive…).
   </div>
 
   <h2>Ce qu'Ordicab fait</h2>
-  <p>Une fois en place, Ordicab vous permet de&nbsp;:</p>
   <ul>
-    <li><strong>Gérer chaque dossier</strong> : documents, contacts, dates clés, références, notes, chronologie accessibles en un clic.</li>
-    <li><strong>Suivre les conventions et la facturation</strong> : conventions d'honoraires, phases, saisie des prestations, préparation des factures — tout est lié au dossier.</li>
-    <li><strong>Créer des documents</strong> depuis des modèles paramétrables qui se remplissent automatiquement avec les données du dossier.</li>
-    <li><strong>Travailler avec l'IA</strong> : assistant intégré ou agents externes — selon le niveau de confidentialité requis.</li>
+    <li><strong>Piloter chaque dossier</strong> : pièces, contacts, dates clés, références, notes et chronologie accessibles en un clic.</li>
+    <li><strong>Suivre honoraires et facturation</strong> : conventions, aide juridictionnelle, saisie des prestations au fil de l'eau, préparation des factures — tout est lié au dossier.</li>
+    <li><strong>Produire des documents</strong> depuis des modèles paramétrables, remplis automatiquement avec les données du dossier.</li>
+    <li><strong>Rechercher</strong> dans tous vos dossiers (recherche hybride) et dans le droit (Légifrance, Judilibre).</li>
+    <li><strong>Travailler avec l'IA</strong> : assistant intégré ou agents externes, selon le niveau de confidentialité requis.</li>
   </ul>
 
   <h2>Ce qu'Ordicab ne fait pas</h2>
   <div class="callout-warn">
-    <strong>Ordicab ne gère pas vos fichiers sur disque.</strong><br/>
-    L'application ne déplace, ne renomme et ne supprime jamais vos fichiers. Elle lit les documents que vous lui associez et conserve ses métadonnées à part.
+    <strong>Ordicab ne touche jamais à vos fichiers.</strong><br/>
+    L'application ne déplace, ne renomme et ne supprime aucun document. Elle lit les pièces que vous lui associez et conserve ses propres métadonnées à part.
   </div>
 
   <h2>État du projet</h2>
-  <p>Ordicab est fonctionnel mais en <strong>version bêta</strong>. Les fonctionnalités, l'ergonomie et les traitements IA font l'objet d'itérations continues. Ne l'utilisez pas avec des données réelles de clients tant que la version stable n'est pas publiée.</p>
-  <p>Les retours de professionnels du droit sont les bienvenus et contribuent directement à l'orientation du projet.</p>
-
-  <img src="../Dossier.png" alt="Vue d'ensemble d'un dossier dans Ordicab" class="doc-screenshot" />
-  <p class="doc-screenshot-caption">Vue d'ensemble d'un dossier — informations principales, onglets et navigation</p>
+  <p>Ordicab est fonctionnel mais en <strong>version bêta</strong>. Fonctionnalités, ergonomie et traitements IA évoluent en continu. N'utilisez pas l'application avec des données réelles de clients tant que la version stable n'est pas publiée.</p>
 
   <a href="installation.html" class="next-link">Suivant : Installation &amp; mise en route →</a>
 </main>

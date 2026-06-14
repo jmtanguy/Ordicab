@@ -3,17 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>IA Cowork — Ordicab Documentation</title>
-  <meta name="description" content="L'IA Cowork d'Ordicab permet de collaborer avec des agents IA externes (Claude Code, Codex…) qui lisent et écrivent directement dans vos dossiers via une inbox structurée." />
+  <title>IA Cowork (agents externes) — Ordicab Documentation</title>
+  <meta name="description" content="Confier un dossier pseudonymisé à un agent externe (Claude Code) : export, travail hors ligne et réimport des livrables avec restauration des identités." />
   <link rel="canonical" href="https://www.ordicab.com/guide/ia-cowork.html" />
-  <meta name="robots" content="index, follow" />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
   <meta property="og:type" content="article" />
   <meta property="og:locale" content="fr_FR" />
   <meta property="og:site_name" content="Ordicab" />
-  <meta property="og:title" content="IA Cowork — Ordicab Documentation" />
-  <meta property="og:description" content="Collaboration directe avec des agents IA externes (Claude Code, Codex…) qui lisent et écrivent dans vos dossiers Ordicab." />
+  <meta property="og:title" content="IA Cowork (agents externes) — Ordicab Documentation" />
+  <meta property="og:description" content="Confier un dossier pseudonymisé à un agent externe (Claude Code) : export, travail hors ligne et réimport des livrables avec restauration des identités." />
   <meta property="og:url" content="https://www.ordicab.com/guide/ia-cowork.html" />
-  <link rel="icon" href="../../resources/icon.png" />
+  <meta property="og:image" content="https://www.ordicab.com/docs/guide/img/dossier-cowork.png" />
+  <link rel="icon" href="../ordicab-logo.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -22,7 +23,7 @@
 <body>
 
 <button class="mobile-nav-toggle" type="button" aria-label="Ouvrir le menu de navigation" aria-controls="guide-sidebar" aria-expanded="false" data-guide-nav-toggle>
-  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+  <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <line x1="4" y1="7" x2="20" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
     <line x1="4" y1="12" x2="20" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
     <line x1="4" y1="17" x2="20" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -32,83 +33,69 @@
 
 <aside class="sidebar" id="guide-sidebar">
   <div class="sidebar-brand">
-    <a href="../"><span class="name">Ordicab</span><span class="tagline">Documentation utilisateur</span></a>
+    <a href="../">
+      <span class="name">Ordicab</span>
+      <span class="tagline">Documentation utilisateur</span>
+    </a>
   </div>
   <div class="sidebar-section">Démarrage</div>
   <nav>
     <a href="introduction.html">Introduction</a>
     <a href="installation.html">Installation &amp; mise en route</a>
   </nav>
-  <div class="sidebar-section">Fonctionnalités</div>
+  <div class="sidebar-section">Le cabinet</div>
   <nav>
-    <a href="dossiers.html">Dossiers</a>
-    <a href="modeles.html">Modèles de documents</a>
+    <a href="cabinet.html">Cabinet &amp; paramètres</a>
+    <a href="agenda.html">Agenda &amp; chronologie</a>
+  </nav>
+  <div class="sidebar-section">Les dossiers</div>
+  <nav>
+    <a href="dossiers.html">Vue d'ensemble</a>
+    <a href="facturation.html">Facturation &amp; honoraires</a>
+    <a href="documents.html">Documents &amp; pièces</a>
+  </nav>
+  <div class="sidebar-section">Outils</div>
+  <nav>
+    <a href="modeles.html">Modèles &amp; génération</a>
+    <a href="recherche.html">Recherche &amp; vérification</a>
   </nav>
   <div class="sidebar-section">Intelligence artificielle</div>
   <nav>
     <a href="ia-vue-ensemble.html">Vue d'ensemble &amp; comparatif</a>
     <a href="ia-assistant.html" class="sub">Assistant intégré</a>
-    <a href="ia-cowork.html" class="active sub">IA Cowork (agents externes)</a>
+    <a href="ia-cowork.html" class="sub active">IA Cowork (agents externes)</a>
   </nav>
 </aside>
 
 <main class="main">
   <div class="badge">Intelligence artificielle</div>
-  <h1>IA Cowork <span class="badge-exp">Avancé</span></h1>
+  <h1>IA Cowork (agents externes)</h1>
   <p class="page-lead">
-    L'IA Cowork permet à un agent IA externe — Claude Code, Codex ou tout agent compatible — de travailler directement dans vos dossiers Ordicab. L'agent lit le contexte structuré du dossier et peut créer ou modifier des fichiers, toujours sous votre contrôle.
+    IA Cowork confie un dossier à un agent externe — par exemple Claude Code — tout en préservant la confidentialité. Ordicab exporte une copie <strong>pseudonymisée</strong> du dossier, l'agent travaille dessus, puis vous réimportez les livrables et Ordicab restaure les identités réelles.
   </p>
 
-  <h2>Principe de fonctionnement</h2>
-  <p>Ordicab prépare un <strong>environnement de travail structuré</strong> que l'agent peut lire et exploiter. Cet environnement contient&nbsp;:</p>
-  <ul>
-    <li>les informations du dossier (contacts, dates, références, notes)&nbsp;;</li>
-    <li>les documents associés (texte extrait et indexé)&nbsp;;</li>
-    <li>une <strong>inbox</strong> pour recevoir vos instructions et les productions de l'agent&nbsp;;</li>
-    <li>des <strong>intents</strong> — des directives structurées qui cadrent les tâches confiées à l'agent et renforcent la robustesse des résultats.</li>
-  </ul>
+    <img src="img/dossier-cowork.png" alt="Claude Cowork — export pseudonymisé du dossier, mode d'emploi et garanties de confidentialité" class="doc-screenshot" />
+  <p class="doc-screenshot-caption">Claude Cowork — export pseudonymisé du dossier, mode d'emploi et garanties de confidentialité</p>
 
-  <p>L'agent lit l'inbox, exécute les tâches demandées, et dépose ses productions dans un répertoire dédié. Ordicab surveille ces dépôts et vous notifie des nouvelles productions disponibles.</p>
-
-  <div class="callout-warn">
-    <strong>Données transmises en clair.</strong> En mode Cowork, les données du dossier sont transmises à l'agent IA externe sans pseudonymisation. L'agent a accès au contexte complet du dossier. Utilisez ce mode uniquement si vous êtes à l'aise avec les conditions d'utilisation de l'agent choisi (Claude Code, Codex…).
+  <h2>Comment ça marche</h2>
+  <div class="step-list">
+    <ol>
+      <li><strong>Exporter le dossier</strong> — Ordicab crée un sous-dossier « Cowork » : une synthèse, la liste des pièces, et les identités remplacées par des marqueurs neutres.</li>
+      <li><strong>Ouvrir le dossier dans l'agent</strong> — un fichier d'instructions (<code>CLAUDE.md</code>) indique à l'agent où regarder et quoi produire.</li>
+      <li><strong>Demander vos livrables</strong> — analyses, projets de conclusions, synthèses&nbsp;: l'agent travaille sur les marqueurs, jamais sur les vraies identités.</li>
+      <li><strong>Réimporter</strong> — Ordicab restaure les identités réelles dans les livrables et les enregistre dans le dossier.</li>
+    </ol>
   </div>
 
-  <h2>Agents compatibles</h2>
-  <ul>
-    <li><strong>Claude Code</strong> (Anthropic) — agent de référence, intégration native optimisée dans Ordicab.</li>
-    <li><strong>Codex CLI</strong> (OpenAI) — agent en ligne de commande.</li>
-    <li><strong>GitHub Copilot</strong> (mode agent dans VS Code).</li>
-    <li>Tout agent capable de lire et écrire des fichiers dans un répertoire local.</li>
-  </ul>
-
-  <h2>Ce que l'agent peut faire</h2>
-  <ul>
-    <li><strong>Créer des documents</strong> — rédiger un courrier, une note, une convention à partir des données du dossier et les déposer directement dans le répertoire du dossier.</li>
-    <li><strong>Analyser un dossier en profondeur</strong> — lire l'ensemble des pièces, identifier les points de droit, préparer un résumé structuré.</li>
-    <li><strong>Extraire et organiser des données</strong> — identifier les contacts, dates, montants et références dans les documents et les structurer.</li>
-    <li><strong>Alimenter les modèles de documents</strong> — compléter les champs d'un modèle avec les données du dossier.</li>
-    <li><strong>Préparer des projets d'actes</strong> — rédiger une assignation, des conclusions, un mémoire à partir des faits et du contexte juridique.</li>
-  </ul>
-
-  <h2>Configurer l'IA Cowork</h2>
-  <ol class="step-list">
-    <li>Installez l'agent de votre choix (exemple&nbsp;: <code>npm install -g @anthropic-ai/claude-code</code> pour Claude Code).</li>
-    <li>Dans <strong>Paramètres → IA → Cowork</strong>, sélectionnez l'agent et renseignez les paramètres de connexion.</li>
-    <li>Ordicab crée automatiquement la structure de répertoires nécessaire dans votre dossier racine.</li>
-    <li>Ouvrez un dossier, accédez à l'onglet <strong>Cowork</strong>, rédigez votre instruction et envoyez-la à l'inbox.</li>
-    <li>Lancez l'agent sur votre machine (ou laissez Ordicab le lancer automatiquement si configuré).</li>
-    <li>Les productions de l'agent apparaissent dans l'onglet Cowork une fois le travail terminé.</li>
-  </ol>
-
-  <h2>L'inbox et les intents</h2>
-  <p>L'<strong>inbox</strong> est le canal de communication entre vous et l'agent. Chaque message que vous envoyez crée un fichier structuré que l'agent lira à son prochain démarrage.</p>
-  <p>Les <strong>intents</strong> sont des directives préformatées pour les tâches courantes&nbsp;: rédiger un courrier, extraire des contacts, préparer une facture, etc. Ils garantissent que l'agent produit un résultat dans le format attendu par Ordicab, et facilitent la réintégration des productions.</p>
-
+  <h2>Confidentialité</h2>
   <div class="callout">
-    <strong>Validation toujours requise.</strong> L'agent dépose ses productions — Ordicab ne les intègre jamais automatiquement sans votre accord. Vous revoyez chaque production avant de la valider, la modifier ou la rejeter.
+    Le dossier Cowork ne contient qu'un export <strong>pseudonymisé</strong> : aucune pièce originale n'est copiée, et la table de correspondance reste sur votre poste. L'export conserve les mêmes marqueurs d'un travail à l'autre, pour que les livrables restent cohérents.
   </div>
 
+  <h2>Workflow hors ligne avec Claude Code</h2>
+  <p>Pour créer ou analyser des documents en accès direct aux fichiers exportés, ouvrez le dossier Cowork dans un terminal et lancez votre agent. C'est le mode adapté aux traitements volumineux ou outillés, complémentaire de l'<a href="ia-assistant.html">assistant intégré</a>.</p>
+
+  <p style="margin-top:2rem;"><a href="introduction.html" class="next-link" style="background:none;padding:0;">← Revenir à l'introduction</a></p>
 </main>
 
 <script src="_layout.js"></script>

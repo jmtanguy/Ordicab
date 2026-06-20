@@ -1536,6 +1536,9 @@
     "escape_hint": "Esc",
     "empty": "No results"
   },
+  "indexing": {
+    "extracting": "Indexing…"
+  },
   "timer": {
     "indicator_label": "Timer running",
     "paused_badge": "Paused",

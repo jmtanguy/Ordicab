@@ -278,7 +278,7 @@ export function SettingsPanel({
   const isDomainConfigured = Boolean(status.registeredDomainPath)
 
   return (
-    <section className="flex min-h-[calc(100vh-8.5rem)] flex-col gap-8 pb-8">
+    <section className="flex h-full min-h-0 flex-col gap-8 overflow-y-auto pb-8">
       {/* ── Page header ─────────────────────────────────────────────────── */}
       <div className="border-b border-hairline pb-6">
         <h1 className="text-xl font-semibold tracking-tight text-ink">

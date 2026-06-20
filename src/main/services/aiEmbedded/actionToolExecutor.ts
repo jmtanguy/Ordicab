@@ -12,6 +12,7 @@ import type {
   AppLocale,
   AiCommandContext,
   AiCommandResult,
+  DocumentPageOffset,
   DocumentRecord,
   DossierSummary,
   InternalAiCommand
@@ -111,15 +112,22 @@ export class ActionToolExecutor {
       return JSON.stringify({ error: `Impossible de résoudre le chemin pour "${doc.filename}".` })
     }
 
-    const { readCachedDocumentText } = await import('../../lib/aiEmbedded/documentContentService')
+    const {
+      readCachedDocumentText,
+      readContentCachePages,
+      getDocumentContentCachePath,
+      pageForOffset
+    } = await import('../../lib/aiEmbedded/documentContentService')
     const { getDossierContentCachePath } = await import('../../lib/ordicab/ordicabPaths')
     const cacheDir = getDossierContentCachePath(dossierRoot)
 
     let extractedText: string
+    let extractedPages: DocumentPageOffset[] | undefined
     try {
       const cached = await readCachedDocumentText(absolutePath, cacheDir)
       if (cached !== null) {
         extractedText = cached.text
+        extractedPages = cached.pages
       } else {
         // Cache miss: fall back to live extraction so an explicit
         // `@<filename>` mention still works even if the user never opened
@@ -135,6 +143,10 @@ export class ActionToolExecutor {
             documentPath: doc.relativePath
           })
           extractedText = live.text
+          // extractContent wrote the cache; read the page table back from it.
+          extractedPages = await readContentCachePages(
+            getDocumentContentCachePath(cacheDir, absolutePath)
+          )
         } catch (extractionErr) {
           return JSON.stringify({
             error: `Le texte de "${doc.filename}" n'a pas pu être extrait : ${
@@ -157,6 +169,21 @@ export class ActionToolExecutor {
 
     const totalChars = extractedText.length
 
+    // Page boundary table (1-based page → char offsets), present only for
+    // page-tracked sources (PDF embedded text / OCR). Lets the assistant detect
+    // where each scanned document begins and feed page ranges to document_split.
+    const pageSegments =
+      extractedPages && extractedPages.length > 0
+        ? extractedPages.map((entry, index) => ({
+            page: entry.page,
+            charStart: entry.charStart,
+            charEnd:
+              index + 1 < extractedPages!.length
+                ? extractedPages![index + 1]!.charStart
+                : totalChars
+          }))
+        : undefined
+
     if (charStart !== undefined || charEnd !== undefined) {
       const clampedStart = Math.max(0, Math.min(charStart ?? 0, totalChars))
       const clampedEnd = Math.max(clampedStart, Math.min(charEnd ?? totalChars, totalChars))
@@ -165,7 +192,9 @@ export class ActionToolExecutor {
         uuid: doc.uuid,
         rawContent,
         totalChars,
-        charsReturned: rawContent.length
+        charsReturned: rawContent.length,
+        page: pageForOffset(clampedStart, extractedPages),
+        pages: pageSegments
       })
     }
 
@@ -174,7 +203,8 @@ export class ActionToolExecutor {
       uuid: doc.uuid,
       rawContent: cText,
       totalChars,
-      charsReturned: cText.length
+      charsReturned: cText.length,
+      pages: pageSegments
     })
   }
 

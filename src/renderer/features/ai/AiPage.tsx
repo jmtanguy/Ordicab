@@ -357,7 +357,38 @@ function normalizeHtmlLikeText(text: string): string {
     .filter((line) => !/^\s*[╔╚╠╟╒╘].*$/.test(line.trim()))
     .join('\n')
 
-  return decodeHtmlEntities(withoutDebugFrame)
+  return stripWrappingMarkdownFence(decodeHtmlEntities(withoutDebugFrame))
+}
+
+// Some models (e.g. Mistral) wrap their ENTIRE reply in a ```markdown … ``` fence, where
+// others (e.g. Gemma) emit clean markdown. Left as-is, the fenced-code path in MarkdownBubble
+// renders the whole answer as one literal code block — and, while streaming, it stays a raw
+// block until the closing fence finally arrives, then "snaps" to formatted markdown. Stripping
+// the wrapper aligns the two: the body renders as markdown progressively, token by token.
+//
+// We strip the OPENING markdown/md fence as soon as it appears (even before its closer exists,
+// so streaming looks right), then drop the matching outer closing fence once it arrives. Only
+// the markdown/md language tag triggers this — genuine ```python/```ts code blocks, including
+// nested ones, are preserved.
+function stripWrappingMarkdownFence(text: string): string {
+  const trimmed = text.trim()
+  const openMatch = trimmed.match(/^```(?:markdown|md)[^\n]*\n/i)
+  if (!openMatch) {
+    return text
+  }
+
+  let body = trimmed.slice(openMatch[0].length)
+
+  // A balanced set of genuine inner code blocks contributes an EVEN number of fence lines, so
+  // an ODD remaining count means the last fence is the outer closer that has now arrived —
+  // drop it. While still streaming (closer not yet emitted) the count is even and we leave the
+  // body untouched, so partial markdown keeps rendering.
+  const fenceLineCount = body.split('\n').filter((line) => /^```/.test(line.trim())).length
+  if (fenceLineCount % 2 !== 0) {
+    body = body.replace(/\n?[ \t]*```[ \t]*$/, '')
+  }
+
+  return body.replace(/\s+$/, '')
 }
 
 function parseMarkdownTableCells(line: string): string[] {

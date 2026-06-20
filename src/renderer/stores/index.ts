@@ -1,6 +1,7 @@
 export * from './cabinetBillingStore'
 export * from './contactStore'
 export * from './documentStore'
+export * from './indexingStore'
 export * from './domainStore'
 export * from './dossierStore'
 export * from './entityStore'

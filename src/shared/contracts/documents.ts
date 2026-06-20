@@ -79,6 +79,20 @@ export interface DocumentExtractProgressEvent {
   totalPages: number
 }
 
+/**
+ * Maps a 1-based source page to the character offset where its content starts
+ * in the flat extracted text. The table is sparse: pages that produced no text
+ * (blank/skipped during OCR) are omitted, so a gap between two entries means the
+ * page in between contributed nothing. Use `pageForOffset` to resolve any
+ * character offset back to its page.
+ */
+export interface DocumentPageOffset {
+  /** 1-based page number in the source file. */
+  page: number
+  /** Character offset into the extracted text where this page's content begins. */
+  charStart: number
+}
+
 export interface SemanticSearchQuery {
   dossierId: string
   query: string
@@ -95,6 +109,12 @@ export interface SemanticSearchHit {
   charStart: number
   /** Exclusive character offset into the extracted text. */
   charEnd: number
+  /**
+   * 1-based source page the matched passage starts on, when the document's
+   * extraction tracked page boundaries (PDF embedded text / OCR). Undefined for
+   * formats without pages (DOCX, plain text) or caches predating page tracking.
+   */
+  page?: number
   /** Cosine similarity in [-1, 1]. Higher = more relevant. */
   score: number
   /** Matched passage text framed by surrounding sentences for context. */

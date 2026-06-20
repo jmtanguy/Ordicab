@@ -659,7 +659,7 @@ describe('document service', () => {
       cachePath,
       JSON.stringify(
         {
-          version: 3,
+          version: 4,
           name: 'cached.docx',
           method: 'docx',
           extractedAt: '2026-03-14T13:05:00.000Z',
@@ -942,6 +942,73 @@ describe('document service', () => {
     expect(await pathExists(fromCachePath)).toBe(false)
     const carried = JSON.parse(await readFile(toCachePath, 'utf8')) as { text: string }
     expect(carried.text).toBe('extracted text')
+  })
+
+  it('renames with a suffix instead of overwriting when onCollision is "suffix"', async () => {
+    const { domainPath, stateFilePath } = await createConfiguredDomain()
+    const dossierPath = join(domainPath, 'Client Rename Collide')
+
+    await mkdir(dossierPath, { recursive: true })
+    await writeFile(join(dossierPath, 'scan.pdf'), 'source bytes', 'utf8')
+    await writeFile(join(dossierPath, 'Facture.pdf'), 'EXISTING — must not be overwritten', 'utf8')
+
+    const dossierService = createDossierRegistryService({ stateFilePath })
+    await dossierService.registerDossier({ slug: 'Client Rename Collide' })
+
+    const service = createDocumentService({ stateFilePath })
+    const record = await service.renameFile({
+      dossierId: 'Client Rename Collide',
+      documentPath: 'scan.pdf',
+      newFilename: 'Facture.pdf',
+      onCollision: 'suffix'
+    })
+
+    // The pre-existing file is untouched; the renamed file gets a free " (2)" name.
+    expect(await readFile(join(dossierPath, 'Facture.pdf'), 'utf8')).toBe(
+      'EXISTING — must not be overwritten'
+    )
+    expect(record.filename).toBe('Facture (2).pdf')
+    expect(await readFile(join(dossierPath, 'Facture (2).pdf'), 'utf8')).toBe('source bytes')
+    expect(await pathExists(join(dossierPath, 'scan.pdf'))).toBe(false)
+  })
+
+  it('prunes orphan content caches after a rename', async () => {
+    const { domainPath, stateFilePath } = await createConfiguredDomain()
+    const dossierPath = join(domainPath, 'Client Orphan Prune')
+
+    await mkdir(dossierPath, { recursive: true })
+    await writeFile(join(dossierPath, 'scan.pdf'), 'fake pdf bytes', 'utf8')
+
+    const dossierService = createDossierRegistryService({ stateFilePath })
+    await dossierService.registerDossier({ slug: 'Client Orphan Prune' })
+
+    const cacheDir = getDossierContentCachePath(dossierPath)
+    await mkdir(cacheDir, { recursive: true })
+    // A leftover cache whose basename matches no existing file (16-hex name).
+    const orphanCachePath = join(cacheDir, '0123456789abcdef.json')
+    await writeFile(orphanCachePath, JSON.stringify({ version: 4, text: 'ghost' }), 'utf8')
+    // A real cache for scan.pdf that must survive the rename (carried over).
+    await writeFile(
+      getDocumentContentCachePath(cacheDir, join(dossierPath, 'scan.pdf')),
+      JSON.stringify({ version: 4, name: 'scan.pdf', method: 'tesseract', text: 'real' }),
+      'utf8'
+    )
+
+    const service = createDocumentService({ stateFilePath })
+    await service.renameFile({
+      dossierId: 'Client Orphan Prune',
+      documentPath: 'scan.pdf',
+      newFilename: 'scan-renamed.pdf'
+    })
+
+    // Orphan gone; the renamed file's cache kept.
+    expect(await pathExists(orphanCachePath)).toBe(false)
+    const renamedCachePath = getDocumentContentCachePath(
+      cacheDir,
+      join(dossierPath, 'scan-renamed.pdf')
+    )
+    const carried = JSON.parse(await readFile(renamedCachePath, 'utf8')) as { text: string }
+    expect(carried.text).toBe('real')
   })
 
   it('trashes files into .ordicab/trash with a manifest and restores them with metadata intact', async () => {

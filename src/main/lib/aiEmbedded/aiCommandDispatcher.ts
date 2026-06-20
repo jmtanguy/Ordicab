@@ -45,6 +45,7 @@ import type {
   ClarificationRequestIntent,
   ContactRecord,
   ContactUpsertInput,
+  DocumentMoveResult,
   DocumentRecord,
   DossierDetail,
   DossierSummary,
@@ -181,6 +182,24 @@ export interface DocumentServiceLike {
     fromDocumentPath?: string
     toDocumentPath: string
   }): Promise<unknown>
+  renameFile(input: {
+    dossierId: string
+    documentPath: string
+    newFilename: string
+    onCollision?: 'error' | 'suffix'
+  }): Promise<DocumentRecord>
+  splitPdf(input: {
+    dossierId: string
+    documentPath: string
+    mode: 'each-page' | { ranges: Array<{ from: number; to: number; filename?: string }> }
+  }): Promise<{ relativePaths: string[] }>
+  createFolder(input: { dossierId: string; parentPath?: string; name: string }): Promise<string>
+  moveFiles(input: {
+    dossierId: string
+    documentPaths: string[]
+    targetFolderPath: string
+    onCollision?: 'error' | 'suffix'
+  }): Promise<DocumentMoveResult>
   resolveRegisteredDossierRoot(input: { dossierId: string }): Promise<string>
   semanticSearch(input: {
     dossierId: string
@@ -1457,6 +1476,158 @@ export function createInternalAICommandDispatcher(
             toDocumentPath: intent.toDocumentPath
           })
           return { intent, feedback: `Document déplacé vers "${intent.toDocumentPath}".` }
+        }
+
+        case 'document_rename': {
+          const dossierId = intent.dossierId
+            ? ((await resolveDossierRef(intent.dossierId, dossierService)) ?? intent.dossierId)
+            : (context.dossierId ?? '')
+          if (!dossierId) return askForDossier(dossierService, intent)
+          const newFilename = intent.newFilename?.trim()
+          if (!newFilename) {
+            return { intent, feedback: 'Aucun nouveau nom de fichier fourni.' }
+          }
+          let documentPath = intent.documentPath?.trim()
+          if (!documentPath && intent.documentUuid) {
+            const docs = await documentService.listDocuments({ dossierId })
+            const doc = docs.find(
+              (d) => d.uuid === intent.documentUuid || d.path === intent.documentUuid
+            )
+            if (!doc) {
+              return { intent, feedback: `Document introuvable: ${intent.documentUuid}` }
+            }
+            documentPath = doc.path
+          }
+          if (!documentPath) {
+            return { intent, feedback: 'Aucun document à renommer (UUID ou chemin requis).' }
+          }
+          // LLMs routinely drop the extension when naming from content. renameFile
+          // takes the basename verbatim, so reuse the source extension when the new
+          // name carries none — otherwise the file would silently lose its type.
+          const basename = documentPath.includes('/')
+            ? documentPath.slice(documentPath.lastIndexOf('/') + 1)
+            : documentPath
+          const sourceExt = basename.includes('.') ? basename.slice(basename.lastIndexOf('.')) : ''
+          const finalFilename =
+            sourceExt && !/\.[^.]+$/.test(newFilename) ? `${newFilename}${sourceExt}` : newFilename
+          try {
+            const renamed = await documentService.renameFile({
+              dossierId,
+              documentPath,
+              newFilename: finalFilename,
+              // Never overwrite an existing file — auto-suffix instead.
+              onCollision: 'suffix'
+            })
+            return { intent, feedback: `Document renommé en "${renamed.filename}".` }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : 'Erreur inconnue.'
+            return { intent: { type: 'unknown', message }, feedback: message }
+          }
+        }
+
+        case 'document_split': {
+          const dossierId = intent.dossierId
+            ? ((await resolveDossierRef(intent.dossierId, dossierService)) ?? intent.dossierId)
+            : (context.dossierId ?? '')
+          if (!dossierId) return askForDossier(dossierService, intent)
+          let documentPath = intent.documentPath?.trim()
+          if (!documentPath && intent.documentUuid) {
+            const docs = await documentService.listDocuments({ dossierId })
+            const doc = docs.find(
+              (d) => d.uuid === intent.documentUuid || d.path === intent.documentUuid
+            )
+            if (!doc) {
+              return { intent, feedback: `Document introuvable: ${intent.documentUuid}` }
+            }
+            documentPath = doc.path
+          }
+          if (!documentPath) {
+            return { intent, feedback: 'Aucun document à découper (UUID ou chemin requis).' }
+          }
+          try {
+            const { relativePaths } = await documentService.splitPdf({
+              dossierId,
+              documentPath,
+              mode: intent.mode
+            })
+            const count = relativePaths.length
+            const list = relativePaths.map((p) => `"${p}"`).join(', ')
+            return {
+              intent,
+              feedback: `PDF découpé en ${count} fichier${count > 1 ? 's' : ''} : ${list}.`
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : 'Erreur inconnue.'
+            return { intent: { type: 'unknown', message }, feedback: message }
+          }
+        }
+
+        case 'document_move': {
+          const dossierId = intent.dossierId
+            ? ((await resolveDossierRef(intent.dossierId, dossierService)) ?? intent.dossierId)
+            : (context.dossierId ?? '')
+          if (!dossierId) return askForDossier(dossierService, intent)
+
+          // Resolve UUIDs to paths and merge with any explicit paths.
+          const documentPaths = [...(intent.documentPaths ?? []).map((p) => p.trim())].filter(
+            Boolean
+          )
+          const uuids = intent.documentUuids ?? []
+          if (uuids.length > 0) {
+            const docs = await documentService.listDocuments({ dossierId })
+            for (const uuid of uuids) {
+              const doc = docs.find((d) => d.uuid === uuid || d.path === uuid)
+              if (!doc) {
+                return { intent, feedback: `Document introuvable: ${uuid}` }
+              }
+              documentPaths.push(doc.path)
+            }
+          }
+          if (documentPaths.length === 0) {
+            return { intent, feedback: 'Aucun document à déplacer (UUID ou chemin requis).' }
+          }
+
+          const targetFolderPath = (intent.targetFolderPath ?? '').trim().replace(/^\/+|\/+$/g, '')
+          try {
+            // moveFiles requires the destination to exist — create it segment by
+            // segment (each level needs its parent present); ignore segments that
+            // already exist.
+            if (targetFolderPath) {
+              const segments = targetFolderPath.split('/').filter(Boolean)
+              let parentPath = ''
+              for (const name of segments) {
+                try {
+                  await documentService.createFolder({ dossierId, parentPath, name })
+                } catch {
+                  // Folder already exists (or a benign collision) — keep descending.
+                }
+                parentPath = parentPath ? `${parentPath}/${name}` : name
+              }
+            }
+
+            const result: DocumentMoveResult = await documentService.moveFiles({
+              dossierId,
+              documentPaths,
+              targetFolderPath,
+              // Never overwrite a file already in the target folder — auto-suffix.
+              onCollision: 'suffix'
+            })
+            const movedCount = result.moved.length
+            const failedCount = result.failed.length
+            const destination = targetFolderPath || 'la racine du dossier'
+            let feedback = `${movedCount} document${movedCount > 1 ? 's' : ''} déplacé${
+              movedCount > 1 ? 's' : ''
+            } vers "${destination}".`
+            if (failedCount > 0) {
+              feedback += ` ${failedCount} échec(s): ${result.failed
+                .map((f) => `"${f.documentPath}" (${f.error})`)
+                .join(', ')}.`
+            }
+            return { intent, feedback }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : 'Erreur inconnue.'
+            return { intent: { type: 'unknown', message }, feedback: message }
+          }
         }
 
         case 'document_analyze': {

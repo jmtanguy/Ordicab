@@ -378,10 +378,11 @@ export const useAiStore = create<AiStore>()(
               state.remoteApiError = null
             })
           }
-          // Check cloud provider availability after saving if mode is cloud managed
-          if (patch.mode && CLOUD_MANAGED_MODES.includes(patch.mode)) {
-            await get().checkCloudAvailability(patch.mode)
-          } else if (patch.mode) {
+          // Cowork availability is independent of `mode`: check it whenever the
+          // Cowork flag is toggled on, and clear the badge when it is turned off.
+          if (patch.claudeCoworkEnabled === true) {
+            await get().checkCloudAvailability('claude-code')
+          } else if (patch.claudeCoworkEnabled === false) {
             set((state) => {
               state.cloudAvailability = null
             })
@@ -412,13 +413,13 @@ export const useAiStore = create<AiStore>()(
     },
 
     confirmRemoteMode: () => {
+      // Only clear the privacy-warning gate. The actual toggle state lives in the
+      // dialog drafts (set by the caller) and is persisted on save — mutating
+      // settings.mode here would re-run the dialog's sync effect and clobber the
+      // other (independent) toggle.
       set((state) => {
-        const mode = state.pendingMode
         state.privacyWarningPending = false
         state.pendingMode = null
-        if (state.settings && mode) {
-          state.settings.mode = mode
-        }
       })
     },
 
@@ -426,9 +427,6 @@ export const useAiStore = create<AiStore>()(
       set((state) => {
         state.privacyWarningPending = false
         state.pendingMode = null
-        if (state.settings) {
-          state.settings.mode = 'none'
-        }
       })
     },
 

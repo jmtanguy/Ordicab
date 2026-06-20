@@ -89,6 +89,43 @@ describe('domain service', () => {
     })
   })
 
+  it('preserves other app-state namespaces when persisting the selected domain', async () => {
+    const root = await createTempDir()
+    const stateFilePath = join(root, 'app-state.json')
+    const selectedDomainPath = join(root, 'domain-a')
+    await mkdir(selectedDomainPath, { recursive: true })
+
+    // Simulate a state file already written by other stores (EULA acceptance,
+    // AI config, credentials). Selecting a domain must not wipe these — that
+    // bug made the EULA dialog reappear on every launch after onboarding.
+    await writeFile(
+      stateFilePath,
+      JSON.stringify({
+        legal: { eulaAcceptedVersion: '2026-04-14', acceptedAt: '2026-06-18T21:25:34.480Z' },
+        ai: { mode: 'remote' },
+        credentials: { 'ai.remote.default': 'cipher' }
+      }),
+      'utf8'
+    )
+
+    const service = createDomainService({
+      stateFilePath,
+      now: () => new Date('2026-03-11T09:12:00.000Z'),
+      openDirectoryDialog: async () => ({ canceled: false, filePaths: [selectedDomainPath] })
+    })
+
+    await service.selectDomain()
+
+    const persisted = JSON.parse(await readFile(stateFilePath, 'utf8')) as Record<string, unknown>
+    expect(persisted.selectedDomainPath).toBe(selectedDomainPath)
+    expect(persisted.legal).toEqual({
+      eulaAcceptedVersion: '2026-04-14',
+      acceptedAt: '2026-06-18T21:25:34.480Z'
+    })
+    expect(persisted.ai).toEqual({ mode: 'remote' })
+    expect(persisted.credentials).toEqual({ 'ai.remote.default': 'cipher' })
+  })
+
   it('reports unavailable when configured domain no longer exists', async () => {
     const root = await createTempDir()
     const selectedDomainPath = join(root, 'domain-a')

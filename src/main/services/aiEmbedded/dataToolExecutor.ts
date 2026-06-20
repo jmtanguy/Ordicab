@@ -706,7 +706,8 @@ export async function runDocumentSearch(args: {
     // it only for semantic matches.
     ...(hit.matchKind === 'keyword' ? {} : { score: Number(hit.score.toFixed(3)) }),
     charStart: hit.charStart,
-    charEnd: hit.charEnd
+    charEnd: hit.charEnd,
+    ...(hit.page !== undefined ? { page: hit.page } : {})
   }))
 
   return JSON.stringify({

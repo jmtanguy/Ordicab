@@ -242,8 +242,9 @@ export function AiDialog({
   }
 
   async function handleSave(): Promise<void> {
-    // mode reflects the primary AI assistant; claudeCoworkEnabled can run alongside it
-    const savedMode: AiMode = apiEnabled ? 'remote' : claudeCoworkEnabled ? 'claude-code' : 'none'
+    // `mode` governs only the embedded API assistant; Cowork is tracked
+    // independently via `claudeCoworkEnabled` so the two can be enabled together.
+    const savedMode: AiMode = apiEnabled ? 'remote' : 'none'
     await saveSettings({
       mode: savedMode,
       claudeCoworkEnabled,

@@ -22,6 +22,7 @@ import {
   type DocumentContentState,
   type DocumentPreviewState,
   useDocumentStore,
+  useIndexingStore,
   selectVisibleDossiers,
   useDomainStore,
   useDossierStore,
@@ -417,6 +418,10 @@ export default function AppShell(): React.JSX.Element {
     subscribeToOrdicabDataChanged
   ])
 
+  // Mirror the background indexing queue's per-dossier status into the renderer
+  // so the dossier card can supervise the otherwise-silent extraction work.
+  useEffect(() => useIndexingStore.getState().subscribe(), [])
+
   const handleDomainSelection = useCallback(async () => {
     // Whether the user had explicitly finished onboarding before this selection.
     // Distinguishes a returning user (re-pointing their domain) from a brand-new
@@ -804,14 +809,16 @@ export default function AppShell(): React.JSX.Element {
           </div>
         </>
       ) : (
-        <div className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col justify-center px-5 py-8 md:px-8 md:py-12">
-          <OnboardingPage
-            versionLabel={versionLabel}
-            domainStatus={domainStatus}
-            isLoading={domainLoading || !domainHasLoadedOnce}
-            error={domainError}
-            onSelectDomain={handleDomainSelection}
-          />
+        <div className="h-full w-full overflow-y-auto">
+          <div className="relative mx-auto flex min-h-full w-full max-w-7xl flex-col justify-center px-5 py-8 md:px-8 md:py-12">
+            <OnboardingPage
+              versionLabel={versionLabel}
+              domainStatus={domainStatus}
+              isLoading={domainLoading || !domainHasLoadedOnce}
+              error={domainError}
+              onSelectDomain={handleDomainSelection}
+            />
+          </div>
         </div>
       )}
     </main>

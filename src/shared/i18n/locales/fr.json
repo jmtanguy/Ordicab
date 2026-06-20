@@ -1535,6 +1535,9 @@
     "escape_hint": "Échap",
     "empty": "Aucun résultat"
   },
+  "indexing": {
+    "extracting": "Indexation…"
+  },
   "timer": {
     "indicator_label": "Chronomètre en cours",
     "paused_badge": "En pause",

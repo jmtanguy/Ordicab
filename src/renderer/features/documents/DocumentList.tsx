@@ -389,6 +389,9 @@ function NameEditor({
           if (event.key === 'Escape') {
             event.preventDefault()
             onCancel()
+          } else if (event.key === 'Enter') {
+            event.preventDefault()
+            if (valid) onConfirm(trimmed)
           }
         }}
         aria-invalid={!valid}
@@ -2073,7 +2076,17 @@ export function DocumentList({
                             })}
                             disabled={isMutatingTree}
                             onCancel={() => setRenamingFilePath(null)}
-                            onConfirm={async (newFilename) => {
+                            onConfirm={async (rawFilename) => {
+                              // Si l'utilisateur n'a pas saisi d'extension, réutiliser
+                              // celle du fichier d'origine automatiquement.
+                              const dot = fileNode.document.filename.lastIndexOf('.')
+                              const originalExt =
+                                dot > 0 ? fileNode.document.filename.slice(dot) : ''
+                              const hasExtension = rawFilename.lastIndexOf('.') > 0
+                              const newFilename =
+                                !hasExtension && originalExt
+                                  ? `${rawFilename}${originalExt}`
+                                  : rawFilename
                               if (newFilename === fileNode.document.filename) {
                                 setRenamingFilePath(null)
                                 return

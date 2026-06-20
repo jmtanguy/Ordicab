@@ -165,7 +165,7 @@ describe('IndexingQueueService — basic processing', () => {
       cachePath,
       JSON.stringify(
         {
-          version: 3,
+          version: 4,
           text: 'unchanged contents',
           embeddings: {
             model: 'Xenova/bge-m3',

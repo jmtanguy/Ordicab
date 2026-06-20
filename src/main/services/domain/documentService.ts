@@ -42,6 +42,7 @@ import type {
   EmailAttachmentSummary,
   EmailDocumentPreview,
   ImageDocumentPreview,
+  DocumentPageOffset,
   DocumentPreviewInput,
   DocumentPreviewSourceType,
   DocumentRecord,
@@ -95,6 +96,9 @@ import {
   isPlainTextDocument,
   markDocumentExtractionEmpty,
   readCachedDocumentText,
+  readContentCachePages,
+  pageForOffset,
+  pruneOrphanContentCaches,
   type ExtractProgressCallback
 } from '../../lib/aiEmbedded/documentContentService'
 import { getDossierContentCachePath } from '../../lib/ordicab/ordicabPaths'
@@ -1938,7 +1942,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
       const parentDir = fromRelativePath.includes('/')
         ? fromRelativePath.slice(0, fromRelativePath.lastIndexOf('/'))
         : ''
-      const toRelativePath = parentDir ? `${parentDir}/${parsed.newFilename}` : parsed.newFilename
+      let toRelativePath = parentDir ? `${parentDir}/${parsed.newFilename}` : parsed.newFilename
 
       if (toRelativePath === fromRelativePath) {
         const metadata = (await loadStoredDocumentMetadata(dossierPath)).get(fromRelativePath)
@@ -1951,7 +1955,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
       }
 
       const fromAbsolute = resolveSafePathInDossier(dossierPath, fromRelativePath)
-      const toAbsolute = resolveSafePathInDossier(dossierPath, toRelativePath)
+      let toAbsolute = resolveSafePathInDossier(dossierPath, toRelativePath)
 
       const fromStats = await stat(fromAbsolute).catch(() => null)
       if (!fromStats?.isFile()) {
@@ -1960,16 +1964,22 @@ export function createDocumentService(options: DocumentServiceOptions): Document
 
       const conflict = await stat(toAbsolute).catch(() => null)
       if (conflict) {
-        throw new DocumentServiceError(
-          IpcErrorCode.VALIDATION_FAILED,
-          'A file with that name already exists.'
-        )
+        if (parsed.onCollision === 'suffix') {
+          // Keep both files: pick the next free " (n)" name instead of overwriting.
+          toAbsolute = await resolveCollisionFreeTarget(dirname(toAbsolute), parsed.newFilename)
+          toRelativePath = normalizeRelativePath(relative(dossierPath, toAbsolute))
+        } else {
+          throw new DocumentServiceError(
+            IpcErrorCode.VALIDATION_FAILED,
+            'A file with that name already exists.'
+          )
+        }
       }
 
       await rename(fromAbsolute, toAbsolute)
       await relocateContentCache(dossierPath, fromAbsolute, toAbsolute)
 
-      return withDossierMetadataLock(dossierPath, async () => {
+      const record = await withDossierMetadataLock(dossierPath, async () => {
         const currentMetadata = await loadOrInitDossierMetadata(dossierPath, registryEntry)
         const snapshot = await createDocumentFileSnapshot(dossierPath, toRelativePath)
 
@@ -2010,6 +2020,12 @@ export function createDocumentService(options: DocumentServiceOptions): Document
           metadata: nextEntry
         })
       })
+
+      // The old basename is now free — drop any cache it left behind so a future
+      // file reusing that name can't inherit stale text/embeddings.
+      await pruneOrphanCachesForDossier(dossierPath)
+
+      return record
     },
 
     trashFiles: async (input): Promise<DocumentTrashResult> => {
@@ -2427,20 +2443,31 @@ export function createDocumentService(options: DocumentServiceOptions): Document
       const sourceDocument = await loadPdfDocument(absolute)
       const pageCount = sourceDocument.getPageCount()
 
-      const segments: Array<{ label: string; pageIndexes: number[] }> =
+      // `filename`, when provided on a range, names the segment outright; the
+      // `.pdf` extension is enforced and any path separators were already
+      // rejected by safeFsNameSchema. Otherwise we fall back to the auto label.
+      const toSegmentFilename = (filename: string): string =>
+        /\.pdf$/i.test(filename) ? filename : `${filename}.pdf`
+
+      const stem = basename(relativePath).replace(/\.pdf$/i, '')
+      const segments: Array<{ targetName: string; pageIndexes: number[] }> =
         parsed.mode === 'each-page'
           ? Array.from({ length: pageCount }, (_, index) => ({
-              label: `page ${index + 1}`,
+              targetName: `${stem} (page ${index + 1}).pdf`,
               pageIndexes: [index]
             }))
           : parsed.mode.ranges.map((range) => ({
-              label:
-                range.from === range.to ? `page ${range.from}` : `pages ${range.from}-${range.to}`,
+              targetName: range.filename
+                ? toSegmentFilename(range.filename)
+                : `${stem} (${
+                    range.from === range.to
+                      ? `page ${range.from}`
+                      : `pages ${range.from}-${range.to}`
+                  }).pdf`,
               pageIndexes: resolvePdfPageIndexes([range], pageCount)
             }))
 
       const { PDFDocument } = await import('pdf-lib')
-      const stem = basename(relativePath).replace(/\.pdf$/i, '')
       const targetDir = dirname(absolute)
       const relativePaths: string[] = []
 
@@ -2450,7 +2477,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
         for (const page of copiedPages) {
           output.addPage(page)
         }
-        const target = await resolveCollisionFreeTarget(targetDir, `${stem} (${segment.label}).pdf`)
+        const target = await resolveCollisionFreeTarget(targetDir, segment.targetName)
         await writeFile(target, await output.save())
         relativePaths.push(normalizeRelativePath(relative(dossierPath, target)))
       }
@@ -2489,14 +2516,14 @@ export function createDocumentService(options: DocumentServiceOptions): Document
           const filename = fromRelativePath.includes('/')
             ? fromRelativePath.slice(fromRelativePath.lastIndexOf('/') + 1)
             : fromRelativePath
-          const toRelativePath = targetFolderPath ? `${targetFolderPath}/${filename}` : filename
+          let toRelativePath = targetFolderPath ? `${targetFolderPath}/${filename}` : filename
 
           if (toRelativePath === fromRelativePath) {
             continue
           }
 
           const fromAbsolute = resolveSafePathInDossier(dossierPath, fromRelativePath)
-          const toAbsolute = resolveSafePathInDossier(dossierPath, toRelativePath)
+          let toAbsolute = resolveSafePathInDossier(dossierPath, toRelativePath)
 
           const fromStats = await stat(fromAbsolute).catch(() => null)
           if (!fromStats?.isFile()) {
@@ -2505,13 +2532,26 @@ export function createDocumentService(options: DocumentServiceOptions): Document
 
           const conflict = await stat(toAbsolute).catch(() => null)
           if (conflict) {
-            throw new DocumentServiceError(
-              IpcErrorCode.VALIDATION_FAILED,
-              'A file with that name already exists in the target folder.'
-            )
+            if (parsed.onCollision === 'suffix') {
+              // Keep both files: pick the next free " (n)" name in the target folder.
+              const targetDirAbsolute = targetFolderPath
+                ? resolveSafePathInDossier(dossierPath, targetFolderPath)
+                : dossierPath
+              toAbsolute = await resolveCollisionFreeTarget(targetDirAbsolute, filename)
+              toRelativePath = normalizeRelativePath(relative(dossierPath, toAbsolute))
+            } else {
+              throw new DocumentServiceError(
+                IpcErrorCode.VALIDATION_FAILED,
+                'A file with that name already exists in the target folder.'
+              )
+            }
           }
 
           await rename(fromAbsolute, toAbsolute)
+          // Carry the extraction cache over. A plain move keeps the basename
+          // (no-op), but a suffixed move changes it — relocateContentCache then
+          // moves the cached text/pages/embeddings so nothing is lost.
+          await relocateContentCache(dossierPath, fromAbsolute, toAbsolute)
           movedPairs.push({ from: fromRelativePath, to: toRelativePath })
         } catch (error) {
           failed.push({
@@ -2525,7 +2565,7 @@ export function createDocumentService(options: DocumentServiceOptions): Document
         return { moved: [], failed }
       }
 
-      return withDossierMetadataLock(dossierPath, async () => {
+      const moveResult = await withDossierMetadataLock(dossierPath, async () => {
         const currentMetadata = await loadOrInitDossierMetadata(dossierPath, registryEntry)
         const entriesByPath = new Map(
           currentMetadata.documents.map((entry) => [entry.relativePath, entry])
@@ -2574,6 +2614,12 @@ export function createDocumentService(options: DocumentServiceOptions): Document
 
         return { moved, failed }
       })
+
+      // Suffixed moves change a basename, freeing the old key — sweep orphans so
+      // a future same-named file can't pick up stale text/embeddings.
+      await pruneOrphanCachesForDossier(dossierPath)
+
+      return moveResult
     },
 
     moveFolder: async (input): Promise<string> => {
@@ -2830,17 +2876,78 @@ async function runHybridSearch(
   // duplicate a keyword hit on the same document span. Shared with note search.
   const merged = mergeHybridHits(keywordHits, semanticHits)
 
+  // Resolve each hit's char offset back to a source page. Read each matched
+  // document's page table at most once — only the handful that surfaced in
+  // results, not the whole corpus.
+  const cachePathByItem = new Map(documents.map((doc) => [doc.itemId, doc.cachePath]))
+  const pagesByItem = new Map<string, DocumentPageOffset[] | undefined>()
+  for (const { hit } of merged) {
+    if (pagesByItem.has(hit.itemId)) continue
+    const cachePath = cachePathByItem.get(hit.itemId)
+    pagesByItem.set(hit.itemId, cachePath ? await readContentCachePages(cachePath) : undefined)
+  }
+
   return merged.map(({ hit, matchKind }) => ({
     documentPath: hit.itemId,
     filename: hit.displayName ?? basename(hit.itemId),
     charStart: hit.charStart,
     charEnd: hit.charEnd,
+    page: pageForOffset(hit.charStart, pagesByItem.get(hit.itemId)),
     score: hit.score,
     snippet: hit.snippet,
     snippetMatchStart: hit.snippetMatchStart,
     snippetMatchEnd: hit.snippetMatchEnd,
     matchKind
   }))
+}
+
+/**
+ * Walk the dossier and return the absolute path of every extractable file
+ * (skipping the .ordicab and cowork reserved trees). Used to tell which content
+ * caches still have an owning file when pruning orphans.
+ */
+async function collectExtractableFilePaths(dossierPath: string): Promise<string[]> {
+  const paths: string[] = []
+
+  async function walk(current: string): Promise<void> {
+    let entries
+    try {
+      entries = await readdir(current, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue
+      const absolute = join(current, entry.name)
+      if (entry.isDirectory()) {
+        if (entry.name === ORDICAB_DIRECTORY_NAME) continue
+        if (entry.name === COWORK_DIRECTORY_NAME) continue
+        await walk(absolute)
+        continue
+      }
+      if (!entry.isFile()) continue
+      if (isDocumentTextExtractable(absolute)) paths.push(absolute)
+    }
+  }
+
+  await walk(dossierPath)
+  return paths
+}
+
+/**
+ * Remove content caches with no owning file, best-effort. Called after rename/
+ * move so a reused basename can never inherit a previous file's stale text or
+ * embeddings. Never throws — the operation that triggered it has already
+ * succeeded by this point.
+ */
+async function pruneOrphanCachesForDossier(dossierPath: string): Promise<void> {
+  try {
+    const cacheDir = getDossierContentCachePath(dossierPath)
+    const existing = await collectExtractableFilePaths(dossierPath)
+    await pruneOrphanContentCaches(cacheDir, existing)
+  } catch {
+    // Best-effort cleanup; a leftover orphan is re-checked on the next op.
+  }
 }
 
 async function listDocumentsForSemanticSearch(

@@ -18,13 +18,14 @@
  * the values handed back to the rest of the service are typed (string,
  * Buffer, OcrPage). See ARCHITECTURE.md §8.
  */
-import { readFile, writeFile, mkdir, access, unlink } from 'node:fs/promises'
+import { readFile, writeFile, mkdir, access, unlink, readdir } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { join, basename, extname } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { tmpdir, cpus } from 'node:os'
 
 import { IpcErrorCode } from '@shared/types'
+import type { DocumentPageOffset } from '@shared/contracts/documents'
 
 import { OCR_COMMON_WORDS, OCR_KEYWORDS, OCR_LANGUAGES } from './ocrLexicon'
 
@@ -73,17 +74,84 @@ export function isPlainTextDocument(filePath: string): boolean {
 type ExtractMethod = 'direct' | 'docx' | 'embedded' | 'tesseract' | 'cached'
 
 interface ContentCacheEntry {
-  version: 3
+  version: 4
   name: string
   method: Exclude<ExtractMethod, 'cached'>
   extractedAt: string
   text: string
+  /**
+   * Sparse page → char-offset table for PDF/OCR extractions. Absent for DOCX,
+   * plain text, and empty extractions. See DocumentPageOffset.
+   */
+  pages?: DocumentPageOffset[]
   isEmpty?: boolean
 }
+
+const CONTENT_CACHE_VERSION = 4
 
 export interface ExtractResult {
   text: string
   method: ExtractMethod
+  /** Page → char-offset table when the source tracked page boundaries. */
+  pages?: DocumentPageOffset[]
+}
+
+/** A single source page's extracted text, before it is joined into the flat document text. */
+interface ExtractedPage {
+  /** 1-based source page number. */
+  page: number
+  /** Already-normalized text for this page (may be empty when the page yielded nothing). */
+  text: string
+}
+
+/**
+ * Join per-page extracted texts into the flat document string and record where
+ * each non-empty page starts. Pages are joined with PARAGRAPH_SEPARATOR — the
+ * same separator the old single-string path used — and each page's text is
+ * already normalized, so the result is identical to
+ * `normalizeExtractedText(pages.join('\n\n'))` while also yielding exact offsets.
+ */
+function joinPagesWithOffsets(pages: ExtractedPage[]): {
+  text: string
+  offsets: DocumentPageOffset[]
+} {
+  const parts: string[] = []
+  const offsets: DocumentPageOffset[] = []
+  let cursor = 0
+  for (const { page, text } of pages) {
+    if (!text) continue
+    if (parts.length > 0) cursor += PARAGRAPH_SEPARATOR.length
+    offsets.push({ page, charStart: cursor })
+    parts.push(text)
+    cursor += text.length
+  }
+  return { text: parts.join(PARAGRAPH_SEPARATOR), offsets }
+}
+
+/**
+ * Resolve a character offset in the extracted text back to its 1-based source
+ * page using the sparse offset table. Returns undefined when the table is
+ * missing (formats without pages) or the offset precedes the first page.
+ */
+export function pageForOffset(
+  charOffset: number,
+  pages: DocumentPageOffset[] | undefined
+): number | undefined {
+  if (!pages || pages.length === 0) return undefined
+  // Binary search for the last page whose charStart is <= charOffset.
+  let lo = 0
+  let hi = pages.length - 1
+  let result: number | undefined
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    if (pages[mid]!.charStart <= charOffset) {
+      result = pages[mid]!.page
+      lo = mid + 1
+    } else {
+      hi = mid - 1
+    }
+  }
+  return result
 }
 
 type ExtractPhase = 'embedded' | 'ocr'
@@ -185,22 +253,25 @@ async function pathExists(p: string): Promise<boolean> {
   }
 }
 
-async function readCache(cachePath: string): Promise<string | null> {
+async function readCache(
+  cachePath: string
+): Promise<{ text: string; pages?: DocumentPageOffset[] } | null> {
   if (!(await pathExists(cachePath))) return null
   try {
     const raw = await readFile(cachePath, 'utf8')
     const entry = JSON.parse(raw) as {
       version?: number
       text?: string
+      pages?: DocumentPageOffset[]
       isEmpty?: boolean
       [key: string]: unknown
     }
     if (
-      entry.version === 3 &&
+      entry.version === CONTENT_CACHE_VERSION &&
       typeof entry.text === 'string' &&
       (entry.text.length > 0 || entry.isEmpty === true)
     ) {
-      return entry.text
+      return { text: entry.text, pages: Array.isArray(entry.pages) ? entry.pages : undefined }
     }
   } catch {
     // corrupt cache — fall through to re-process
@@ -212,14 +283,16 @@ async function writeCache(
   cachePath: string,
   filePath: string,
   text: string,
-  method: Exclude<ExtractMethod, 'cached'>
+  method: Exclude<ExtractMethod, 'cached'>,
+  pages?: DocumentPageOffset[]
 ): Promise<void> {
   const entry: ContentCacheEntry = {
-    version: 3,
+    version: CONTENT_CACHE_VERSION,
     name: basename(filePath),
     method,
     extractedAt: new Date().toISOString(),
     text: normalizeExtractedText(text),
+    pages: pages && pages.length > 0 ? pages : undefined,
     isEmpty: false
   }
   await writeFile(cachePath, JSON.stringify(entry, null, 2), 'utf8')
@@ -231,7 +304,7 @@ async function writeEmptyCache(
   method: Exclude<ExtractMethod, 'direct' | 'cached'>
 ): Promise<void> {
   const entry: ContentCacheEntry = {
-    version: 3,
+    version: CONTENT_CACHE_VERSION,
     name: basename(filePath),
     method,
     extractedAt: new Date().toISOString(),
@@ -264,6 +337,56 @@ function legacyCachePathFor(cacheDir: string, filePath: string): string {
 
 export function getDocumentContentCachePath(cacheDir: string, filePath: string): string {
   return cachePathFor(cacheDir, filePath)
+}
+
+// Content cache files are named "<16-hex>.json" (sha1(basename) truncated).
+// Only files matching this exact shape are ever pruned, so an unexpected file
+// dropped into the cache dir is never deleted.
+const CONTENT_CACHE_FILE_RE = /^[0-9a-f]{16}\.json$/
+
+/**
+ * Delete content-cache entries that no longer belong to any existing file.
+ *
+ * The cache is keyed by basename (folder-independent), so after a delete,
+ * rename, or move the old key can linger — and because keys are reused, a
+ * future file with the same basename would silently inherit that stale text and
+ * embeddings, polluting search and analysis. Removing the orphan forces a clean
+ * re-extraction the next time the name reappears.
+ *
+ * `existingFilePaths` must be every extractable file currently in the dossier;
+ * both the NFC and legacy key are kept for each so valid caches are never
+ * dropped. Best-effort: returns the number of entries removed and never throws.
+ */
+export async function pruneOrphanContentCaches(
+  cacheDir: string,
+  existingFilePaths: string[]
+): Promise<number> {
+  const valid = new Set<string>()
+  for (const filePath of existingFilePaths) {
+    valid.add(basename(cachePathFor(cacheDir, filePath)))
+    valid.add(basename(legacyCachePathFor(cacheDir, filePath)))
+  }
+
+  let entries: string[]
+  try {
+    entries = await readdir(cacheDir)
+  } catch {
+    // No cache dir yet — nothing to prune.
+    return 0
+  }
+
+  let removed = 0
+  for (const entry of entries) {
+    if (!CONTENT_CACHE_FILE_RE.test(entry)) continue
+    if (valid.has(entry)) continue
+    try {
+      await unlink(join(cacheDir, entry))
+      removed += 1
+    } catch {
+      // Best-effort: a concurrent reader/writer can retry on the next pass.
+    }
+  }
+  return removed
 }
 
 export async function markDocumentExtractionEmpty(
@@ -825,7 +948,7 @@ async function extractDocxText(filePath: string): Promise<string> {
 async function extractPdfEmbeddedText(
   data: Uint8Array,
   onProgress?: ExtractProgressCallback
-): Promise<string> {
+): Promise<{ text: string; pages: DocumentPageOffset[] }> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { getDocument } = (await import('pdfjs-dist/legacy/build/pdf.mjs')) as any
   return withPatchedStructuredClone(async () => {
@@ -840,7 +963,7 @@ async function extractPdfEmbeddedText(
     const pdfDoc = await loadingTask.promise
 
     try {
-      const texts: string[] = []
+      const extractedPages: ExtractedPage[] = []
       const totalPages = pdfDoc.numPages as number
       for (let i = 1; i <= totalPages; i++) {
         onProgress?.({ phase: 'embedded', page: i, totalPages })
@@ -883,9 +1006,10 @@ async function extractPdfEmbeddedText(
         }
 
         const pageText = normalizeExtractedText(pageParts.join(''))
-        if (pageText) texts.push(pageText)
+        extractedPages.push({ page: i, text: pageText })
       }
-      return normalizeExtractedText(texts.join('\n\n'))
+      const { text, offsets } = joinPagesWithOffsets(extractedPages)
+      return { text, pages: offsets }
     } finally {
       await loadingTask.destroy()
     }
@@ -897,7 +1021,7 @@ async function runTesseractOcr(
   data: Uint8Array,
   langDataPath: string,
   onProgress?: ExtractProgressCallback
-): Promise<string> {
+): Promise<{ text: string; pages: DocumentPageOffset[] }> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { getDocument } = (await import('pdfjs-dist/legacy/build/pdf.mjs')) as any
   // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
@@ -987,7 +1111,10 @@ async function runTesseractOcr(
 
       await Promise.all(pageJobs)
 
-      return normalizeExtractedText(pageTexts.filter(Boolean).join('\n\n'))
+      const { text, offsets } = joinPagesWithOffsets(
+        pageTexts.map((pageText, index) => ({ page: index + 1, text: pageText }))
+      )
+      return { text, pages: offsets }
     } finally {
       await scheduler.terminate()
       await loadingTask.destroy()
@@ -1050,13 +1177,13 @@ async function runTesseractImageOcr(
   filePath: string,
   langDataPath: string,
   onProgress?: ExtractProgressCallback
-): Promise<string> {
+): Promise<{ text: string; pages: DocumentPageOffset[] }> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
   const { createCanvas, loadImage } = require('@napi-rs/canvas') as any
   const canvases = await loadRasterImageCanvases(filePath, createCanvas, loadImage)
   const pageCount = canvases.length
   if (pageCount === 0) {
-    return ''
+    return { text: '', pages: [] }
   }
 
   const workerCount = Math.min(4, Math.max(1, cpus().length - 1), pageCount)
@@ -1086,7 +1213,10 @@ async function runTesseractImageOcr(
       })
     )
 
-    return normalizeExtractedText(pageTexts.filter(Boolean).join('\n\n'))
+    const { text, offsets } = joinPagesWithOffsets(
+      pageTexts.map((pageText, index) => ({ page: index + 1, text: pageText }))
+    )
+    return { text, pages: offsets }
   } finally {
     await scheduler.terminate()
   }
@@ -1111,7 +1241,7 @@ export async function readCachedDocumentText(
   const cachePath = cachePathFor(cacheDir, filePath)
   const cached = await readCache(cachePath)
   if (cached !== null) {
-    return { text: cached, method: 'cached' }
+    return { text: cached.text, method: 'cached', pages: cached.pages }
   }
 
   // Fallback: an older cache may live at the legacy un-normalized path. If we
@@ -1121,11 +1251,23 @@ export async function readCachedDocumentText(
   if (legacyPath !== cachePath) {
     const legacy = await readCache(legacyPath)
     if (legacy !== null) {
-      return { text: legacy, method: 'cached' }
+      return { text: legacy.text, method: 'cached', pages: legacy.pages }
     }
   }
 
   return null
+}
+
+/**
+ * Read only the page → char-offset table from a content cache JSON at the given
+ * path. Returns undefined when the cache is missing, unreadable, stale, or was
+ * written for a format without page tracking (DOCX, plain text).
+ */
+export async function readContentCachePages(
+  cachePath: string
+): Promise<DocumentPageOffset[] | undefined> {
+  const cached = await readCache(cachePath)
+  return cached?.pages
 }
 
 export async function updateCachedDocumentText(
@@ -1188,7 +1330,7 @@ export async function extractDocumentText(
   const cachePath = cachePathFor(cacheDir, filePath)
   const cached = await readCache(cachePath)
   if (cached !== null) {
-    return { text: cached, method: 'cached' }
+    return { text: cached.text, method: 'cached', pages: cached.pages }
   }
 
   // Fallback to the legacy un-normalized cache path so caches written before
@@ -1198,7 +1340,7 @@ export async function extractDocumentText(
   if (legacyPath !== cachePath) {
     const legacy = await readCache(legacyPath)
     if (legacy !== null) {
-      return { text: legacy, method: 'cached' }
+      return { text: legacy.text, method: 'cached', pages: legacy.pages }
     }
   }
 
@@ -1221,12 +1363,12 @@ export async function extractDocumentText(
 
     // Prefer embedded text first: it is faster, cheaper, and usually more accurate
     // than OCR when the PDF already contains a text layer.
-    const embeddedText = await extractPdfEmbeddedText(data, onProgress)
-    const readableCount = (embeddedText.match(/[\p{L}\p{N}\s.,;:!?()\-'"]/gu) ?? []).length
+    const embedded = await extractPdfEmbeddedText(data, onProgress)
+    const readableCount = (embedded.text.match(/[\p{L}\p{N}\s.,;:!?()\-'"]/gu) ?? []).length
     if (readableCount >= READABLE_CHARS_MIN) {
       await mkdir(cacheDir, { recursive: true })
-      await writeCache(cachePath, filePath, embeddedText, 'embedded')
-      return { text: embeddedText, method: 'embedded' }
+      await writeCache(cachePath, filePath, embedded.text, 'embedded', embedded.pages)
+      return { text: embedded.text, method: 'embedded', pages: embedded.pages }
     }
 
     if (!langDataPath) {
@@ -1239,10 +1381,10 @@ export async function extractDocumentText(
       )
     }
 
-    const ocrText = await runTesseractOcr(data, langDataPath, onProgress)
+    const ocr = await runTesseractOcr(data, langDataPath, onProgress)
     await mkdir(cacheDir, { recursive: true })
-    await writeCache(cachePath, filePath, ocrText, 'tesseract')
-    return { text: ocrText, method: 'tesseract' }
+    await writeCache(cachePath, filePath, ocr.text, 'tesseract', ocr.pages)
+    return { text: ocr.text, method: 'tesseract', pages: ocr.pages }
   }
 
   // Image: run OCR directly.
@@ -1254,10 +1396,10 @@ export async function extractDocumentText(
       )
     }
 
-    const ocrText = await runTesseractImageOcr(filePath, langDataPath, onProgress)
+    const ocr = await runTesseractImageOcr(filePath, langDataPath, onProgress)
     await mkdir(cacheDir, { recursive: true })
-    await writeCache(cachePath, filePath, ocrText, 'tesseract')
-    return { text: ocrText, method: 'tesseract' }
+    await writeCache(cachePath, filePath, ocr.text, 'tesseract', ocr.pages)
+    return { text: ocr.text, method: 'tesseract', pages: ocr.pages }
   }
 
   throw new DocumentContentError(

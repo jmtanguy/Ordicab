@@ -86,7 +86,12 @@ export interface MainWindowCreationOptions<TWindow extends BrowserWindowRuntimeL
   rendererIndexPath: string
   rendererUrl?: string
   platform: NodeJS.Platform
-  linuxIconPath?: string
+  /**
+   * Window icon path. Applied on Windows and Linux (macOS uses the Dock icon set
+   * via `app.dock.setIcon`). Matters most in dev, where the window runs under
+   * `electron.exe` and would otherwise show Electron's default icon.
+   */
+  iconPath?: string
   openExternal(url: string): void
   /**
    * Optional default session, used to install a permission-request handler that
@@ -129,8 +134,8 @@ export function createMainWindow<TWindow extends BrowserWindowRuntimeLike>(
     }
   }
 
-  if (options.platform === 'linux' && options.linuxIconPath) {
-    browserWindowOptions.icon = options.linuxIconPath
+  if ((options.platform === 'win32' || options.platform === 'linux') && options.iconPath) {
+    browserWindowOptions.icon = options.iconPath
   }
 
   const mainWindow = new options.BrowserWindow(browserWindowOptions)

@@ -12,6 +12,7 @@ import {
   hasReadableOcrText,
   isDocumentTextExtractable,
   normalizeExtractedText,
+  pageForOffset,
   resolveAutoDetectedRotation,
   scoreOcrText,
   shouldAcceptOcrCandidateEarly,
@@ -30,6 +31,32 @@ async function createTempDir(): Promise<string> {
 
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
+})
+
+describe('pageForOffset', () => {
+  const pages = [
+    { page: 1, charStart: 0 },
+    { page: 2, charStart: 100 },
+    { page: 4, charStart: 250 } // page 3 produced no text and is skipped
+  ]
+
+  it('returns undefined when the page table is missing or empty', () => {
+    expect(pageForOffset(50, undefined)).toBeUndefined()
+    expect(pageForOffset(50, [])).toBeUndefined()
+  })
+
+  it('maps an offset to the last page whose start is <= the offset', () => {
+    expect(pageForOffset(0, pages)).toBe(1)
+    expect(pageForOffset(99, pages)).toBe(1)
+    expect(pageForOffset(100, pages)).toBe(2)
+    expect(pageForOffset(249, pages)).toBe(2)
+    expect(pageForOffset(250, pages)).toBe(4)
+    expect(pageForOffset(9999, pages)).toBe(4)
+  })
+
+  it('returns undefined for an offset before the first page start', () => {
+    expect(pageForOffset(-1, pages)).toBeUndefined()
+  })
 })
 
 describe('documentContentService paragraph normalization', () => {

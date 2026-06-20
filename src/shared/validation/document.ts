@@ -141,10 +141,16 @@ export const documentFolderDeleteInputSchema = z.object({
   path: safeRelativePathSchema
 })
 
+// On a name collision: 'error' (default) rejects the operation so the caller
+// decides; 'suffix' appends " (2)", " (3)", … to keep both files. Never
+// overwrites in either mode — data loss is not permitted.
+const collisionStrategySchema = z.enum(['error', 'suffix']).optional()
+
 export const documentFileRenameInputSchema = z.object({
   dossierId: dossierIdSchema,
   documentPath: safeRelativePathSchema,
-  newFilename: safeFsNameSchema
+  newFilename: safeFsNameSchema,
+  onCollision: collisionStrategySchema
 })
 
 export const documentTrashInputSchema = z.object({
@@ -200,19 +206,34 @@ export const pdfMergeInputSchema = z.object({
   targetFolderPath: targetFolderPathSchema.optional()
 })
 
+// A split range that may carry an explicit output filename. Used when the
+// caller (e.g. the AI assistant splitting a multi-document scan) already knows
+// how each segment should be named; omitting `filename` falls back to the
+// auto-generated "(pages N-M)" label.
+const pdfSplitSegmentSchema = z
+  .object({
+    from: z.number().int().positive(),
+    to: z.number().int().positive(),
+    filename: safeFsNameSchema.optional()
+  })
+  .refine((range) => range.from <= range.to, {
+    message: 'Page range start must not exceed its end.'
+  })
+
 export const pdfSplitInputSchema = z.object({
   dossierId: dossierIdSchema,
   documentPath: pdfSourceSchema,
   mode: z.union([
     z.literal('each-page'),
-    z.object({ ranges: z.array(pdfPageRangeSchema).min(1).max(100) })
+    z.object({ ranges: z.array(pdfSplitSegmentSchema).min(1).max(100) })
   ])
 })
 
 export const documentFileMoveInputSchema = z.object({
   dossierId: dossierIdSchema,
   documentPaths: z.array(safeRelativePathSchema).min(1).max(500),
-  targetFolderPath: targetFolderPathSchema
+  targetFolderPath: targetFolderPathSchema,
+  onCollision: collisionStrategySchema
 })
 
 export const documentFolderMoveInputSchema = z.object({

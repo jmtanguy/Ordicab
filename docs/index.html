@@ -474,25 +474,53 @@
 </script>
 
 <script>
-  async function initDownloadLinks() {
-    try {
-      const r = await fetch('https://api.github.com/repos/jmtanguy/Ordicab/releases/latest')
-      const release = await r.json()
-      const map = { mac: null, windows: null }
-      release.assets.forEach(a => {
-        if (a.name.endsWith('.dmg')) map.mac = a.browser_download_url
-        else if (a.name.endsWith('.exe')) map.windows = a.browser_download_url
-      })
-      document.querySelectorAll('.download-link').forEach(link => {
-        const p = link.dataset.platform
-        link.href = map[p] || 'https://github.com/jmtanguy/Ordicab/releases/latest'
-      })
-    } catch {
-      document.querySelectorAll('.download-link').forEach(link => {
-        link.href = 'https://github.com/jmtanguy/Ordicab/releases/latest'
-      })
+  const RELEASES_PAGE = 'https://github.com/jmtanguy/Ordicab/releases/latest'
+
+  // Resolve the latest release's direct asset URLs once, lazily. Cached so the
+  // eager prefetch and any click-time fallback share a single request.
+  let releaseAssets = null
+  function resolveAssets() {
+    if (!releaseAssets) {
+      releaseAssets = fetch('https://api.github.com/repos/jmtanguy/Ordicab/releases/latest')
+        .then(r => r.ok ? r.json() : Promise.reject(new Error('rate-limited')))
+        .then(release => {
+          const map = { mac: null, windows: null }
+          release.assets.forEach(a => {
+            if (a.name.endsWith('.dmg')) map.mac = a.browser_download_url
+            else if (a.name.endsWith('.exe')) map.windows = a.browser_download_url
+          })
+          return map
+        })
+        .catch(err => { releaseAssets = null; throw err }) // allow retry on click
     }
+    return releaseAssets
   }
+
+  function initDownloadLinks() {
+    // Eagerly rewrite hrefs so most clicks hit the direct asset immediately.
+    resolveAssets().then(map => {
+      document.querySelectorAll('.download-link').forEach(link => {
+        const url = map[link.dataset.platform]
+        if (url) link.href = url
+      })
+    }).catch(() => {})
+
+    // Click-time fallback: if the fetch hasn't resolved yet (race) or failed,
+    // resolve on demand instead of letting the browser open the releases page.
+    document.querySelectorAll('.download-link').forEach(link => {
+      link.addEventListener('click', async e => {
+        if (link.href.includes('/releases/download/')) return // already a direct asset
+        e.preventDefault()
+        try {
+          const map = await resolveAssets()
+          window.location.href = map[link.dataset.platform] || RELEASES_PAGE
+        } catch {
+          window.location.href = RELEASES_PAGE
+        }
+      })
+    })
+  }
+
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initDownloadLinks)
   else initDownloadLinks()
 </script>

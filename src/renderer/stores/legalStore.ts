@@ -35,6 +35,39 @@ type LegalSourceKind = 'all' | 'legifrance' | 'judilibre'
 export const GLOBAL_LEGAL_SCOPE = '_global'
 
 /**
+ * Hard ceiling on the "Tester PISTE" probe. The main-process service already
+ * bounds each network call (token + Légifrance + Judilibre, ~15–20 s each), but
+ * if the handler itself stalls (e.g. an OS keychain prompt that never returns)
+ * the IPC promise never settles and the button would stay on "Vérification..."
+ * forever. This guarantees the UI always recovers.
+ */
+const CONNECTION_CHECK_TIMEOUT_MS = 60_000
+
+class ConnectionCheckTimeoutError extends Error {
+  constructor() {
+    super('PISTE connection check timed out.')
+    this.name = 'ConnectionCheckTimeoutError'
+  }
+}
+
+/** Reject with {@link ConnectionCheckTimeoutError} if `promise` outlives `ms`. */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new ConnectionCheckTimeoutError()), ms)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      }
+    )
+  })
+}
+
+/**
  * Per-scope legal search state: both the form snapshot (so the panel can rehydrate
  * after being unmounted on navigation) and the search/consult/verify results. The
  * global search and each dossier own an independent entry keyed in `searchByScope`.
@@ -268,20 +301,34 @@ export const useLegalStore = create<LegalStore>()(
         state.connectionStatus = 'checking'
         state.connectionError = null
       })
-      const result = await api.legalSearch.connectionStatus(input)
-      set((state) => {
-        if (result.success && result.data.reachable) {
-          state.connectionStatus = 'connected'
-          state.connection = result.data
-          state.connectionError = null
-          return
-        }
-        state.connectionStatus = 'unreachable'
-        state.connection = result.success ? result.data : null
-        state.connectionError = result.success
-          ? (result.data.error ?? 'PISTE is unreachable.')
-          : result.error
-      })
+      try {
+        const result = await withTimeout(
+          api.legalSearch.connectionStatus(input),
+          CONNECTION_CHECK_TIMEOUT_MS
+        )
+        set((state) => {
+          if (result.success && result.data.reachable) {
+            state.connectionStatus = 'connected'
+            state.connection = result.data
+            state.connectionError = null
+            return
+          }
+          state.connectionStatus = 'unreachable'
+          state.connection = result.success ? result.data : null
+          state.connectionError = result.success
+            ? (result.data.error ?? 'PISTE is unreachable.')
+            : result.error
+        })
+      } catch (error) {
+        // A rejected IPC call (stale preload, unexpected throw…) must not leave
+        // the button stuck on "Vérification..." with no feedback: surface it.
+        set((state) => {
+          state.connectionStatus = 'unreachable'
+          state.connection = null
+          state.connectionError =
+            error instanceof Error ? error.message : 'PISTE is unreachable.'
+        })
+      }
     },
 
     searchLegifrance: async (scope, input) => {

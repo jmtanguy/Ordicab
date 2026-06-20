@@ -145,6 +145,13 @@ function installApiStub(): void {
     },
     ordicab: {
       onDataChanged: vi.fn(() => vi.fn())
+    },
+    indexing: {
+      getStatus: vi.fn(async () => ({
+        success: true as const,
+        data: { dossiers: {}, totals: { pending: 0, running: 0, errored: 0 } }
+      })),
+      onStatus: vi.fn(() => vi.fn())
     }
   } as unknown as OrdicabAPI
 }
@@ -205,6 +212,13 @@ function buildOrdicabApiWithDataChanged(
         setListener(listener)
         return vi.fn()
       })
+    },
+    indexing: {
+      getStatus: vi.fn(async () => ({
+        success: true as const,
+        data: { dossiers: {}, totals: { pending: 0, running: 0, errored: 0 } }
+      })),
+      onStatus: vi.fn(() => vi.fn())
     },
     ...overrides
   } as unknown as OrdicabAPI

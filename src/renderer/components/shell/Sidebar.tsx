@@ -23,8 +23,10 @@ import type { DossierSortMode, DossierStatusFilter } from '@renderer/stores/doss
 import ordicabLogo from '../../../../resources/icon.png'
 
 import { useTimerStore } from '@renderer/stores/timerStore'
+import { selectDossierIndexing, useIndexingStore } from '@renderer/stores/indexingStore'
 
 import { TimerIndicator } from './TimerIndicator'
+import { DossierActivityBar, type ActivityItem } from './DossierActivityBar'
 
 export type SidebarDestination =
   | 'dossiers'
@@ -534,6 +536,19 @@ function SidebarLevel2({
   // between two adjacent rows.
   const hasRunningTimer = useTimerStore((state) => state.timer !== null)
 
+  // Surface the otherwise-silent background extraction/indexing of this
+  // dossier's documents as an "actions en cours" strip in the card below.
+  const indexing = useIndexingStore((state) => selectDossierIndexing(state, activeDossierId))
+  const activities: ActivityItem[] = []
+  if (indexing && indexing.pending + indexing.running > 0) {
+    activities.push({
+      id: 'extraction',
+      label: t('indexing.extracting', { defaultValue: 'Indexation…' }),
+      current: indexing.indexed,
+      total: indexing.extractable
+    })
+  }
+
   const sectionGroups: { label: string; items: { id: DossierSection; label: string }[] }[] = [
     {
       label: t('dossiers.nav_group_information'),
@@ -665,6 +680,7 @@ function SidebarLevel2({
               </button>
             </div>
           ) : null}
+          {activeDossier ? <DossierActivityBar activities={activities} /> : null}
         </div>
       </div>
 

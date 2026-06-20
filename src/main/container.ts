@@ -19,7 +19,6 @@
 import { readFileSync } from 'node:fs'
 
 import {
-  AI_DELEGATED_MODES,
   APP_LOCALES,
   IPC_CHANNELS,
   IpcErrorCode,
@@ -247,7 +246,7 @@ interface PersistedAiState {
 }
 
 function readPersistedAiState(stateFilePath: string): PersistedAiState {
-  let mode: AiMode = 'claude-code'
+  let mode: AiMode = 'none'
   let remoteProvider: string | undefined
   let remoteProviderKind: RemoteProviderKind | undefined
   let delegatedEnabled = false
@@ -259,12 +258,19 @@ function readPersistedAiState(stateFilePath: string): PersistedAiState {
         mode?: string
         remoteProviderKind?: RemoteProviderKind
         remoteProvider?: string
+        claudeCoworkEnabled?: boolean
       }
     }
     if (typeof state?.ai?.mode === 'string') {
       mode = state.ai.mode as AiMode
-      delegatedEnabled = AI_DELEGATED_MODES.includes(mode)
     }
+    // Cowork (delegated) activation is independent of the embedded-assistant
+    // `mode`. Fall back to the legacy `mode === 'claude-code'` encoding for
+    // state written before the two were decoupled.
+    delegatedEnabled =
+      typeof state?.ai?.claudeCoworkEnabled === 'boolean'
+        ? state.ai.claudeCoworkEnabled
+        : mode === 'claude-code'
     if (typeof state?.ai?.remoteProvider === 'string') {
       remoteProvider = state.ai.remoteProvider
     }
@@ -506,6 +512,11 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
   let remoteProviderKind: RemoteProviderKind | undefined = persisted.remoteProviderKind
   let delegatedEnabled = persisted.delegatedEnabled
 
+  // The delegated CLAUDE.md is generated whenever Cowork is enabled, regardless
+  // of the embedded-assistant `mode`. When Cowork is off this resolves to the
+  // current mode, which has no delegated instructions path, so generation no-ops.
+  const delegatedInstructionsMode = (): AiMode => (delegatedEnabled ? 'claude-code' : currentAiMode)
+
   const aiAgentRuntime = createAiSdkAgentRuntime({})
 
   const configureRemoteLanguageModel = async (requestedModel?: string): Promise<void> => {
@@ -598,7 +609,7 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
     domainService: opts.domainService,
     instructionsGenerator,
     listRegisteredDossiers: () => dossierService.listRegisteredDossiers(),
-    getActiveAiMode: () => currentAiMode,
+    getActiveAiMode: delegatedInstructionsMode,
     onDataChanged: (event) => {
       const window = opts.getWebContents()
       if (window && !(window.isDestroyed?.() ?? false)) {
@@ -707,7 +718,10 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
     if (!domainStatus.registeredDomainPath || !domainStatus.isAvailable) {
       return
     }
-    await instructionsGenerator.generateForMode(domainStatus.registeredDomainPath, currentAiMode)
+    await instructionsGenerator.generateForMode(
+      domainStatus.registeredDomainPath,
+      delegatedInstructionsMode()
+    )
   })().catch((error) => {
     console.error('[Container] Failed to generate the domain instructions file on startup.', error)
   })
@@ -727,9 +741,10 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
       } else {
         aiAgentRuntime.setRemoteLanguageModel(null)
       }
-      // Use the same delegated-mode check on runtime settings changes so
-      // startup behavior and mode-switch behavior cannot drift apart.
-      const shouldEnable = AI_DELEGATED_MODES.includes(nextMode)
+      // Cowork (delegated) activation is independent of the embedded-assistant
+      // mode: it is driven solely by `claudeCoworkEnabled`, so the API provider
+      // and Cowork can be enabled at the same time.
+      const shouldEnable = settings.claudeCoworkEnabled === true
       if (shouldEnable && !delegatedEnabled) {
         delegatedEnabled = true
         void delegatedIntentProcessor.watchActiveDomain().catch((error) => {
@@ -747,9 +762,11 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
           )
         })
       }
-      void instructionsGenerator.generateForMode(undefined, currentAiMode).catch((error) => {
-        console.error('[Container] Failed to generate instructions file on mode change.', error)
-      })
+      void instructionsGenerator
+        .generateForMode(undefined, delegatedInstructionsMode())
+        .catch((error) => {
+          console.error('[Container] Failed to generate instructions file on mode change.', error)
+        })
     }
   }
 
@@ -1106,8 +1123,11 @@ export function registerAllHandlers(opts: RegisterAllHandlersOptions): void {
           })
         }
         if (result.selectedPath) {
+          const instructionsMode: AiMode = container.aiLifecycle.getDelegatedEnabled()
+            ? 'claude-code'
+            : container.aiLifecycle.getActiveMode()
           void container.instructionsGenerator
-            .generateForMode(result.selectedPath, container.aiLifecycle.getActiveMode())
+            .generateForMode(result.selectedPath, instructionsMode)
             .catch((error) => {
               console.error(
                 '[Main] Failed to generate instructions file after domain selection.',

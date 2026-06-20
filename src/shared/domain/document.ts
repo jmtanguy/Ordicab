@@ -80,10 +80,18 @@ export interface DocumentFolderDeleteInput {
   path: string
 }
 
+/**
+ * Collision policy for file rename/move. Never overwrites: 'error' (default)
+ * rejects when the target name is taken; 'suffix' appends " (2)", " (3)", …
+ * so both files are kept.
+ */
+export type FileCollisionStrategy = 'error' | 'suffix'
+
 export interface DocumentFileRenameInput {
   dossierId: string
   documentPath: string
   newFilename: string
+  onCollision?: FileCollisionStrategy
 }
 
 export interface DocumentFileMoveInput {
@@ -91,6 +99,7 @@ export interface DocumentFileMoveInput {
   documentPaths: string[]
   /** Destination folder, relative to the dossier root. Empty string targets the root. */
   targetFolderPath: string
+  onCollision?: FileCollisionStrategy
 }
 
 export interface DocumentFolderMoveInput {

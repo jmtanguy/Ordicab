@@ -96,7 +96,7 @@ describe('createMainWindow', () => {
     expect(result).toEqual({ action: 'deny' })
   })
 
-  it('sets linux icon only on linux platform', () => {
+  it.each(['win32', 'linux'] as const)('sets the window icon on %s', (platform) => {
     const instance = createBrowserWindowMock()
     let capturedOptions: Record<string, unknown> | undefined
 
@@ -109,15 +109,15 @@ describe('createMainWindow', () => {
       } as never,
       preloadPath: '/preload.js',
       rendererIndexPath: '/index.html',
-      platform: 'linux',
-      linuxIconPath: '/icon.png',
+      platform,
+      iconPath: '/icon.png',
       openExternal: vi.fn()
     })
 
     expect(capturedOptions?.icon).toBe('/icon.png')
   })
 
-  it('does not set icon on non-linux platforms', () => {
+  it('does not set a window icon on macOS (uses the Dock icon instead)', () => {
     const instance = createBrowserWindowMock()
     let capturedOptions: Record<string, unknown> | undefined
 
@@ -131,7 +131,7 @@ describe('createMainWindow', () => {
       preloadPath: '/preload.js',
       rendererIndexPath: '/index.html',
       platform: 'darwin',
-      linuxIconPath: '/icon.png',
+      iconPath: '/icon.png',
       openExternal: vi.fn()
     })
 

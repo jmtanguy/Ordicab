@@ -1013,27 +1013,22 @@ export function createLegalService(options: { credentialStore: CredentialStore }
       try {
         const credentials = await getCredentials(input)
         await authClient.getAccessToken(credentials)
-        let legifranceReachable = false
-        let judilibreReachable = false
-        try {
-          await legifranceClient.search(credentials, {
-            recherche: 'responsabilité',
-            fond: 'ALL',
-            pageTaille: 1
-          })
-          legifranceReachable = true
-        } catch {
-          legifranceReachable = false
-        }
-        try {
-          await judilibreClient.search(credentials, {
-            recherche: 'responsabilité',
-            nombreResultats: 1
-          })
-          judilibreReachable = true
-        } catch {
-          judilibreReachable = false
-        }
+        // Probe both fonds in parallel so an unreachable endpoint can't double
+        // the wait — the worst case is one timeout, not the sum of two.
+        const [legifranceReachable, judilibreReachable] = await Promise.all([
+          legifranceClient
+            .search(credentials, { recherche: 'responsabilité', fond: 'ALL', pageTaille: 1 })
+            .then(
+              () => true,
+              () => false
+            ),
+          judilibreClient
+            .search(credentials, { recherche: 'responsabilité', nombreResultats: 1 })
+            .then(
+              () => true,
+              () => false
+            )
+        ])
         return {
           reachable: legifranceReachable || judilibreReachable,
           tokenObtained: true,

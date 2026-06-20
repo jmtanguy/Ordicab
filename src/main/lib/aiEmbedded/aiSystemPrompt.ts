@@ -224,6 +224,17 @@ export function buildToolSystemPrompt(context: SystemPromptContext): string {
       '\nBAD: 26× `document_analyze` then 26× `document_metadata_save`. GOOD: one `document_metadata_batch` (tags) OR one `document_summary_batch` (summary).'
   )
 
+  parts.push('')
+  parts.push('## Renaming, splitting & organising documents')
+  parts.push(
+    'You can rename a file, split a multi-document PDF, and group files into thematic subfolders directly.' +
+      '\n- `document_rename` → rename a file from its content (type + parties + date when known). The folder is preserved; pass only the new basename.' +
+      '\n- `document_split` → when a single scanned PDF actually bundles several distinct documents, split it into one file per document. First call `document_analyze`: its `pages` array (each `{ page, charStart, charEnd }`) shows where every page begins, so you can read each page and find the boundaries between documents. Then call `document_split` with one page range per document (1-based, inclusive) and a `filename` for each, derived from that document’s content.' +
+      '\n- `document_move` → group documents into a subfolder by theme (e.g. all invoices under "Factures/2024"). The destination folder is created if missing; moving preserves extracted text and metadata. Identify files by `documentUuids` and/or `documentPaths`.' +
+      '\n- Typical flow for "ce scan contient plusieurs documents, range-les" : `document_analyze` (read per page) → identify boundaries → ONE `document_split` with named ranges → optionally `document_move` to file each part under the right theme. The source file is left intact; the new files are created beside it. Use mode `"each-page"` only when the user explicitly wants every page separated.' +
+      '\n- Confirm with the user before splitting, renaming, or moving when their intent is ambiguous.'
+  )
+
   if (context.piiEnabled) {
     parts.push('')
     parts.push(buildPiiInstructionBlock())

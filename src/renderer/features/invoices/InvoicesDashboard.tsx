@@ -152,7 +152,7 @@ export function InvoicesDashboard({ onOpenDossier }: InvoicesDashboardProps): Re
   const unbilledCount = unbilled.reduce((acc, g) => acc + g.items.length, 0)
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto">
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
       <SectionHeader
         badge={t('invoices.badge', { defaultValue: 'Factures' })}
         count={
@@ -240,7 +240,7 @@ export function InvoicesDashboard({ onOpenDossier }: InvoicesDashboardProps): Re
         </p>
       ) : null}
 
-      <section className="space-y-2">
+      <section className="flex min-h-0 shrink-0 flex-col gap-2">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-ink">
             {t('invoices.dashboard_unbilled_title', { defaultValue: 'Prestations non facturées' })}
@@ -321,36 +321,38 @@ export function InvoicesDashboard({ onOpenDossier }: InvoicesDashboardProps): Re
             })}
           </p>
         ) : (
-          <ListContainer>
-            <ColumnHeader>
-              <span className="flex-1">
-                {t('invoices.dashboard_col_dossier', { defaultValue: 'Dossier' })}
-              </span>
-              <span className="w-24 text-right">
-                {t('invoices.dashboard_col_services', { defaultValue: 'Prestations' })}
-              </span>
-              <span className="w-28 text-right">
-                {t('invoices.dashboard_col_total_ht', { defaultValue: 'Total HT' })}
-              </span>
-              <span className="w-28 text-right">
-                {t('invoices.dashboard_col_total_ttc', { defaultValue: 'Total TTC' })}
-              </span>
-              <span className="w-32 text-right">
-                {t('invoices.dashboard_col_actions', { defaultValue: 'Actions' })}
-              </span>
-            </ColumnHeader>
-            <ul className="divide-y divide-deep-space">
-              {unbilled.map((group) => (
-                <UnbilledRow
-                  key={group.dossierId}
-                  group={group}
-                  onOpenDossier={onOpenDossier}
-                  onGenerateInvoice={() =>
-                    setInvoiceDialog({ dossierId: group.dossierId, items: group.items })
-                  }
-                />
-              ))}
-            </ul>
+          <ListContainer className="max-h-[34vh] flex-none">
+            <div className="flex h-full flex-col">
+              <ColumnHeader>
+                <span className="flex-1">
+                  {t('invoices.dashboard_col_dossier', { defaultValue: 'Dossier' })}
+                </span>
+                <span className="w-24 text-right">
+                  {t('invoices.dashboard_col_services', { defaultValue: 'Prestations' })}
+                </span>
+                <span className="w-28 text-right">
+                  {t('invoices.dashboard_col_total_ht', { defaultValue: 'Total HT' })}
+                </span>
+                <span className="w-28 text-right">
+                  {t('invoices.dashboard_col_total_ttc', { defaultValue: 'Total TTC' })}
+                </span>
+                <span className="w-32 text-right">
+                  {t('invoices.dashboard_col_actions', { defaultValue: 'Actions' })}
+                </span>
+              </ColumnHeader>
+              <ul className="min-h-0 flex-1 divide-y divide-deep-space overflow-y-auto">
+                {unbilled.map((group) => (
+                  <UnbilledRow
+                    key={group.dossierId}
+                    group={group}
+                    onOpenDossier={onOpenDossier}
+                    onGenerateInvoice={() =>
+                      setInvoiceDialog({ dossierId: group.dossierId, items: group.items })
+                    }
+                  />
+                ))}
+              </ul>
+            </div>
           </ListContainer>
         )}
       </section>
@@ -408,44 +410,46 @@ export function InvoicesDashboard({ onOpenDossier }: InvoicesDashboardProps): Re
         </p>
       ) : (
         <ListContainer>
-          <ColumnHeader>
-            <span className="w-32 shrink-0">
-              {t('invoices.dashboard_col_number', { defaultValue: 'N°' })}
-            </span>
-            <span className="w-28 shrink-0">
-              {t('invoices.dashboard_col_date', { defaultValue: 'Date' })}
-            </span>
-            <span className="flex-1">
-              {t('invoices.dashboard_col_dossier_client', { defaultValue: 'Dossier / Client' })}
-            </span>
-            <span className="w-28 text-right">
-              {t('invoices.dashboard_col_ht', { defaultValue: 'HT' })}
-            </span>
-            <span className="w-28 text-right">
-              {t('invoices.dashboard_col_ttc', { defaultValue: 'TTC' })}
-            </span>
-            <span className="w-32 shrink-0 text-center">
-              {t('invoices.dashboard_col_status', { defaultValue: 'Statut' })}
-            </span>
-            <span className="w-16 text-right">
-              {t('invoices.dashboard_col_actions', { defaultValue: 'Actions' })}
-            </span>
-          </ColumnHeader>
-          <ul className="divide-y divide-deep-space">
-            {filtered.map((invoice) => (
-              <InvoiceRow
-                key={invoice.uuid}
-                invoice={invoice}
-                onOpenDossier={onOpenDossier}
-                onPreview={() => setPreviewInvoice(invoice)}
-                onMarkPaid={() => void markPaid({ invoiceUuid: invoice.uuid })}
-                onAddPayment={() => setPaymentInvoice(invoice)}
-                onCreateCreditNote={() => setCreditNoteInvoice(invoice)}
-                onCorrect={() => setCorrectiveInvoice(invoice)}
-                onCancel={() => setCancelInvoice(invoice)}
-              />
-            ))}
-          </ul>
+          <div className="flex h-full flex-col">
+            <ColumnHeader>
+              <span className="w-32 shrink-0">
+                {t('invoices.dashboard_col_number', { defaultValue: 'N°' })}
+              </span>
+              <span className="w-28 shrink-0">
+                {t('invoices.dashboard_col_date', { defaultValue: 'Date' })}
+              </span>
+              <span className="flex-1">
+                {t('invoices.dashboard_col_dossier_client', { defaultValue: 'Dossier / Client' })}
+              </span>
+              <span className="w-28 text-right">
+                {t('invoices.dashboard_col_ht', { defaultValue: 'HT' })}
+              </span>
+              <span className="w-28 text-right">
+                {t('invoices.dashboard_col_ttc', { defaultValue: 'TTC' })}
+              </span>
+              <span className="w-32 shrink-0 text-center">
+                {t('invoices.dashboard_col_status', { defaultValue: 'Statut' })}
+              </span>
+              <span className="w-16 text-right">
+                {t('invoices.dashboard_col_actions', { defaultValue: 'Actions' })}
+              </span>
+            </ColumnHeader>
+            <ul className="min-h-0 flex-1 divide-y divide-deep-space overflow-y-auto">
+              {filtered.map((invoice) => (
+                <InvoiceRow
+                  key={invoice.uuid}
+                  invoice={invoice}
+                  onOpenDossier={onOpenDossier}
+                  onPreview={() => setPreviewInvoice(invoice)}
+                  onMarkPaid={() => void markPaid({ invoiceUuid: invoice.uuid })}
+                  onAddPayment={() => setPaymentInvoice(invoice)}
+                  onCreateCreditNote={() => setCreditNoteInvoice(invoice)}
+                  onCorrect={() => setCorrectiveInvoice(invoice)}
+                  onCancel={() => setCancelInvoice(invoice)}
+                />
+              ))}
+            </ul>
+          </div>
         </ListContainer>
       )}
 

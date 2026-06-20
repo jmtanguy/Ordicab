@@ -44,6 +44,15 @@ const isDev = !app.isPackaged
 // the process as early as possible (affects the menu bar and About dialog).
 app.setName('Ordicab')
 
+// On Windows the taskbar icon (and notification/jump-list grouping) is keyed to
+// the AppUserModelID, not the window. Without this, Windows falls back to the
+// host process icon — `electron.exe`'s default in dev, and unreliable grouping
+// in packaged builds. Must match the `appId` in electron-builder.config.ts so
+// the running app and its installed shortcut share one identity. No-op off-Win.
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.ordicab.desktop')
+}
+
 /**
  * Converts an unknown thrown value into a typed IpcError so updater handlers
  * can return a consistent `{ success: false, error, code }` shape.
@@ -161,6 +170,17 @@ app
     if (existsSync(iconPath)) {
       app.dock?.setIcon(iconPath)
     }
+
+    // Brand the native "About" panel (the `role: 'about'` menu item). Packaged
+    // macOS builds read these from the bundle's Info.plist, but dev runs — and
+    // Linux — fall back to Electron's defaults without this. `iconPath` is honored
+    // on Linux only; macOS uses the bundle icon.
+    app.setAboutPanelOptions({
+      applicationName: 'Ordicab',
+      applicationVersion: app.getVersion(),
+      copyright: `© ${new Date().getFullYear()} Ordicab`,
+      iconPath
+    })
 
     // Standard desktop-app behaviour: quit the app when the last window is
     // closed. No tray, no background mode.
@@ -302,7 +322,7 @@ app
               rendererIndexPath: join(__dirname, '../renderer/index.html'),
               rendererUrl: isDev ? process.env['ELECTRON_RENDERER_URL'] : undefined,
               platform: process.platform,
-              linuxIconPath: iconPath,
+              iconPath,
               openExternal: (url: string) => {
                 void shell.openExternal(url)
               },

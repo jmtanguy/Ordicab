@@ -187,7 +187,7 @@ describe('aiStore', () => {
     expect(useAiStore.getState().cloudAvailability).toBeNull()
   })
 
-  it('saveSettings triggers checkCloudAvailability when switching to cloud mode', async () => {
+  it('saveSettings triggers checkCloudAvailability when Cowork is enabled', async () => {
     const cloudProviderStatus = vi.fn(async () => ({
       success: true as const,
       data: { available: false, reason: 'Claude CLI not found' }
@@ -195,12 +195,12 @@ describe('aiStore', () => {
     const saveSettings = vi.fn(async () => ({ success: true as const, data: null }))
     const getSettings = vi.fn(async () => ({
       success: true as const,
-      data: { ...defaultSettings, mode: 'claude-code' as const, hasApiKey: false }
+      data: { ...defaultSettings, claudeCoworkEnabled: true, hasApiKey: false }
     }))
     ;(globalThis as MutableGlobal).ordicabAPI = {
       ai: { getSettings, saveSettings, cloudProviderStatus }
     } as unknown as OrdicabAPI
-    await useAiStore.getState().saveSettings({ mode: 'claude-code' })
+    await useAiStore.getState().saveSettings({ claudeCoworkEnabled: true })
     expect(cloudProviderStatus).toHaveBeenCalledWith('claude-code')
     expect(useAiStore.getState().cloudAvailability).toEqual({
       available: false,

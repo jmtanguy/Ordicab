@@ -83,6 +83,10 @@ const mockDocumentService = {
   listDocuments: vi.fn().mockResolvedValue([]),
   saveMetadata: vi.fn().mockResolvedValue(undefined),
   relocateMetadata: vi.fn().mockResolvedValue(undefined),
+  renameFile: vi.fn().mockResolvedValue({ filename: 'renamed.pdf' }),
+  splitPdf: vi.fn().mockResolvedValue({ relativePaths: [] }),
+  createFolder: vi.fn().mockResolvedValue('Factures'),
+  moveFiles: vi.fn().mockResolvedValue({ moved: [], failed: [] }),
   resolveRegisteredDossierRoot: vi.fn().mockResolvedValue('/path'),
   semanticSearch: vi.fn().mockResolvedValue({ dossierId: '', query: '', hits: [] })
 }
@@ -940,6 +944,163 @@ describe('intentDispatcher', () => {
         'La nouvelle localisation du document est identique a l ancienne.'
       )
       expect(services.documentService.relocateMetadata).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('document_rename', () => {
+    it('renames by explicit documentPath and reports the new filename', async () => {
+      const services = makeServices()
+      services.documentService.renameFile.mockResolvedValue({ filename: 'Facture EDF 2024.pdf' })
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const result = await dispatcher.dispatch(
+        {
+          type: 'document_rename',
+          dossierId: 'dos1',
+          documentPath: 'scan-001.pdf',
+          newFilename: 'Facture EDF 2024.pdf'
+        },
+        {}
+      )
+
+      expect(services.documentService.renameFile).toHaveBeenCalledWith({
+        dossierId: 'dos1',
+        documentPath: 'scan-001.pdf',
+        newFilename: 'Facture EDF 2024.pdf',
+        onCollision: 'suffix'
+      })
+      expect(result.feedback).toContain('Facture EDF 2024.pdf')
+    })
+
+    it('reuses the source extension when the new name omits one', async () => {
+      const services = makeServices()
+      services.documentService.renameFile.mockResolvedValue({ filename: 'Facture EDF 2024.pdf' })
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      await dispatcher.dispatch(
+        {
+          type: 'document_rename',
+          dossierId: 'dos1',
+          documentPath: 'Pièces/scan-001.pdf',
+          newFilename: 'Facture EDF 2024'
+        },
+        {}
+      )
+
+      expect(services.documentService.renameFile).toHaveBeenCalledWith({
+        dossierId: 'dos1',
+        documentPath: 'Pièces/scan-001.pdf',
+        newFilename: 'Facture EDF 2024.pdf',
+        onCollision: 'suffix'
+      })
+    })
+
+    it('refuses when neither documentUuid nor documentPath is provided', async () => {
+      const services = makeServices()
+      services.documentService.renameFile.mockClear()
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const result = await dispatcher.dispatch(
+        { type: 'document_rename', dossierId: 'dos1', newFilename: 'x.pdf' },
+        {}
+      )
+
+      expect(services.documentService.renameFile).not.toHaveBeenCalled()
+      expect(result.feedback).toContain('UUID ou chemin requis')
+    })
+  })
+
+  describe('document_split', () => {
+    it('splits by named ranges and reports the created files', async () => {
+      const services = makeServices()
+      services.documentService.splitPdf.mockResolvedValue({
+        relativePaths: ['Facture.pdf', 'Contrat.pdf']
+      })
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const result = await dispatcher.dispatch(
+        {
+          type: 'document_split',
+          dossierId: 'dos1',
+          documentPath: 'scan-bundle.pdf',
+          mode: {
+            ranges: [
+              { from: 1, to: 2, filename: 'Facture' },
+              { from: 3, to: 5, filename: 'Contrat' }
+            ]
+          }
+        },
+        {}
+      )
+
+      expect(services.documentService.splitPdf).toHaveBeenCalledWith({
+        dossierId: 'dos1',
+        documentPath: 'scan-bundle.pdf',
+        mode: {
+          ranges: [
+            { from: 1, to: 2, filename: 'Facture' },
+            { from: 3, to: 5, filename: 'Contrat' }
+          ]
+        }
+      })
+      expect(result.feedback).toContain('2 fichiers')
+      expect(result.feedback).toContain('Facture.pdf')
+      expect(result.feedback).toContain('Contrat.pdf')
+    })
+  })
+
+  describe('document_move', () => {
+    it('creates the nested target folder then moves the files by path', async () => {
+      const services = makeServices()
+      services.documentService.createFolder.mockResolvedValue('Factures')
+      services.documentService.moveFiles.mockResolvedValue({
+        moved: [{ fromPath: 'scan.pdf', record: { filename: 'scan.pdf' } }],
+        failed: []
+      })
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const result = await dispatcher.dispatch(
+        {
+          type: 'document_move',
+          dossierId: 'dos1',
+          documentPaths: ['scan.pdf'],
+          targetFolderPath: 'Factures/2024'
+        },
+        {}
+      )
+
+      // One createFolder call per path segment (top-down).
+      expect(services.documentService.createFolder).toHaveBeenNthCalledWith(1, {
+        dossierId: 'dos1',
+        parentPath: '',
+        name: 'Factures'
+      })
+      expect(services.documentService.createFolder).toHaveBeenNthCalledWith(2, {
+        dossierId: 'dos1',
+        parentPath: 'Factures',
+        name: '2024'
+      })
+      expect(services.documentService.moveFiles).toHaveBeenCalledWith({
+        dossierId: 'dos1',
+        documentPaths: ['scan.pdf'],
+        targetFolderPath: 'Factures/2024',
+        onCollision: 'suffix'
+      })
+      expect(result.feedback).toContain('Factures/2024')
+    })
+
+    it('refuses when no documents are provided', async () => {
+      const services = makeServices()
+      services.documentService.moveFiles.mockClear()
+      const dispatcher = createInternalAICommandDispatcher(services)
+
+      const result = await dispatcher.dispatch(
+        { type: 'document_move', dossierId: 'dos1', targetFolderPath: 'Factures' },
+        {}
+      )
+
+      expect(services.documentService.moveFiles).not.toHaveBeenCalled()
+      expect(result.feedback).toContain('UUID ou chemin requis')
     })
   })
 

@@ -113,6 +113,9 @@ export type InternalAiCommandType =
   | 'document_summary_batch'
   | 'document_analyze'
   | 'document_relocate'
+  | 'document_rename'
+  | 'document_split'
+  | 'document_move'
   | 'dossier_list'
   | 'dossier_select'
   | 'dossier_create'
@@ -425,6 +428,46 @@ export interface DocumentRelocateIntent {
   toDocumentPath: string
 }
 
+export interface DocumentRenameIntent {
+  type: 'document_rename'
+  /** Stable UUID of the document to rename. */
+  documentUuid?: string
+  /** Relative path of the document to rename (use for freshly split files with no UUID yet). */
+  documentPath?: string
+  dossierId?: string
+  /** New filename (basename only; the parent folder is preserved). */
+  newFilename: string
+}
+
+export interface DocumentSplitIntent {
+  type: 'document_split'
+  /** Stable UUID of the source PDF to split. */
+  documentUuid?: string
+  /** Relative path of the source PDF (alternative to documentUuid). */
+  documentPath?: string
+  dossierId?: string
+  /**
+   * 'each-page' explodes every page into its own file. Otherwise a list of page
+   * ranges (1-based, inclusive), each optionally named — name segments from the
+   * content of those pages so the split output is self-describing.
+   */
+  mode: 'each-page' | { ranges: Array<{ from: number; to: number; filename?: string }> }
+}
+
+export interface DocumentMoveIntent {
+  type: 'document_move'
+  /** Stable UUIDs of the documents to move (combined with documentPaths). */
+  documentUuids?: string[]
+  /** Relative paths of the documents to move (use for freshly split files with no UUID yet). */
+  documentPaths?: string[]
+  dossierId?: string
+  /**
+   * Destination subfolder relative to the dossier root (e.g. "Factures/2024").
+   * Created if it does not exist. Empty string moves the files back to the root.
+   */
+  targetFolderPath: string
+}
+
 export interface UnknownIntent {
   type: 'unknown'
   message: string
@@ -462,6 +505,9 @@ export type InternalAiCommand =
   | DocumentSummaryBatchIntent
   | DocumentAnalyzeIntent
   | DocumentRelocateIntent
+  | DocumentRenameIntent
+  | DocumentSplitIntent
+  | DocumentMoveIntent
   | DossierListIntent
   | DossierSelectIntent
   | DossierCreateIntent

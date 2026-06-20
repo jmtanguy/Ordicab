@@ -62,7 +62,25 @@ export async function saveDomainState(
   selectedDomainPath: string | null,
   now: () => Date
 ): Promise<void> {
-  const state: DomainStateFile = {
+  // `app-state.json` is a shared key/value bag: `selectedDomainPath` lives at the
+  // top level alongside namespaces owned by other stores (`legal`, `ai`,
+  // `credentials`, `delegatedAi`). A whole-file overwrite here used to wipe those
+  // namespaces — most visibly `legal.eulaAcceptedVersion`, so the EULA dialog
+  // reappeared on the next launch whenever a domain was (re)selected after
+  // acceptance. Read-modify-write to preserve every other key.
+  let existing: Record<string, unknown> = {}
+  try {
+    const raw = await readFile(stateFilePath, 'utf8')
+    const parsed = JSON.parse(raw) as unknown
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      existing = parsed as Record<string, unknown>
+    }
+  } catch {
+    // No (or unparseable) state file yet -> start from an empty bag.
+  }
+
+  const state = {
+    ...existing,
     selectedDomainPath,
     updatedAt: now().toISOString()
   }

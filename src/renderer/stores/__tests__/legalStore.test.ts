@@ -322,3 +322,83 @@ describe('legalStore searchAll', () => {
     expect(result?.results.map((r) => r.id)).toEqual(['second'])
   })
 })
+
+describe('legalStore checkConnection', () => {
+  beforeEach(() => {
+    useLegalStore.setState(useLegalStore.getInitialState(), true)
+    delete (globalThis as MutableGlobal).ordicabAPI
+  })
+
+  it('marks the connection unreachable when the IPC call rejects', async () => {
+    const connectionStatus = vi.fn(async () => {
+      throw new Error('No handler registered for legal:connection-status')
+    })
+    ;(globalThis as MutableGlobal).ordicabAPI = {
+      legalSearch: { connectionStatus }
+    } as unknown as OrdicabAPI
+
+    await useLegalStore.getState().checkConnection()
+
+    const state = useLegalStore.getState()
+    // The button must not stay stuck on "checking", and the error must surface.
+    expect(state.connectionStatus).toBe('unreachable')
+    expect(state.connectionError).toBe('No handler registered for legal:connection-status')
+    expect(state.connection).toBeNull()
+  })
+
+  it('recovers from a hung IPC call via the timeout (never stays on checking)', async () => {
+    vi.useFakeTimers()
+    try {
+      // A handler that never settles: without a timeout the button stays stuck.
+      const connectionStatus = vi.fn(() => new Promise(() => {}))
+      ;(globalThis as MutableGlobal).ordicabAPI = {
+        legalSearch: { connectionStatus }
+      } as unknown as OrdicabAPI
+
+      const pending = useLegalStore.getState().checkConnection()
+      expect(useLegalStore.getState().connectionStatus).toBe('checking')
+
+      await vi.advanceTimersByTimeAsync(60_000)
+      await pending
+
+      const state = useLegalStore.getState()
+      expect(state.connectionStatus).toBe('unreachable')
+      expect(state.connectionError).toBe('PISTE connection check timed out.')
+      expect(state.connection).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('surfaces an unreachable result returned by the service', async () => {
+    const connectionStatus = vi.fn(async () => ({
+      success: true as const,
+      data: { reachable: false, tokenObtained: false, error: 'PISTE credentials are not configured.' }
+    }))
+    ;(globalThis as MutableGlobal).ordicabAPI = {
+      legalSearch: { connectionStatus }
+    } as unknown as OrdicabAPI
+
+    await useLegalStore.getState().checkConnection()
+
+    const state = useLegalStore.getState()
+    expect(state.connectionStatus).toBe('unreachable')
+    expect(state.connectionError).toBe('PISTE credentials are not configured.')
+  })
+
+  it('marks the connection connected when reachable', async () => {
+    const connectionStatus = vi.fn(async () => ({
+      success: true as const,
+      data: { reachable: true, tokenObtained: true, legifranceReachable: true, judilibreReachable: true }
+    }))
+    ;(globalThis as MutableGlobal).ordicabAPI = {
+      legalSearch: { connectionStatus }
+    } as unknown as OrdicabAPI
+
+    await useLegalStore.getState().checkConnection()
+
+    const state = useLegalStore.getState()
+    expect(state.connectionStatus).toBe('connected')
+    expect(state.connectionError).toBeNull()
+  })
+})

@@ -27,7 +27,10 @@ export const BATCHABLE_ACTION_TOOL_NAMES = new Set([
   'note_update',
   'note_delete',
   'document_analyze',
-  'document_metadata_save'
+  'document_metadata_save',
+  'document_rename',
+  'document_split',
+  'document_move'
 ])
 
 /**
@@ -45,6 +48,9 @@ export const STALE_TOOL_NAMES_AFTER_ACTION: Partial<Record<string, string[]>> = 
   document_summary_batch: ['document_list', 'document_get'],
   document_analyze: ['document_list', 'document_get'],
   document_relocate: ['document_list'],
+  document_rename: ['document_list', 'document_get', 'document_search', 'document_analyze'],
+  document_split: ['document_list', 'document_search', 'document_analyze'],
+  document_move: ['document_list', 'document_get', 'document_search', 'document_analyze'],
   dossier_select: ['contact_lookup', 'contact_get', 'document_list'],
   dossier_create: ['dossier_get', 'dossier_list'],
   dossier_update: ['dossier_get', 'dossier_list'],
@@ -321,6 +327,7 @@ export function buildDataTools(
         'Hybrid search (exact + semantic) over the extracted text of a dossier’s documents. Returns ranked excerpts with score and matchType ("exact" scores ≥ 1 and ranks above "semantic"); use both to judge trust. ' +
         'Use it whenever the user asks about dossier CONTENT (demands, claims, facts, amounts, dates, positions, history), and as the FALLBACK for contact details missing from contact_lookup. ' +
         'QUERY EXPANSION: call 2–4 times with DIFFERENT queries (legal concept, party name, synonyms, document type); never repeat a query. Aggregate all excerpts before answering. ' +
+        'Each hit may carry a `page` (1-based source page) for PDF/OCR documents — useful to locate a passage or to drive a `document_split`. ' +
         'Only works on documents already indexed via the Documents tab. If nothing is returned, say so.',
       inputSchema: z.object({
         query: z
@@ -687,9 +694,10 @@ export function buildBatchableActionTools(
     }),
     document_analyze: tool({
       description:
-        "Read a single document's text as JSON { uuid, rawContent, totalChars, charsReturned }. " +
+        "Read a single document's text as JSON { uuid, rawContent, totalChars, charsReturned, page?, pages? }. " +
         'Uses the extraction cache; on miss it runs DOCX/PDF/OCR extraction and persists it. A surfaced error means extraction failed (unsupported type, missing OCR, read error) — relay it. ' +
-        'Use charStart/charEnd for a specific range (inclusive); omit both for the full document (capped at 12 000 chars).',
+        'Use charStart/charEnd for a specific range (inclusive); omit both for the full document (capped at 12 000 chars). ' +
+        '`pages` (when present) lists each source page as { page, charStart, charEnd } — use it to detect where distinct documents begin in a multi-document scan and to choose `document_split` ranges.',
       inputSchema: z.object({
         documentUuid: z.string().describe('UUID of the document to read.'),
         dossierId: z.string().optional(),
@@ -709,6 +717,84 @@ export function buildBatchableActionTools(
         tags: z.array(z.string()).describe('List of tags for the document.')
       }),
       execute: async (args) => execute('document_metadata_save', args as Record<string, unknown>)
+    }),
+    document_rename: tool({
+      description:
+        'Rename a document file inside the active dossier. The folder is preserved; pass only the new basename. ' +
+        'Choose a name that reflects the actual content (type + parties + date when known). ' +
+        'Identify the file by `documentUuid` (from document_list/document_search), or by `documentPath` for a file you just created with `document_split`. ' +
+        'If a single scanned PDF actually holds several distinct documents, prefer `document_split` first, then name each part. ' +
+        'Never overwrites: if the chosen name is already taken, a " (2)" suffix is added automatically — the feedback reports the final name.',
+      inputSchema: z.object({
+        documentUuid: z.string().optional().describe('UUID of the document to rename.'),
+        documentPath: z
+          .string()
+          .optional()
+          .describe('Relative path of the document to rename (use for freshly split files).'),
+        dossierId: z.string().optional(),
+        newFilename: z
+          .string()
+          .describe(
+            'New basename only — no folders. Keep the original extension (e.g. end with ".pdf"); if you omit it, the source extension is reused.'
+          )
+      }),
+      execute: async (args) => execute('document_rename', args as Record<string, unknown>)
+    }),
+    document_split: tool({
+      description:
+        'Split a PDF into several files, e.g. when one scanned PDF bundles multiple distinct documents. ' +
+        'First read the source with `document_analyze` — its `pages` array gives each page boundary, and `document_search` hits carry a `page` — then group consecutive pages per document. ' +
+        'Page numbers are 1-based and inclusive. Name each range from the content of those pages so the output is self-describing; omit `filename` to auto-name. ' +
+        "Use mode 'each-page' only to explode every page into its own file. The source file is left untouched; the tool returns the new file paths.",
+      inputSchema: z.object({
+        documentUuid: z.string().optional().describe('UUID of the source PDF to split.'),
+        documentPath: z
+          .string()
+          .optional()
+          .describe('Relative path of the source PDF (alternative to documentUuid).'),
+        dossierId: z.string().optional(),
+        mode: z
+          .union([
+            z.literal('each-page'),
+            z.object({
+              ranges: z
+                .array(
+                  z.object({
+                    from: z.number().int().positive().describe('First page, 1-based inclusive.'),
+                    to: z.number().int().positive().describe('Last page, 1-based inclusive.'),
+                    filename: z
+                      .string()
+                      .optional()
+                      .describe('Output basename for this segment, derived from its content.')
+                  })
+                )
+                .min(1)
+                .max(100)
+            })
+          ])
+          .describe("'each-page' or a list of named page ranges.")
+      }),
+      execute: async (args) => execute('document_split', args as Record<string, unknown>)
+    }),
+    document_move: tool({
+      description:
+        'Move one or more documents into a subfolder of the active dossier — use it to group files by theme (e.g. all invoices under "Factures/2024"). ' +
+        'The destination folder is created if it does not exist (nested paths allowed). ' +
+        'Identify files by `documentUuids` (from document_list/document_search) and/or `documentPaths` (for files you just created with document_split). ' +
+        'Moving preserves each file’s extracted text and metadata, and never overwrites a file already in the destination (a " (2)" suffix is added if needed). ' +
+        'Pass an empty `targetFolderPath` to move files back to the dossier root.',
+      inputSchema: z.object({
+        documentUuids: z.array(z.string()).optional().describe('UUIDs of the documents to move.'),
+        documentPaths: z
+          .array(z.string())
+          .optional()
+          .describe('Relative paths of the documents to move (use for freshly split files).'),
+        dossierId: z.string().optional(),
+        targetFolderPath: z
+          .string()
+          .describe('Destination subfolder relative to the dossier root, e.g. "Factures/2024".')
+      }),
+      execute: async (args) => execute('document_move', args as Record<string, unknown>)
     })
   } as ToolMap
 }

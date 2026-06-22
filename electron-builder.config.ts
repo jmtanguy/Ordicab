@@ -62,13 +62,16 @@ const configuration: Configuration = {
     title: '${productName}',
     // Branded drag-to-install window. The background (with its arrow) is drawn to
     // match these icon centers — keep them in sync with scripts/generate-brand-assets.mjs.
-    // electron-builder auto-loads build/background@2x.png for retina.
-    background: 'build/background.png',
-    window: { width: 540, height: 380 },
+    // The top row is reserved for Finder's hidden DMG support files when a user
+    // has dotfiles enabled, so they do not overlap the installation instructions.
+    background: 'build/background.tiff',
+    window: { width: 540, height: 460 },
     iconSize: 100,
     contents: [
-      { x: 140, y: 230, type: 'file' },
-      { x: 400, y: 230, type: 'link', path: '/Applications' }
+      { x: 90, y: 60, type: 'file', path: 'build/background.tiff', name: '.background.tiff' },
+      { x: 270, y: 60, type: 'file', path: 'build/icon.icns', name: '.VolumeIcon.icns' },
+      { x: 140, y: 310, type: 'file' },
+      { x: 400, y: 310, type: 'link', path: '/Applications' }
     ]
   },
   win: {

@@ -1,8 +1,17 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@renderer/components/ui'
 import { useUpdaterStore } from '@renderer/stores'
+
+function Spinner(): React.JSX.Element {
+  return (
+    <span
+      className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"
+      aria-hidden="true"
+    />
+  )
+}
 
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) {
@@ -28,6 +37,7 @@ export function UpdateBanner(): React.JSX.Element | null {
   const installNow = useUpdaterStore((state) => state.installNow)
   const installOnQuit = useUpdaterStore((state) => state.installOnQuit)
   const dismiss = useUpdaterStore((state) => state.dismiss)
+  const [isInstalling, setIsInstalling] = useState(false)
 
   useEffect(() => {
     subscribe()
@@ -95,14 +105,37 @@ export function UpdateBanner(): React.JSX.Element | null {
               <p className="text-sm font-semibold text-ink">
                 {t('updater.ready_title', { version: status.version })}
               </p>
-              <p className="mt-1 text-xs text-ink-muted">{t('updater.ready_body')}</p>
+              <p className="mt-1 text-xs text-ink-muted">
+                {isInstalling ? t('updater.installing_body') : t('updater.ready_body')}
+              </p>
             </div>
             <div className="flex flex-wrap justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => void installOnQuit()}>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={isInstalling}
+                onClick={() => void installOnQuit()}
+              >
                 {t('updater.install_on_quit_action')}
               </Button>
-              <Button size="sm" onClick={() => void installNow()}>
-                {t('updater.install_now_action')}
+              <Button
+                size="sm"
+                disabled={isInstalling}
+                onClick={() => {
+                  setIsInstalling(true)
+                  void installNow().catch(() => {
+                    setIsInstalling(false)
+                  })
+                }}
+              >
+                {isInstalling ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Spinner />
+                    {t('updater.installing_action')}
+                  </span>
+                ) : (
+                  t('updater.install_now_action')
+                )}
               </Button>
             </div>
           </div>

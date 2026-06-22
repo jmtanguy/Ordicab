@@ -37,6 +37,9 @@ describe('Story 1.5 packaging and release pipeline', () => {
     expect(configText).toContain("arch: ['x64']")
     expect(configText).toContain('icon.icns')
     expect(configText).toContain('icon.ico')
+    expect(configText).toContain('background.tiff')
+    expect(configText).toContain('.background.tiff')
+    expect(configText).toContain('.VolumeIcon.icns')
     expect(configText).toContain("provider: 'github'")
   })
 

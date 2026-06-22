@@ -10,8 +10,9 @@
  *   build/installerSidebar.bmp      NSIS welcome/finish panel   164×314 (BMP3)
  *   build/uninstallerSidebar.bmp    NSIS uninstall welcome      164×314 (BMP3)
  *   build/installerHeader.bmp       NSIS inner-page header      150×57  (BMP3)
- *   build/background.png            DMG window background       540×380
- *   build/background@2x.png         DMG background (retina)     1080×760
+ *   build/background.png            DMG window background       540×460
+ *   build/background@2x.png         DMG background (retina)     1080×920
+ *   build/background.tiff           DMG background with retina representation
  *
  * NSIS requires flattened BMP3 (no alpha) — PNGs are rendered with canvas, then
  * converted with ImageMagick. The DMG accepts PNG with @2x for retina.
@@ -130,7 +131,7 @@ async function buildHeader(icon) {
 
 async function buildDmgBackground(scale) {
   const w = 540 * scale
-  const h = 380 * scale
+  const h = 460 * scale
   const { canvas, ctx } = createArtwork(w, h, PNG_SUPERSAMPLE)
 
   // Soft teal-tinted backdrop so the dropped app icon stays legible.
@@ -143,15 +144,15 @@ async function buildDmgBackground(scale) {
   ctx.textAlign = 'center'
   ctx.fillStyle = INK
   ctx.font = `600 ${26 * scale}px ${DISPLAY}`
-  ctx.fillText('Installer Ordicab', w / 2, 64 * scale)
+  ctx.fillText('Installer Ordicab', w / 2, 144 * scale)
 
   ctx.fillStyle = '#3a7a8c'
   ctx.font = `500 ${13 * scale}px ${DISPLAY}`
-  ctx.fillText("Glissez l'icône Ordicab sur le dossier Applications", w / 2, 92 * scale)
+  ctx.fillText("Glissez l'icône Ordicab sur le dossier Applications", w / 2, 172 * scale)
 
   // Arrow from the app icon (left) to the Applications drop target (right).
-  // Icon centers sit at y≈230 to match dmg.contents in electron-builder config.
-  const y = 218 * scale
+  // Icon centers sit at y≈310 to match dmg.contents in electron-builder config.
+  const y = 298 * scale
   ctx.strokeStyle = RIM
   ctx.fillStyle = RIM
   ctx.lineWidth = 6 * scale
@@ -170,6 +171,10 @@ async function buildDmgBackground(scale) {
   ctx.fill()
 
   return canvas
+}
+
+function writeDmgTiff(oneXPath, twoXPath, outPath) {
+  execFileSync('tiffutil', ['-cathidpicheck', oneXPath, twoXPath, '-out', outPath])
 }
 
 function resizePng(inPath, outPath, width, height) {
@@ -316,9 +321,11 @@ async function main() {
   for (const scale of [1, 2]) {
     const canvas = await buildDmgBackground(scale)
     const out = tmp(scale === 1 ? 'background.png' : 'background@2x.png')
-    writePng(canvas, out, 540 * scale, 380 * scale)
+    writePng(canvas, out, 540 * scale, 460 * scale)
     console.log('✓', out.replace(ROOT + '/', ''))
   }
+  writeDmgTiff(tmp('background.png'), tmp('background@2x.png'), tmp('background.tiff'))
+  console.log('✓', 'build/background.tiff')
 }
 
 main().catch((err) => {

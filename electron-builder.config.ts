@@ -62,14 +62,13 @@ const configuration: Configuration = {
     title: '${productName}',
     // Branded drag-to-install window. The background (with its arrow) is drawn to
     // match these icon centers — keep them in sync with scripts/generate-brand-assets.mjs.
-    // The top row is reserved for Finder's hidden DMG support files when a user
-    // has dotfiles enabled, so they do not overlap the installation instructions.
     background: 'build/background.tiff',
+    // Do not create mounted-volume icon metadata, which shows up as a grey
+    // artifact for users who display hidden files in Finder.
+    icon: null,
     window: { width: 540, height: 460 },
     iconSize: 100,
     contents: [
-      { x: 90, y: 60, type: 'file', path: 'build/background.tiff', name: '.background.tiff' },
-      { x: 270, y: 60, type: 'file', path: 'build/icon.icns', name: '.VolumeIcon.icns' },
       { x: 140, y: 310, type: 'file' },
       { x: 400, y: 310, type: 'link', path: '/Applications' }
     ]

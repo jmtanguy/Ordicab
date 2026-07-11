@@ -55,7 +55,7 @@ interface TemplateEditorProps {
   tagSuggestions?: TemplateRoutineEntry[]
   /** Known category names, offered as datalist suggestions for the category field. */
   existingCategories?: string[]
-  /** Opens the AI tag-detection dialog for the edited template. */
+  /** Opens the AI tag-detection dialog. In create mode the draft is saved first. */
   onTagify?: () => void
   /** Unknown tags found at save time — shown as a warning with suggestions. */
   lintIssues?: TagLintIssue[] | null
@@ -104,6 +104,10 @@ export function TemplateEditor({
     isDocxCreationFlow && !hasPickedFile
       ? t('templates.editor.selectWordDoc')
       : t('templates.editor.saveButton')
+  const tagifyActionLabel =
+    mode === 'create'
+      ? t('templates.tagify.saveThenAnalyzeButton')
+      : t('templates.tagify.openButton')
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -164,6 +168,20 @@ export function TemplateEditor({
               {t('templates.lint.saveAnyway')}
             </Button>
           </div>
+        </div>
+      ) : null}
+
+      {onTagify ? (
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-2xl border border-aurora/35 bg-aurora/5 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-ink">{t('templates.tagify.assistantTitle')}</p>
+            <p className="mt-0.5 max-w-3xl text-sm text-ink-muted">
+              {t('templates.tagify.assistantBody')}
+            </p>
+          </div>
+          <Button type="button" size="sm" onClick={onTagify}>
+            {tagifyActionLabel}
+          </Button>
         </div>
       ) : null}
 
@@ -239,11 +257,6 @@ export function TemplateEditor({
                 <span className="text-sm text-ink">{t('templates.editor.docxAttached')}</span>
               </div>
               <div className="flex items-center gap-2">
-                {onTagify ? (
-                  <Button type="button" variant="ghost" size="sm" onClick={onTagify}>
-                    {t('templates.tagify.openButton')}
-                  </Button>
-                ) : null}
                 <Button type="button" size="sm" onClick={() => void onOpenDocx?.()}>
                   {t('templates.editor.openInWord')}
                 </Button>
@@ -283,14 +296,11 @@ export function TemplateEditor({
               </Button>
             </div>
           ) : mode === 'create' && !template?.uuid ? (
-            <span className="text-xs text-ink-muted">{t('templates.editor.richTextHint')}</span>
+            <div className="flex w-full items-center justify-between gap-3">
+              <span className="text-xs text-ink-muted">{t('templates.editor.richTextHint')}</span>
+            </div>
           ) : (
             <div className="flex w-full items-center justify-end gap-2">
-              {onTagify ? (
-                <Button type="button" variant="ghost" size="sm" onClick={onTagify}>
-                  {t('templates.tagify.openButton')}
-                </Button>
-              ) : null}
               {mode === 'edit' && onApplyCabinetDefaultDocx ? (
                 <Button
                   type="button"
@@ -340,6 +350,9 @@ export function TemplateEditor({
                 <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 rounded-2xl border border-hairline bg-[#eeece3] p-8 text-center">
                   <p className="max-w-xl text-sm text-ink">
                     {t('templates.editor.createDocxBody')}
+                  </p>
+                  <p className="max-w-xl text-xs text-ink-muted">
+                    {t('templates.tagify.docxNextStep')}
                   </p>
                   <Button type="button" size="sm" onClick={() => void onImportDocx?.()}>
                     {t('templates.editor.importDocx')}

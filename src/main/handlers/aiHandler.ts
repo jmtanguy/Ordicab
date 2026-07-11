@@ -11,6 +11,8 @@ import {
   type IpcResult
 } from '@shared/types'
 
+import { z } from 'zod'
+
 import type { AppStateStore } from '../lib/system/appStateStore'
 import {
   isPersonaNameSafe,
@@ -406,15 +408,19 @@ export function registerAiHandlers(options: {
         const parsed = aiCommandInputSchema.parse(input)
         const currentWebContents =
           resolveEventWebContents(event) ?? getWebContents?.() ?? webContents
+        // Streaming events carry the conversation scope so the global chat and
+        // the drafting page each pick up only their own tokens/reflections.
+        const conversationId = parsed.context.conversationId
         const onToken = currentWebContents
-          ? (token: string) => currentWebContents.send(IPC_CHANNELS.ai.textToken, token)
+          ? (token: string) =>
+              currentWebContents.send(IPC_CHANNELS.ai.textToken, { text: token, conversationId })
           : undefined
         const onReflection = currentWebContents
           ? (text: string) => {
               console.log(
                 `[aiHandler] sending reflection via IPC: channel=${IPC_CHANNELS.ai.reflection} len=${text.length}`
               )
-              currentWebContents.send(IPC_CHANNELS.ai.reflection, text)
+              currentWebContents.send(IPC_CHANNELS.ai.reflection, { text, conversationId })
             }
           : undefined
         console.log(
@@ -428,25 +434,37 @@ export function registerAiHandlers(options: {
     }
   )
 
-  ipcMain.handle(IPC_CHANNELS.ai.cancelCommand, async (): Promise<IpcResult<null>> => {
-    aiService?.cancelCommand()
-    return { success: true, data: null }
-  })
+  const conversationScopeSchema = z
+    .object({ conversationId: z.string().min(1).optional() })
+    .optional()
 
-  ipcMain.handle(IPC_CHANNELS.ai.resetConversation, async (): Promise<IpcResult<null>> => {
-    try {
-      if (!aiService) {
-        return {
-          success: false,
-          error: 'AI service is not available.',
-          code: IpcErrorCode.AI_RUNTIME_UNAVAILABLE
-        }
-      }
-
-      await aiService.resetConversation()
+  ipcMain.handle(
+    IPC_CHANNELS.ai.cancelCommand,
+    async (_event, input: unknown): Promise<IpcResult<null>> => {
+      const scope = conversationScopeSchema.parse(input ?? undefined)
+      aiService?.cancelCommand(scope?.conversationId)
       return { success: true, data: null }
-    } catch (error) {
-      return mapAiError(error, 'Unable to reset AI conversation.')
     }
-  })
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.ai.resetConversation,
+    async (_event, input: unknown): Promise<IpcResult<null>> => {
+      try {
+        if (!aiService) {
+          return {
+            success: false,
+            error: 'AI service is not available.',
+            code: IpcErrorCode.AI_RUNTIME_UNAVAILABLE
+          }
+        }
+
+        const scope = conversationScopeSchema.parse(input ?? undefined)
+        await aiService.resetConversation(scope?.conversationId)
+        return { success: true, data: null }
+      } catch (error) {
+        return mapAiError(error, 'Unable to reset AI conversation.')
+      }
+    }
+  )
 }

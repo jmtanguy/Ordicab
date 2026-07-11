@@ -31,6 +31,7 @@ import { computeContactDisplayName } from '@shared/computeContactDisplayName'
 import { AlertBanner } from '@renderer/components/ui'
 import { useToast } from '@renderer/contexts/ToastContext'
 import { AiPage } from '@renderer/features/ai/AiPage'
+import { RedactionPage } from '@renderer/features/redaction'
 import { CoworkPage } from '@renderer/features/delegated/CoworkPage'
 import { DocumentList } from '@renderer/features/documents/DocumentList'
 import { SemanticSearchPanel } from '@renderer/features/documents/SemanticSearchPanel'
@@ -91,6 +92,7 @@ export type DossierSection =
   | 'generate'
   | 'ai-assistant'
   | 'cowork'
+  | 'redaction'
 
 const NOTICE_TRANSLATIONS: Record<
   DossierDetailNotice['kind'],
@@ -657,6 +659,12 @@ function DossierDetailLayout({
             sampleDossierName={dossier.name}
           />
         </DossierSectionPane>
+      )}
+
+      {activeSection === 'redaction' && (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <RedactionPage dossierId={dossier.slug} />
+        </div>
       )}
     </div>
   )

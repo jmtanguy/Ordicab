@@ -127,6 +127,20 @@ export const IPC_CHANNELS = {
     run: 'compare:run',
     progress: 'compare:progress'
   },
+  redaction: {
+    list: 'redaction:list',
+    create: 'redaction:create',
+    get: 'redaction:get',
+    manualEdit: 'redaction:manual-edit',
+    decideOp: 'redaction:decide-op',
+    undo: 'redaction:undo',
+    redo: 'redaction:redo',
+    updateMeta: 'redaction:update-meta',
+    syncChat: 'redaction:sync-chat',
+    resetChat: 'redaction:reset-chat',
+    commit: 'redaction:commit',
+    discard: 'redaction:discard'
+  },
   ordicab: {
     dataChanged: 'ordicab:data-changed'
   },

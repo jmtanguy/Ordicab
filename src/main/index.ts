@@ -422,6 +422,7 @@ app
           openExternal: (url) => shell.openExternal(url),
           openPath: (path) => shell.openPath(path),
           stateFilePath,
+          tessDataPath: resolveTessDataPath(),
           getWebContents: () => mainWindowLifecycle?.getWindow()?.webContents ?? null,
           focusMainWindow: () => {
             mainWindowLifecycle?.showWindow()

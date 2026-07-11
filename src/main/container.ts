@@ -62,6 +62,12 @@ import {
 import { createGenerateService, type GenerateService } from './services/domain/generateService'
 import { createInvoiceService, type InvoiceService } from './services/domain/invoiceService'
 import {
+  createRedactionSessionService,
+  parseRedactionConversationId,
+  type RedactionSessionService
+} from './services/domain/redactionSessionService'
+import { registerRedactionHandlers } from './handlers/redactionHandler'
+import {
   createAjOrchestrationService,
   type AjOrchestrationService
 } from './services/domain/ajOrchestrationService'
@@ -214,6 +220,7 @@ export interface AppContainer {
   ajOrchestrationService: AjOrchestrationService
   templateService: TemplateService
   generateService: GenerateService
+  redactionSessionService: RedactionSessionService
   legalService: LegalService
   calendarSyncService: CalendarSyncService
   fileWatcherService: FileWatcherService
@@ -544,12 +551,19 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
     })
   }
 
+  const redactionSessionService = createRedactionSessionService({
+    documentService,
+    generateService,
+    entityService
+  })
+
   const intentDispatcher = createInternalAICommandDispatcher({
     contactService,
     templateService,
     generateService,
     dossierService,
     documentService,
+    redactionSessionService,
     getLocale: () => opts.mainI18n.getLocale()
   })
 
@@ -567,7 +581,34 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
     localeService: opts.mainI18n,
     stateFilePath: opts.stateFilePath,
     tessDataPath: opts.tessDataPath,
-    nerModelPath: opts.modelsPath
+    nerModelPath: opts.modelsPath,
+    redactionSessionService: {
+      getIndexedText: (dossierId, sessionId) =>
+        redactionSessionService.getIndexedText(dossierId, sessionId)
+    },
+    loadConversationState: async (conversationId) => {
+      const scope = parseRedactionConversationId(conversationId)
+      if (!scope) return null
+      const state = await redactionSessionService.getConversationState(
+        scope.dossierId,
+        scope.sessionId
+      )
+      if (!state) return null
+      return {
+        history: state.runtimeHistory as Parameters<typeof aiAgentRuntime.seedConversation>[1],
+        piiLedger: state.piiLedger as never[]
+      }
+    },
+    onConversationCommitted: (conversationId, history, piiLedger) => {
+      const scope = parseRedactionConversationId(conversationId)
+      if (!scope) return
+      void redactionSessionService.persistConversation(
+        scope.dossierId,
+        scope.sessionId,
+        history,
+        piiLedger
+      )
+    }
   })
 
   const templateTagifyService = createTemplateTagifyService({
@@ -784,6 +825,7 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
     ajOrchestrationService,
     templateService,
     generateService,
+    redactionSessionService,
     legalService,
     calendarSyncService,
     fileWatcherService,
@@ -879,6 +921,8 @@ export interface RegisterAllHandlersOptions {
   openExternal: (url: string) => Promise<void>
   openPath: (path: string) => Promise<string>
   stateFilePath: string
+  /** Tesseract language data dir, forwarded to the template PDF→DOCX OCR fallback. */
+  tessDataPath: string
   /** Resolves the active renderer WebContents for AI streaming events. */
   getWebContents: () => WebContentsLike | null | undefined
   /** Brings the main window to the foreground (used on notification click). */
@@ -1220,7 +1264,8 @@ export function registerAllHandlers(opts: RegisterAllHandlersOptions): void {
     templateService: container.templateService,
     tagifyService: container.templateTagifyService,
     showOpenDialog: opts.showOpenDialog,
-    openPath: opts.openPath
+    openPath: opts.openPath,
+    tessDataPath: opts.tessDataPath
   })
 
   registerGenerateHandlers({
@@ -1255,6 +1300,11 @@ export function registerAllHandlers(opts: RegisterAllHandlersOptions): void {
     onModeChanged: (settings) => container.aiLifecycle.applyModeChange(settings),
     aiService: container.aiService,
     getWebContents: () => opts.getWebContents() ?? null
+  })
+
+  registerRedactionHandlers({
+    ipcMain,
+    redactionSessionService: container.redactionSessionService
   })
 
   registerCoworkHandlers({

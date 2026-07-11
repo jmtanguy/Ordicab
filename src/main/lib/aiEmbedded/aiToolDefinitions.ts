@@ -43,6 +43,7 @@ export const STALE_TOOL_NAMES_AFTER_ACTION: Partial<Record<string, string[]>> = 
   contact_update: ['contact_lookup', 'contact_get', 'document_search', 'document_analyze'],
   contact_delete: ['contact_lookup', 'contact_get'],
   document_generate: ['document_list'],
+  document_augment: ['document_list'],
   document_metadata_save: ['document_list', 'document_get'],
   document_metadata_batch: ['document_list', 'document_get'],
   document_summary_batch: ['document_list', 'document_get'],
@@ -304,6 +305,23 @@ export function buildDataTools(
         dossierId: z.string().optional()
       }),
       execute: async (args) => execute('document_get', args as Record<string, unknown>)
+    }),
+    document_load_paragraphs: tool({
+      description:
+        'Extract indexed paragraphs from an existing Word document for augmentation. Returns numbered paragraphs [0] text..., [1] text..., etc. ' +
+        'Read this first to understand the document structure, then use document_augment to apply tracked changes.',
+      inputSchema: z.object({
+        documentUuid: z.string().describe('UUID of the Word document'),
+        dossierId: z.string().optional()
+      }),
+      execute: async (args) => execute('document_load_paragraphs', args as Record<string, unknown>)
+    }),
+    redaction_document_read: tool({
+      description:
+        'Read the CURRENT state of the active drafting session document (rédaction assistée) as numbered paragraphs [0] text..., [1] text... ' +
+        'MUST be called before every redaction_edit — earlier turns may have shifted the paragraph indices.',
+      inputSchema: z.object({}),
+      execute: async (args) => execute('redaction_document_read', args as Record<string, unknown>)
     }),
     dossier_get: tool({
       description:
@@ -831,6 +849,55 @@ export const terminalActionTools = {
             'or quoted in a prior clarification — e.g. `dossier.keyDate.audience.long`, `contact.juridiction.displayName`, `todayLong`. ' +
             'Do NOT invent short keys or marker names; any key not in `macros` is silently dropped.'
         )
+    })
+  }),
+  document_augment: tool({
+    description:
+      'Open an existing Word document in the rédaction assistée workspace with edits marked as tracked changes (revisions). First call document_load_paragraphs to read structure. ' +
+      'Then submit operations (insert_after, insert_before, replace, delete) keyed by paragraph index. ' +
+      'AI NEVER touches content not explicitly targeted. Each operation generates a Word revision with unique ID for accept/reject.',
+    inputSchema: z.object({
+      documentUuid: z.string().describe('UUID of the Word document to augment'),
+      dossierId: z.string().optional(),
+      operations: z.array(
+        z.object({
+          op: z.enum(['insert_after', 'insert_before', 'replace', 'delete']),
+          index: z.number().int().describe('Paragraph index'),
+          text: z.string().optional().describe('Text to insert or replace'),
+          rationale: z.string().optional().describe('Why this change was made'),
+          legalRefs: z.array(z.string()).optional().describe('Legal citations')
+        })
+      )
+    })
+  }),
+  redaction_edit: tool({
+    description:
+      'Apply edits to the document of the ACTIVE drafting session (rédaction assistée) as Word tracked changes. ' +
+      'Call redaction_document_read FIRST on every turn — indices refer to the CURRENT document state, revisions included. ' +
+      'Operations: insert_after/insert_before (anchorIndex + text), replace (index + text), delete (index). ' +
+      'At most one replace/delete per paragraph per turn; keep batches small (≤5 operations) and iterate. ' +
+      'rationale is REQUIRED on every operation (shown to the lawyer next to the revision).',
+    inputSchema: z.object({
+      operations: z
+        .array(
+          z.object({
+            op: z.enum(['insert_after', 'insert_before', 'replace', 'delete']),
+            anchorIndex: z
+              .number()
+              .int()
+              .optional()
+              .describe('Paragraph index anchor for insert_after/insert_before'),
+            index: z.number().int().optional().describe('Paragraph index for replace/delete'),
+            text: z.string().optional().describe('New text for insert/replace'),
+            rationale: z.string().describe('Why this change was made (required)'),
+            legalRefs: z
+              .array(z.string())
+              .optional()
+              .describe('Verified legal citations supporting the change')
+          })
+        )
+        .min(1),
+      summary: z.string().optional().describe('One-sentence summary of the batch, shown in chat')
     })
   }),
   document_metadata_batch: tool({

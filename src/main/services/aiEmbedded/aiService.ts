@@ -46,7 +46,7 @@ import {
   revertWithMappingEntriesWithOptions,
   type MappingSnapshotEntry
 } from '../../lib/aiEmbedded/pii/piiMapping'
-import { AiRuntimeError } from '../../lib/aiEmbedded/aiSdkAgentRuntime'
+import { AiRuntimeError, GLOBAL_CONVERSATION_ID } from '../../lib/aiEmbedded/aiSdkAgentRuntime'
 import type { AiAgentRuntime, AiChatHistoryEntry } from '../../lib/aiEmbedded/aiSdkAgentRuntime'
 import { buildToolSystemPrompt } from '../../lib/aiEmbedded/aiSystemPrompt'
 import type {
@@ -71,6 +71,7 @@ import {
   handleGenericDispatch,
   handleInlineDispatchSummary,
   handleTextGenerate,
+  handleTextGenerateIntoRedaction,
   type IntentHandlerContext
 } from './intentHandlers'
 
@@ -173,8 +174,8 @@ export interface AiService {
     /** Called with each intermediate assistant reasoning step between tool calls. */
     onReflection?: (text: string) => void
   ): Promise<AiCommandResult>
-  cancelCommand(): void
-  resetConversation(): Promise<void>
+  cancelCommand(conversationId?: string): void
+  resetConversation(conversationId?: string): Promise<void>
 }
 
 export interface AiServiceOptions {
@@ -205,6 +206,33 @@ export interface AiServiceOptions {
    * injectable for tests that exercise the pseudonymizer with a mocked model.
    */
   isNerModelReady?: () => Promise<boolean>
+  /**
+   * Active-drafting-session reader backing the redaction_document_read tool.
+   * Wired to redactionSessionService.getIndexedText in the container.
+   */
+  redactionSessionService?: {
+    getIndexedText(
+      dossierId: string,
+      sessionId: string
+    ): Promise<{ paragraphs: Array<{ index: number; text: string }>; previewText: string }>
+  }
+  /**
+   * Resume hook for scoped conversations ('redaction:…'): returns the persisted
+   * runtime history + PII decode ledger of a drafting session so a restarted
+   * app can decode pseudonymized values echoed back by the model.
+   */
+  loadConversationState?: (
+    conversationId: string
+  ) => Promise<{ history: AiChatHistoryEntry[]; piiLedger: MappingSnapshotEntry[] } | null>
+  /**
+   * Persistence hook, called after each committed turn of a scoped
+   * conversation with the up-to-date runtime history and PII ledger.
+   */
+  onConversationCommitted?: (
+    conversationId: string,
+    history: AiChatHistoryEntry[],
+    piiLedger: MappingSnapshotEntry[]
+  ) => void
 }
 
 function formatCurrentDate(locale: string): string {
@@ -363,18 +391,30 @@ export function createAiService(options: AiServiceOptions): AiService {
     (async () =>
       nerModelPath ? isModelPresent(nerModelPath, NER_MODEL).catch(() => false) : false)
 
-  // Keeps prior-turn mappings only for local decoding. It is never passed back
-  // into PiiPseudonymizer, so it cannot seed or alter values sent to the LLM.
-  let piiDecodeLedger: MappingSnapshotEntry[] = []
+  // Keeps prior-turn mappings only for local decoding, one ledger per
+  // conversation. Never passed back into PiiPseudonymizer, so it cannot seed
+  // or alter values sent to the LLM.
+  const piiDecodeLedgers = new Map<string, MappingSnapshotEntry[]>()
+  const ledgerOf = (conversationId: string): MappingSnapshotEntry[] =>
+    piiDecodeLedgers.get(conversationId) ?? []
+  // Conversations whose persisted state was already looked up this run —
+  // avoids re-reading the draft session file on every turn.
+  const seededConversations = new Set<string>()
 
   return {
-    cancelCommand(): void {
-      aiAgentRuntime.cancelCommand()
+    cancelCommand(conversationId?: string): void {
+      aiAgentRuntime.cancelCommand(conversationId)
     },
 
-    async resetConversation(): Promise<void> {
-      piiDecodeLedger = []
-      await aiAgentRuntime.resetConversation()
+    async resetConversation(conversationId?: string): Promise<void> {
+      if (conversationId !== undefined) {
+        piiDecodeLedgers.delete(conversationId)
+        seededConversations.delete(conversationId)
+      } else {
+        piiDecodeLedgers.clear()
+        seededConversations.clear()
+      }
+      await aiAgentRuntime.resetConversation(conversationId)
     },
 
     // ── main command entry point ──────────────────────────────────────────────
@@ -424,6 +464,25 @@ export function createAiService(options: AiServiceOptions): AiService {
               : 'PII protection is enabled but its local model is not installed. Remote AI is paused to avoid sending under-redacted text — install the model, or disable PII protection in Settings.',
             IpcErrorCode.AI_RUNTIME_UNAVAILABLE
           )
+        }
+      }
+
+      // Conversation scope: the global assistant and each drafting session own
+      // independent histories/ledgers in the runtime (see aiSdkAgentRuntime).
+      const conversationId = input.context.conversationId ?? GLOBAL_CONVERSATION_ID
+      if (conversationId !== GLOBAL_CONVERSATION_ID && !seededConversations.has(conversationId)) {
+        seededConversations.add(conversationId)
+        if (
+          options.loadConversationState &&
+          aiAgentRuntime.getConversationHistory(conversationId).length === 0
+        ) {
+          const saved = await options.loadConversationState(conversationId).catch(() => null)
+          if (saved) {
+            aiAgentRuntime.seedConversation(conversationId, saved.history)
+            if (!piiDecodeLedgers.has(conversationId)) {
+              piiDecodeLedgers.set(conversationId, saved.piiLedger)
+            }
+          }
         }
       }
 
@@ -517,7 +576,7 @@ export function createAiService(options: AiServiceOptions): AiService {
             // Conversation ledger first: importPriorEntries is first-entry-wins,
             // so mid-conversation decode stability beats the persisted Cowork
             // mapping, and new conversations adopt the Cowork/persona fakes.
-            priorEntries: [...piiDecodeLedger, ...persistedPiiEntries]
+            priorEntries: [...ledgerOf(conversationId), ...persistedPiiEntries]
           })
         : null
       // Two helpers sharing the same piiPseudo instance (and thus the same mapping):
@@ -535,7 +594,7 @@ export function createAiService(options: AiServiceOptions): AiService {
       // UI can still decode values echoed back from older turns, without
       // feeding those older entries back into the next pseudonymization pass.
       const currentPiiDecodeEntries = (): MappingSnapshotEntry[] =>
-        piiPseudo ? mergePiiDecodeLedger(piiDecodeLedger, piiPseudo.exportMapping()) : []
+        piiPseudo ? mergePiiDecodeLedger(ledgerOf(conversationId), piiPseudo.exportMapping()) : []
       const currentTurnPiiEntries = (): MappingSnapshotEntry[] =>
         piiPseudo ? piiPseudo.exportMapping() : []
       const revertPiiText = (text: string): string =>
@@ -550,7 +609,10 @@ export function createAiService(options: AiServiceOptions): AiService {
           : obj
       const rememberPiiDecodeEntries = (): void => {
         if (piiPseudo) {
-          piiDecodeLedger = mergePiiDecodeLedger(piiDecodeLedger, piiPseudo.exportMapping())
+          piiDecodeLedgers.set(
+            conversationId,
+            mergePiiDecodeLedger(ledgerOf(conversationId), piiPseudo.exportMapping())
+          )
         }
       }
 
@@ -588,6 +650,47 @@ export function createAiService(options: AiServiceOptions): AiService {
           )
         : rawDocumentMentions
 
+      // Drafting scope: bind redaction_document_read (and the inline document
+      // state below) to the active session so the model always works on the
+      // CURRENT folded document state.
+      const redactionSessionId = input.context.redactionSessionId
+      const redactionDossierId = input.context.dossierId
+      const redactionScope =
+        redactionSessionId && redactionDossierId && options.redactionSessionService
+          ? {
+              sessionId: redactionSessionId,
+              getIndexedText: () =>
+                options.redactionSessionService!.getIndexedText(
+                  redactionDossierId,
+                  redactionSessionId
+                )
+            }
+          : undefined
+
+      // Drafting session: inject the CURRENT document state into the prompt so
+      // the model treats it as the subject of the conversation (artifact
+      // pattern) instead of having to discover it through a tool call.
+      const REDACTION_DOCUMENT_PROMPT_CHAR_CAP = 12_000
+      let promptRedactionDocument:
+        | { paragraphCount: number; indexedText: string; truncated: boolean }
+        | undefined
+      if (redactionScope) {
+        try {
+          const { paragraphs, previewText } = await redactionScope.getIndexedText()
+          const truncated = previewText.length > REDACTION_DOCUMENT_PROMPT_CHAR_CAP
+          const rawText = truncated
+            ? `${previewText.slice(0, REDACTION_DOCUMENT_PROMPT_CHAR_CAP)}\n… [document tronqué]`
+            : previewText
+          promptRedactionDocument = {
+            paragraphCount: paragraphs.length,
+            indexedText: await pseudonymizeText(rawText),
+            truncated
+          }
+        } catch (error) {
+          console.warn('[aiService] failed to inline the drafting document state:', error)
+        }
+      }
+
       // SystemPromptContext fed into the tool-mode prompt builder.
       const promptContext = {
         dossierId: activePromptDossierId,
@@ -595,7 +698,9 @@ export function createAiService(options: AiServiceOptions): AiService {
         currentDate,
         locale: appLocale as 'fr' | 'en',
         dossiers: promptDossiers,
-        documentMentions: promptDocumentMentions
+        documentMentions: promptDocumentMentions,
+        redactionSessionId: input.context.redactionSessionId,
+        redactionDocument: promptRedactionDocument
       }
       const toolSystemPrompt = buildToolSystemPrompt(promptContext)
       const safeToolSystemPrompt = toolSystemPrompt
@@ -633,7 +738,8 @@ export function createAiService(options: AiServiceOptions): AiService {
         dossierService,
         invoiceService,
         legalService,
-        entityProfile
+        entityProfile,
+        redactionScope
       })
 
       // ActionToolExecutor handles batchable mutation tools (contact_create/contact_update, contact_delete…).
@@ -681,13 +787,14 @@ export function createAiService(options: AiServiceOptions): AiService {
         toolSystemPrompt: safeToolSystemPrompt,
         model: input.model,
         history: sanitizedHistory,
+        conversationId,
         locale: appLocale as 'fr' | 'en',
         domainPath: domainStatus.registeredDomainPath ?? undefined,
         executeDataTool: toolGateway.executeDataTool,
         executeActionTool: toolGateway.executeActionTool,
         onReflection: wrappedOnReflection
       })
-      logToolLoopEntries(aiAgentRuntime.getLastToolLoopEntries(), revertPiiText)
+      logToolLoopEntries(aiAgentRuntime.getLastToolLoopEntries(conversationId), revertPiiText)
       const intentDebugTrace = aiAgentRuntime.getDebugTrace() ?? undefined
 
       // Revert any anonymized values the LLM echoed back in the intent fields,
@@ -710,10 +817,22 @@ export function createAiService(options: AiServiceOptions): AiService {
       // decode anonymized values echoed back from the LLM.
       const commitIntentToHistory = (feedback: string, intentType: string): void => {
         aiAgentRuntime.appendHistory(
-          buildHistoryEntries(sanitizedCommand, feedback, aiAgentRuntime.getLastToolLoopEntries()),
-          intentType
+          buildHistoryEntries(
+            sanitizedCommand,
+            feedback,
+            aiAgentRuntime.getLastToolLoopEntries(conversationId)
+          ),
+          intentType,
+          conversationId
         )
         rememberPiiDecodeEntries()
+        if (conversationId !== GLOBAL_CONVERSATION_ID) {
+          options.onConversationCommitted?.(
+            conversationId,
+            aiAgentRuntime.getConversationHistory(conversationId),
+            ledgerOf(conversationId)
+          )
+        }
       }
       const ctx: IntentHandlerContext = {
         aiAgentRuntime,
@@ -748,6 +867,11 @@ export function createAiService(options: AiServiceOptions): AiService {
 
       switch (revertedIntent.type) {
         case 'text_generate':
+          // Drafting session: generated content goes INTO the document as
+          // tracked insertions, never into the chat.
+          if (redactionScope) {
+            return handleTextGenerateIntoRedaction(ctx, revertedIntent, redactionScope)
+          }
           return handleTextGenerate(ctx, revertedIntent)
         case 'dossier_summarize':
           return handleDossierSummarize(ctx, revertedIntent)

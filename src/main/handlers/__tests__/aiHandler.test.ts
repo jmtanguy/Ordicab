@@ -344,8 +344,14 @@ describe('aiHandler', () => {
         feedback: 'Réponse finale'
       }
     })
-    expect(send).toHaveBeenCalledWith(IPC_CHANNELS.ai.reflection, 'step intermédiaire')
-    expect(send).toHaveBeenCalledWith(IPC_CHANNELS.ai.textToken, 'token')
+    expect(send).toHaveBeenCalledWith(IPC_CHANNELS.ai.reflection, {
+      text: 'step intermédiaire',
+      conversationId: undefined
+    })
+    expect(send).toHaveBeenCalledWith(IPC_CHANNELS.ai.textToken, {
+      text: 'token',
+      conversationId: undefined
+    })
     expect(aiService.executeCommand).toHaveBeenCalledWith(
       {
         command: 'Bonjour',
@@ -397,7 +403,10 @@ describe('aiHandler', () => {
       { sender: { send: senderSend } }
     )
 
-    expect(senderSend).toHaveBeenCalledWith(IPC_CHANNELS.ai.reflection, 'step via sender')
+    expect(senderSend).toHaveBeenCalledWith(IPC_CHANNELS.ai.reflection, {
+      text: 'step via sender',
+      conversationId: undefined
+    })
     expect(fallbackSend).not.toHaveBeenCalled()
   })
 })

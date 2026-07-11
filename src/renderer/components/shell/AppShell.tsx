@@ -118,6 +118,17 @@ export default function AppShell(): React.JSX.Element {
   const getEulaStatus = useUiStore((state) => state.getEulaStatus)
   const acceptEula = useUiStore((state) => state.acceptEula)
   const subscribeToOrdicabDataChanged = useUiStore((state) => state.subscribeToOrdicabDataChanged)
+  // Cross-feature navigation (e.g. AI chat → rédaction assistée after
+  // document_augment). Requests are always emitted after the shell mounted,
+  // so a store subscription is sufficient (no initial-value replay).
+  useEffect(() => {
+    return useUiStore.subscribe((state) => {
+      const pending = state.pendingSectionNavigation
+      if (!pending) return
+      setActiveSection(pending as DossierSection)
+      useUiStore.getState().clearPendingSectionNavigation()
+    })
+  }, [])
   const subscribeToNotificationClicked = useReminderStore(
     (state) => state.subscribeToNotificationClicked
   )
@@ -746,7 +757,7 @@ export default function AppShell(): React.JSX.Element {
                 activeDashboardPanel={activeDashboardPanel}
                 activeDossierId={activeDossierId}
                 activeSection={activeSection}
-                onChangeSection={setActiveSection}
+                onChangeSection={(section: DossierSection) => setActiveSection(section)}
                 status={domainSnapshot}
                 isLoading={domainLoading}
                 isDossierDetailLoading={dossierDetailLoading}

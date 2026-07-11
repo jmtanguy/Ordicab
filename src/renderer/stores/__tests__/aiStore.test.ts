@@ -372,10 +372,11 @@ describe('aiStore', () => {
   })
 
   it('stores reflection events as deduplicated ephemeral messages', () => {
-    let reflectionListener: ((text: string) => void) | null = null
+    type ReflectionEvent = { text: string; conversationId?: string }
+    let reflectionListener: ((event: ReflectionEvent) => void) | null = null
     ;(globalThis as MutableGlobal).ordicabAPI = {
       ai: {
-        onReflection: vi.fn((listener: (text: string) => void) => {
+        onReflection: vi.fn((listener: (event: ReflectionEvent) => void) => {
           reflectionListener = listener
           return () => {
             reflectionListener = null
@@ -386,15 +387,17 @@ describe('aiStore', () => {
 
     const unsubscribe = useAiStore.getState().subscribeToReflections()
     expect(reflectionListener).toBeTruthy()
-    const emitReflection = (text: string): void => {
+    const emitReflection = (text: string, conversationId?: string): void => {
       if (!reflectionListener) {
         throw new Error('Expected onReflection listener to be registered')
       }
-      reflectionListener(text)
+      reflectionListener({ text, conversationId })
     }
     emitReflection('  étape 1  ')
     emitReflection('étape 1')
     emitReflection('étape 2')
+    // Scoped drafting-session reflections never reach the global chat
+    emitReflection('étape rédaction', 'redaction:dossier-1:abc12345')
 
     expect(useAiStore.getState().reflections).toEqual([
       { id: expect.any(String), text: 'étape 1' },

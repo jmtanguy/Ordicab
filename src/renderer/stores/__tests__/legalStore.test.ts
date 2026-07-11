@@ -373,7 +373,11 @@ describe('legalStore checkConnection', () => {
   it('surfaces an unreachable result returned by the service', async () => {
     const connectionStatus = vi.fn(async () => ({
       success: true as const,
-      data: { reachable: false, tokenObtained: false, error: 'PISTE credentials are not configured.' }
+      data: {
+        reachable: false,
+        tokenObtained: false,
+        error: 'PISTE credentials are not configured.'
+      }
     }))
     ;(globalThis as MutableGlobal).ordicabAPI = {
       legalSearch: { connectionStatus }
@@ -389,7 +393,12 @@ describe('legalStore checkConnection', () => {
   it('marks the connection connected when reachable', async () => {
     const connectionStatus = vi.fn(async () => ({
       success: true as const,
-      data: { reachable: true, tokenObtained: true, legifranceReachable: true, judilibreReachable: true }
+      data: {
+        reachable: true,
+        tokenObtained: true,
+        legifranceReachable: true,
+        judilibreReachable: true
+      }
     }))
     ;(globalThis as MutableGlobal).ordicabAPI = {
       legalSearch: { connectionStatus }

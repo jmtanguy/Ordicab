@@ -325,8 +325,7 @@ export const useLegalStore = create<LegalStore>()(
         set((state) => {
           state.connectionStatus = 'unreachable'
           state.connection = null
-          state.connectionError =
-            error instanceof Error ? error.message : 'PISTE is unreachable.'
+          state.connectionError = error instanceof Error ? error.message : 'PISTE is unreachable.'
         })
       }
     },

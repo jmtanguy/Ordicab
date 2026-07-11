@@ -8,7 +8,11 @@ import {
   isValidTagPath,
   normalizeTagPath
 } from '@shared/templateContent'
-import { buildTagPathLocalizer, templateRoutineCatalog } from '@shared/templateRoutines'
+import {
+  buildTagPathLocalizer,
+  resolveTagDescriptions,
+  templateRoutineCatalog
+} from '@shared/templateRoutines'
 import { Button, DialogShell } from '@renderer/components/ui'
 import { useTemplateStore } from '@renderer/stores'
 
@@ -22,7 +26,10 @@ interface TagifyReviewDialogProps {
 
 interface ReviewItem extends TemplateTagifyProposal {
   accepted: boolean
-  /** User-editable tag path (canonical form). */
+  /**
+   * User-editable tag path, shown in the active locale (French aliases in FR).
+   * normalizeTagPath() maps it back to the canonical form before apply.
+   */
   tagPath: string
 }
 
@@ -56,15 +63,24 @@ export function TagifyReviewDialog({
     [i18n.language]
   )
   const knownTagIndex = useMemo(() => buildKnownTagIndex(templateRoutineCatalog), [])
+  const describeTag = useMemo(() => {
+    // resolveTagDescriptions is FR-curated; for EN keep the localized path hint.
+    const isFr = i18n.language.startsWith('fr')
+    return (path: string): string => {
+      const normalized = normalizeTagPath(extractTagPath(path))
+      if (!isFr) return localizeTagPath(normalized)
+      return resolveTagDescriptions([normalized])[normalized] ?? localizeTagPath(normalized)
+    }
+  }, [i18n.language, localizeTagPath])
   const catalogPaths = useMemo(
     () => [
       ...new Set(
         templateRoutineCatalog
           .filter((entry) => entry.visibility !== 'hidden')
-          .map((entry) => normalizeTagPath(extractTagPath(entry.tag)))
+          .map((entry) => localizeTagPath(normalizeTagPath(extractTagPath(entry.tag))))
       )
     ],
-    []
+    [localizeTagPath]
   )
 
   async function startAnalysis(): Promise<void> {
@@ -78,7 +94,8 @@ export function TagifyReviewDialog({
       step: 'review',
       items: result.data.proposals.map((proposal) => ({
         ...proposal,
-        tagPath: proposal.suggestedTag,
+        // Show the tag in the active locale; the model returns canonical paths.
+        tagPath: localizeTagPath(proposal.suggestedTag),
         accepted: proposal.confidence !== 'low'
       }))
     })
@@ -117,7 +134,12 @@ export function TagifyReviewDialog({
   }
 
   return (
-    <DialogShell size="xl" aria-label={t('templates.tagify.title')} onDismiss={onClose}>
+    <DialogShell
+      size="xl"
+      className="z-50"
+      aria-label={t('templates.tagify.title')}
+      onDismiss={onClose}
+    >
       <div className="flex min-h-0 flex-1 flex-col gap-4">
         <div className="space-y-1">
           <h3 className="text-base font-semibold text-ink">{t('templates.tagify.title')}</h3>
@@ -202,7 +224,7 @@ export function TagifyReviewDialog({
                       }`}
                     />
                     <span className="mt-0.5 truncate text-[11px] text-ink-muted">
-                      {localizeTagPath(normalizeTagPath(extractTagPath(item.tagPath)))}
+                      {describeTag(item.tagPath)}
                     </span>
                   </div>
                 </li>

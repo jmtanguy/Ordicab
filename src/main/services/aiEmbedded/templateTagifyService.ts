@@ -55,7 +55,38 @@ const modelProposalSchema = z.object({
   confidence: z.enum(['high', 'medium', 'low']).catch('medium')
 })
 
-const modelOutputSchema = z.array(modelProposalSchema)
+// Models vary the field names (and casing) they use for the proposal object.
+// Map the common variants back to our canonical keys before validation.
+const PROPOSAL_KEY_ALIASES: Record<string, keyof z.infer<typeof modelProposalSchema>> = {
+  originaltext: 'originalText',
+  original: 'originalText',
+  text: 'originalText',
+  value: 'originalText',
+  source: 'originalText',
+  match: 'originalText',
+  suggestedtag: 'suggestedTag',
+  suggestion: 'suggestedTag',
+  tag: 'suggestedTag',
+  tagpath: 'suggestedTag',
+  path: 'suggestedTag',
+  confidence: 'confidence',
+  confidencelevel: 'confidence'
+}
+
+function normalizeProposalKeys(value: unknown): unknown {
+  if (!Array.isArray(value)) return value
+  return value.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry
+    const out: Record<string, unknown> = {}
+    for (const [key, val] of Object.entries(entry as Record<string, unknown>)) {
+      const canonical = PROPOSAL_KEY_ALIASES[key.toLowerCase().replace(/[\s_-]/g, '')]
+      out[canonical ?? key] = val
+    }
+    return out
+  })
+}
+
+const modelOutputSchema = z.preprocess(normalizeProposalKeys, z.array(modelProposalSchema))
 
 export class TemplateTagifyError extends Error {
   constructor(
@@ -106,6 +137,24 @@ function htmlToPlainText(html: string): string {
   })
 }
 
+/**
+ * Return the exact source substring to hand to the replacement engine. Models
+ * frequently normalize non-breaking spaces or line whitespace; accepting that
+ * harmless normalization here makes the proposal actionable without falling
+ * back to fuzzy, potentially unsafe replacements.
+ */
+function resolveVerbatimSourceText(documentText: string, candidate: string): string | null {
+  if (documentText.includes(candidate)) return candidate
+
+  const normalized = candidate.trim().replace(/[\s\u00a0]+/g, ' ')
+  if (!normalized) return null
+  const pattern = normalized
+    .split(' ')
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('[\\s\\u00a0]+')
+  return documentText.match(new RegExp(pattern))?.[0] ?? null
+}
+
 function buildCatalogPromptSection(locale: string): string {
   const isFrench = locale.startsWith('fr')
   const lines = templateRoutineCatalog
@@ -144,21 +193,76 @@ function buildSystemPrompt(locale: string): string {
   ].join('\n')
 }
 
+function stripCodeFences(text: string): string {
+  // ```json\n[...]\n``` or ```\n[...]\n``` — keep only the fenced body.
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  return fenced?.[1]?.trim() ?? text
+}
+
+/**
+ * From `text[startIdx] === '['`, return the substring up to the matching `]`,
+ * tracking string literals so brackets inside JSON strings do not unbalance
+ * the scan. Returns null if no balanced close is found.
+ */
+function balancedArraySlice(text: string, startIdx: number): string | null {
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = startIdx; i < text.length; i += 1) {
+    const ch = text[i]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') inString = true
+    else if (ch === '[') depth += 1
+    else if (ch === ']') {
+      depth -= 1
+      if (depth === 0) return text.slice(startIdx, i + 1)
+    }
+  }
+  return null
+}
+
+/**
+ * Robustly pull the proposal array out of a model response. Models wrap the
+ * JSON in prose, markdown fences, citations like "[1]", or trailing commentary;
+ * a naive first-'['/last-']' slice then captures invalid JSON. We instead scan
+ * every '[' and return the first balanced array that parses and actually holds
+ * objects, tolerating trailing commas. Falls back to an empty/primitive array
+ * if that is all the model produced.
+ */
 function extractJsonArray(raw: string): unknown {
-  const cleaned = stripReasoningBlocks(raw).trim()
-  const start = cleaned.indexOf('[')
-  const end = cleaned.lastIndexOf(']')
-  if (start < 0 || end <= start) {
-    throw new TemplateTagifyError(
-      IpcErrorCode.UNKNOWN,
-      'The AI response did not contain a JSON array.'
-    )
+  const cleaned = stripCodeFences(stripReasoningBlocks(raw).trim())
+  let primitiveFallback: unknown[] | null = null
+
+  for (let i = cleaned.indexOf('['); i >= 0; i = cleaned.indexOf('[', i + 1)) {
+    const slice = balancedArraySlice(cleaned, i)
+    if (!slice) continue
+    for (const candidate of [slice, slice.replace(/,\s*([\]}])/g, '$1')]) {
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(candidate)
+      } catch {
+        continue
+      }
+      if (!Array.isArray(parsed)) continue
+      // Prefer the array that looks like proposals (objects), not "[1]" citations.
+      if (parsed.some((entry) => entry !== null && typeof entry === 'object')) return parsed
+      primitiveFallback ??= parsed
+      break
+    }
   }
-  try {
-    return JSON.parse(cleaned.slice(start, end + 1))
-  } catch {
-    throw new TemplateTagifyError(IpcErrorCode.UNKNOWN, 'The AI response is not valid JSON.')
-  }
+
+  if (primitiveFallback !== null) return primitiveFallback
+
+  // Nothing parsed — log the PII-free pseudonymized output to aid diagnosis.
+  console.error(
+    `[tagify] Unparseable model output (${cleaned.length} chars):\n${cleaned.slice(0, 2000)}`
+  )
+  throw new TemplateTagifyError(IpcErrorCode.UNKNOWN, 'The AI response is not valid JSON.')
 }
 
 function countOccurrences(haystack: string, needle: string): number {
@@ -279,41 +383,58 @@ export function createTemplateTagifyService(
       const safeSystem = await pseudonymize(buildSystemPrompt(locale))
       const safeUser = await pseudonymize(documentText)
       const raw = await aiAgentRuntime.generateOneShot(safeUser, safeSystem)
-      const reverted = revert(raw)
 
-      const parsed = modelOutputSchema.safeParse(extractJsonArray(reverted))
+      // Parse the pseudonymized output first: pseudonyms are JSON-safe tokens,
+      // so the structure is intact. Reverting the whole string before parsing
+      // would re-inject real values that may contain quotes, backslashes, or
+      // newlines and corrupt the JSON. We revert each field after parsing.
+      const extracted = extractJsonArray(raw)
+      const parsed = modelOutputSchema.safeParse(extracted)
       if (!parsed.success) {
+        // Output is valid JSON but the wrong shape. Log the PII-free extracted
+        // value and the validation issues to pin down what the model returned.
+        console.error(
+          `[tagify] Proposal shape mismatch.\nExtracted: ${JSON.stringify(extracted).slice(0, 2000)}\nIssues: ${JSON.stringify(parsed.error.issues).slice(0, 1000)}`
+        )
         throw new TemplateTagifyError(
           IpcErrorCode.UNKNOWN,
           'The AI response did not match the expected proposal format.'
         )
       }
 
-      const proposals: TemplateTagifyProposal[] = []
-      const seen = new Set<string>()
+      const proposalsBySourceText = new Map<string, TemplateTagifyProposal>()
+      const confidenceRank = { high: 0, medium: 1, low: 2 } as const
       for (const candidate of parsed.data) {
-        const originalText = candidate.originalText.trim()
-        if (originalText.length < 3) continue
+        const proposedText = revert(candidate.originalText).trim()
+        if (proposedText.length < 3) continue
+        const originalText = resolveVerbatimSourceText(documentText, proposedText)
+        if (!originalText || originalText.trim().length < 3) continue
 
-        const suggestedTag = normalizeTagPath(extractTagPath(candidate.suggestedTag))
+        const suggestedTag = normalizeTagPath(extractTagPath(revert(candidate.suggestedTag)))
         if (!isValidTagPath(suggestedTag, knownTagIndex)) continue
 
         const occurrences = countOccurrences(documentText, originalText)
         if (occurrences === 0) continue
 
-        const key = `${originalText} ${suggestedTag}`
-        if (seen.has(key)) continue
-        seen.add(key)
-
-        proposals.push({
+        const proposal: TemplateTagifyProposal = {
           originalText,
           suggestedTag,
           confidence: candidate.confidence,
           occurrences
-        })
+        }
+        // A literal can only become one routine. Keep the most confident
+        // proposal, rather than presenting contradictory replacements that
+        // would make the eventual replacement order ambiguous.
+        const existing = proposalsBySourceText.get(originalText)
+        if (
+          !existing ||
+          confidenceRank[proposal.confidence] < confidenceRank[existing.confidence]
+        ) {
+          proposalsBySourceText.set(originalText, proposal)
+        }
       }
 
-      const confidenceRank = { high: 0, medium: 1, low: 2 } as const
+      const proposals = [...proposalsBySourceText.values()]
       proposals.sort((a, b) => confidenceRank[a.confidence] - confidenceRank[b.confidence])
 
       return { proposals }

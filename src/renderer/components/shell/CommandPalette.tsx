@@ -95,6 +95,10 @@ function CommandPaletteContent(props: CommandPaletteProps): React.JSX.Element {
         label: t('legal_search.verify_nav_label', { defaultValue: 'Vérification Droit' })
       },
       { id: 'ai-assistant', label: t('dossiers.ai_assistant_nav_label') },
+      {
+        id: 'redaction',
+        label: t('redaction.nav_label', { defaultValue: 'Rédaction assistée' })
+      },
       { id: 'cowork', label: t('cowork.nav_label', { defaultValue: 'Claude Cowork' }) }
     ]
   }, [hasActiveDossier, t])

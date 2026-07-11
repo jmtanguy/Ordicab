@@ -147,6 +147,92 @@ export async function handleTextGenerate(
   }
 }
 
+// ── text_generate inside a drafting session → insert into the document ───────
+
+/**
+ * Safety net for the rédaction assistée page: when the model picks the
+ * text_generate intent (a letter, a paragraph…) while a drafting session is
+ * active, the produced text must land IN THE DOCUMENT as tracked insertions —
+ * never in the chat. Generates the text (no token streaming: the result is
+ * visible in the docx preview), splits it into paragraphs and dispatches a
+ * synthesized redaction_edit appended at the end of the current document.
+ */
+export async function handleTextGenerateIntoRedaction(
+  ctx: IntentHandlerContext,
+  intent: TextGenerateIntent,
+  redaction: {
+    sessionId: string
+    getIndexedText(): Promise<{
+      paragraphs: Array<{ index: number; text: string }>
+      previewText: string
+    }>
+  }
+): Promise<AiCommandResult> {
+  const { prompt, systemPrompt: textSystemPrompt } = await buildTextGenerationPrompt(
+    intent,
+    ctx.dossierId ?? undefined,
+    ctx.textGenerationContacts,
+    ctx.dossierDetail,
+    ctx.documents,
+    ctx.dataToolExecutor.history
+  )
+  const safePrompt = await ctx.pseudonymizeText(prompt)
+  const safeTextSystemPrompt = await ctx.pseudonymizeText(textSystemPrompt)
+
+  // No onToken: the text goes into the document, not the chat stream.
+  const generatedText = await ctx.aiAgentRuntime.streamText(safePrompt, safeTextSystemPrompt)
+  // The document must contain real values — revert any pseudonymized ones.
+  const cleanText = ctx.revertPiiText(generatedText.trim())
+
+  const lines = cleanText
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  const { paragraphs } = await redaction.getIndexedText()
+  const anchorIndex = Math.max(0, paragraphs.length - 1)
+
+  if (lines.length === 0) {
+    const feedback =
+      ctx.appLocale === 'en'
+        ? 'The generation produced no text.'
+        : 'La génération n’a produit aucun texte.'
+    ctx.commitIntentToHistory(feedback, intent.type)
+    return { intent, feedback, debugContext: ctx.intentDebugTrace }
+  }
+
+  // Reading order is preserved by the engine for equal-anchor insertions.
+  const operations = lines.map((text) => ({
+    op: 'insert_after' as const,
+    anchorIndex,
+    text,
+    rationale: ctx.appLocale === 'en' ? 'Generated content inserted' : 'Contenu généré et inséré'
+  }))
+
+  const dispatchResult = await ctx.intentDispatcher.dispatch(
+    {
+      type: 'redaction_edit',
+      operations
+    } as InternalAiCommand,
+    ctx.inputContext
+  )
+
+  const feedback =
+    ctx.appLocale === 'en'
+      ? `Text drafted and inserted into the document (${lines.length} paragraph(s)) — review the revisions in the preview.`
+      : `Texte rédigé et inséré dans le document (${lines.length} paragraphe(s)) — révisions à valider dans l’aperçu.`
+  ctx.commitIntentToHistory(
+    `${feedback}\n[texte inséré]\n${generatedText.trim()}`,
+    'redaction_edit'
+  )
+  return {
+    ...dispatchResult,
+    intent,
+    feedback,
+    debugContext: ctx.intentDebugTrace
+  }
+}
+
 // ── dossier_summarize (executive dossier synthesis, second LLM call) ─────────
 
 export async function handleDossierSummarize(

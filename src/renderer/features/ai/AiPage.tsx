@@ -24,6 +24,7 @@ import { useUiStore } from '@renderer/stores/uiStore'
 import { useToast } from '@renderer/contexts/ToastContext'
 import { getRemoteToolModelDetails, inferRemoteProviderKind } from '@shared/ai/remoteProviders'
 import { AiDialog } from '../settings/AiSettings'
+import { useRedactionStore } from '@renderer/stores/redactionStore'
 
 const CLOUD_MANAGED_MODES = ['claude-code'] as const
 
@@ -888,6 +889,7 @@ export function AiPage({ dossierId }: AiPageProps): React.JSX.Element {
   const resetConversation = useAiStore((s) => s.resetConversation)
   const settings = useAiStore((s) => s.settings)
   const saveSettings = useAiStore((s) => s.saveSettings)
+  const lastContext = useAiStore((s) => s.lastContext)
 
   const openFolder = useUiStore((state) => state.openFolder)
   const { showToast } = useToast()
@@ -911,6 +913,9 @@ export function AiPage({ dossierId }: AiPageProps): React.JSX.Element {
   const [showModelInfo, setShowModelInfo] = useState(false)
   const [mention, setMention] = useState<{ start: number; query: string } | null>(null)
   const [mentionIndex, setMentionIndex] = useState(0)
+  const setPendingOpenRedactionSession = useRedactionStore((state) => state.setPendingOpenSessionId)
+  const requestSectionNavigation = useUiStore((state) => state.requestSectionNavigation)
+  const handledRedactionSessionRef = useRef<string | null>(null)
   // Mentions inserted via the popup. We keep the UUID/filename pair here so the
   // mention survives even when the text-based parser cannot recover the
   // filename (PII pseudonymization, manual edits, unusual chars). Cleared on
@@ -965,6 +970,27 @@ export function AiPage({ dossierId }: AiPageProps): React.JSX.Element {
       textareaRef.current?.focus()
     }
   }, [commandLoading])
+
+  // document_augment created a drafting session → open the rédaction assistée page on it.
+  useEffect(() => {
+    const sessionId = lastContext?.redactionSessionId
+    if (!sessionId || handledRedactionSessionRef.current === sessionId) return
+    handledRedactionSessionRef.current = sessionId
+    setPendingOpenRedactionSession(sessionId)
+    requestSectionNavigation('redaction')
+    showToast(
+      t('redaction.opened_from_chat', {
+        defaultValue: 'Document ouvert en rédaction assistée — révisions à valider'
+      }),
+      'success'
+    )
+  }, [
+    lastContext?.redactionSessionId,
+    setPendingOpenRedactionSession,
+    requestSectionNavigation,
+    showToast,
+    t
+  ])
 
   // The assistant page only hosts the embedded (remote API) assistant. The
   // Claude Cowork prompt reference lives in the dedicated Cowork section; a

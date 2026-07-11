@@ -121,6 +121,94 @@ describe('templateTagifyService.analyze', () => {
     expect(result.proposals[0]?.suggestedTag).toBe('contact.displayName')
   })
 
+  it('keeps only the most confident routine when the AI maps one literal twice', async () => {
+    const { service } = await createFixture({
+      template: createTemplate(),
+      html: '<p>Cher Jean Dupont.</p>',
+      modelResponse: JSON.stringify([
+        { originalText: 'Jean Dupont', suggestedTag: 'contact.displayName', confidence: 'medium' },
+        {
+          originalText: 'Jean Dupont',
+          suggestedTag: 'contact.client.displayName',
+          confidence: 'high'
+        }
+      ])
+    })
+
+    const result = await service.analyze({ templateUuid: 'tpl-1' })
+    expect(result.proposals).toEqual([
+      {
+        originalText: 'Jean Dupont',
+        suggestedTag: 'contact.client.displayName',
+        confidence: 'high',
+        occurrences: 1
+      }
+    ])
+  })
+
+  it('keeps the exact source text when the AI normalizes non-breaking spaces', async () => {
+    const { service } = await createFixture({
+      template: createTemplate(),
+      html: '<p>Cher Jean&nbsp;Dupont.</p>',
+      modelResponse: JSON.stringify([
+        {
+          originalText: 'Jean Dupont',
+          suggestedTag: 'contact.client.displayName',
+          confidence: 'high'
+        }
+      ])
+    })
+
+    const result = await service.analyze({ templateUuid: 'tpl-1' })
+    expect(result.proposals[0]?.originalText.replace(/\s/g, ' ')).toBe('Jean Dupont')
+    expect(result.proposals[0]).toMatchObject({
+      suggestedTag: 'contact.client.displayName',
+      occurrences: 1
+    })
+  })
+
+  it('tolerates trailing commas and markdown code fences in the model output', async () => {
+    const { service } = await createFixture({
+      template: createTemplate(),
+      html: '<p>Cher Jean Dupont.</p>',
+      modelResponse:
+        '```json\n[\n  { "originalText": "Jean Dupont", "suggestedTag": "contact.client.displayName", "confidence": "high" },\n]\n```'
+    })
+
+    const result = await service.analyze({ templateUuid: 'tpl-1' })
+    expect(result.proposals[0]?.originalText).toBe('Jean Dupont')
+  })
+
+  it('extracts the proposal array from prose with stray brackets around it', async () => {
+    const { service } = await createFixture({
+      template: createTemplate(),
+      html: '<p>Cher Jean Dupont.</p>',
+      modelResponse:
+        'Voici les valeurs détectées [voir ci-dessous] :\n' +
+        '[ { "originalText": "Jean Dupont", "suggestedTag": "contact.client.displayName", "confidence": "high" } ]\n' +
+        'Ces propositions [1] sont à valider.'
+    })
+
+    const result = await service.analyze({ templateUuid: 'tpl-1' })
+    expect(result.proposals[0]?.originalText).toBe('Jean Dupont')
+  })
+
+  it('accepts common field-name variants from the model', async () => {
+    const { service } = await createFixture({
+      template: createTemplate(),
+      html: '<p>Cher Jean Dupont.</p>',
+      modelResponse: JSON.stringify({
+        proposals: [{ text: 'Jean Dupont', tag: 'contact.client.displayName', confidence: 'high' }]
+      })
+    })
+
+    const result = await service.analyze({ templateUuid: 'tpl-1' })
+    expect(result.proposals[0]).toMatchObject({
+      originalText: 'Jean Dupont',
+      suggestedTag: 'contact.client.displayName'
+    })
+  })
+
   it('throws AI_RUNTIME_UNAVAILABLE when no remote model is configured', async () => {
     const { service } = await createFixture({
       template: createTemplate(),

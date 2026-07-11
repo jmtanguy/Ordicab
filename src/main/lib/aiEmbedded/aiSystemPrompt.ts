@@ -46,6 +46,21 @@ export interface SystemPromptContext {
    * already pseudonymized to match the form seen in the sanitized command.
    */
   documentMentions?: Array<{ uuid: string; filename: string }>
+  /**
+   * Active drafting session (rédaction assistée page). Switches the assistant
+   * into legal-drafting mode: redaction_document_read + redaction_edit.
+   */
+  redactionSessionId?: string
+  /**
+   * Current state of the drafting document, injected on every turn so the
+   * model never has to guess (or ask) which document the user means. The
+   * indexed text is already pseudonymized when PII protection is on.
+   */
+  redactionDocument?: {
+    paragraphCount: number
+    indexedText: string
+    truncated: boolean
+  }
 }
 
 function buildPiiInstructionBlock(): string {
@@ -158,6 +173,14 @@ export function buildToolSystemPrompt(context: SystemPromptContext): string {
       'Call `entity_get` BEFORE generating so the cabinet letterhead is filled from the entity profile (see ## Professional entity / Cabinet). ' +
       'Manage templates with `template_create`/`template_update`/`template_delete` using IDs from `template_list`.'
   )
+  parts.push(
+    'To augment an EXISTING Word document (not a template) with new arguments or edits: ' +
+      '(1) `document_load_paragraphs` to read its paragraph structure (returns numbered [0] text…, [1] text…); ' +
+      '(2) verify any legal citations via `legal_search_legifrance`/`legal_verify_references` (see ## French legal research); ' +
+      '(3) `document_augment` with operations (insert_after/insert_before/replace/delete) keyed by paragraph index — the AI NEVER modifies content not explicitly targeted. ' +
+      'Each operation is marked with Word tracked changes (`<w:ins>`/`<w:del>`) the lawyer can accept or reject. ' +
+      'This opens a drafting session in the « Rédaction assistée » page; the original file is only replaced when the user saves there.'
+  )
 
   parts.push('')
   parts.push('## Dossier synthesis')
@@ -263,6 +286,56 @@ export function buildToolSystemPrompt(context: SystemPromptContext): string {
     )
     for (const mention of context.documentMentions) {
       parts.push(`- "@${mention.filename}" → documentUuid: "${mention.uuid}"`)
+    }
+  }
+
+  if (context.redactionSessionId) {
+    parts.push('')
+    parts.push('## Rédaction assistée — active drafting session')
+    parts.push(
+      'You are assisting a French lawyer drafting a legal document (conclusions, courrier, relance, information…) in the rédaction assistée workspace. ' +
+        'The document is a Word file whose edits are applied as native tracked revisions the lawyer accepts or rejects.'
+    )
+    parts.push('Workflow rules for this session:')
+    parts.push(
+      '1. THE DOCUMENT IS THE SUBJECT of every user message. « l’entête », « ce paragraphe », « la lettre », « le document » refer to the current document shown below — NEVER ask which document or file is meant, never suggest @file mentions or templates.'
+    )
+    parts.push(
+      '2. ALL produced content goes INTO THE DOCUMENT through `redaction_edit` — never into the chat. ' +
+        'This includes drafting a whole letter, courrier, conclusions or any full text: write it as `insert_after` operations (one per paragraph, in reading order). ' +
+        'NEVER use `text_generate` or `document_generate` in this session, and never paste document content in your reply — answer only with a short summary of what you changed and why.'
+    )
+    parts.push(
+      '3. ACT, do not ask. For a vague instruction (« formate l’entête », « améliore l’intro »), apply the most reasonable interpretation with `redaction_edit` — the lawyer reviews every change via accept/reject, so a decent attempt beats a clarification question. Use `clarification_request` only when the request is truly impossible to interpret.'
+    )
+    parts.push(
+      '4. Keep edit batches small (≤5 operations, one replace/delete per paragraph) and iterate turn by turn — EXCEPT when drafting a full document (letter, courrier), where all paragraphs may be inserted in one `redaction_edit` call. Every operation MUST carry a `rationale` in French.'
+    )
+    parts.push(
+      '5. For any legal citation (article de code, jurisprudence), verify it first with the `legal_*` tools (legal_search_legifrance / legal_search_judilibre / legal_verify_references) and put the reference in `legalRefs`.'
+    )
+    parts.push(
+      '6. Ground the drafting in the dossier data (contact_lookup, dossier_get, document_search, note_search…) instead of inventing facts, parties or dates. French legal register; amounts use comma decimals (900,00 €).'
+    )
+    parts.push(
+      '7. If the user asks a question without requesting changes, answer in chat without calling redaction_edit.'
+    )
+
+    if (context.redactionDocument) {
+      parts.push('')
+      parts.push('## Current document (state at the start of this turn)')
+      parts.push(
+        `${context.redactionDocument.paragraphCount} paragraphs, indexed [0]…[${Math.max(0, context.redactionDocument.paragraphCount - 1)}]. ` +
+          'Operation indices refer to THIS state. After applying a `redaction_edit` in this turn, call `redaction_document_read` before editing again (indices shift).' +
+          (context.redactionDocument.truncated
+            ? ' The text below is TRUNCATED — call `redaction_document_read` to read the full document before editing beyond it.'
+            : '')
+      )
+      parts.push(context.redactionDocument.indexedText)
+    } else {
+      parts.push(
+        'Call `redaction_document_read` to read the current document before proposing edits.'
+      )
     }
   }
 

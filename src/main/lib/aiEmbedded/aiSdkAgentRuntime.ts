@@ -50,6 +50,12 @@ interface AiAgentRuntimePayload {
   toolSystemPrompt?: string
   model?: string
   history?: AiChatHistoryEntry[]
+  /**
+   * Conversation scope. Each id owns an independent rolling history, tool-loop
+   * transcript and abort controller — the global assistant ('global', the
+   * default) and each drafting session ('redaction:…') never interfere.
+   */
+  conversationId?: string
   domainPath?: string
   executeDataTool?: (toolName: string, args: Record<string, unknown>) => Promise<string>
   executeActionTool?: (toolName: string, args: Record<string, unknown>) => Promise<string>
@@ -68,10 +74,20 @@ export interface AiAgentRuntimeOptions {
 export interface AiAgentRuntime {
   sendCommand(payload: AiAgentRuntimePayload): Promise<InternalAiCommand>
   getDebugTrace(): string | null
-  getLastToolLoopEntries(): AiChatHistoryEntry[]
-  cancelCommand(): void
-  appendHistory(entries: AiChatHistoryEntry[], dispatchedAction?: string): void
-  resetConversation(): Promise<void>
+  getLastToolLoopEntries(conversationId?: string): AiChatHistoryEntry[]
+  /** Abort the given conversation's in-flight command; without an id, abort all. */
+  cancelCommand(conversationId?: string): void
+  appendHistory(
+    entries: AiChatHistoryEntry[],
+    dispatchedAction?: string,
+    conversationId?: string
+  ): void
+  /** Clear one conversation's history; without an id, clear all of them. */
+  resetConversation(conversationId?: string): Promise<void>
+  /** Read a conversation's rolling history (for persistence with a draft). */
+  getConversationHistory(conversationId: string): AiChatHistoryEntry[]
+  /** Restore a persisted conversation history (draft resume). No-op when already loaded. */
+  seedConversation(conversationId: string, entries: AiChatHistoryEntry[]): void
   setRemoteLanguageModel(model: LanguageModel | null): void
   /**
    * One-shot text generation that bypasses the persisted conversation history.
@@ -503,34 +519,45 @@ function historyToSdkMessages(history: AiChatHistoryEntry[]): ModelMessage[] {
   return messages
 }
 
+export const GLOBAL_CONVERSATION_ID = 'global'
+
 export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgentRuntime {
   let remoteLanguageModel: LanguageModel | undefined = options.remoteLanguageModel
-  let conversationHistory: AiChatHistoryEntry[] = []
+  const histories = new Map<string, AiChatHistoryEntry[]>()
   let debugTrace: string | null = null
-  let lastToolLoopEntries: AiChatHistoryEntry[] = []
-  let currentAbortController: AbortController | null = null
+  const toolLoopEntriesByConversation = new Map<string, AiChatHistoryEntry[]>()
+  const abortControllers = new Map<string, AbortController>()
+
+  function historyOf(conversationId: string): AiChatHistoryEntry[] {
+    return histories.get(conversationId) ?? []
+  }
 
   function resolveLanguageModel(): LanguageModel | null {
     return remoteLanguageModel ?? null
   }
 
   function resolveHistory(
+    conversationId: string,
     history?: AiChatHistoryEntry[],
     useConversationHistory = true
   ): AiChatHistoryEntry[] {
-    if (useConversationHistory && conversationHistory.length > 0) return conversationHistory
+    if (useConversationHistory) {
+      const scoped = historyOf(conversationId)
+      if (scoped.length > 0) return scoped
+    }
     return history && history.length > 0 ? history : []
   }
 
   function buildSdkMessages(
     command: string,
     history?: AiChatHistoryEntry[],
-    useConversationHistory = true
+    useConversationHistory = true,
+    conversationId: string = GLOBAL_CONVERSATION_ID
   ): ModelMessage[] {
     // The SDK wants the full conversational state as ModelMessage[] on each call.
     // We rebuild it from our persisted runtime history, then append the current user turn.
     const messages = historyToSdkMessages(
-      sanitizeHistoryToolIntegrity(resolveHistory(history, useConversationHistory))
+      sanitizeHistoryToolIntegrity(resolveHistory(conversationId, history, useConversationHistory))
     )
     const last = messages[messages.length - 1]
 
@@ -582,7 +609,9 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
     const model = resolveLanguageModel()
     if (!model) return null
 
-    lastToolLoopEntries = []
+    const conversationId = payload.conversationId ?? GLOBAL_CONVERSATION_ID
+    const lastToolLoopEntries: AiChatHistoryEntry[] = []
+    toolLoopEntriesByConversation.set(conversationId, lastToolLoopEntries)
     resetDebugTrace(payload.command, payload.model)
 
     const dataToolCallCounts = new Map<string, number>()
@@ -671,7 +700,8 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
     const sdkMessages = buildSdkMessages(
       payload.command,
       payload.history,
-      historyStrategy === 'normal'
+      historyStrategy === 'normal',
+      conversationId
     )
     const toolNames = Object.keys(tools)
     let sawTruncatedToolCallsText = false
@@ -823,13 +853,15 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
       return debugTrace
     },
 
-    getLastToolLoopEntries(): AiChatHistoryEntry[] {
-      return lastToolLoopEntries
+    getLastToolLoopEntries(conversationId = GLOBAL_CONVERSATION_ID): AiChatHistoryEntry[] {
+      return toolLoopEntriesByConversation.get(conversationId) ?? []
     },
 
     async sendCommand(payload: AiAgentRuntimePayload): Promise<InternalAiCommand> {
+      const conversationId = payload.conversationId ?? GLOBAL_CONVERSATION_ID
       const abortController = new AbortController()
-      currentAbortController = abortController
+      abortControllers.get(conversationId)?.abort()
+      abortControllers.set(conversationId, abortController)
 
       if (!resolveLanguageModel()) {
         throw new AiRuntimeError(
@@ -931,21 +963,29 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
           IpcErrorCode.INTENT_PARSE_FAILED
         )
       } finally {
-        if (currentAbortController === abortController) {
-          currentAbortController = null
+        if (abortControllers.get(conversationId) === abortController) {
+          abortControllers.delete(conversationId)
         }
       }
     },
 
-    cancelCommand(): void {
-      currentAbortController?.abort()
+    cancelCommand(conversationId?: string): void {
+      if (conversationId !== undefined) {
+        abortControllers.get(conversationId)?.abort()
+        return
+      }
+      for (const controller of abortControllers.values()) controller.abort()
     },
 
     setRemoteLanguageModel(model: LanguageModel | null): void {
       remoteLanguageModel = model ?? undefined
     },
 
-    appendHistory(entries: AiChatHistoryEntry[], dispatchedAction?: string): void {
+    appendHistory(
+      entries: AiChatHistoryEntry[],
+      dispatchedAction?: string,
+      conversationId = GLOBAL_CONVERSATION_ID
+    ): void {
       if (entries.length === 0) return
 
       const staleNames = dispatchedAction
@@ -959,18 +999,39 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
         'name' in entry &&
         staleNames.has(entry.name ?? '')
 
-      const pruned = conversationHistory.filter((entry) => !isStale(entry))
+      const pruned = historyOf(conversationId).filter((entry) => !isStale(entry))
       // Slice to the rolling cap FIRST, then sanitize: the slice can sever a
       // tool-call from its result, and sanitize drops whichever side is now
       // dangling. Sanitizing before slicing would let the slice re-introduce
       // an orphan at the head of the window.
-      conversationHistory = sanitizeHistoryToolIntegrity(
-        [...pruned, ...entries.filter((entry) => !isStale(entry))].slice(-MAX_HISTORY_ENTRIES)
+      histories.set(
+        conversationId,
+        sanitizeHistoryToolIntegrity(
+          [...pruned, ...entries.filter((entry) => !isStale(entry))].slice(-MAX_HISTORY_ENTRIES)
+        )
       )
     },
 
-    async resetConversation(): Promise<void> {
-      conversationHistory = []
+    async resetConversation(conversationId?: string): Promise<void> {
+      if (conversationId !== undefined) {
+        histories.delete(conversationId)
+        toolLoopEntriesByConversation.delete(conversationId)
+        return
+      }
+      histories.clear()
+      toolLoopEntriesByConversation.clear()
+    },
+
+    getConversationHistory(conversationId: string): AiChatHistoryEntry[] {
+      return historyOf(conversationId)
+    },
+
+    seedConversation(conversationId: string, entries: AiChatHistoryEntry[]): void {
+      if (historyOf(conversationId).length > 0) return
+      histories.set(
+        conversationId,
+        sanitizeHistoryToolIntegrity(entries.slice(-MAX_HISTORY_ENTRIES))
+      )
     },
 
     async generateOneShot(prompt: string, systemPrompt: string): Promise<string> {
@@ -1012,7 +1073,7 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
       }
 
       const abortController = new AbortController()
-      currentAbortController = abortController
+      abortControllers.set(GLOBAL_CONVERSATION_ID, abortController)
 
       try {
         const result = sdkStreamText({
@@ -1031,8 +1092,8 @@ export function createAiSdkAgentRuntime(options: AiAgentRuntimeOptions): AiAgent
         }
         return full
       } finally {
-        if (currentAbortController === abortController) {
-          currentAbortController = null
+        if (abortControllers.get(GLOBAL_CONVERSATION_ID) === abortController) {
+          abortControllers.delete(GLOBAL_CONVERSATION_ID)
         }
       }
     },

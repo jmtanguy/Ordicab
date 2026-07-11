@@ -24,6 +24,7 @@
  */
 import type {
   AiCommandInput,
+  AiStreamEvent,
   CalendarSyncStatus,
   CompareProgressEvent,
   CoworkExportProgress,
@@ -364,12 +365,12 @@ export function createOrdicabApi(
       cloudProviderStatus: (mode) => invoke(ipcInvoke, IPC_CHANNELS.ai.cloudProviderStatus, mode),
       executeCommand: (input: AiCommandInput) =>
         invoke(ipcInvoke, IPC_CHANNELS.ai.executeCommand, input),
-      cancelCommand: () => invoke(ipcInvoke, IPC_CHANNELS.ai.cancelCommand),
-      resetConversation: () => invoke(ipcInvoke, IPC_CHANNELS.ai.resetConversation),
-      onTextToken: (listener: (token: string) => void) =>
-        subscribeToEvent<string>(ipcOn, ipcOff, IPC_CHANNELS.ai.textToken, listener),
-      onReflection: (listener: (text: string) => void) =>
-        subscribeToEvent<string>(ipcOn, ipcOff, IPC_CHANNELS.ai.reflection, listener),
+      cancelCommand: (input) => invoke(ipcInvoke, IPC_CHANNELS.ai.cancelCommand, input),
+      resetConversation: (input) => invoke(ipcInvoke, IPC_CHANNELS.ai.resetConversation, input),
+      onTextToken: (listener) =>
+        subscribeToEvent<AiStreamEvent>(ipcOn, ipcOff, IPC_CHANNELS.ai.textToken, listener),
+      onReflection: (listener) =>
+        subscribeToEvent<AiStreamEvent>(ipcOn, ipcOff, IPC_CHANNELS.ai.reflection, listener),
       getPersonas: () => invoke(ipcInvoke, IPC_CHANNELS.ai.personasGet),
       savePersonas: (input) => invoke(ipcInvoke, IPC_CHANNELS.ai.personasSave, input)
     },
@@ -398,6 +399,20 @@ export function createOrdicabApi(
           IPC_CHANNELS.cowork.exportProgress,
           listener
         )
+    },
+    redaction: {
+      list: (input) => invoke(ipcInvoke, IPC_CHANNELS.redaction.list, input),
+      create: (input) => invoke(ipcInvoke, IPC_CHANNELS.redaction.create, input),
+      get: (input) => invoke(ipcInvoke, IPC_CHANNELS.redaction.get, input),
+      manualEdit: (input) => invoke(ipcInvoke, IPC_CHANNELS.redaction.manualEdit, input),
+      decideOp: (input) => invoke(ipcInvoke, IPC_CHANNELS.redaction.decideOp, input),
+      undo: (input) => invoke(ipcInvoke, IPC_CHANNELS.redaction.undo, input),
+      redo: (input) => invoke(ipcInvoke, IPC_CHANNELS.redaction.redo, input),
+      updateMeta: (input) => invoke(ipcInvoke, IPC_CHANNELS.redaction.updateMeta, input),
+      syncChat: (input) => invoke(ipcInvoke, IPC_CHANNELS.redaction.syncChat, input),
+      resetChat: (input) => invoke(ipcInvoke, IPC_CHANNELS.redaction.resetChat, input),
+      commit: (input) => invoke(ipcInvoke, IPC_CHANNELS.redaction.commit, input),
+      discard: (input) => invoke(ipcInvoke, IPC_CHANNELS.redaction.discard, input)
     },
     updater: {
       startDownload: () => invoke(ipcInvoke, IPC_CHANNELS.updater.startDownload),

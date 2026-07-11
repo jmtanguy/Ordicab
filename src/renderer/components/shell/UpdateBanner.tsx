@@ -123,8 +123,17 @@ export function UpdateBanner(): React.JSX.Element | null {
                 disabled={isInstalling}
                 onClick={() => {
                   setIsInstalling(true)
-                  void installNow().catch(() => {
-                    setIsInstalling(false)
+                  // installNow() triggers quitAndInstall() in the main process,
+                  // which tears the window down within a few milliseconds. Wait
+                  // for the browser to actually paint the spinner (double rAF =
+                  // after the next frame is rendered) before starting the
+                  // install, otherwise the loading state never becomes visible.
+                  requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                      void installNow().catch(() => {
+                        setIsInstalling(false)
+                      })
+                    })
                   })
                 }}
               >

@@ -38,8 +38,8 @@ describe('Story 1.5 packaging and release pipeline', () => {
     expect(configText).toContain('icon.icns')
     expect(configText).toContain('icon.ico')
     expect(configText).toContain('background.tiff')
-    expect(configText).toContain('.background.tiff')
-    expect(configText).toContain('.VolumeIcon.icns')
+    expect(configText).not.toContain('.background.tiff')
+    expect(configText).not.toContain('.VolumeIcon.icns')
     expect(configText).toContain("provider: 'github'")
   })
 

@@ -759,6 +759,14 @@ export interface DataToolExecutorDeps {
   invoiceService: InvoiceServiceLike
   legalService?: LegalService
   entityProfile: EntityProfile | null
+  /** Active drafting session (rédaction assistée), backing redaction_document_read. */
+  redactionScope?: {
+    sessionId: string
+    getIndexedText(): Promise<{
+      paragraphs: Array<{ index: number; text: string }>
+      previewText: string
+    }>
+  }
 }
 
 export class DataToolExecutor {
@@ -1042,6 +1050,64 @@ export class DataToolExecutor {
       } catch (err) {
         return JSON.stringify({
           error: `document_search failed: ${err instanceof Error ? err.message : 'unknown error'}`
+        })
+      }
+    }
+
+    if (toolName === 'document_load_paragraphs') {
+      const documentUuid = typeof args.documentUuid === 'string' ? args.documentUuid.trim() : ''
+      if (!documentUuid) return JSON.stringify({ error: 'documentUuid is required.' })
+
+      try {
+        const { extractIndexedText } = await import('../../services/domain/documentAugmentService')
+        const documents = await documentService.listDocuments({ dossierId: targetDossierId })
+        const doc = documents.find((entry) => entry.uuid === documentUuid)
+        if (!doc) return JSON.stringify({ error: `Document not found: ${documentUuid}` })
+
+        // DocumentRecord.path is dossier-relative — anchor to the dossier root.
+        const dossierRoot = await documentService.resolveRegisteredDossierRoot({
+          dossierId: targetDossierId
+        })
+        const { paragraphs, previewText } = await extractIndexedText(
+          join(dossierRoot, doc.relativePath)
+        )
+
+        return JSON.stringify({
+          documentUuid: doc.uuid,
+          filename: doc.filename,
+          paragraphs: paragraphs.map((p) => ({
+            index: p.index,
+            text: p.text
+          })),
+          previewText
+        })
+      } catch (err) {
+        return JSON.stringify({
+          error: `document_load_paragraphs failed: ${err instanceof Error ? err.message : 'unknown error'}`
+        })
+      }
+    }
+
+    if (toolName === 'redaction_document_read') {
+      const scope = this.deps.redactionScope
+      if (!scope) {
+        return JSON.stringify({
+          error:
+            'No active drafting session. redaction_document_read only works in the rédaction assistée page.'
+        })
+      }
+
+      try {
+        const { paragraphs, previewText } = await scope.getIndexedText()
+        return JSON.stringify({
+          sessionId: scope.sessionId,
+          paragraphCount: paragraphs.length,
+          paragraphs,
+          previewText
+        })
+      } catch (err) {
+        return JSON.stringify({
+          error: `redaction_document_read failed: ${err instanceof Error ? err.message : 'unknown error'}`
         })
       }
     }

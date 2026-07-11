@@ -3,6 +3,7 @@ import type {
   AiCommandResult,
   AiDelegatedProviderStatus,
   AiMode,
+  AiStreamEvent,
   RemoteConnectionResult,
   AiSettingsResponse,
   AiSettingsSaveInput
@@ -20,6 +21,17 @@ import type {
   CoworkReimportResult,
   CoworkStatus
 } from '../domain/cowork'
+import type {
+  RedactionChatMessage,
+  RedactionCommitInput,
+  RedactionCommitResult,
+  RedactionCreateInput,
+  RedactionDecideOpInput,
+  RedactionManualEditInput,
+  RedactionSessionSummary,
+  RedactionSnapshot,
+  RedactionUpdateMetaInput
+} from '../domain/redaction'
 import type {
   JudilibreConsultInput,
   JudilibreSearchInput,
@@ -421,10 +433,10 @@ export interface OrdicabAPI {
     deleteApiKey: (provider: string) => Promise<IpcResult<null>>
     cloudProviderStatus: (mode: AiMode) => Promise<IpcResult<AiDelegatedProviderStatus>>
     executeCommand: (input: AiCommandInput) => Promise<IpcResult<AiCommandResult>>
-    cancelCommand: () => Promise<IpcResult<null>>
-    resetConversation: () => Promise<IpcResult<null>>
-    onTextToken: (listener: (token: string) => void) => OrdicabEventUnsubscribe
-    onReflection: (listener: (text: string) => void) => OrdicabEventUnsubscribe
+    cancelCommand: (input?: { conversationId?: string }) => Promise<IpcResult<null>>
+    resetConversation: (input?: { conversationId?: string }) => Promise<IpcResult<null>>
+    onTextToken: (listener: (event: AiStreamEvent) => void) => OrdicabEventUnsubscribe
+    onReflection: (listener: (event: AiStreamEvent) => void) => OrdicabEventUnsubscribe
     getPersonas: () => Promise<IpcResult<PiiPersonaSettings>>
     savePersonas: (input: PiiPersonaSettings) => Promise<IpcResult<PiiPersonaSettings>>
   }
@@ -442,6 +454,24 @@ export interface OrdicabAPI {
     reimport: (input: { dossierId: string }) => Promise<IpcResult<CoworkReimportResult>>
     status: (input: { dossierId: string }) => Promise<IpcResult<CoworkStatus>>
     onExportProgress: (listener: (event: CoworkExportProgress) => void) => OrdicabEventUnsubscribe
+  }
+  redaction: {
+    list: (input: { dossierId: string }) => Promise<IpcResult<RedactionSessionSummary[]>>
+    create: (input: RedactionCreateInput) => Promise<IpcResult<RedactionSnapshot>>
+    get: (input: { dossierId: string; sessionId: string }) => Promise<IpcResult<RedactionSnapshot>>
+    manualEdit: (input: RedactionManualEditInput) => Promise<IpcResult<RedactionSnapshot>>
+    decideOp: (input: RedactionDecideOpInput) => Promise<IpcResult<RedactionSnapshot>>
+    undo: (input: { dossierId: string; sessionId: string }) => Promise<IpcResult<RedactionSnapshot>>
+    redo: (input: { dossierId: string; sessionId: string }) => Promise<IpcResult<RedactionSnapshot>>
+    updateMeta: (input: RedactionUpdateMetaInput) => Promise<IpcResult<RedactionSnapshot>>
+    syncChat: (input: {
+      dossierId: string
+      sessionId: string
+      chat: RedactionChatMessage[]
+    }) => Promise<IpcResult<null>>
+    resetChat: (input: { dossierId: string; sessionId: string }) => Promise<IpcResult<null>>
+    commit: (input: RedactionCommitInput) => Promise<IpcResult<RedactionCommitResult>>
+    discard: (input: { dossierId: string; sessionId: string }) => Promise<IpcResult<null>>
   }
   indexing: {
     getStatus: () => Promise<IpcResult<IndexingStatusSnapshot>>

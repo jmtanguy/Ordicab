@@ -285,8 +285,9 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
 
         showToast(t('templates.toast.created'))
         setPendingDocxCreate(false)
-        void closeWorkspace()
-        // Offer AI tag detection on the freshly imported letter
+        // Stay in the editor while the optional AI review is open, so the
+        // lawyer returns directly to the converted template after closing it.
+        openEditEditor(created)
         setTagifyTemplate({ id: created.uuid, name: created.name })
       } finally {
         setIsSaving(false)
@@ -359,6 +360,56 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
       )
       setPendingDocxCreate(false)
       void closeWorkspace()
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  // Create flow: tagify needs a saved template (it reads/writes by uuid), so
+  // persist the freshly authored draft first, then open the AI dialog on it.
+  async function handleTagifyFromCreate(): Promise<void> {
+    const nextErrors: TemplateFormErrors = {}
+
+    if (!draft.name.trim()) {
+      nextErrors.name = t('templates.editor.nameRequired')
+    }
+    if (isBlankTemplateContent(draft.content)) {
+      nextErrors.content = t('templates.editor.contentRequired')
+    }
+    if (Object.keys(nextErrors).length > 0) {
+      setErrors(nextErrors)
+      return
+    }
+
+    const parsed = templateDraftSchema.safeParse(draft)
+    if (!parsed.success) {
+      setErrors({ form: parsed.error.issues[0]?.message ?? t('templates.editor.saveFailed') })
+      return
+    }
+
+    setErrors({})
+    setIsSaving(true)
+
+    try {
+      await createTemplate(parsed.data)
+
+      const nextState = useTemplateStore.getState()
+      if (nextState.error) {
+        if (nextState.errorCode === IpcErrorCode.INVALID_INPUT) {
+          setErrors({ name: t('templates.editor.duplicateName') })
+        } else {
+          setErrors({ form: nextState.error })
+        }
+        return
+      }
+
+      const created = nextState.templates.find((tmpl) => tmpl.name === draft.name.trim())
+      if (!created) return
+
+      showToast(t('templates.toast.created'))
+      // Move into edit mode for the new template, then open the tagify dialog on it.
+      openEditEditor(created)
+      setTagifyTemplate({ id: created.uuid, name: created.name })
     } finally {
       setIsSaving(false)
     }
@@ -609,7 +660,9 @@ export function TemplatesPanel({ domainPath }: TemplatesPanelProps): React.JSX.E
               onTagify={
                 workspace.view === 'edit' && activeTemplate
                   ? () => setTagifyTemplate({ id: activeTemplate.uuid, name: activeTemplate.name })
-                  : undefined
+                  : workspace.view === 'create' && createSourceType === 'text'
+                    ? () => void handleTagifyFromCreate()
+                    : undefined
               }
               lintIssues={lintIssues}
               onApplyLintSuggestion={applyLintSuggestion}

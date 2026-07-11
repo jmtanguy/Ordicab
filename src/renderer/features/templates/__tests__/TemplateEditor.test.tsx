@@ -225,7 +225,7 @@ describe('TemplateEditor', () => {
       }
     })
 
-    expect(screen.getByRole('button', { name: 'Import .docx source' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Import Word or PDF source' })).toBeTruthy()
 
     cleanup()
 
@@ -236,7 +236,7 @@ describe('TemplateEditor', () => {
       </I18nextProvider>
     )
 
-    expect(screen.getAllByRole('button', { name: 'Import .docx source' })).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: 'Import Word or PDF source' })).toHaveLength(2)
     expect(screen.queryByRole('button', { name: 'Open in Word' })).toBeNull()
   })
 })

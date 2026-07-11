@@ -55,6 +55,11 @@ interface UiStoreState {
   error: string | null
   isSavingLocale: boolean
   pendingBillingConversion: PendingBillingConversion | null
+  /**
+   * Level-2 dossier section another feature asked to open (e.g. the AI chat
+   * navigating to 'redaction' after document_augment). Consumed by AppShell.
+   */
+  pendingSectionNavigation: string | null
 }
 
 interface UiStoreActions {
@@ -74,6 +79,8 @@ interface UiStoreActions {
   closeDossierDetail: () => void
   requestBillingConversion: (input: PendingBillingConversion) => void
   consumePendingBillingConversion: () => PendingBillingConversion | null
+  requestSectionNavigation: (section: string) => void
+  clearPendingSectionNavigation: () => void
   persistLocale: (locale: AppLocale) => Promise<boolean>
   /** Reads the EULA status for the requested locale. Components must not call IPC directly. */
   getEulaStatus: (locale: AppLocale) => Promise<IpcResult<EulaStatus>>
@@ -103,6 +110,17 @@ export const useUiStore = create<UiStore>()(
     error: null,
     isSavingLocale: false,
     pendingBillingConversion: null,
+    pendingSectionNavigation: null,
+    requestSectionNavigation: (section) => {
+      set((state) => {
+        state.pendingSectionNavigation = section
+      })
+    },
+    clearPendingSectionNavigation: () => {
+      set((state) => {
+        state.pendingSectionNavigation = null
+      })
+    },
     bootstrap: async () => {
       if (useUiStore.getState().versionStatus !== 'idle') return
 

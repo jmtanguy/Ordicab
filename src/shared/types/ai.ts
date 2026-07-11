@@ -135,6 +135,8 @@ export type InternalAiCommandType =
   | 'note_search'
   | 'note_get'
   | 'text_generate'
+  | 'document_augment'
+  | 'redaction_edit'
   | 'direct_response'
   | 'clarification_request'
   | 'unknown'
@@ -205,6 +207,36 @@ export interface DocumentGenerateIntent {
   contactUuid?: string
   /** Field overrides provided by the user for unresolved template tags (e.g. renvoiDate → "04/04/2026") */
   tagOverrides?: Record<string, string>
+}
+
+/** One tracked-change operation submitted by the model (document_augment / redaction_edit). */
+export interface RedactionEditOperationInput {
+  op: 'insert_after' | 'insert_before' | 'replace' | 'delete'
+  anchorIndex?: number
+  index?: number
+  text?: string
+  rationale?: string
+  legalRefs?: string[]
+}
+
+/**
+ * Global-assistant entry point: opens (or creates) a drafting session on an
+ * existing dossier document and applies the operations as tracked changes.
+ * The dispatcher answers with contextUpdate.redactionSessionId so the UI can
+ * navigate to the rédaction assistée page.
+ */
+export interface DocumentAugmentIntent {
+  type: 'document_augment'
+  documentUuid: string
+  dossierId?: string
+  operations: RedactionEditOperationInput[]
+}
+
+/** Drafting-page turn: applies operations to the ACTIVE drafting session. */
+export interface RedactionEditIntent {
+  type: 'redaction_edit'
+  operations: RedactionEditOperationInput[]
+  summary?: string
 }
 
 export interface DocumentListIntent {
@@ -526,6 +558,8 @@ export type InternalAiCommand =
   | NoteDeleteIntent
   | TextGenerateIntent
   | DossierSummarizeIntent
+  | DocumentAugmentIntent
+  | RedactionEditIntent
   | DirectResponseIntent
   | ClarificationRequestIntent
   | UnknownIntent
@@ -537,6 +571,16 @@ export type InternalAiCommand =
  * `pendingTagPaths` is set when document_generate found unresolved template tags on the last
  * call; the next user message is treated as values for those fields (bypasses the LLM).
  */
+/**
+ * Streamed token/reflection pushed on ai:text-token / ai:reflection.
+ * conversationId scopes the event: undefined/'global' belongs to the main
+ * assistant, 'redaction:…' to the drafting page.
+ */
+export interface AiStreamEvent {
+  text: string
+  conversationId?: string
+}
+
 export interface AiCommandContext {
   dossierId?: string
   contactUuid?: string
@@ -555,6 +599,18 @@ export interface AiCommandContext {
    * UUID-shaped strings survive the pseudonymizer verbatim.
    */
   documentMentions?: Array<{ uuid: string; filename: string }>
+  /**
+   * Conversation scope for the main-process runtime history. The global
+   * assistant omits it ('global'); the drafting page passes
+   * 'redaction:<dossierId>:<sessionId>' so its conversation stays independent.
+   */
+  conversationId?: string
+  /**
+   * Active drafting session — set by the rédaction assistée page on each turn,
+   * and returned by document_augment/redaction_edit so the UI can navigate to
+   * (or refresh) the drafting workspace.
+   */
+  redactionSessionId?: string
 }
 
 /**

@@ -57,8 +57,32 @@ export function registerTemplateHandlers(options: {
   ipcMain: IpcMainLike
   showOpenDialog?: typeof dialog.showOpenDialog
   openPath?: (path: string) => Promise<string>
+  /** Tesseract language data dir, forwarded to the PDF→DOCX OCR fallback. */
+  tessDataPath?: string
 }): void {
   const { templateService } = options
+
+  // Word documents are imported as-is; PDFs are converted to a temporary .docx
+  // (text extraction + OCR fallback) so the rest of the pipeline is unchanged.
+  const IMPORT_FILE_FILTERS = [
+    { name: 'Documents (Word, PDF)', extensions: ['docx', 'pdf'] },
+    { name: 'Word Documents', extensions: ['docx'] },
+    { name: 'PDF', extensions: ['pdf'] }
+  ]
+
+  // Returns a path to an importable .docx: the picked file when it is already a
+  // .docx, otherwise a freshly converted temp .docx for a picked PDF.
+  async function resolveImportableDocxPath(pickedPath: string): Promise<string> {
+    const { extname } = await import('node:path')
+    if (extname(pickedPath).toLowerCase() === '.pdf') {
+      const { docxPath } = await templateService.convertPdfToDocx({
+        pdfPath: pickedPath,
+        tessDataPath: options.tessDataPath
+      })
+      return docxPath
+    }
+    return pickedPath
+  }
   const pickedFilePaths = new Map<string, { filePath: string; expiresAt: number }>()
 
   function consumePickToken(token: string): string | undefined {
@@ -187,7 +211,7 @@ export function registerTemplateHandlers(options: {
     async (): Promise<IpcResult<{ pickToken: string; fileName: string; html: string } | null>> => {
       try {
         const pickerResult = await showOpenDialog({
-          filters: [{ name: 'Word Documents', extensions: ['docx'] }],
+          filters: IMPORT_FILE_FILTERS,
           properties: ['openFile']
         })
 
@@ -196,9 +220,11 @@ export function registerTemplateHandlers(options: {
           return { success: true, data: null }
         }
 
-        const html = await templateService.convertDocxToHtml(filePath)
-        const pickToken = recordPickedFile(filePath)
         const { basename } = await import('node:path')
+        const docxPath = await resolveImportableDocxPath(filePath)
+        const html = await templateService.convertDocxToHtml(docxPath)
+        const pickToken = recordPickedFile(docxPath)
+        // Show the original file's name to the user even when it was a PDF.
         return { success: true, data: { pickToken, fileName: basename(filePath), html } }
       } catch (error) {
         return mapTemplateError(error, 'Unable to open file picker.')
@@ -224,7 +250,7 @@ export function registerTemplateHandlers(options: {
           }
         } else {
           const pickerResult = await showOpenDialog({
-            filters: [{ name: 'Word Documents', extensions: ['docx'] }],
+            filters: IMPORT_FILE_FILTERS,
             properties: ['openFile']
           })
 
@@ -237,7 +263,7 @@ export function registerTemplateHandlers(options: {
             }
           }
 
-          sourceFilePath = pickedPath
+          sourceFilePath = await resolveImportableDocxPath(pickedPath)
         }
 
         return {

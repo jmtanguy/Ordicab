@@ -845,7 +845,10 @@ export const useAiStore = create<AiStore>()(
         }, 2500)
       }
 
-      const unsubscribe = api.ai.onTextToken((token: string) => {
+      const unsubscribe = api.ai.onTextToken((event) => {
+        // Scoped streams (redaction:…) belong to the drafting page, not this chat.
+        if (event.conversationId && event.conversationId !== 'global') return
+        const token = event.text
         set((state) => {
           // Find or create the streaming assistant message
           if (!state.streamingMessageId) {
@@ -876,8 +879,9 @@ export const useAiStore = create<AiStore>()(
       const api = getOrdicabApi()
       if (!api) return () => undefined
 
-      return api.ai.onReflection((text: string) => {
-        const normalizedText = text.trim()
+      return api.ai.onReflection((event) => {
+        if (event.conversationId && event.conversationId !== 'global') return
+        const normalizedText = event.text.trim()
         if (!normalizedText) return
 
         set((state) => {

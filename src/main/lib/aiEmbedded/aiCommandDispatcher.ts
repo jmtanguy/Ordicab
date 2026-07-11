@@ -59,6 +59,7 @@ import type { SemanticSearchResult } from '@shared/contracts/documents'
 import { getContactManagedFieldValue, getManagedFieldKey } from '@shared/managedFields'
 import { GenerateServiceError } from '../../services/domain/generateService'
 import { migrateDanglingOverrideKeys, resolveDossierTags } from './dossierTagResolver'
+import { randomUUID } from 'node:crypto'
 
 export interface ContactServiceLike {
   list(dossierId: string): Promise<ContactRecord[]>
@@ -170,6 +171,7 @@ export interface InvoiceServiceLike {
 
 export interface DocumentServiceLike {
   listDocuments(input: { dossierId: string }): Promise<DocumentRecord[]>
+  getDocument?(input: { uuid: string; dossierId: string }): Promise<DocumentRecord | null>
   saveMetadata(input: {
     dossierId: string
     documentPath: string
@@ -217,12 +219,36 @@ export interface DocumentServiceLike {
   }): Promise<{ text: string; filename: string }>
 }
 
+export interface RedactionSessionServiceLike {
+  createSession(input: {
+    dossierId: string
+    title: string
+    docKind: 'conclusions' | 'courrier' | 'relance' | 'information' | 'autre'
+    source: { type: 'edit_existing'; sourceDocumentUuid: string }
+  }): Promise<{ session: { sessionId: string } }>
+  applyOps(
+    dossierId: string,
+    sessionId: string,
+    operations: Array<{
+      id: string
+      op: 'insert_after' | 'insert_before' | 'replace' | 'delete'
+      anchorIndex?: number
+      index?: number
+      text?: string
+      rationale?: string
+      legalRefs?: string[]
+    }>,
+    meta: { author: string; authorKind: 'ai' | 'user'; chatTurnId?: string }
+  ): Promise<{ pendingOps: unknown[] }>
+}
+
 export interface InternalAICommandDispatcherOptions {
   contactService: ContactServiceLike
   templateService: TemplateServiceLike
   generateService: GenerateServiceLike
   dossierService: DossierServiceLike
   documentService: DocumentServiceLike
+  redactionSessionService?: RedactionSessionServiceLike
   /**
    * Resolves the current UI locale at dispatch time. Optional so existing
    * callers (e.g. tests) can omit it; falls back to French to match the
@@ -582,6 +608,7 @@ export function createInternalAICommandDispatcher(
     generateService,
     dossierService,
     documentService,
+    redactionSessionService,
     getLocale
   } = options
   const resolveLocale = (): AppLocale => getLocale?.() ?? 'fr'
@@ -1170,6 +1197,145 @@ export function createInternalAICommandDispatcher(
           }
 
           return generateOnce()
+        }
+
+        case 'document_augment': {
+          if (!redactionSessionService) {
+            return {
+              intent,
+              feedback: 'La rédaction assistée n’est pas disponible.'
+            }
+          }
+
+          const rawRef = intent.dossierId ?? context.dossierId ?? ''
+          const dossierId = rawRef
+            ? ((await resolveDossierRef(rawRef, dossierService)) ?? rawRef)
+            : ''
+
+          if (!dossierId) {
+            return {
+              intent,
+              feedback: 'Veuillez activer un dossier avant de modifier un document.'
+            }
+          }
+
+          const documentUuid = intent.documentUuid ?? ''
+          if (!documentUuid) {
+            return {
+              intent,
+              feedback: 'Veuillez spécifier le UUID du document à modifier.'
+            }
+          }
+
+          try {
+            const docs = await documentService.listDocuments({ dossierId })
+            const doc = docs.find((d) => d.uuid === documentUuid || d.relativePath === documentUuid)
+            if (!doc) {
+              return { intent, feedback: `Document introuvable: ${documentUuid}` }
+            }
+
+            const created = await redactionSessionService.createSession({
+              dossierId,
+              title: doc.filename.replace(/\.docx$/i, ''),
+              docKind: 'autre',
+              source: { type: 'edit_existing', sourceDocumentUuid: doc.uuid }
+            })
+            const sessionId = created.session.sessionId
+
+            const operations = (intent.operations ?? []).map((op) => ({
+              id: randomUUID().slice(0, 8),
+              op: op.op,
+              anchorIndex: op.anchorIndex,
+              index: op.index,
+              text: op.text,
+              rationale: op.rationale,
+              legalRefs: op.legalRefs
+            }))
+
+            if (operations.length > 0) {
+              await redactionSessionService.applyOps(dossierId, sessionId, operations, {
+                author: 'Ordicab IA',
+                authorKind: 'ai'
+              })
+            }
+
+            console.log(
+              `[document_augment] session=${sessionId} doc=${doc.filename} ops=${operations.length}`
+            )
+
+            return {
+              intent,
+              feedback:
+                operations.length > 0
+                  ? `Document ouvert en rédaction assistée : ${operations.length} modification(s) proposée(s) en révisions Word.`
+                  : 'Document ouvert en rédaction assistée.',
+              contextUpdate: { redactionSessionId: sessionId }
+            }
+          } catch (err) {
+            console.error('[document_augment] error:', err)
+            return {
+              intent,
+              feedback: `Erreur lors de la modification: ${err instanceof Error ? err.message : 'erreur inconnue'}`
+            }
+          }
+        }
+
+        case 'redaction_edit': {
+          if (!redactionSessionService) {
+            return {
+              intent,
+              feedback: 'La rédaction assistée n’est pas disponible.'
+            }
+          }
+
+          const sessionId = context.redactionSessionId
+          const rawRef = context.dossierId ?? ''
+          const dossierId = rawRef
+            ? ((await resolveDossierRef(rawRef, dossierService)) ?? rawRef)
+            : ''
+          if (!sessionId || !dossierId) {
+            return {
+              intent,
+              feedback:
+                'Aucune session de rédaction active. Cet outil ne fonctionne que depuis la page Rédaction assistée.'
+            }
+          }
+
+          const operations = (intent.operations ?? []).map((op) => ({
+            id: randomUUID().slice(0, 8),
+            op: op.op,
+            anchorIndex: op.anchorIndex,
+            index: op.index,
+            text: op.text,
+            rationale: op.rationale,
+            legalRefs: op.legalRefs
+          }))
+
+          if (operations.length === 0) {
+            return { intent, feedback: 'Aucune opération fournie.' }
+          }
+
+          try {
+            await redactionSessionService.applyOps(dossierId, sessionId, operations, {
+              author: 'Ordicab IA',
+              authorKind: 'ai'
+            })
+            const summary = intent.summary?.trim()
+            return {
+              intent,
+              feedback: summary
+                ? `${summary} (${operations.length} modification(s) en révisions Word.)`
+                : `${operations.length} modification(s) proposée(s) en révisions Word — à accepter ou rejeter dans le panneau Révisions.`,
+              contextUpdate: { redactionSessionId: sessionId }
+            }
+          } catch (err) {
+            // Feed the error back to the model: an out-of-range index means it
+            // must re-read the document (redaction_document_read) and retry.
+            return {
+              intent,
+              feedback: `Échec des modifications: ${err instanceof Error ? err.message : 'erreur inconnue'}. Relis le document avec redaction_document_read puis réessaie.`
+            }
+          }
         }
 
         case 'dossier_create': {

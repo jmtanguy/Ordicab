@@ -20,7 +20,8 @@
  */
 import { randomUUID } from 'node:crypto'
 import { copyFile, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { tmpdir } from 'node:os'
+import { basename, dirname, extname, join } from 'node:path'
 
 import HTMLToDOCX from 'html-to-docx'
 import mammoth from 'mammoth'
@@ -42,6 +43,7 @@ import {
 } from '@shared/templateContent'
 import { ESSENTIAL_TEMPLATE_IDS, getLibraryItem } from '@shared/templateLibrary'
 
+import { extractDocumentText } from '../../lib/aiEmbedded/documentContentService'
 import { pathExists } from '../../lib/system/domainState'
 import {
   getDomainCabinetDefaultTemplateDocxPath,
@@ -134,6 +136,16 @@ export interface TemplateService {
   }>
   /** Convert a .docx at the given path to HTML — used by handler for preview before import. */
   convertDocxToHtml(filePath: string): Promise<string>
+  /**
+   * Convert a PDF into a standalone `.docx` written to a temp file so it can be
+   * fed through the regular DOCX import pipeline. Extracts embedded text, falling
+   * back to OCR for scanned PDFs when `tessDataPath` is provided. Returns the temp
+   * `.docx` path plus the extracted HTML (for an import preview).
+   */
+  convertPdfToDocx(input: {
+    pdfPath: string
+    tessDataPath?: string
+  }): Promise<{ docxPath: string; html: string }>
   /** Import a .docx file as the source for an existing template id and rebuild HTML + macros. */
   importDocxFromPath(input: { uuid: string; sourceFilePath: string }): Promise<TemplateRecord>
   /**
@@ -223,6 +235,29 @@ function toTemplateIndexRecord(template: TemplateRecord): TemplateRecord {
 
 function isEmailTemplate(tags: string[] | undefined): boolean {
   return (tags ?? []).some((tag) => tag.trim().toLowerCase() === 'email')
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+/**
+ * Turn flat extracted text (paragraphs separated by blank lines, single newlines
+ * inside a paragraph) into simple HTML paragraphs. This is intentionally
+ * formatting-light: extraction-based PDF conversion cannot recover the original
+ * layout, so we preserve the text and let the user refine it in Word.
+ */
+function extractedTextToHtml(text: string): string {
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter((block) => block.length > 0)
+
+  if (paragraphs.length === 0) {
+    return '<p></p>'
+  }
+
+  return paragraphs.map((block) => `<p>${escapeHtml(block).replace(/\n/g, '<br />')}</p>`).join('')
 }
 
 async function htmlToStandaloneDocxBuffer(html: string, title: string): Promise<Buffer> {
@@ -664,6 +699,30 @@ export function createTemplateService(options: {
         // import.
         return '<p></p>'
       }
+    },
+
+    async convertPdfToDocx(input): Promise<{ docxPath: string; html: string }> {
+      const cacheDir = join(tmpdir(), 'ordicab-pdf-import-cache')
+
+      let extracted: { text: string }
+      try {
+        extracted = await extractDocumentText(input.pdfPath, cacheDir, input.tessDataPath)
+      } catch (error) {
+        throw new TemplateServiceError(
+          IpcErrorCode.FILE_SYSTEM_ERROR,
+          `Impossible d'extraire le texte du PDF : ${error instanceof Error ? error.message : String(error)}`
+        )
+      }
+
+      const html = extractedTextToHtml(extracted.text)
+      const title = basename(input.pdfPath, extname(input.pdfPath))
+      const docxBuffer = await htmlToStandaloneDocxBuffer(html, title)
+
+      const docxPath = join(cacheDir, `${randomUUID()}.docx`)
+      await mkdir(cacheDir, { recursive: true })
+      await writeFile(docxPath, docxBuffer)
+
+      return { docxPath, html }
     },
 
     async importDocxFromPath(input): Promise<TemplateRecord> {

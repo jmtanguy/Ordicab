@@ -54,7 +54,11 @@ const aiCommandContextSchema = z.object({
   contactUuid: z.string().optional(),
   templateUuid: z.string().optional(),
   pendingTagPaths: z.array(z.string().min(1)).optional(),
-  documentMentions: z.array(documentMentionSchema).optional()
+  documentMentions: z.array(documentMentionSchema).optional(),
+  // zod strips unknown keys: any context field the renderer round-trips from
+  // contextUpdate MUST be declared here or it is silently dropped.
+  conversationId: z.string().optional(),
+  redactionSessionId: z.string().optional()
 })
 
 const aiChatHistoryEntrySchema = z.object({

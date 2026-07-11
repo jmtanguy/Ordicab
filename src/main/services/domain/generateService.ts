@@ -1178,10 +1178,12 @@ async function writeGeneratedDocument(draft: {
   dossierPath: string
   filename: string
   format: 'txt' | 'docx'
+  outputPath?: string
 }): Promise<GeneratedDocumentResult> {
   const safeBaseName = sanitizeFilenameSegment(stripKnownExtension(draft.filename))
   const extension = draft.format === 'docx' ? 'docx' : 'txt'
-  const outputPath = await resolveUniqueOutputPath(draft.dossierPath, safeBaseName, extension)
+  const outputPath =
+    draft.outputPath ?? (await resolveUniqueOutputPath(draft.dossierPath, safeBaseName, extension))
 
   if (draft.format === 'docx') {
     const buffer = await toDocxBuffer(draft.html)
@@ -1457,7 +1459,8 @@ export function createGenerateService(options: GenerateServiceOptions): Generate
         html: draft.draftHtml,
         dossierPath: draft.dossierPath,
         filename: draft.suggestedFilename,
-        format: 'docx'
+        format: 'docx',
+        outputPath: input.outputPath
       })
       await persistGenerationPrefill(draft.dossierPath, input, draft.context, timestamp)
       const savedUuid = await saveDocumentMetadataIfProvided(

@@ -185,7 +185,7 @@ describe('TemplatesPanel', () => {
     await waitFor(() => {
       expect(screen.getByText('Choose template type')).toBeTruthy()
       expect(screen.getByText('Rich text template')).toBeTruthy()
-      expect(screen.getByText('Word (.docx) template')).toBeTruthy()
+      expect(screen.getByText('Word (.docx) or PDF template')).toBeTruthy()
     })
 
     fireEvent.click(screen.getByRole('button', { name: /Rich text template/ }))
@@ -240,11 +240,11 @@ describe('TemplatesPanel', () => {
     await renderPanel()
 
     fireEvent.click(screen.getByRole('button', { name: 'New Template' }))
-    fireEvent.click(screen.getByRole('button', { name: /Word \(\.docx\) template/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Word \(\.docx\) or PDF template/ }))
 
     await waitFor(() => {
-      expect(screen.getByText('Create Word template')).toBeTruthy()
-      expect(screen.getAllByRole('button', { name: 'Import .docx source' })).toHaveLength(2)
+      expect(screen.getByText('Create Word or PDF template')).toBeTruthy()
+      expect(screen.getAllByRole('button', { name: 'Import Word or PDF source' })).toHaveLength(2)
       expect(screen.queryByLabelText('Content')).toBeNull()
     })
   })

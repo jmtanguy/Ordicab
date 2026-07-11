@@ -55,6 +55,7 @@ export type DossierSection =
   | 'generate'
   | 'ai-assistant'
   | 'cowork'
+  | 'redaction'
 
 const statusDotClasses: Record<DossierStatus, string> = {
   active: 'bg-success',
@@ -502,6 +503,12 @@ const sectionIcons: Record<DossierSection, React.JSX.Element> = {
       <path d="M2.5 5.5l5-3 5 3v5l-5 3-5-3z" />
       <path d="M2.5 5.5l5 3 5-3M7.5 8.5v5" />
     </NavIcon>
+  ),
+  redaction: (
+    <NavIcon>
+      <path d="M10.8 2.2l2 2L6 11l-2.6.6L4 9z" />
+      <path d="M2.5 13.5h10" />
+    </NavIcon>
   )
 }
 
@@ -593,7 +600,16 @@ function SidebarLevel2({
       label: t('dossiers.nav_group_ai'),
       items: [
         { id: 'ai-assistant', label: t('dossiers.ai_assistant_nav_label') },
-        { id: 'cowork', label: t('cowork.nav_label', { defaultValue: 'Claude Cowork' }) },
+        {
+          id: 'redaction',
+          label: t('redaction.nav_label', { defaultValue: 'Rédaction assistée' })
+        },
+        { id: 'cowork', label: t('cowork.nav_label', { defaultValue: 'Claude Cowork' }) }
+      ]
+    },
+    {
+      label: t('dossiers.nav_group_research'),
+      items: [
         { id: 'search', label: t('documents.semantic_search_nav_label') },
         { id: 'legal', label: t('legal_search.nav_label', { defaultValue: 'Recherche Droit' }) },
         {
@@ -693,14 +709,13 @@ function SidebarLevel2({
       ) : null}
 
       {/* Section nav */}
-      <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+      <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {sectionGroups.map((group, groupIndex) => (
-          <div key={group.label} className={cn(groupIndex > 0 && 'mt-2.5')}>
-            <p className="px-2.5 pt-1 pb-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-subtle">
+          <div key={group.label} className={cn(groupIndex > 0 && 'mt-3')}>
+            <p className="px-2.5 pt-0.5 pb-0.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-subtle">
               {group.label}
             </p>
-            <hr className="mx-2.5 mb-1 border-0 border-t border-hairline-strong" />
-            <ul className="space-y-0.5 pl-3.5">
+            <ul className="space-y-0 pl-2.5">
               {group.items.map((item) => {
                 const isActive = activeSection === item.id
                 return (

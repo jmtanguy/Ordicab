@@ -8,7 +8,11 @@ import {
   DelegatedInstructionsGeneratorError
 } from '../aiDelegated/aiDelegatedInstructionsGenerator'
 import { isAiDelegatedInstructionsFilename } from '../aiDelegated/aiDelegatedInstructions'
-import { COWORK_DIRECTORY_NAME, ORDICAB_DIRECTORY_NAME } from './ordicabPaths'
+import {
+  COWORK_DIRECTORY_NAME,
+  ORDICAB_DELEGATED_DIRECTORY_NAME,
+  ORDICAB_DIRECTORY_NAME
+} from './ordicabPaths'
 
 interface DomainServiceLike {
   getStatus: () => Promise<DomainStatusSnapshot>
@@ -47,6 +51,7 @@ const DEFAULT_DEBOUNCE_MS = 500
 type OrdicabDataChangeTarget = Omit<OrdicabDataChangedEvent, 'changedAt'>
 type RelevantOrdicabChange =
   | { scope: 'domain' }
+  | { scope: 'domain-data' }
   | { scope: 'domain-docx-template'; templateUuid: string }
   | { scope: 'dossier-metadata'; dossierId: string }
   | { scope: 'dossier-documents'; dossierId: string }
@@ -89,7 +94,15 @@ function inferOrdicabDataType(filePath: string): OrdicabDataChangedEvent['type']
     return 'dossier'
   }
 
-  if ((parentDir === 'billing-items' || parentDir === 'key-dates') && filename.endsWith('.json')) {
+  // registry.json is the dossier list itself: reload dossiers, no dossier scope.
+  if (filename === 'registry.json') {
+    return 'dossier'
+  }
+
+  if (
+    (parentDir === 'billing-items' || parentDir === 'key-dates' || parentDir === 'notes') &&
+    filename.endsWith('.json')
+  ) {
     return 'dossier'
   }
 
@@ -134,7 +147,11 @@ export function inferOrdicabDataChangeTarget(
   const segments = relativePath.split(/[/\\]+/)
 
   if (segments[0] === ORDICAB_DIRECTORY_NAME) {
-    return dataType === 'entity' || dataType === 'cabinet-billing' || dataType === 'templates'
+    return dataType === 'entity' ||
+      dataType === 'cabinet-billing' ||
+      dataType === 'templates' ||
+      dataType === 'general-key-dates' ||
+      dataType === 'dossier'
       ? { dossierId: null, type: dataType }
       : null
   }
@@ -168,6 +185,7 @@ export function createOrdicabDataWatcher(
   let activeDomainPath: string | null = null
   let watcher: OrdicabDataFileWatcherLike | null = null
   let domainChangeTimer: ReturnType<typeof setTimeout> | null = null
+  let domainDataTimer: ReturnType<typeof setTimeout> | null = null
   const dossierChangeTimers = new Map<string, ReturnType<typeof setTimeout>>()
   const pendingDomainEvents = new Map<OrdicabDataChangedEvent['type'], OrdicabDataChangeTarget>()
   const pendingDossierEvents = new Map<
@@ -184,6 +202,11 @@ export function createOrdicabDataWatcher(
     if (domainChangeTimer) {
       clearTimeout(domainChangeTimer)
       domainChangeTimer = null
+    }
+
+    if (domainDataTimer) {
+      clearTimeout(domainDataTimer)
+      domainDataTimer = null
     }
 
     for (const timer of dossierChangeTimers.values()) {
@@ -278,9 +301,23 @@ export function createOrdicabDataWatcher(
     pendingDossierEvents.delete(dossierId)
   }
 
+  function flushDomainRendererEvents(): void {
+    if (pendingDomainEvents.size === 0) {
+      return
+    }
+
+    emitRendererEvents(pendingDomainEvents.values())
+    pendingDomainEvents.clear()
+  }
+
   function scheduleDomainGeneration(domainPath: string): void {
     if (domainChangeTimer) {
       clearTimeout(domainChangeTimer)
+    }
+
+    if (domainDataTimer) {
+      clearTimeout(domainDataTimer)
+      domainDataTimer = null
     }
 
     clearAllDossierTimers()
@@ -290,6 +327,22 @@ export function createOrdicabDataWatcher(
       flushAllRendererEvents()
       const mode = options.getActiveAiMode?.() ?? 'claude-code'
       void options.instructionsGenerator.generateForMode(domainPath, mode).catch(logGenerationError)
+    }, debounceMs)
+  }
+
+  function scheduleDomainEventFlush(): void {
+    if (domainChangeTimer) {
+      // The pending regeneration flush already emits every queued event.
+      return
+    }
+
+    if (domainDataTimer) {
+      clearTimeout(domainDataTimer)
+    }
+
+    domainDataTimer = setTimeout(() => {
+      domainDataTimer = null
+      flushDomainRendererEvents()
     }, debounceMs)
   }
 
@@ -338,6 +391,16 @@ export function createOrdicabDataWatcher(
         return { scope: 'domain-docx-template', templateUuid }
       }
 
+      // Domain-level data that only feeds the renderer: refresh the UI but
+      // never regenerate delegated instructions (they document formats, not
+      // this data).
+      if (
+        filename === 'cabinet-billing.json' ||
+        (segments[1] === 'general-key-dates' && filename.endsWith('.json'))
+      ) {
+        return { scope: 'domain-data' }
+      }
+
       if (
         filename !== 'entity.json' &&
         filename !== 'templates.json' &&
@@ -355,7 +418,8 @@ export function createOrdicabDataWatcher(
         filename === 'dossier.json' ||
         parentDir === 'contacts' ||
         parentDir === 'billing-items' ||
-        parentDir === 'key-dates'
+        parentDir === 'key-dates' ||
+        parentDir === 'notes'
       if (!isDossierMetadataFile) {
         return null
       }
@@ -387,12 +451,13 @@ export function createOrdicabDataWatcher(
         return
       }
 
-      if (event !== 'unlink') {
-        const rendererEvent = inferOrdicabDataChangeTarget(domainPath, filePath)
+      // 'unlink' included: an externally deleted record (AI contact_delete,
+      // sync client) must refresh the renderer too. Atomic-replace unlink+add
+      // pairs collapse into one event via the pending-event maps.
+      const rendererEvent = inferOrdicabDataChangeTarget(domainPath, filePath)
 
-        if (rendererEvent) {
-          queueRendererEvent(rendererEvent)
-        }
+      if (rendererEvent) {
+        queueRendererEvent(rendererEvent)
       }
 
       if (change.scope === 'domain-docx-template') {
@@ -404,6 +469,11 @@ export function createOrdicabDataWatcher(
 
       if (change.scope === 'domain') {
         scheduleDomainGeneration(domainPath)
+        return
+      }
+
+      if (change.scope === 'domain-data') {
+        scheduleDomainEventFlush()
         return
       }
 
@@ -439,8 +509,25 @@ export function createOrdicabDataWatcher(
     await closeWatcher()
 
     const nextWatcher = watchFactory(domainPath, {
-      depth: 2,
+      // Dossier metadata records live three directory levels below the domain
+      // root (<dossier>/.ordicab/{contacts,billing-items,key-dates,notes}/*.json).
+      // chokidar counts the watch root as depth 0 and never reads the contents
+      // of a directory deeper than `depth`, so 3 is the minimum that sees them
+      // — with depth 2 those files produced no events at all.
+      depth: 3,
       ignoreInitial: true,
+      // Trees that never hold watched data files; pruning them keeps the
+      // startup scan and the number of OS watches small.
+      ignored: (path: string) => {
+        const normalized = normalizeRelativePath(relative(domainPath, path))
+        return (
+          normalized === ORDICAB_DELEGATED_DIRECTORY_NAME ||
+          normalized.startsWith(`${ORDICAB_DELEGATED_DIRECTORY_NAME}/`) ||
+          normalized.split('/')[1] === COWORK_DIRECTORY_NAME ||
+          normalized.endsWith(`/${ORDICAB_DIRECTORY_NAME}/content-cache`) ||
+          normalized.includes(`/${ORDICAB_DIRECTORY_NAME}/content-cache/`)
+        )
+      },
       persistent: true
     })
 

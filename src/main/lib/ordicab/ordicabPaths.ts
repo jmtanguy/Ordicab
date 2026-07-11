@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 
 export const ORDICAB_DIRECTORY_NAME = '.ordicab'
-const ORDICAB_DELEGATED_DIRECTORY_NAME = '.ordicab-delegated'
+export const ORDICAB_DELEGATED_DIRECTORY_NAME = '.ordicab-delegated'
 
 export function getDomainOrdicabPath(domainPath: string): string {
   return join(domainPath, ORDICAB_DIRECTORY_NAME)

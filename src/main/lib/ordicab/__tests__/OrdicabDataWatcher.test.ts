@@ -51,6 +51,30 @@ describe('OrdicabDataWatcher', () => {
       type: 'templates'
     })
     expect(
+      inferOrdicabDataChangeTarget('/tmp/domain', '/tmp/domain/Client Alpha/.ordicab/notes/n1.json')
+    ).toEqual({
+      dossierId: 'Client Alpha',
+      type: 'dossier'
+    })
+    expect(
+      inferOrdicabDataChangeTarget('/tmp/domain', '/tmp/domain/.ordicab/registry.json')
+    ).toEqual({
+      dossierId: null,
+      type: 'dossier'
+    })
+    expect(
+      inferOrdicabDataChangeTarget('/tmp/domain', '/tmp/domain/.ordicab/cabinet-billing.json')
+    ).toEqual({
+      dossierId: null,
+      type: 'cabinet-billing'
+    })
+    expect(
+      inferOrdicabDataChangeTarget('/tmp/domain', '/tmp/domain/.ordicab/general-key-dates/g1.json')
+    ).toEqual({
+      dossierId: null,
+      type: 'general-key-dates'
+    })
+    expect(
       inferOrdicabDataChangeTarget('/tmp/domain', '/tmp/domain/.ordicab/unknown.json')
     ).toBeNull()
     expect(
@@ -335,6 +359,123 @@ describe('OrdicabDataWatcher', () => {
         type: 'contacts'
       })
     )
+  })
+
+  it('watches deep enough to see dossier record directories (contacts live at depth 3)', async () => {
+    const watchFactory: OrdicabDataWatchFactory = vi.fn(() => new FakeWatcher())
+    const watcher = createOrdicabDataWatcher({
+      domainService: {
+        getStatus: vi.fn(async () => ({
+          registeredDomainPath: '/tmp/domain',
+          isAvailable: true,
+          dossierCount: 1
+        }))
+      },
+      instructionsGenerator: {
+        generateDossier: vi.fn(async () => undefined),
+        generateDomainRoot: vi.fn(async () => undefined),
+        generateForMode: vi.fn(async () => undefined),
+        getStatus: vi.fn()
+      },
+      listRegisteredDossiers: vi.fn(async () => [{ slug: 'Client Alpha' }]),
+      watchFactory
+    })
+
+    await watcher.watchDomain('/tmp/domain')
+
+    // <dossier>/.ordicab/contacts/*.json sits three levels below the domain
+    // root; chokidar skips directory contents beyond `depth`, so anything
+    // lower than 3 silently drops every contact/billing/key-date/note event.
+    expect(watchFactory).toHaveBeenCalledWith('/tmp/domain', expect.objectContaining({ depth: 3 }))
+  })
+
+  it('emits a renderer event when a contact record is deleted externally', async () => {
+    const watchers: FakeWatcher[] = []
+    const watchFactory: OrdicabDataWatchFactory = vi.fn(() => {
+      const watcher = new FakeWatcher()
+      watchers.push(watcher)
+      return watcher
+    })
+    const onDataChanged = vi.fn()
+    const watcher = createOrdicabDataWatcher({
+      domainService: {
+        getStatus: vi.fn(async () => ({
+          registeredDomainPath: '/tmp/domain',
+          isAvailable: true,
+          dossierCount: 1
+        }))
+      },
+      instructionsGenerator: {
+        generateDossier: vi.fn(async () => undefined),
+        generateDomainRoot: vi.fn(async () => undefined),
+        generateForMode: vi.fn(async () => undefined),
+        getStatus: vi.fn()
+      },
+      listRegisteredDossiers: vi.fn(async () => [{ slug: 'Client Alpha' }]),
+      onDataChanged,
+      watchFactory
+    })
+
+    await watcher.watchDomain('/tmp/domain')
+
+    watchers[0]!.emit('unlink', '/tmp/domain/Client Alpha/.ordicab/contacts/abc123.json')
+
+    await vi.advanceTimersByTimeAsync(500)
+    await Promise.resolve()
+
+    expect(onDataChanged).toHaveBeenCalledTimes(1)
+    expect(onDataChanged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dossierId: 'Client Alpha',
+        type: 'contacts'
+      })
+    )
+  })
+
+  it('emits renderer events for cabinet billing and general key dates without regenerating CLAUDE.md', async () => {
+    const watchers: FakeWatcher[] = []
+    const watchFactory: OrdicabDataWatchFactory = vi.fn(() => {
+      const watcher = new FakeWatcher()
+      watchers.push(watcher)
+      return watcher
+    })
+    const onDataChanged = vi.fn()
+    const instructionsGenerator = {
+      generateDossier: vi.fn(async () => undefined),
+      generateDomainRoot: vi.fn(async () => undefined),
+      generateForMode: vi.fn(async () => undefined),
+      getStatus: vi.fn()
+    }
+    const watcher = createOrdicabDataWatcher({
+      domainService: {
+        getStatus: vi.fn(async () => ({
+          registeredDomainPath: '/tmp/domain',
+          isAvailable: true,
+          dossierCount: 1
+        }))
+      },
+      instructionsGenerator,
+      listRegisteredDossiers: vi.fn(async () => [{ slug: 'Client Alpha' }]),
+      onDataChanged,
+      watchFactory
+    })
+
+    await watcher.watchDomain('/tmp/domain')
+
+    watchers[0]!.emit('change', '/tmp/domain/.ordicab/cabinet-billing.json')
+    watchers[0]!.emit('add', '/tmp/domain/.ordicab/general-key-dates/g1.json')
+
+    await vi.advanceTimersByTimeAsync(500)
+    await Promise.resolve()
+
+    expect(onDataChanged).toHaveBeenCalledTimes(2)
+    expect(onDataChanged).toHaveBeenCalledWith(
+      expect.objectContaining({ dossierId: null, type: 'cabinet-billing' })
+    )
+    expect(onDataChanged).toHaveBeenCalledWith(
+      expect.objectContaining({ dossierId: null, type: 'general-key-dates' })
+    )
+    expect(instructionsGenerator.generateForMode).not.toHaveBeenCalled()
   })
 
   it('flushes queued dossier and domain refresh events together when a domain change supersedes dossier timers', async () => {

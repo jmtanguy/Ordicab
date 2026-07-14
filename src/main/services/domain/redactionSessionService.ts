@@ -588,6 +588,7 @@ export function createRedactionSessionService(
             if (!unresolved || unresolved.length === 0) throw error
             // Unresolved routines must not fail the wizard: keep them visible
             // as literal {{tag}} placeholders, to be filled during drafting.
+            // generateService reports unresolved paths in their French form.
             const literalPlaceholders = Object.fromEntries(
               unresolved.map((path) => [path, `{{${path}}}`])
             )

@@ -32,6 +32,7 @@ import {
   computeDueDateIso
 } from '@shared/types'
 import { computeContactDisplayName } from '@shared/computeContactDisplayName'
+import { normalizeTagPath } from '@shared/templateContent'
 import { consumeNextInvoiceNumber } from '@shared/domain/invoiceNumbering'
 import { buildFecExport } from '@shared/domain/fecExport'
 import {
@@ -127,7 +128,11 @@ function stripAutoResolvedInvoiceTagOverrides(
 ): Record<string, string> | undefined {
   if (!overrides) return undefined
   return Object.fromEntries(
-    Object.entries(overrides).filter(([path]) => !AUTO_RESOLVED_INVOICE_TAG_PATHS.has(path))
+    Object.entries(overrides).filter(
+      // Override keys circulate in their French form — compare on the
+      // canonical twin so FR keys (facture.numero, …) are stripped too.
+      ([path]) => !AUTO_RESOLVED_INVOICE_TAG_PATHS.has(normalizeTagPath(path))
+    )
   )
 }
 

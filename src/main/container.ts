@@ -617,6 +617,7 @@ export function buildContainer(opts: BuildContainerOptions): AppContainer {
     domainService: opts.domainService,
     localeService: opts.mainI18n,
     stateFilePath: opts.stateFilePath,
+    configureRemoteLanguageModel,
     nerModelPath: opts.modelsPath,
     loadEntityProfile: async () => entityService.get()
   })

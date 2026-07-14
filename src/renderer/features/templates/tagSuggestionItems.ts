@@ -62,10 +62,12 @@ export function buildTagSuggestionItems(
   })
 
   return matched.slice(0, max).map(({ entry }) => {
-    const path = normalizeTagPath(extractTagPath(entry.tag))
+    // The localized (French-first) path is both what the user sees and what
+    // gets inserted into the template — EN canonical paths stay render-only.
+    const path = localizeTagPath(normalizeTagPath(extractTagPath(entry.tag)))
     return {
       path,
-      label: localizeTagPath(path),
+      label: path,
       description:
         (isFrench ? (entry.descriptionFr ?? entry.description) : entry.description) ?? '',
       example: entry.example,

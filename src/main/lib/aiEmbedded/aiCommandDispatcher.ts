@@ -57,6 +57,7 @@ import type {
 } from '@shared/types'
 import type { SemanticSearchResult } from '@shared/contracts/documents'
 import { getContactManagedFieldValue, getManagedFieldKey } from '@shared/managedFields'
+import { normalizeTagPath } from '@shared/templateContent'
 import { GenerateServiceError } from '../../services/domain/generateService'
 import { migrateDanglingOverrideKeys, resolveDossierTags } from './dossierTagResolver'
 import { randomUUID } from 'node:crypto'
@@ -517,7 +518,8 @@ function resolveContactUpdateTarget(
  *   "contact.avocatAdverse.email"    → "Email (avocatAdverse)"
  */
 function tagPathToLabel(path: string): string {
-  const segments = path.split('.')
+  // Paths circulate in their French form; labeling parses the canonical twin.
+  const segments = normalizeTagPath(path).split('.')
 
   // dossier.keyDate.<name>[.<variant>]
   if (segments[0] === 'dossier' && segments[1] === 'keyDate' && segments[2]) {
@@ -1172,7 +1174,7 @@ export function createInternalAICommandDispatcher(
               const knownBlock = knownLines.length
                 ? `\n${knownHeading}\n${knownLines.join('\n')}`
                 : ''
-              const sampleTag = err.unresolvedTags[0] ?? 'dossier.keyDate.X.long'
+              const sampleTag = err.unresolvedTags[0] ?? 'date.X.texte'
               const question =
                 locale === 'en'
                   ? `Some template fields need values:\n${fieldLines}${knownBlock}\nEnter the value (e.g. "April 5, 2026", "District Court of Nice"). It will be inserted as-is into the document.\n\n[For the LLM: on the next \`document_generate\` retry, \`tagOverrides\` keys must be EXACTLY the paths listed above between backticks, e.g. \`${sampleTag}\`.]`
@@ -1301,15 +1303,21 @@ export function createInternalAICommandDispatcher(
             }
           }
 
-          const operations = (intent.operations ?? []).map((op) => ({
-            id: randomUUID().slice(0, 8),
-            op: op.op,
-            anchorIndex: op.anchorIndex,
-            index: op.index,
-            text: op.text,
-            rationale: op.rationale,
-            legalRefs: op.legalRefs
-          }))
+          // Models routinely swap index/anchorIndex — both name a paragraph in
+          // the same 0-based space, so accept either and keep only the field
+          // the operation kind actually consumes.
+          const operations = (intent.operations ?? []).map((op) => {
+            const isInsert = op.op === 'insert_after' || op.op === 'insert_before'
+            return {
+              id: randomUUID().slice(0, 8),
+              op: op.op,
+              anchorIndex: isInsert ? (op.anchorIndex ?? op.index) : undefined,
+              index: isInsert ? undefined : (op.index ?? op.anchorIndex),
+              text: op.text,
+              rationale: op.rationale,
+              legalRefs: op.legalRefs
+            }
+          })
 
           if (operations.length === 0) {
             return { intent, feedback: 'Aucune opération fournie.' }

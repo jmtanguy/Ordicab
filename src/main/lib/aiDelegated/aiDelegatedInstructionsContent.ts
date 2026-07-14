@@ -162,9 +162,9 @@ function buildDelegatedExamples(): {
   const template = templateRecordSchema.parse({
     uuid: '3f84e5b6-3912-49dc-9c7d-8c446df43b0f',
     name: 'Lettre de mise en demeure',
-    content: 'Objet : Mise en demeure\n\nBonjour {{contact.displayName}},',
+    content: 'Objet : Mise en demeure\n\nBonjour {{contact.nomAffiche}},',
     description: 'Modele de courrier initial',
-    macros: ['contact.displayName', 'dossier.name'],
+    macros: ['contact.nomAffiche'],
     hasDocxSource: false,
     updatedAt: '2026-03-20T12:00:00.000Z'
   })
@@ -199,32 +199,40 @@ export function buildTemplateRoutinesGuide(domainPath: string): string {
     '',
     'This file lists the template routines supported directly by Ordicab.',
     'When selecting or writing template content, prefer the routines listed here before inventing a new placeholder.',
-    'Use the canonical English paths exactly as shown below. Alias normalization may help at render time, but these canonical forms are the preferred source of truth.',
+    'Routines are written in French. Always use the French paths exactly as shown below — they are the only form that may appear in template content. English aliases are normalized at render time but must never be authored.',
     '',
     '## Authoring Rules',
     '1. Prefer a routine from this file whenever it already matches the requested data.',
     '2. Do not invent unsupported roots or fields.',
-    '3. For role-specific contacts, use `{{contact.<roleKey>.<field>}}` with the Ordicab role key in camelCase.',
-    '4. For chronology dates, replace `<label>` with the canonical camelCase key derived from the saved label.',
+    '3. For role-specific contacts, use `{{contact.<cleRole>.<champ>}}` with the Ordicab role key in camelCase and the French field name (e.g. `nomAffiche`, `adresseFormatee`).',
+    '4. For chronology dates, replace `<label>` with the camelCase key derived from the saved label.',
     '5. If the needed data is not supported by these routines, first store it in Ordicab canonical data or ask for clarification before creating template content that depends on it.',
     '',
     '## Date Formatting Principle',
     'All dates are **persisted in ISO 8601 format** (`YYYY-MM-DD` for calendar dates, full ISO timestamp for datetimes).',
     'Display formatting is always computed at render time using the user locale — never stored.',
-    '- `{{dossier.createdAt}}` / `{{today}}` -> raw ISO date (e.g. `2026-03-15`) — use for sorting, filtering, or machine-readable contexts.',
-    '- `{{dossier.createdAtFormatted}}` / `{{todayFormatted}}` -> locale date (e.g. `15/03/2026` in fr-FR).',
-    '- `{{dossier.createdAtLong}}` / `{{todayLong}}` -> long text (e.g. `15 mars 2026`).',
-    '- `{{dossier.createdAtShort}}` / `{{todayShort}}` -> abbreviated text (e.g. `15 mars 26`).',
-    'Key dates (`{{dossier.keyDate.<label>}}`) are stored as ISO `YYYY-MM-DD` strings and also expose formatted variants:',
-    '- `{{dossier.keyDate.<label>.formatted}}` -> locale date (e.g. `01/04/2026`)',
-    '- `{{dossier.keyDate.<label>.long}}` -> long text (e.g. `1 avril 2026`)',
-    '- `{{dossier.keyDate.<label>.short}}` -> abbreviated text (e.g. `1 avr. 26`)',
-    '`{{createdAt}}` (generation timestamp) similarly exposes `.formatted`, `.long`, `.short` sub-paths.',
+    '- `{{dossier.dateCreation}}` / `{{aujourdhui}}` -> raw ISO date (e.g. `2026-03-15`) — use for sorting, filtering, or machine-readable contexts.',
+    '- `{{dossier.dateCreationFormatee}}` / `{{aujourdhuiFormate}}` -> locale date (e.g. `15/03/2026` in fr-FR).',
+    '- `{{dossier.dateCreationTexte}}` / `{{aujourdhuiTexte}}` -> long text (e.g. `15 mars 2026`).',
+    '- `{{dossier.dateCreationCourte}}` / `{{aujourdhuiCourt}}` -> abbreviated text (e.g. `15 mars 26`).',
+    'Key dates (`{{date.<label>}}`) are stored as ISO `YYYY-MM-DD` strings and also expose formatted variants:',
+    '- `{{date.<label>.formate}}` -> locale date (e.g. `01/04/2026`)',
+    '- `{{date.<label>.texte}}` -> long text (e.g. `1 avril 2026`)',
+    '- `{{date.<label>.court}}` -> abbreviated text (e.g. `1 avr. 26`)',
+    '`{{creeLe}}` (generation timestamp) similarly exposes `.formate`, `.texte`, `.court` sub-paths.',
     'Prefer formatted variants for human-readable output in generated documents.',
     '',
     `Canonical path: ${routinesPath}`,
     ''
   ]
+
+  const pushEntry = (entry: (typeof templateRoutineCatalog)[number]): void => {
+    lines.push(
+      `- \`${entry.tagFr ?? entry.tag}\``,
+      `  - ${entry.descriptionFr ?? entry.description}`,
+      `  - Example: \`${entry.example}\``
+    )
+  }
 
   for (const group of TEMPLATE_ROUTINE_GROUPS) {
     const entries = templateRoutineCatalog.filter((entry) => entry.group === group)
@@ -236,22 +244,14 @@ export function buildTemplateRoutinesGuide(domainPath: string): string {
 
     const ungrouped = entries.filter((entry) => !entry.subGroup)
     for (const entry of ungrouped) {
-      lines.push(
-        `- \`${entry.tag}\``,
-        `  - ${entry.description}`,
-        `  - Example: \`${entry.example}\``
-      )
+      pushEntry(entry)
     }
 
     const salutationEntries = entries.filter((entry) => entry.subGroup === 'salutation')
     if (salutationEntries.length > 0) {
       lines.push('', '### Salutation')
       for (const entry of salutationEntries) {
-        lines.push(
-          `- \`${entry.tag}\``,
-          `  - ${entry.description}`,
-          `  - Example: \`${entry.example}\``
-        )
+        pushEntry(entry)
       }
     }
 
@@ -259,11 +259,7 @@ export function buildTemplateRoutinesGuide(domainPath: string): string {
     if (addressEntries.length > 0) {
       lines.push('', '### Address')
       for (const entry of addressEntries) {
-        lines.push(
-          `- \`${entry.tag}\``,
-          `  - ${entry.description}`,
-          `  - Example: \`${entry.example}\``
-        )
+        pushEntry(entry)
       }
     }
 
@@ -273,12 +269,12 @@ export function buildTemplateRoutinesGuide(domainPath: string): string {
   lines.push(
     '## Dynamic Families',
     '',
-    '- Role-specific contacts: `{{contact.<roleKey>.<field>}}`',
-    '  - Example: `{{contact.opposingCounsel.email}}`',
-    '- Key dates: `{{dossier.keyDate.<label>}}`',
-    '  - Example: `{{dossier.keyDate.hearingDate}}`',
+    '- Role-specific contacts: `{{contact.<cleRole>.<champ>}}` — the role key stays in French camelCase, fields use the French names from this guide.',
+    '  - Example: `{{contact.conseilAdverse.email}}`, `{{contact.partieRepresentee.nomAffiche}}`',
+    '- Key dates: `{{date.<label>}}`',
+    '  - Example: `{{date.audience}}`, `{{date.audience.formate}}`',
     '- Dossier references are direct dossier fields derived from visible key references, e.g. `{{dossier.nRg}}`, `{{dossier.tribunal}}`, `{{dossier.juridiction}}`.',
-    '- Invoice services must use the complete block `{{invoice.linesTable}}`; do not create billing loops or item selectors.',
+    '- Invoice services must use the complete block `{{facture.tableauPrestations}}`; do not create billing loops or item selectors.',
     ''
   )
 
@@ -384,7 +380,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
     'When a DOCX source exists (`hasDocxSource: true`), it is at: `<domain>/.ordicab/templates/<uuid>.docx`.',
     '',
     '#### Using the index efficiently',
-    '- **Variable compatibility check**: the `macros` array in the index lists every placeholder the template uses (e.g. `["contact.displayName", "dossier.name"]`). Use this to decide whether a template is compatible with the available dossier data — no need to load the HTML for this check.',
+    '- **Variable compatibility check**: the `macros` array in the index lists every placeholder the template uses, in its French form (e.g. `["contact.nomAffiche", "date.audience"]`) — the same form as the routines guide. Use this to decide whether a template is compatible with the available dossier data — no need to load the HTML for this check.',
     '- **Content editing or generation preview**: read `<domain>/.ordicab/templates/<uuid>.html` on demand only when you need to inspect, modify, or show the full template text.',
     '',
     'To identify the right template for a `generate.document` action:',
@@ -509,8 +505,8 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
           'Document generation failed: some template fields could not be resolved from the dossier data.',
         unresolvedTags: [
           {
-            path: 'dossier.keyDate.judgmentDate',
-            description: 'Judgment date'
+            path: 'date.jugement',
+            description: 'Date clé « jugement » (ISO)'
           }
         ]
       }
@@ -839,7 +835,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
         }
       })
     ),
-    'If Ordicab replies with `status: "needs_input"` because some macros are unresolved, ask the user for every missing value and then emit a new `generate.document` intent with a new `commandId`, the same `originDeviceId`, and a `tagOverrides` object containing the collected values.',
+    'If Ordicab replies with `status: "needs_input"` because some macros are unresolved, ask the user for every missing value and then emit a new `generate.document` intent with a new `commandId`, the same `originDeviceId`, and a `tagOverrides` object containing the collected values. Each `tagOverrides` key must echo the exact `path` value reported in `unresolvedTags`.',
     toJsonSnippet(
       buildIntentEnvelopeExample({
         commandId: 'generate-document-2',
@@ -852,7 +848,7 @@ export function buildDelegatedInstructions(params: BuildDelegatedInstructionsPar
           description: 'Concise description of the generated document purpose',
           tags: ['2026', 'example-tag'],
           tagOverrides: {
-            'dossier.keyDate.judgmentDate': '2026-04-22'
+            'date.jugement': '2026-04-22'
           }
         }
       })

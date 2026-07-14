@@ -17,7 +17,12 @@
  * Used by: aiCommandDispatcher.ts (document_generate catch-and-retry path)
  */
 
-import { distinguishingTokens, stripAccents, tokenize } from '@shared/templateContent'
+import {
+  distinguishingTokens,
+  normalizeTagPath,
+  stripAccents,
+  tokenize
+} from '@shared/templateContent'
 
 export interface ResolveDossierTagsInput {
   unresolvedTags: string[]
@@ -163,7 +168,10 @@ export function resolveDossierTags(input: ResolveDossierTagsInput): ResolveDossi
   const keyReferences = input.keyReferences ?? []
 
   for (const tag of input.unresolvedTags) {
-    const dateMatch = tag.match(KEY_DATE_PATH)
+    // Tags circulate in their French form; shape-matching happens on the
+    // canonical twin while the original tag stays the override key.
+    const canonical = normalizeTagPath(tag)
+    const dateMatch = canonical.match(KEY_DATE_PATH)
     if (dateMatch) {
       const [, slug = '', variant] = dateMatch
       const candidates = keyDates.filter((entry) => entryMatchesSlug(entry.label, slug))
@@ -180,7 +188,7 @@ export function resolveDossierTags(input: ResolveDossierTagsInput): ResolveDossi
       continue
     }
 
-    const refMatch = tag.match(DIRECT_DOSSIER_REFERENCE_PATH)
+    const refMatch = canonical.match(DIRECT_DOSSIER_REFERENCE_PATH)
     if (refMatch && !RESERVED_DOSSIER_KEYS.has(refMatch[1] ?? '')) {
       const [, slug = ''] = refMatch
       const candidates = keyReferences.filter((entry) => entryMatchesSlug(entry.label, slug))

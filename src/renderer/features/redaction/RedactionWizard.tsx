@@ -5,7 +5,7 @@
  * document in place.
  */
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { Fragment, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import type { RedactionDocKind, RedactionSourceType } from '@shared/domain/redaction'
@@ -72,6 +72,44 @@ export function RedactionWizard({ dossierId }: { dossierId: string }): React.JSX
     [templates]
   )
   const hasCabinetTemplate = Boolean(entityProfile?.defaultTemplateFileName)
+
+  // Mirror the library grouping: named categories first (alphabetical), uncategorized last.
+  const groupedTemplates = useMemo(() => {
+    const map = new Map<string, typeof documentTemplates>()
+    for (const template of documentTemplates) {
+      const key = template.category ?? ''
+      const list = map.get(key) ?? []
+      list.push(template)
+      map.set(key, list)
+    }
+    const categories = [...map.keys()]
+      .filter((key) => key !== '')
+      .sort((a, b) => a.localeCompare(b))
+    return [
+      ...categories.map((category) => ({ key: category, items: map.get(category) ?? [] })),
+      ...(map.has('') ? [{ key: '', items: map.get('') ?? [] }] : [])
+    ]
+  }, [documentTemplates])
+  const templatePickerHasCategories = groupedTemplates.some((section) => section.key !== '')
+
+  // Group dossier documents by their parent folder: root first, then subfolders (alphabetical).
+  const groupedDocuments = useMemo(() => {
+    const map = new Map<string, typeof docxDocuments>()
+    for (const doc of docxDocuments) {
+      const key = doc.relativePath.includes('/')
+        ? doc.relativePath.slice(0, doc.relativePath.lastIndexOf('/'))
+        : ''
+      const list = map.get(key) ?? []
+      list.push(doc)
+      map.set(key, list)
+    }
+    const folders = [...map.keys()].filter((key) => key !== '').sort((a, b) => a.localeCompare(b))
+    return [
+      ...(map.has('') ? [{ key: '', items: map.get('') ?? [] }] : []),
+      ...folders.map((folder) => ({ key: folder, items: map.get(folder) ?? [] }))
+    ]
+  }, [docxDocuments])
+  const documentPickerHasFolders = groupedDocuments.some((section) => section.key !== '')
 
   const sourceCards: SourceCard[] = [
     {
@@ -248,23 +286,34 @@ export function RedactionWizard({ dossierId }: { dossierId: string }): React.JSX
             {t('redaction.pick_template', { defaultValue: 'Choisir un modèle' })}
           </h3>
           <ul className="max-h-96 space-y-1 overflow-y-auto rounded-2xl border border-hairline bg-white p-2">
-            {documentTemplates.map((template) => (
-              <li key={template.uuid}>
-                <button
-                  type="button"
-                  onClick={() => setTemplateUuid(template.uuid)}
-                  className={`w-full rounded-xl px-3 py-2 text-left text-sm transition-colors ${
-                    templateUuid === template.uuid
-                      ? 'bg-aurora/10 text-aurora'
-                      : 'text-ink hover:bg-parchment'
-                  }`}
-                >
-                  {template.name}
-                  {template.description && (
-                    <span className="block text-xs text-ink-subtle">{template.description}</span>
-                  )}
-                </button>
-              </li>
+            {groupedTemplates.map((section) => (
+              <Fragment key={section.key || '__uncategorized__'}>
+                {templatePickerHasCategories && (
+                  <li className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-subtle">
+                    {section.key || t('templates.list.uncategorized')}
+                  </li>
+                )}
+                {section.items.map((template) => (
+                  <li key={template.uuid}>
+                    <button
+                      type="button"
+                      onClick={() => setTemplateUuid(template.uuid)}
+                      className={`w-full rounded-xl px-3 py-2 text-left text-sm transition-colors ${
+                        templateUuid === template.uuid
+                          ? 'bg-aurora/10 text-aurora'
+                          : 'text-ink hover:bg-parchment'
+                      }`}
+                    >
+                      {template.name}
+                      {template.description && (
+                        <span className="block text-xs text-ink-subtle">
+                          {template.description}
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </Fragment>
             ))}
           </ul>
           <p className="mt-1 text-xs text-ink-subtle">
@@ -285,23 +334,33 @@ export function RedactionWizard({ dossierId }: { dossierId: string }): React.JSX
               : t('redaction.pick_document_edit', { defaultValue: 'Document à modifier' })}
           </h3>
           <ul className="max-h-96 space-y-1 overflow-y-auto rounded-2xl border border-hairline bg-white p-2">
-            {docxDocuments.map((doc) => (
-              <li key={doc.uuid}>
-                <button
-                  type="button"
-                  onClick={() => setSourceDocumentUuid(doc.uuid)}
-                  className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition-colors ${
-                    sourceDocumentUuid === doc.uuid
-                      ? 'bg-aurora/10 text-aurora'
-                      : 'text-ink hover:bg-parchment'
-                  }`}
-                >
-                  <span className="truncate">{doc.filename}</span>
-                  <span className="ml-2 shrink-0 text-xs text-ink-subtle">
-                    {new Date(doc.modifiedAt).toLocaleDateString('fr-FR')}
-                  </span>
-                </button>
-              </li>
+            {groupedDocuments.map((section) => (
+              <Fragment key={section.key || '__root__'}>
+                {documentPickerHasFolders && (
+                  <li className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-subtle">
+                    {section.key ||
+                      t('redaction.folder_root', { defaultValue: 'Racine du dossier' })}
+                  </li>
+                )}
+                {section.items.map((doc) => (
+                  <li key={doc.uuid}>
+                    <button
+                      type="button"
+                      onClick={() => setSourceDocumentUuid(doc.uuid)}
+                      className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition-colors ${
+                        sourceDocumentUuid === doc.uuid
+                          ? 'bg-aurora/10 text-aurora'
+                          : 'text-ink hover:bg-parchment'
+                      }`}
+                    >
+                      <span className="truncate">{doc.filename}</span>
+                      <span className="ml-2 shrink-0 text-xs text-ink-subtle">
+                        {new Date(doc.modifiedAt).toLocaleDateString('fr-FR')}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </Fragment>
             ))}
           </ul>
           {sourceType === 'edit_existing' && (

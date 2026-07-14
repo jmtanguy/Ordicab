@@ -29,7 +29,6 @@ import {
   buildKnownTagIndex,
   extractTagPath,
   isValidTagPath,
-  normalizeTagPath,
   replaceHtmlTextWithTags,
   type KnownTagIndex
 } from '@shared/templateContent'
@@ -47,7 +46,15 @@ import { getDomainTemplateDocxPath } from '../../lib/ordicab/ordicabPaths'
 import type { TemplateService } from '../domain/templateService'
 import { readAiSettings } from './aiService'
 
-const MAX_DOCUMENT_CHARS = 12_000
+// Safety net only, not a working limit: conclusions can run dozens of pages
+// and must be analyzed in full. ~200k chars ≈ 50k tokens, well within the 256k
+// context of the supported remote models; truncation is logged when it happens.
+const MAX_DOCUMENT_CHARS = 200_000
+
+// Remote models occasionally degenerate on a one-shot call (reasoning-only
+// output, truncation, gibberish instead of JSON). A single fresh attempt
+// recovers nearly all of these stochastic failures.
+const MODEL_ATTEMPTS = 2
 
 const modelProposalSchema = z.object({
   originalText: z.string().min(1),
@@ -86,7 +93,26 @@ function normalizeProposalKeys(value: unknown): unknown {
   })
 }
 
-const modelOutputSchema = z.preprocess(normalizeProposalKeys, z.array(modelProposalSchema))
+type ModelProposal = z.infer<typeof modelProposalSchema>
+
+/**
+ * Salvage parsing: models legitimately emit entries we cannot use (e.g.
+ * `suggestedTag: null` for "I found a value but have no tag for it"). One bad
+ * entry must not discard the whole analysis, so we validate per entry and drop
+ * the malformed ones. Returns null when the value is not an array at all.
+ */
+function parseProposalEntries(value: unknown): { valid: ModelProposal[]; dropped: number } | null {
+  const normalized = normalizeProposalKeys(value)
+  if (!Array.isArray(normalized)) return null
+  const valid: ModelProposal[] = []
+  let dropped = 0
+  for (const entry of normalized) {
+    const parsed = modelProposalSchema.safeParse(entry)
+    if (parsed.success) valid.push(parsed.data)
+    else dropped += 1
+  }
+  return { valid, dropped }
+}
 
 export class TemplateTagifyError extends Error {
   constructor(
@@ -116,6 +142,8 @@ export interface TemplateTagifyServiceOptions {
   domainService: DomainServiceLike
   localeService: LocaleServiceLike
   stateFilePath: string
+  /** Same hook as aiService: reconfigures the runtime for a per-call model choice. */
+  configureRemoteLanguageModel?: (model?: string) => Promise<void>
   nerModelPath?: string | null
   /** Overridable for tests — defaults to a filesystem check of the NER model. */
   isNerModelReady?: () => Promise<boolean>
@@ -157,13 +185,21 @@ function resolveVerbatimSourceText(documentText: string, candidate: string): str
 
 function buildCatalogPromptSection(locale: string): string {
   const isFrench = locale.startsWith('fr')
-  const lines = templateRoutineCatalog
-    .filter((entry) => entry.visibility !== 'hidden')
-    .map((entry) => {
-      const path = normalizeTagPath(extractTagPath(entry.tag))
-      const description = isFrench ? (entry.descriptionFr ?? entry.description) : entry.description
-      return `- ${path} — ${description} (ex: ${entry.example})`
-    })
+  const seen = new Set<string>()
+  const lines: string[] = []
+  for (const entry of templateRoutineCatalog) {
+    if (entry.visibility === 'hidden') continue
+    // French routine paths are the authored form; the EN canonical path is
+    // only a render-time alias and must not be proposed to users.
+    const path = extractTagPath(entry.tagFr ?? entry.tag)
+    if (seen.has(path)) continue
+    seen.add(path)
+    const description = isFrench ? (entry.descriptionFr ?? entry.description) : entry.description
+    // Multi-line examples (formatted addresses) would break the one-line-per-tag
+    // list structure the model relies on.
+    const example = entry.example.replace(/\n/g, ' ⏎ ')
+    lines.push(`- ${path} — ${description} (ex: ${example})`)
+  }
   return lines.join('\n')
 }
 
@@ -177,18 +213,23 @@ function buildSystemPrompt(locale: string): string {
     buildCatalogPromptSection(locale),
     '',
     'Dynamic patterns are also valid:',
-    '- contact.<role>.<field> for a contact with a specific role (e.g. contact.client.displayName, contact.adversaire.addressFormatted)',
-    '- dossier.keyDate.<label> with optional .formatted/.long/.short variant for chronology dates (e.g. dossier.keyDate.audience.long)',
-    '- date.today+N for computed offsets from today',
+    '- contact.<cleRole>.<champ> — <cleRole> is the camelCase key of the contact role label, kept in its original language (French labels stay French): « partie représentée » → partieRepresentee, « avocat de la partie adverse » → avocatDeLaPartieAdverse. NEVER translate a role key into English.',
+    '  Common role keys: partieRepresentee, avocatDeLaPartieRepresentee, partieAdverse, avocatDeLaPartieAdverse, juridiction, expertJudiciaire, notaire, huissierDeJustice, assureur.',
+    '  Fields: nomAffiche, civiliteNom, formuleAppel, adresseFormatee, email, telephone, prenom, nom.',
+    '- date.<label> with optional .formate/.texte/.court variant — <label> is the camelCase key of the chronology event label: « Audience » → audience, « Renvoi » → renvoi, « Expertise » → expertise. NEVER invent or translate a label.',
+    '- date.j+N for computed offsets from today (e.g. date.j+15).',
     '',
     'Rules:',
     '- originalText MUST be copied verbatim from the document (an exact substring, including accents and punctuation).',
-    '- Prefer the most specific tag (a client name → contact.client.displayName, not contact.displayName, when the letter clearly addresses a client).',
-    '- Do not propose tags for generic prose, legal boilerplate, or values that should stay fixed in the template (e.g. the law firm letterhead if it is part of the cabinet branding — actually entity.* tags ARE appropriate for firm identity).',
+    '- suggestedTag MUST be a non-empty tag path from above, in its French form. If no tag fits a value, omit that entry entirely — never output null.',
+    '- Skip anything already wrapped in {{ … }}: it is already a tag. Never propose a replacement for a tag or for a bare tag path.',
+    "- Prefer the most specific tag: the represented party's name → contact.partieRepresentee.nomAffiche rather than contact.nomAffiche when the letter makes the role clear.",
+    '- In the letterhead date line (« Nice, le 12 mars 2026 »), only the date itself maps to aujourdhuiTexte; leave the city and « le » in place.',
+    '- Do not propose tags for generic prose or legal boilerplate. cabinet.* tags ARE appropriate for the firm identity block (letterhead, signature).',
     '- Skip values shorter than 3 characters.',
     '',
     'Output STRICT JSON only — an array of objects, no markdown, no commentary:',
-    '[{"originalText": "...", "suggestedTag": "contact.client.displayName", "confidence": "high"}]',
+    '[{"originalText": "...", "suggestedTag": "contact.partieRepresentee.nomAffiche", "confidence": "high"}]',
     'confidence: "high" when the mapping is unambiguous, "medium" when plausible, "low" when uncertain.'
   ].join('\n')
 }
@@ -265,6 +306,31 @@ function extractJsonArray(raw: string): unknown {
   throw new TemplateTagifyError(IpcErrorCode.UNKNOWN, 'The AI response is not valid JSON.')
 }
 
+/**
+ * True when at least one occurrence of `needle` overlaps a {{…}} tag already
+ * present in the document. Replacements are applied to every occurrence, so a
+ * single overlapping one would corrupt the existing tag — the whole proposal
+ * must be dropped, not just that occurrence.
+ */
+function overlapsExistingTag(documentText: string, needle: string): boolean {
+  const spans: Array<[number, number]> = []
+  const tagPattern = /\{\{[\s\S]*?\}\}/g
+  for (let match = tagPattern.exec(documentText); match; match = tagPattern.exec(documentText)) {
+    spans.push([match.index, match.index + match[0].length])
+  }
+  if (spans.length === 0) return false
+
+  for (
+    let index = documentText.indexOf(needle);
+    index >= 0;
+    index = documentText.indexOf(needle, index + needle.length)
+  ) {
+    const end = index + needle.length
+    if (spans.some(([start, stop]) => index < stop && end > start)) return true
+  }
+  return false
+}
+
 function countOccurrences(haystack: string, needle: string): number {
   if (!needle) return 0
   let count = 0
@@ -285,6 +351,7 @@ export function createTemplateTagifyService(
     domainService,
     localeService,
     stateFilePath,
+    configureRemoteLanguageModel,
     nerModelPath
   } = options
 
@@ -314,7 +381,10 @@ export function createTemplateTagifyService(
 
   return {
     async analyze(input): Promise<TemplateTagifyAnalyzeResult> {
-      const { mode, piiEnabled, piiWordlist } = await readAiSettings(stateFilePath)
+      const settings = await readAiSettings(stateFilePath)
+      const { mode, piiWordlist } = settings
+      // The dialog can override the global PII setting for this analysis only.
+      const piiEnabled = input.piiEnabled ?? settings.piiEnabled
       if (mode !== 'remote') {
         throw new AiRuntimeError(
           'Configure a remote AI model in Settings to use tag detection.',
@@ -333,7 +403,13 @@ export function createTemplateTagifyService(
 
       const template = await requireTemplate(input.templateUuid)
       const html = await templateService.getContent(template.uuid)
-      const documentText = htmlToPlainText(html).slice(0, MAX_DOCUMENT_CHARS)
+      const fullText = htmlToPlainText(html)
+      if (fullText.length > MAX_DOCUMENT_CHARS) {
+        console.warn(
+          `[tagify] Document truncated from ${fullText.length} to ${MAX_DOCUMENT_CHARS} chars — tags beyond the cutoff will not be proposed.`
+        )
+      }
+      const documentText = fullText.slice(0, MAX_DOCUMENT_CHARS)
       if (!documentText.trim()) {
         return { proposals: [] }
       }
@@ -380,37 +456,70 @@ export function createTemplateTagifyService(
             })
           : text
 
+      if (configureRemoteLanguageModel) {
+        await configureRemoteLanguageModel(input.model)
+      }
+
       const safeSystem = await pseudonymize(buildSystemPrompt(locale))
       const safeUser = await pseudonymize(documentText)
-      const raw = await aiAgentRuntime.generateOneShot(safeUser, safeSystem)
 
       // Parse the pseudonymized output first: pseudonyms are JSON-safe tokens,
       // so the structure is intact. Reverting the whole string before parsing
       // would re-inject real values that may contain quotes, backslashes, or
       // newlines and corrupt the JSON. We revert each field after parsing.
-      const extracted = extractJsonArray(raw)
-      const parsed = modelOutputSchema.safeParse(extracted)
-      if (!parsed.success) {
-        // Output is valid JSON but the wrong shape. Log the PII-free extracted
-        // value and the validation issues to pin down what the model returned.
-        console.error(
-          `[tagify] Proposal shape mismatch.\nExtracted: ${JSON.stringify(extracted).slice(0, 2000)}\nIssues: ${JSON.stringify(parsed.error.issues).slice(0, 1000)}`
-        )
-        throw new TemplateTagifyError(
-          IpcErrorCode.UNKNOWN,
-          'The AI response did not match the expected proposal format.'
+      let candidates: ModelProposal[] | null = null
+      let lastError: TemplateTagifyError | null = null
+      for (let attempt = 1; attempt <= MODEL_ATTEMPTS && !candidates; attempt += 1) {
+        const raw = await aiAgentRuntime.generateOneShot(safeUser, safeSystem)
+        try {
+          const extracted = extractJsonArray(raw)
+          const parsed = parseProposalEntries(extracted)
+          if (!parsed || (parsed.valid.length === 0 && parsed.dropped > 0)) {
+            // Output is valid JSON but nothing in it is usable. Log the PII-free
+            // extracted value to pin down what the model returned.
+            console.error(
+              `[tagify] Proposal shape mismatch.\nExtracted: ${JSON.stringify(extracted).slice(0, 2000)}`
+            )
+            throw new TemplateTagifyError(
+              IpcErrorCode.UNKNOWN,
+              'The AI response did not match the expected proposal format.'
+            )
+          }
+          if (parsed.dropped > 0) {
+            // Partial salvage (e.g. entries with suggestedTag: null): keep the
+            // valid proposals, just record how many were skipped.
+            console.warn(
+              `[tagify] Dropped ${parsed.dropped} malformed proposal entr${parsed.dropped > 1 ? 'ies' : 'y'}, kept ${parsed.valid.length}.`
+            )
+          }
+          candidates = parsed.valid
+        } catch (error) {
+          if (!(error instanceof TemplateTagifyError)) throw error
+          lastError = error
+          if (attempt < MODEL_ATTEMPTS) {
+            console.warn(`[tagify] Attempt ${attempt} unusable — retrying with a fresh call.`)
+          }
+        }
+      }
+      if (!candidates) {
+        throw (
+          lastError ??
+          new TemplateTagifyError(IpcErrorCode.UNKNOWN, 'The AI response is not valid JSON.')
         )
       }
 
       const proposalsBySourceText = new Map<string, TemplateTagifyProposal>()
       const confidenceRank = { high: 0, medium: 1, low: 2 } as const
-      for (const candidate of parsed.data) {
+      for (const candidate of candidates) {
         const proposedText = revert(candidate.originalText).trim()
         if (proposedText.length < 3) continue
         const originalText = resolveVerbatimSourceText(documentText, proposedText)
         if (!originalText || originalText.trim().length < 3) continue
+        if (overlapsExistingTag(documentText, originalText)) continue
 
-        const suggestedTag = normalizeTagPath(extractTagPath(revert(candidate.suggestedTag)))
+        // Keep the authored (French) form — normalization to the EN canonical
+        // path happens at render time only, never in stored template content.
+        const suggestedTag = extractTagPath(revert(candidate.suggestedTag)).trim()
         if (!isValidTagPath(suggestedTag, knownTagIndex)) continue
 
         const occurrences = countOccurrences(documentText, originalText)
@@ -447,7 +556,9 @@ export function createTemplateTagifyService(
       const failed: TemplateTagifyApplyResult['failed'] = []
       const replacements: Array<{ originalText: string; tagPath: string }> = []
       for (const replacement of input.replacements) {
-        const tagPath = normalizeTagPath(extractTagPath(replacement.tagPath))
+        // Insert the tag as authored (French form); isValidTagPath normalizes
+        // internally so FR aliases validate against the canonical index.
+        const tagPath = extractTagPath(replacement.tagPath).trim()
         if (!isValidTagPath(tagPath, knownTagIndex)) {
           failed.push({ originalText: replacement.originalText, reason: 'invalid-tag' })
           continue

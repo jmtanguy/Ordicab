@@ -75,6 +75,18 @@ describe('normalizeTagPath — removed routine families', () => {
     expect(normalizeTagPath('date.audience')).toBe('dossier.keyDate.audience')
   })
 
+  it('accepts the hand-authored hybrid dossier.date.<label> (FR alias with canonical prefix)', () => {
+    expect(normalizeTagPath('dossier.date.audience.texte')).toBe('dossier.keyDate.audience.long')
+    expect(normalizeTagPath('dossier.date.audience.formatted')).toBe(
+      'dossier.keyDate.audience.formatted'
+    )
+    expect(normalizeTagPath('dossier.date.renvoi.texte')).toBe('dossier.keyDate.renvoi.long')
+    expect(normalizeTagPath('dossier.date.audience')).toBe('dossier.keyDate.audience')
+    // System keys stay literal even with the dossier. prefix
+    expect(normalizeTagPath('dossier.date.today')).toBe('dossier.date.today')
+    expect(normalizeTagPath('dossier.date.texte')).toBe('dossier.date.texte')
+  })
+
   it('keeps system date keys distinct from chronology labels', () => {
     expect(normalizeTagPath('date.today')).toBe('date.today')
     expect(normalizeTagPath('date.todayFr')).toBe('date.todayFr')

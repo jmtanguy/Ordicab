@@ -8,6 +8,8 @@
 import { buildAddressFields } from '@shared/addressFormatting'
 import { buildSalutationFields } from '@shared/contactSalutation'
 import { computeContactDisplayName } from '@shared/computeContactDisplayName'
+import { normalizeTagPath } from '@shared/templateContent'
+import { toFrenchTagPath } from '@shared/templateRoutines'
 import {
   getContactManagedFieldTemplateValues,
   getContactManagedFieldValue,
@@ -67,25 +69,29 @@ export function applyKeyDateOverride(
   locale: string,
   current: Record<string, string>
 ): Record<string, string> {
+  // Sibling variant keys are derived in the French form so they line up with
+  // the state keys reported by the engine (date.<label>.formate / .texte / .court).
+  const canonicalBase = normalizeTagPath(path)
+  const variantKey = (variant: string): string => toFrenchTagPath(`${canonicalBase}.${variant}`)
   const updated: Record<string, string> = { ...current, [path]: value }
   const isoDate = parseLocalDateToIso(value, locale)
   if (isoDate) {
     const d = new Date(`${isoDate}T12:00:00`)
-    updated[`${path}.formatted`] = d.toLocaleDateString(locale)
-    updated[`${path}.long`] = d.toLocaleDateString(locale, {
+    updated[variantKey('formatted')] = d.toLocaleDateString(locale)
+    updated[variantKey('long')] = d.toLocaleDateString(locale, {
       day: 'numeric',
       month: 'long',
       year: 'numeric'
     })
-    updated[`${path}.short`] = d.toLocaleDateString(locale, {
+    updated[variantKey('short')] = d.toLocaleDateString(locale, {
       day: 'numeric',
       month: 'short',
       year: '2-digit'
     })
   } else {
-    delete updated[`${path}.formatted`]
-    delete updated[`${path}.long`]
-    delete updated[`${path}.short`]
+    delete updated[variantKey('formatted')]
+    delete updated[variantKey('long')]
+    delete updated[variantKey('short')]
   }
   return updated
 }

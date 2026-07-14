@@ -46,6 +46,29 @@ describe('extractIndexedTextFromContent', () => {
     expect(previewText).toContain('[2] Troisième.')
   })
 
+  it('ignores self-closing <w:t/> runs instead of leaking inter-run XML as text', () => {
+    // Word leaves empty self-closing <w:t/> runs (rsid merges, proofErr
+    // markers). A regex that treats them as opening tags captures the raw
+    // OOXML up to the NEXT run's </w:t>.
+    const body =
+      '<w:p><w:r><w:t xml:space="preserve">Madame, Monsieur,</w:t></w:r>' +
+      '<w:r><w:t/></w:r>' +
+      '<w:proofErr w:type="spellStart"/>' +
+      '<w:r><w:t></w:t></w:r>' +
+      '<w:r><w:t xml:space="preserve"/></w:r>' +
+      '<w:proofErr w:type="spellEnd"/>' +
+      '<w:r><w:t>,</w:t></w:r></w:p>'
+    const zip = new PizZip()
+    zip.file('[Content_Types].xml', CONTENT_TYPES)
+    zip.file('_rels/.rels', RELS)
+    zip.file('word/document.xml', `<w:document xmlns:w="x"><w:body>${body}</w:body></w:document>`)
+    const docx = zip.generate({ type: 'nodebuffer' }) as Uint8Array
+
+    const { paragraphs } = extractIndexedTextFromContent(docx)
+    expect(paragraphs).toHaveLength(1)
+    expect(paragraphs[0]!.text).toBe('Madame, Monsieur,,')
+  })
+
   it('excludes paragraphs nested in tables', () => {
     const inTable =
       '<w:tbl><w:tr><w:tc><w:p><w:r><w:t>Cellule</w:t></w:r></w:p></w:tc></w:tr></w:tbl>'

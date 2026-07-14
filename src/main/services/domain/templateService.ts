@@ -42,6 +42,7 @@ import {
   TAG_SPAN_PATTERN
 } from '@shared/templateContent'
 import { ESSENTIAL_TEMPLATE_IDS, getLibraryItem } from '@shared/templateLibrary'
+import { toFrenchTagPath } from '@shared/templateRoutines'
 
 import { extractDocumentText } from '../../lib/aiEmbedded/documentContentService'
 import { pathExists } from '../../lib/system/domainState'
@@ -212,16 +213,18 @@ function transformDocumentWithStyles(document: unknown): unknown {
 }
 
 function extractMacrosFromHtml(html: string): string[] {
+  // Macros are persisted in the French form — the canonical exchange form of
+  // routines. Normalization only serves dedup (EN aliases fold into FR).
   const seen = new Set<string>()
 
   for (const match of html.matchAll(TAG_SPAN_PATTERN)) {
     const path = normalizeTagPath((match[2] ?? '').trim())
-    if (path && shouldExposeTemplateTagPath(path)) seen.add(path)
+    if (path && shouldExposeTemplateTagPath(path)) seen.add(toFrenchTagPath(path))
   }
 
   for (const match of html.matchAll(RAW_TAG_PATTERN)) {
     const path = normalizeTagPath((match[1] ?? '').trim())
-    if (path && shouldExposeTemplateTagPath(path)) seen.add(path)
+    if (path && shouldExposeTemplateTagPath(path)) seen.add(toFrenchTagPath(path))
   }
 
   return [...seen].sort()

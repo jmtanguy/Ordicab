@@ -172,9 +172,19 @@ function decodeXmlEntities(value: string): string {
     .replaceAll('&amp;', '&')
 }
 
+/**
+ * Matches a NON-self-closing `<w:t>` opening tag (with or without attributes)
+ * and captures its content. `<w:t[^>]*>` is not enough: it also matches the
+ * self-closing `<w:t/>` / `<w:t xml:space="preserve"/>` that Word leaves in
+ * empty runs — and then lazily captures the inter-run XML up to the NEXT
+ * run's `</w:t>`, leaking raw OOXML (`</w:r><w:proofErr…`) into the extracted
+ * text. It would even match `<w:tab/>` or `<w:tcPr>`.
+ */
+const W_T_CONTENT_PATTERN = /<w:t(?:\s[^>]*[^/>])?>([\s\S]*?)<\/w:t>/g
+
 function extractTextFromParagraph(pXml: string): string {
   // Extract all <w:t>…</w:t> content
-  const textPattern = /<w:t[^>]*>([\s\S]*?)<\/w:t>/g
+  const textPattern = new RegExp(W_T_CONTENT_PATTERN.source, W_T_CONTENT_PATTERN.flags)
   let text = ''
   let match: RegExpExecArray | null
 
@@ -246,7 +256,7 @@ export function paragraphRunsToHtml(paragraphXml: string): string {
     const runXml = match[1] ?? ''
     const rPr = runXml.match(/<w:rPr>([\s\S]*?)<\/w:rPr>/)?.[1] ?? ''
     let text = ''
-    const tPattern = /<w:t[^>]*>([\s\S]*?)<\/w:t>/g
+    const tPattern = new RegExp(W_T_CONTENT_PATTERN.source, W_T_CONTENT_PATTERN.flags)
     let tMatch: RegExpExecArray | null
     while ((tMatch = tPattern.exec(runXml)) !== null) {
       text += tMatch[1]
@@ -506,7 +516,7 @@ export function extractTextFromTrackedXml(documentXml: string): string {
   // Remove all <w:ins> wrappers but keep their content
   const withoutIns = documentXml.replaceAll(/<w:ins[^>]*>/g, '').replaceAll(/<\/w:ins>/g, '')
 
-  const tPattern = /<w:t[^>]*>([\s\S]*?)<\/w:t>/g
+  const tPattern = new RegExp(W_T_CONTENT_PATTERN.source, W_T_CONTENT_PATTERN.flags)
   let extracted = ''
   let match: RegExpExecArray | null
 

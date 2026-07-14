@@ -41,6 +41,7 @@ import {
   TAG_SPAN_PATTERN
 } from '@shared/templateContent'
 import { applyVatRate } from '@shared/billingCalculations'
+import { toFrenchTagPath } from '@shared/templateRoutines'
 
 import {
   dossierMetadataFileSchema,
@@ -455,51 +456,74 @@ function buildFirstNameFields(contact: ContactRecord | null | undefined): { firs
   return { firstNames }
 }
 
+/**
+ * Accepts override keys in any authored form (French alias or EN canonical)
+ * by normalizing them once to the canonical path used for lookups.
+ */
+function normalizeTagOverrideKeys(
+  overrides?: Record<string, string>
+): Record<string, string> | undefined {
+  if (!overrides) return undefined
+  const normalized: Record<string, string> = {}
+  for (const [path, value] of Object.entries(overrides)) {
+    const key = normalizeTagPath(path.trim())
+    if (!(key in normalized) || normalized[key] === '') {
+      normalized[key] = value
+    }
+  }
+  return normalized
+}
+
 function resolveTemplateHtml(
   content: string,
   context: TemplateContext,
-  tagOverrides?: Record<string, string>
+  rawTagOverrides?: Record<string, string>
 ): Pick<GeneratedDraftResult, 'draftHtml' | 'unresolvedTags' | 'resolvedTags'> {
+  const tagOverrides = normalizeTagOverrideKeys(rawTagOverrides)
   const unresolvedTags = new Set<string>()
   const resolvedTags: Record<string, string> = {}
   const templateHtml = ensureTemplateHtml(content)
 
   const replaceTagPath = (path: string): string => {
     const normalizedPath = normalizeTagPath(path.trim())
+    // Resolution happens on the canonical path; everything reported back
+    // (unresolved lists, resolved values, placeholder spans) uses the French
+    // form, which is the canonical exchange form of routines.
+    const reportPath = toFrenchTagPath(normalizedPath)
 
     if (normalizedPath === 'invoice.linesTable') {
       const tableHtml = buildInvoiceLinesTableHtml(context.invoice?.lines)
       if (tableHtml) {
-        resolvedTags[normalizedPath] = '[Tableau des prestations]'
+        resolvedTags[reportPath] = '[Tableau des prestations]'
         return tableHtml
       }
-      unresolvedTags.add(normalizedPath)
-      return renderSmartTagSpan(normalizedPath)
+      unresolvedTags.add(reportPath)
+      return renderSmartTagSpan(reportPath)
     }
 
     if (tagOverrides && normalizedPath in tagOverrides) {
       const overrideValue = tagOverrides[normalizedPath] ?? ''
       if (overrideValue === '') {
-        unresolvedTags.add(normalizedPath)
-        return renderSmartTagSpan(normalizedPath)
+        unresolvedTags.add(reportPath)
+        return renderSmartTagSpan(reportPath)
       }
-      resolvedTags[normalizedPath] = overrideValue
+      resolvedTags[reportPath] = overrideValue
       return asHtmlText(overrideValue)
     }
 
     const value = resolvePath(context, normalizedPath)
 
     if (value === undefined || value === null) {
-      unresolvedTags.add(normalizedPath)
-      return renderSmartTagSpan(normalizedPath)
+      unresolvedTags.add(reportPath)
+      return renderSmartTagSpan(reportPath)
     }
 
     if (value === '' && !hasResolvedPath(context, normalizedPath)) {
-      unresolvedTags.add(normalizedPath)
-      return renderSmartTagSpan(normalizedPath)
+      unresolvedTags.add(reportPath)
+      return renderSmartTagSpan(reportPath)
     }
 
-    resolvedTags[normalizedPath] = String(value)
+    resolvedTags[reportPath] = String(value)
     return asHtmlText(value)
   }
 
@@ -568,7 +592,7 @@ async function loadMemorizedOverrides(
     if (!value) continue
     const contextValue = resolvePath(context, normalizeTagPath(path))
     if (contextValue === undefined || contextValue === null || contextValue === '') {
-      memorized[path] = value
+      memorized[toFrenchTagPath(path)] = value
     }
   }
   return Object.keys(memorized).length > 0 ? memorized : undefined
@@ -591,7 +615,8 @@ async function persistGenerationPrefill(
       if (!value) continue
       const contextValue = resolvePath(context, normalizeTagPath(path))
       if (contextValue === undefined || contextValue === null || contextValue === '') {
-        manualOverrides[path] = value
+        // Prefill files persist the French form of each routine path.
+        manualOverrides[toFrenchTagPath(path)] = value
       }
     }
 
@@ -734,7 +759,7 @@ async function generateDocxFromBinary(
   docxSourcePath: string,
   context: TemplateContext,
   outputPath: string,
-  tagOverrides?: Record<string, string>
+  rawTagOverrides?: Record<string, string>
 ): Promise<void> {
   if (!(await pathExists(docxSourcePath))) {
     throw new GenerateServiceError(
@@ -743,6 +768,7 @@ async function generateDocxFromBinary(
     )
   }
 
+  const tagOverrides = normalizeTagOverrideKeys(rawTagOverrides)
   const content = await readFile(docxSourcePath)
 
   try {
@@ -765,7 +791,7 @@ async function generateDocxFromBinary(
       nullGetter: (part: { value?: string }) => {
         const rawValue = part.value ?? ''
         const label = rawValue.split('.').pop() ?? rawValue
-        return `[${label} not set]`
+        return `[${label} non renseigné]`
       },
       paragraphLoop: true,
       linebreaks: true
@@ -1253,21 +1279,24 @@ export function createGenerateService(options: GenerateServiceOptions): Generate
         input.invoiceContext
       )
 
-      const tagOverrides = input.tagOverrides
+      // tagPaths are canonical internally; everything exposed to the caller
+      // (tagPaths, resolvedTags keys) uses the French form.
+      const tagOverrides = normalizeTagOverrideKeys(input.tagOverrides)
       const resolvedTags: Record<string, string> = {}
 
       for (const path of tagPaths) {
+        const reportPath = toFrenchTagPath(path)
         if (MODULE_HANDLED_PATHS.has(path)) {
-          resolvedTags[path] = '[Tableau des prestations — généré automatiquement]'
+          resolvedTags[reportPath] = '[Tableau des prestations — généré automatiquement]'
           continue
         }
         if (tagOverrides && path in tagOverrides) {
           const override = tagOverrides[path]
-          if (override && override !== '') resolvedTags[path] = override
+          if (override && override !== '') resolvedTags[reportPath] = override
         } else {
           const value = resolvePath(context, path)
           if (value !== undefined && value !== null && value !== '') {
-            resolvedTags[path] = String(value)
+            resolvedTags[reportPath] = String(value)
           }
         }
       }
@@ -1294,7 +1323,13 @@ export function createGenerateService(options: GenerateServiceOptions): Generate
         ? undefined
         : await loadMemorizedOverrides(loaded.dossierPath, template.uuid, context)
 
-      return { tagPaths, resolvedTags, suggestedFilename, htmlPreview, memorizedOverrides }
+      return {
+        tagPaths: tagPaths.map(toFrenchTagPath),
+        resolvedTags,
+        suggestedFilename,
+        htmlPreview,
+        memorizedOverrides
+      }
     },
 
     previewDocument: async (input): Promise<GeneratedDraftResult> => {
@@ -1404,10 +1439,11 @@ export function createGenerateService(options: GenerateServiceOptions): Generate
           input.invoiceContext
         )
 
+        const tagOverrides = normalizeTagOverrideKeys(input.tagOverrides)
         const unresolvedTags = tagPaths.filter((path) => {
           if (MODULE_HANDLED_PATHS.has(path)) return false
-          if (input.tagOverrides && path in input.tagOverrides) {
-            const override = input.tagOverrides[path]
+          if (tagOverrides && path in tagOverrides) {
+            const override = tagOverrides[path]
             return override === '' || override === undefined
           }
           const value = resolvePath(baseContext, path)
@@ -1418,7 +1454,7 @@ export function createGenerateService(options: GenerateServiceOptions): Generate
           throw new GenerateServiceError(
             IpcErrorCode.VALIDATION_FAILED,
             'Document generation failed: some template fields could not be resolved from the dossier data.',
-            unresolvedTags
+            unresolvedTags.map(toFrenchTagPath)
           )
         }
 

@@ -122,20 +122,21 @@ describe('redactionSessionService', () => {
           outputPath?: string
           tagOverrides?: Record<string, string>
         }): Promise<{ outputPath: string }> => {
-          if (!input.tagOverrides?.['dossier.keyDate.audience.long']) {
+          // generateService reports unresolved paths in their French form.
+          if (!input.tagOverrides?.['date.audience.texte']) {
             const { GenerateServiceError } = await import('../generateService')
             const { IpcErrorCode } = await import('@shared/types')
             throw new GenerateServiceError(
               IpcErrorCode.VALIDATION_FAILED,
               'Document generation failed: some template fields could not be resolved.',
-              ['dossier.keyDate.audience.long', 'contact.juridiction.displayName']
+              ['date.audience.texte', 'contact.juridiction.nomAffiche']
             )
           }
           await writeFile(
             input.outputPath!,
             buildTestDocx([
-              `Audience : ${input.tagOverrides['dossier.keyDate.audience.long']}`,
-              `Juridiction : ${input.tagOverrides['contact.juridiction.displayName']}`
+              `Audience : ${input.tagOverrides['date.audience.texte']}`,
+              `Juridiction : ${input.tagOverrides['contact.juridiction.nomAffiche']}`
             ])
           )
           return { outputPath: input.outputPath! }
@@ -162,8 +163,10 @@ describe('redactionSessionService', () => {
 
       expect(generateDocument).toHaveBeenCalledTimes(2)
       const texts = snapshot.paragraphs.map((p) => p.text)
-      expect(texts).toContain('Audience : {{dossier.keyDate.audience.long}}')
-      expect(texts).toContain('Juridiction : {{contact.juridiction.displayName}}')
+      // Placeholders are localized to their French routine form before being
+      // written back into the drafted document.
+      expect(texts).toContain('Audience : {{date.audience.texte}}')
+      expect(texts).toContain('Juridiction : {{contact.juridiction.nomAffiche}}')
     })
 
     it('copy keeps new_file mode; edit_existing switches to replace_original', async () => {

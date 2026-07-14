@@ -292,8 +292,10 @@ describe('InstructionsGenerator', () => {
     expect(routinesGuide).toContain(
       'Prefer a routine from this file whenever it already matches the requested data.'
     )
-    expect(routinesGuide).toContain('{{dossier.name}}')
-    expect(routinesGuide).toContain('{{contact.<roleKey>.<field>}}')
+    expect(routinesGuide).toContain('{{dossier.nom}}')
+    expect(routinesGuide).toContain('{{contact.<cleRole>.<champ>}}')
+    expect(routinesGuide).not.toContain('{{dossier.name}}')
+    expect(routinesGuide).not.toContain('{{contact.displayName}}')
     expect(generator.getStatus()).toEqual({
       status: 'idle',
       updatedAt: '2026-03-20T12:00:00.000Z'

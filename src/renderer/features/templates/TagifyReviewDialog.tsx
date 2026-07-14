@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import type { TemplateTagifyProposal } from '@shared/types'
@@ -14,7 +14,7 @@ import {
   templateRoutineCatalog
 } from '@shared/templateRoutines'
 import { Button, DialogShell } from '@renderer/components/ui'
-import { useTemplateStore } from '@renderer/stores'
+import { useAiStore, useTemplateStore } from '@renderer/stores'
 
 interface TagifyReviewDialogProps {
   templateUuid: string
@@ -58,6 +58,29 @@ export function TagifyReviewDialog({
   const tagifyApply = useTemplateStore((state) => state.tagifyApply)
   const [phase, setPhase] = useState<DialogPhase>({ step: 'intro' })
 
+  // Same options as the AI assistant: model selection (shared with AiPage via
+  // aiStore, persisted per provider) and PII pseudonymization (per-analysis
+  // override of the global setting).
+  const aiSettings = useAiStore((state) => state.settings)
+  const loadAiSettings = useAiStore((state) => state.loadSettings)
+  const availableModels = useAiStore((state) => state.availableModels)
+  const selectedModel = useAiStore((state) => state.selectedModel)
+  const setSelectedModel = useAiStore((state) => state.setSelectedModel)
+  const checkConnection = useAiStore((state) => state.checkConnection)
+  const aiMode = aiSettings?.mode ?? 'none'
+  const [piiOverride, setPiiOverride] = useState<boolean | null>(null)
+  const piiEnabled = piiOverride ?? aiSettings?.piiEnabled ?? true
+
+  useEffect(() => {
+    if (!aiSettings) void loadAiSettings()
+  }, [aiSettings, loadAiSettings])
+
+  useEffect(() => {
+    if (aiMode === 'remote' && availableModels.length === 0) {
+      void checkConnection({ mode: 'remote' })
+    }
+  }, [aiMode, availableModels.length, checkConnection])
+
   const localizeTagPath = useMemo(
     () => buildTagPathLocalizer(templateRoutineCatalog, i18n.language),
     [i18n.language]
@@ -85,7 +108,11 @@ export function TagifyReviewDialog({
 
   async function startAnalysis(): Promise<void> {
     setPhase({ step: 'loading' })
-    const result = await tagifyAnalyze({ templateUuid })
+    const result = await tagifyAnalyze({
+      templateUuid,
+      model: selectedModel ?? undefined,
+      piiEnabled
+    })
     if (!result.success) {
       setPhase({ step: 'error', message: result.error })
       return
@@ -151,6 +178,34 @@ export function TagifyReviewDialog({
         {phase.step === 'intro' ? (
           <div className="flex flex-col items-center gap-4 rounded-2xl border border-dashed border-hairline bg-white px-6 py-10 text-center">
             <p className="max-w-xl text-sm text-ink">{t('templates.tagify.introBody')}</p>
+            <div className="flex flex-col items-center gap-3">
+              {availableModels.length > 0 ? (
+                <label className="flex items-center gap-2 text-sm text-ink-muted">
+                  <span>{t('templates.tagify.modelLabel')}</span>
+                  <select
+                    value={selectedModel ?? ''}
+                    onChange={(event) => setSelectedModel(event.target.value)}
+                    className="rounded-xl border border-hairline bg-white px-3 py-1.5 text-sm text-ink outline-none transition focus:ring-2 focus:ring-aurora/35"
+                  >
+                    {availableModels.map((model) => (
+                      <option key={model} value={model}>
+                        {model}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              <label className="flex items-center gap-2 text-sm text-ink-muted">
+                <input
+                  type="checkbox"
+                  checked={piiEnabled}
+                  onChange={(event) => setPiiOverride(event.target.checked)}
+                  className="accent-aurora"
+                />
+                <span>{t('templates.tagify.piiLabel')}</span>
+              </label>
+              <p className="max-w-xl text-xs text-ink-subtle">{t('templates.tagify.piiHint')}</p>
+            </div>
             <Button type="button" onClick={() => void startAnalysis()}>
               {t('templates.tagify.startButton')}
             </Button>

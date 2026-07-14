@@ -1,8 +1,14 @@
 /**
  * Pure helpers for the tag-filling step shared between GenerateDocumentPanel
  * and InvoiceCreationDialog.
+ *
+ * Tag paths circulate in their French form (the canonical exchange form of
+ * routines); every structural decision (root, keyDate family, contact role)
+ * is made on the canonical twin via `normalizeTagPath` while the French path
+ * stays the state key.
  */
-import { templateRoutineCatalog } from '@shared/templateRoutines'
+import { templateRoutineCatalog, toFrenchTagPath } from '@shared/templateRoutines'
+import { normalizeTagPath } from '@shared/templateContent'
 import type { EntityManagedFieldsConfig } from '@shared/managedFields'
 import type { ContactRecord } from '@shared/validation'
 
@@ -30,7 +36,7 @@ export function computeTagProvenance(
 ): Record<string, TagProvenance> {
   const provenance: Record<string, TagProvenance> = {}
   for (const path of tagPaths) {
-    const root = path.split('.')[0]
+    const root = normalizeTagPath(path).split('.')[0]
     if ((resolvedTags[path] ?? '').trim() !== '') {
       provenance[path] =
         root === 'contact' || root === 'dossier' || root === 'entity' || root === 'invoice'
@@ -72,37 +78,46 @@ export interface CategorizedTagPaths {
 }
 
 export function categorizeTagPaths(tagPaths: string[]): CategorizedTagPaths {
+  const canonicalSegments = (p: string): string[] => normalizeTagPath(p).split('.')
+
   const primaryTagPaths = tagPaths.filter((p) => {
-    const s = p.split('.')
+    const s = canonicalSegments(p)
     return s[0] === 'contact' && s.length === 2
   })
 
   const roleTagGroups: Record<string, string[]> = {}
   for (const p of tagPaths) {
-    const s = p.split('.')
+    const s = canonicalSegments(p)
     if (s[0] === 'contact' && s.length === 3) {
       const roleKey = s[1] as string
       ;(roleTagGroups[roleKey] ??= []).push(p)
     }
   }
 
-  const keyDateBasePaths = tagPaths.filter((p) => {
-    const s = p.split('.')
-    return s[0] === 'dossier' && s[1] === 'keyDate' && s.length === 3
-  })
-  const variantOnlyBasePaths = tagPaths
-    .filter((p) => {
-      const s = p.split('.')
-      return s[0] === 'dossier' && s[1] === 'keyDate' && s.length === 4
-    })
-    .map((p) => p.split('.').slice(0, 3).join('.'))
-    .filter((bp) => !keyDateBasePaths.includes(bp))
-  const keyDatePaths = [...new Set([...keyDateBasePaths, ...variantOnlyBasePaths])]
+  // Key dates: one input per chronology label. Bases are deduped on their
+  // canonical form; a base derived from variant-only paths is emitted in FR.
+  const keyDateBaseByCanonical = new Map<string, string>()
+  for (const p of tagPaths) {
+    const s = canonicalSegments(p)
+    if (s[0] === 'dossier' && s[1] === 'keyDate' && s.length === 3) {
+      keyDateBaseByCanonical.set(s.join('.'), p)
+    }
+  }
+  for (const p of tagPaths) {
+    const s = canonicalSegments(p)
+    if (s[0] === 'dossier' && s[1] === 'keyDate' && s.length === 4) {
+      const canonicalBase = s.slice(0, 3).join('.')
+      if (!keyDateBaseByCanonical.has(canonicalBase)) {
+        keyDateBaseByCanonical.set(canonicalBase, toFrenchTagPath(canonicalBase))
+      }
+    }
+  }
+  const keyDatePaths = [...keyDateBaseByCanonical.values()]
 
-  const invoicePaths = tagPaths.filter((p) => p.split('.')[0] === 'invoice')
+  const invoicePaths = tagPaths.filter((p) => canonicalSegments(p)[0] === 'invoice')
 
   const otherTagPaths = tagPaths.filter((p) => {
-    const s = p.split('.')
+    const s = canonicalSegments(p)
     if (s[0] === 'contact') return false
     if (s[0] === 'dossier' && s[1] === 'keyDate') return false
     if (s[0] === 'invoice') return false
@@ -139,9 +154,10 @@ export function applyPrimaryContact(
   const fields = contactFieldValues(contact, 'contact', managedFieldsConfig.contacts)
   const next = { ...currentTagValues }
   for (const path of Object.keys(next)) {
-    const parts = path.split('.')
+    const canonical = normalizeTagPath(path)
+    const parts = canonical.split('.')
     if (parts[0] === 'contact' && parts.length === 2) {
-      next[path] = fields[path] ?? ''
+      next[path] = fields[canonical] ?? ''
     }
   }
   return next
@@ -158,9 +174,10 @@ export function applyRoleContact(
   const fields = contactFieldValues(contact, `contact.${roleKey}`, managedFieldsConfig.contacts)
   const next = { ...currentTagValues }
   for (const path of Object.keys(next)) {
-    const parts = path.split('.')
+    const canonical = normalizeTagPath(path)
+    const parts = canonical.split('.')
     if (parts[0] === 'contact' && parts[1] === roleKey && parts.length === 3) {
-      next[path] = fields[path] ?? ''
+      next[path] = fields[canonical] ?? ''
     }
   }
   return next

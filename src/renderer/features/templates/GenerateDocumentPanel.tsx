@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { normalizeManagedFieldsConfig } from '@shared/managedFields'
+import { normalizeTagPath } from '@shared/templateContent'
 import { buildTagPathLocalizer, templateRoutineCatalog } from '@shared/templateRoutines'
 
 import { Button } from '@renderer/components/ui'
@@ -264,11 +265,9 @@ export function GenerateDocumentPanel({
         const roleKeys = [
           ...new Set(
             paths
-              .filter((p) => {
-                const s = p.split('.')
-                return s[0] === 'contact' && s.length === 3
-              })
-              .map((p) => p.split('.')[1] as string)
+              .map((p) => normalizeTagPath(p).split('.'))
+              .filter((s) => s[0] === 'contact' && s.length === 3)
+              .map((s) => s[1] as string)
           )
         ]
         for (const roleKey of roleKeys) {
@@ -323,11 +322,9 @@ export function GenerateDocumentPanel({
       const roleKeys = [
         ...new Set(
           paths
-            .filter((p) => {
-              const s = p.split('.')
-              return s[0] === 'contact' && s.length === 3
-            })
-            .map((p) => p.split('.')[1] as string)
+            .map((p) => normalizeTagPath(p).split('.'))
+            .filter((s) => s[0] === 'contact' && s.length === 3)
+            .map((s) => s[1] as string)
         )
       ]
       for (const roleKey of roleKeys) {

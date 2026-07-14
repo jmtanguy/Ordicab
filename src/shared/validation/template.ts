@@ -52,7 +52,9 @@ export const templateDocxInputSchema = z.object({
 })
 
 export const templateTagifyAnalyzeInputSchema = z.object({
-  templateUuid: z.string().min(1)
+  templateUuid: z.string().min(1),
+  model: z.string().min(1).optional(),
+  piiEnabled: z.boolean().optional()
 })
 
 export const templateTagifyApplyInputSchema = z.object({

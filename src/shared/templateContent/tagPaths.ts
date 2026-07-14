@@ -230,11 +230,13 @@ function preNormalizeDateOffset(path: string): string {
 }
 
 // Chronology FR alias: `date.<label>(.<variant>)?` → `dossier.keyDate.<labelKey>(.<englishVariant>)?`
+// Also accepts the hand-authored hybrid `dossier.date.<label>…` (FR alias with
+// the canonical `dossier.` prefix), a frequent mistake in Word templates.
 // Skips reserved system date keys (today, todayFr…) and the offset patterns,
 // which keep their literal form so they resolve through the context (or the
 // regex in resolvePath for today+N).
 function preNormalizeChronologyDate(path: string): string {
-  const match = /^date\.([^.]+)(?:\.([a-z]+))?$/.exec(path)
+  const match = /^(?:dossier\.)?date\.([^.]+)(?:\.([a-z]+))?$/.exec(path)
   if (!match) return path
   const sub = match[1]!
   if (SYSTEM_DATE_KEYS.has(sub) || DATE_OFFSET_SUB_PATTERN.test(sub)) return path

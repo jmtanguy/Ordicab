@@ -49,6 +49,10 @@ export interface TemplateDocxInput {
 
 export interface TemplateTagifyAnalyzeInput {
   templateUuid: string
+  /** Remote model to use for this analysis; falls back to the provider default. */
+  model?: string
+  /** Per-analysis PII pseudonymization override; falls back to the global AI setting. */
+  piiEnabled?: boolean
 }
 
 export interface TemplateTagifyProposal {

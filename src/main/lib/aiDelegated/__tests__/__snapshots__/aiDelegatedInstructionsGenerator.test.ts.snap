@@ -115,7 +115,7 @@ Full HTML content for each template lives in a separate file: \`<domain>/.ordica
 When a DOCX source exists (\`hasDocxSource: true\`), it is at: \`<domain>/.ordicab/templates/<uuid>.docx\`.
 
 #### Using the index efficiently
-- **Variable compatibility check**: the \`macros\` array in the index lists every placeholder the template uses (e.g. \`["contact.displayName", "dossier.name"]\`). Use this to decide whether a template is compatible with the available dossier data — no need to load the HTML for this check.
+- **Variable compatibility check**: the \`macros\` array in the index lists every placeholder the template uses, in its French form (e.g. \`["contact.nomAffiche", "date.audience"]\`) — the same form as the routines guide. Use this to decide whether a template is compatible with the available dossier data — no need to load the HTML for this check.
 - **Content editing or generation preview**: read \`<domain>/.ordicab/templates/<uuid>.html\` on demand only when you need to inspect, modify, or show the full template text.
 
 To identify the right template for a \`generate.document\` action:
@@ -240,8 +240,8 @@ Read the response and follow \`nextStep\` before taking any other action.
     "message": "Document generation failed: some template fields could not be resolved from the dossier data.",
     "unresolvedTags": [
       {
-        "path": "dossier.keyDate.judgmentDate",
-        "description": "Judgment date"
+        "path": "date.jugement",
+        "description": "Date clé « jugement » (ISO)"
       }
     ]
   }
@@ -824,7 +824,7 @@ Create:
   "action": "template.create",
   "payload": {
     "name": "Lettre de mise en demeure",
-    "content": "Objet : Mise en demeure\\n\\nBonjour {{contact.displayName}},",
+    "content": "Objet : Mise en demeure\\n\\nBonjour {{contact.nomAffiche}},",
     "description": "Modele de courrier initial",
     "documentKind": "document"
   }
@@ -841,7 +841,7 @@ Update (read \`<domain>/.ordicab/templates/<uuid>.html\` first, then emit with m
   "action": "template.update",
   "payload": {
     "name": "Lettre de mise en demeure",
-    "content": "Objet : Mise en demeure\\n\\nBonjour {{contact.displayName}},",
+    "content": "Objet : Mise en demeure\\n\\nBonjour {{contact.nomAffiche}},",
     "description": "Modele de courrier initial",
     "documentKind": "document",
     "uuid": "3f84e5b6-3912-49dc-9c7d-8c446df43b0f"
@@ -885,7 +885,7 @@ Always include \`description\` and \`tags\` in the payload so the generated docu
   }
 }
 \`\`\`
-If Ordicab replies with \`status: "needs_input"\` because some macros are unresolved, ask the user for every missing value and then emit a new \`generate.document\` intent with a new \`commandId\`, the same \`originDeviceId\`, and a \`tagOverrides\` object containing the collected values.
+If Ordicab replies with \`status: "needs_input"\` because some macros are unresolved, ask the user for every missing value and then emit a new \`generate.document\` intent with a new \`commandId\`, the same \`originDeviceId\`, and a \`tagOverrides\` object containing the collected values. Each \`tagOverrides\` key must echo the exact \`path\` value reported in \`unresolvedTags\`.
 \`\`\`json
 {
   "version": 1,
@@ -898,7 +898,7 @@ If Ordicab replies with \`status: "needs_input"\` because some macros are unreso
     "dossierId": "Client Alpha",
     "templateUuid": "3f84e5b6-3912-49dc-9c7d-8c446df43b0f",
     "tagOverrides": {
-      "dossier.keyDate.judgmentDate": "2026-04-22"
+      "date.jugement": "2026-04-22"
     },
     "description": "Concise description of the generated document purpose",
     "tags": [

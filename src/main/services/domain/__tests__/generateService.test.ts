@@ -208,20 +208,23 @@ describe('generateService', () => {
       templateUuid: 'tpl-1'
     })
 
+    // Reported paths use the French form even when the template was authored
+    // with EN canonical tags — FR is the canonical exchange form.
     expect(result).toEqual({
       draftHtml: expect.stringContaining('Client Alpha'),
       suggestedFilename: 'Convocation - Client Alpha - 2026-03-15',
-      unresolvedTags: ['entity.addressLine2'],
+      unresolvedTags: ['cabinet.ligneAdresse2'],
       resolvedTags: {
-        'dossier.name': 'Client Alpha',
-        'entity.firmName': 'Cabinet Test-Legal',
-        'dossier.keyDate.hearingDate': '2026-04-01'
-      }
+        'dossier.nom': 'Client Alpha',
+        'cabinet.nomCabinet': 'Cabinet Test-Legal',
+        'date.hearingDate': '2026-04-01'
+      },
+      memorizedOverrides: undefined
     })
     expect(result.draftHtml).toContain('Cabinet Test-Legal')
     expect(result.draftHtml).toContain('2026-04-01')
-    expect(result.draftHtml).toContain('data-template-tag-path="entity.addressLine2"')
-    expect(result.draftHtml).toContain('{{entity.addressLine2}}')
+    expect(result.draftHtml).toContain('data-template-tag-path="cabinet.ligneAdresse2"')
+    expect(result.draftHtml).toContain('{{cabinet.ligneAdresse2}}')
   })
 
   it('resolves contact salutation fields for female, neutral, french alias, and role-based contacts', async () => {
@@ -251,9 +254,9 @@ describe('generateService', () => {
     })
     expect(resultF.unresolvedTags).toEqual([])
     expect(resultF.resolvedTags).toEqual({
-      'contact.salutation': 'Madame',
-      'contact.salutationFull': 'Madame Bernard',
-      'contact.dear': 'Chère Madame'
+      'contact.civilite': 'Madame',
+      'contact.civiliteNom': 'Madame Bernard',
+      'contact.formuleAppel': 'Chère Madame'
     })
 
     // neutral (undefined gender)
@@ -282,9 +285,9 @@ describe('generateService', () => {
     })
     expect(resultN.unresolvedTags).toEqual([])
     expect(resultN.resolvedTags).toEqual({
-      'contact.salutation': '',
-      'contact.salutationFull': 'Tribunal judiciaire de Paris',
-      'contact.dear': 'Madame, Monsieur,'
+      'contact.civilite': '',
+      'contact.civiliteNom': 'Tribunal judiciaire de Paris',
+      'contact.formuleAppel': 'Madame, Monsieur,'
     })
     expect(resultN.draftHtml).not.toContain('{{contact.salutation}}')
 
@@ -310,7 +313,7 @@ describe('generateService', () => {
       templateUuid: 'tpl-1'
     })
     expect(resultAlias.unresolvedTags).toEqual([])
-    expect(resultAlias.resolvedTags).toEqual({ 'contact.salutation': 'Monsieur' })
+    expect(resultAlias.resolvedTags).toEqual({ 'contact.civilite': 'Monsieur' })
 
     // role-based salutation
     const { service: serviceRole } = await createServiceFixture(
@@ -343,7 +346,7 @@ describe('generateService', () => {
     })
     expect(resultRole.unresolvedTags).toEqual([])
     expect(resultRole.resolvedTags).toEqual({
-      'contact.adversaryLawyer.salutationFull': 'Monsieur Martin'
+      'contact.adversaryLawyer.civiliteNom': 'Monsieur Martin'
     })
   })
 
@@ -369,7 +372,7 @@ describe('generateService', () => {
       templateUuid: 'tpl-1'
     })
     expect(resultPrenoms.unresolvedTags).toEqual([])
-    expect(resultPrenoms.resolvedTags).toEqual({ 'contact.firstNames': 'Alex Marie Louise' })
+    expect(resultPrenoms.resolvedTags).toEqual({ 'contact.prenoms': 'Alex Marie Louise' })
 
     // localized role-based institution and formatted address
     const { service: serviceLocale } = await createServiceFixture(
@@ -408,7 +411,7 @@ describe('generateService', () => {
     expect(resultLocale.unresolvedTags).toEqual([])
     expect(resultLocale.resolvedTags).toEqual({
       'contact.juridiction.institution': 'Tribunal judiciaire de Paris',
-      'contact.partieRepresentee.addressFormatted': '99 rue de Lyon\n75001 Paris France'
+      'contact.partieRepresentee.adresseFormatee': '99 rue de Lyon\n75001 Paris France'
     })
   })
 
@@ -623,15 +626,16 @@ describe('generateService', () => {
       'utf8'
     )
     const prefill = JSON.parse(prefillRaw)
-    // Only the manual value is memorized — dossier.name resolves from context
-    expect(prefill['tpl-1'].tagOverrides).toEqual({ 'entity.addressLine2': 'Étage 3' })
+    // Only the manual value is memorized — dossier.name resolves from context.
+    // The prefill file persists the French form of the path.
+    expect(prefill['tpl-1'].tagOverrides).toEqual({ 'cabinet.ligneAdresse2': 'Étage 3' })
 
     // Initial preview (no overrides) returns the memorized value
     const preview = await service.previewDocument({
       dossierId: 'Client Alpha',
       templateUuid: 'tpl-1'
     })
-    expect(preview.memorizedOverrides).toEqual({ 'entity.addressLine2': 'Étage 3' })
+    expect(preview.memorizedOverrides).toEqual({ 'cabinet.ligneAdresse2': 'Étage 3' })
 
     // Subsequent previews with overrides do not return memorized values
     const second = await service.previewDocument({

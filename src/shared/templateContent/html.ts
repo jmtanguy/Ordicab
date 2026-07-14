@@ -1,4 +1,4 @@
-import { buildTagToken, extractTagPath, normalizeTagPath } from './tagPaths'
+import { buildTagToken, extractTagPath } from './tagPaths'
 
 export const RAW_TAG_PATTERN = /\{\{\s*([^}]+?)\s*\}\}/g
 export const TAG_SPAN_PATTERN =
@@ -18,10 +18,12 @@ function escapeAttribute(value: string): string {
 }
 
 export function renderSmartTagSpan(path: string): string {
-  const normalizedPath = normalizeTagPath(extractTagPath(path))
-  const token = buildTagToken(normalizedPath)
+  // Keep the path exactly as provided (French-first authored form) —
+  // normalization to the EN canonical only happens inside the resolver.
+  const tagPath = extractTagPath(path)
+  const token = buildTagToken(tagPath)
 
-  return `<span data-template-tag-path="${escapeAttribute(normalizedPath)}" contenteditable="false">${escapeHtml(token)}</span>`
+  return `<span data-template-tag-path="${escapeAttribute(tagPath)}" contenteditable="false">${escapeHtml(token)}</span>`
 }
 
 function isHtmlContent(content: string): boolean {

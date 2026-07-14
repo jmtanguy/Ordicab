@@ -6,6 +6,7 @@ import type { DossierBillingItem } from '@shared/types'
 import { computeDueDateIso } from '@shared/domain/invoice'
 import { previewInvoiceNumber } from '@shared/domain/invoiceNumbering'
 import { normalizeManagedFieldsConfig } from '@shared/managedFields'
+import { normalizeTagPath } from '@shared/templateContent'
 
 import { Button, DialogShell, Field, Input, Select } from '@renderer/components/ui'
 import { formatEurosFromCents } from '@renderer/lib/billingFormatters'
@@ -29,7 +30,15 @@ import { buildKeyDateOptions } from '../templates/generateDocument/tagValueHelpe
  * échéance pilotée par le champ « Échéance ») : leurs valeurs suivent toujours l'aperçu
  * le plus récent et sont ignorées côté création.
  */
-const AUTO_RESOLVED_TAG_PATHS = new Set(['invoice.number', 'invoice.issuedAt', 'invoice.dueAt'])
+const AUTO_RESOLVED_TAG_PATHS = new Set([
+  'facture.numero',
+  'facture.dateEmission',
+  'facture.dateEcheance',
+  // EN canonical aliases, kept for robustness — paths circulate in FR.
+  'invoice.number',
+  'invoice.issuedAt',
+  'invoice.dueAt'
+])
 
 interface InvoiceCreationDialogProps {
   dossierId: string
@@ -195,11 +204,9 @@ export function InvoiceCreationDialog({
         const roleKeys = [
           ...new Set(
             paths
-              .filter((p) => {
-                const s = p.split('.')
-                return s[0] === 'contact' && s.length === 3
-              })
-              .map((p) => p.split('.')[1] as string)
+              .map((p) => normalizeTagPath(p).split('.'))
+              .filter((s) => s[0] === 'contact' && s.length === 3)
+              .map((s) => s[1] as string)
           )
         ]
         const initRoleIds: Record<string, string> = { ...roleContactUuids }

@@ -34,7 +34,7 @@ describe('TagReferencePanel', () => {
 
     expect(screen.getByText('Insert Macro')).toBeTruthy()
     expect(screen.getByText('{{dossier.name}}')).toBeTruthy()
-    expect(screen.getByText('Primary dossier title')).toBeTruthy()
+    expect(screen.getByText(/Dossier title/)).toBeTruthy()
   })
 
   it('fires onInsertTag with the selected tag', async () => {

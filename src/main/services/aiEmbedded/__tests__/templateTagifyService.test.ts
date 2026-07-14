@@ -38,17 +38,23 @@ async function createFixture(options: {
   html: string
   modelResponse?: string
   mode?: 'remote' | 'none'
+  piiEnabled?: boolean
+  nerModelPath?: string | null
+  nerModelReady?: boolean
 }): Promise<{
   service: ReturnType<typeof createTemplateTagifyService>
   templateService: TemplateService
   domainPath: string
   generateOneShot: ReturnType<typeof vi.fn>
+  configureRemoteLanguageModel: ReturnType<typeof vi.fn>
 }> {
   const dir = await createTempDir()
   const statePath = join(dir, 'state.json')
   await writeFile(
     statePath,
-    JSON.stringify({ ai: { mode: options.mode ?? 'remote', piiEnabled: false } }),
+    JSON.stringify({
+      ai: { mode: options.mode ?? 'remote', piiEnabled: options.piiEnabled ?? false }
+    }),
     'utf8'
   )
 
@@ -56,6 +62,7 @@ async function createFixture(options: {
   await mkdir(join(domainPath, '.ordicab', 'templates'), { recursive: true })
 
   const generateOneShot = vi.fn(async () => options.modelResponse ?? '[]')
+  const configureRemoteLanguageModel = vi.fn(async () => {})
   const templateService = {
     list: vi.fn(async () => [options.template]),
     getContent: vi.fn(async () => options.html),
@@ -74,11 +81,12 @@ async function createFixture(options: {
     },
     localeService: { getLocale: () => 'fr' },
     stateFilePath: statePath,
-    nerModelPath: null,
-    isNerModelReady: async () => true
+    configureRemoteLanguageModel,
+    nerModelPath: options.nerModelPath ?? null,
+    isNerModelReady: async () => options.nerModelReady ?? true
   })
 
-  return { service, templateService, domainPath, generateOneShot }
+  return { service, templateService, domainPath, generateOneShot, configureRemoteLanguageModel }
 }
 
 describe('templateTagifyService.analyze', () => {
@@ -108,7 +116,7 @@ describe('templateTagifyService.analyze', () => {
     ])
   })
 
-  it('normalizes FR alias tags from the model', async () => {
+  it('keeps FR alias tags from the model as authored', async () => {
     const { service } = await createFixture({
       template: createTemplate(),
       html: '<p>Me Durand vous écrit.</p>',
@@ -118,7 +126,7 @@ describe('templateTagifyService.analyze', () => {
     })
 
     const result = await service.analyze({ templateUuid: 'tpl-1' })
-    expect(result.proposals[0]?.suggestedTag).toBe('contact.displayName')
+    expect(result.proposals[0]?.suggestedTag).toBe('contact.nomAffiche')
   })
 
   it('keeps only the most confident routine when the AI maps one literal twice', async () => {
@@ -207,6 +215,149 @@ describe('templateTagifyService.analyze', () => {
       originalText: 'Jean Dupont',
       suggestedTag: 'contact.client.displayName'
     })
+  })
+
+  it('keeps valid proposals when the model marks some entries with a null tag', async () => {
+    const { service, generateOneShot } = await createFixture({
+      template: createTemplate(),
+      html: '<p>Nice, le 12 juin. Cher Jean Dupont.</p>',
+      // Observed in the wild: the model flags "no tag found" as suggestedTag: null.
+      modelResponse: JSON.stringify([
+        { originalText: 'Nice, le ', suggestedTag: null, confidence: 'low' },
+        {
+          originalText: 'Jean Dupont',
+          suggestedTag: 'contact.client.displayName',
+          confidence: 'high'
+        }
+      ])
+    })
+
+    const result = await service.analyze({ templateUuid: 'tpl-1' })
+    expect(generateOneShot).toHaveBeenCalledTimes(1)
+    expect(result.proposals).toEqual([
+      {
+        originalText: 'Jean Dupont',
+        suggestedTag: 'contact.client.displayName',
+        confidence: 'high',
+        occurrences: 1
+      }
+    ])
+  })
+
+  it('treats an all-malformed proposal array as a failure and retries', async () => {
+    const { service, generateOneShot } = await createFixture({
+      template: createTemplate(),
+      html: '<p>Cher Jean Dupont.</p>',
+      modelResponse: JSON.stringify([
+        { originalText: 'Jean Dupont', suggestedTag: null, confidence: 'high' }
+      ])
+    })
+
+    await expect(service.analyze({ templateUuid: 'tpl-1' })).rejects.toThrow(
+      'The AI response did not match the expected proposal format.'
+    )
+    expect(generateOneShot).toHaveBeenCalledTimes(2)
+  })
+
+  it('drops proposals that overlap an existing {{tag}} in the document', async () => {
+    const { service } = await createFixture({
+      template: createTemplate(),
+      html: '<p>Cher {{contact.partieRepresentee.formuleAppel}}, votre affaire Jean Dupont avance.</p>',
+      modelResponse: JSON.stringify([
+        // Re-tagging an existing tag (with or without braces) must be ignored…
+        {
+          originalText: '{{contact.partieRepresentee.formuleAppel}}',
+          suggestedTag: 'contact.partieRepresentee.dear',
+          confidence: 'high'
+        },
+        {
+          originalText: 'contact.partieRepresentee.formuleAppel',
+          suggestedTag: 'contact.partieRepresentee.dear',
+          confidence: 'high'
+        },
+        // …while plain text outside tags is still proposable.
+        {
+          originalText: 'Jean Dupont',
+          suggestedTag: 'contact.client.displayName',
+          confidence: 'high'
+        }
+      ])
+    })
+
+    const result = await service.analyze({ templateUuid: 'tpl-1' })
+    expect(result.proposals).toEqual([
+      {
+        originalText: 'Jean Dupont',
+        suggestedTag: 'contact.client.displayName',
+        confidence: 'high',
+        occurrences: 1
+      }
+    ])
+  })
+
+  it('retries with a fresh call when the model output is unusable, then succeeds', async () => {
+    const { service, generateOneShot } = await createFixture({
+      template: createTemplate(),
+      html: '<p>Cher Jean Dupont.</p>',
+      modelResponse: JSON.stringify([
+        {
+          originalText: 'Jean Dupont',
+          suggestedTag: 'contact.client.displayName',
+          confidence: 'high'
+        }
+      ])
+    })
+    // Degenerate first response observed in the wild: no JSON array at all.
+    generateOneShot.mockResolvedValueOnce('omitemptyO###补充 整理后针对模版替换推荐：')
+
+    const result = await service.analyze({ templateUuid: 'tpl-1' })
+    expect(generateOneShot).toHaveBeenCalledTimes(2)
+    expect(result.proposals[0]?.originalText).toBe('Jean Dupont')
+  })
+
+  it('gives up after the retry when the model keeps returning garbage', async () => {
+    const { service, generateOneShot } = await createFixture({
+      template: createTemplate(),
+      html: '<p>Cher Jean Dupont.</p>',
+      modelResponse: 'toujours pas de JSON'
+    })
+
+    await expect(service.analyze({ templateUuid: 'tpl-1' })).rejects.toThrow(
+      'The AI response is not valid JSON.'
+    )
+    expect(generateOneShot).toHaveBeenCalledTimes(2)
+  })
+
+  it('reconfigures the runtime with the requested model before calling it', async () => {
+    const { service, generateOneShot, configureRemoteLanguageModel } = await createFixture({
+      template: createTemplate(),
+      html: '<p>Cher Jean Dupont.</p>'
+    })
+
+    await service.analyze({ templateUuid: 'tpl-1', model: 'google/gemma-4-31B-it' })
+    expect(configureRemoteLanguageModel).toHaveBeenCalledWith('google/gemma-4-31B-it')
+    expect(configureRemoteLanguageModel.mock.invocationCallOrder[0]).toBeLessThan(
+      generateOneShot.mock.invocationCallOrder[0] ?? Infinity
+    )
+  })
+
+  it('lets the dialog disable PII for one analysis while the global setting stays on', async () => {
+    const { service } = await createFixture({
+      template: createTemplate(),
+      html: '<p>Cher Jean Dupont.</p>',
+      piiEnabled: true,
+      nerModelPath: '/missing/ner-model',
+      nerModelReady: false
+    })
+
+    // Without an override the fail-closed NER gate blocks the remote call…
+    await expect(service.analyze({ templateUuid: 'tpl-1' })).rejects.toMatchObject({
+      code: 'AI_RUNTIME_UNAVAILABLE'
+    })
+
+    // …but an explicit per-analysis opt-out skips pseudonymization entirely.
+    const result = await service.analyze({ templateUuid: 'tpl-1', piiEnabled: false })
+    expect(result.proposals).toEqual([])
   })
 
   it('throws AI_RUNTIME_UNAVAILABLE when no remote model is configured', async () => {

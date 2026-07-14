@@ -3,6 +3,7 @@ export type { TemplateRoutineEntry, TemplateRoutineGroup } from './templateRouti
 
 import type { TemplateRoutineEntry } from './templateRoutines/types'
 import { CONTACT_ROLE_FIELD_ALIASES } from './templateRoutines/types'
+import { normalizeTagPath } from './templateContent/tagPaths'
 
 const EN_TO_FR_FIELD = new Map<string, string>(
   CONTACT_ROLE_FIELD_ALIASES.map(({ en, fr }) => [en, fr])
@@ -89,9 +90,11 @@ const TEMPLATE_ROUTINE_CATALOG_ALL: TemplateRoutineEntry[] = [
     tag: '{{dossier.name}}',
     tagFr: '{{dossier.nom}}',
     group: 'dossier',
-    description: 'Primary dossier title',
-    descriptionFr: 'Titre principal du dossier',
-    example: 'LASTNAME-A v. Insurance Co.'
+    description:
+      'Dossier title — the matter reference as written in the letter subject line ("Affaire :" / "Objet :")',
+    descriptionFr:
+      "Intitulé du dossier — la référence de l'affaire telle qu'écrite en objet du courrier (ligne « Affaire : » / « Objet : »)",
+    example: 'LASTNAME-A c. ASSUREUR SA'
   },
   {
     tag: '{{dossier.createdAt}}',
@@ -106,8 +109,9 @@ const TEMPLATE_ROUTINE_CATALOG_ALL: TemplateRoutineEntry[] = [
     tag: '{{dossier.createdAtFormatted}}',
     tagFr: '{{dossier.dateCreationFormatee}}',
     group: 'dossier',
-    description: 'Dossier registration date (localized format)',
-    descriptionFr: "Date d'enregistrement du dossier (format local JJ/MM/AAAA)",
+    description: 'Date the dossier was opened at the firm (DD/MM/YYYY) — not the letter date',
+    descriptionFr:
+      "Date d'ouverture du dossier au cabinet (JJ/MM/AAAA) — à ne pas confondre avec la date du courrier",
     example: '15/03/2026'
   },
   {
@@ -132,16 +136,18 @@ const TEMPLATE_ROUTINE_CATALOG_ALL: TemplateRoutineEntry[] = [
     tag: '{{dossier.juridiction}}',
     tagFr: '{{dossier.juridiction}}',
     group: 'dossier',
-    description: 'Jurisdiction handling the dossier (court system)',
-    descriptionFr: 'Juridiction saisie pour le dossier (ordre de juridiction)',
+    description: 'Type of court handling the dossier, without the city',
+    descriptionFr: 'Type de juridiction saisie, sans la ville',
     example: 'Tribunal judiciaire'
   },
   {
     tag: '{{dossier.tribunal}}',
     tagFr: '{{dossier.tribunal}}',
     group: 'dossier',
-    description: 'Specific court (tribunal) handling the dossier',
-    descriptionFr: 'Tribunal précis saisi pour le dossier',
+    description:
+      'Full name of the court handling the dossier, with the city (often after "devant le/la")',
+    descriptionFr:
+      'Nom complet de la juridiction saisie, avec la ville (souvent après « devant le/la »)',
     example: 'Tribunal judiciaire de Paris'
   },
   {
@@ -220,10 +226,10 @@ const TEMPLATE_ROUTINE_CATALOG_ALL: TemplateRoutineEntry[] = [
     tag: '{{contact.displayName}}',
     tagFr: '{{contact.nomAffiche}}',
     group: 'contact',
-    description: 'Primary contact display name (title + first name + last name)',
-    descriptionFr: 'Nom affiché du contact principal (titre + prénom + nom)',
+    description: 'Primary contact full display name (title + first name + last name)',
+    descriptionFr: 'Nom complet du contact principal (civilité + prénom + nom)',
     subGroup: 'identity',
-    example: 'Me Person-G LASTNAME-A'
+    example: 'Mme Person-G LASTNAME-A'
   },
   {
     tag: '{{contact.title}}',
@@ -277,10 +283,10 @@ const TEMPLATE_ROUTINE_CATALOG_ALL: TemplateRoutineEntry[] = [
     tag: '{{contact.role}}',
     tagFr: '{{contact.role}}',
     group: 'contact',
-    description: 'Primary contact role',
-    descriptionFr: 'Rôle du contact principal',
+    description: 'Primary contact role label',
+    descriptionFr: 'Libellé du rôle du contact principal',
     subGroup: 'identity',
-    example: 'Client'
+    example: 'Partie représentée'
   },
   {
     tag: '{{contact.email}}',
@@ -447,8 +453,8 @@ const TEMPLATE_ROUTINE_CATALOG_ALL: TemplateRoutineEntry[] = [
     tag: '{{contact.salutationFull}}',
     tagFr: '{{contact.civiliteNom}}',
     group: 'contact',
-    description: 'Salutation with last name',
-    descriptionFr: 'Civilité avec nom',
+    description: 'Salutation followed by the last name (address block, closing formula)',
+    descriptionFr: 'Civilité suivie du nom (bloc destinataire, formule de politesse)',
     subGroup: 'salutation',
     example: 'Madame LASTNAME-A'
   },
@@ -456,8 +462,8 @@ const TEMPLATE_ROUTINE_CATALOG_ALL: TemplateRoutineEntry[] = [
     tag: '{{contact.dear}}',
     tagFr: '{{contact.formuleAppel}}',
     group: 'contact',
-    description: 'Opening formula (Chère Madame, Cher Monsieur, ...)',
-    descriptionFr: "Formule d'appel (Chère Madame, Cher Monsieur, ...)",
+    description: 'Opening formula at the top of the letter body (Chère Madame, Cher Monsieur, …)',
+    descriptionFr: "Formule d'appel en tête du courrier (Chère Madame, Cher Monsieur, …)",
     subGroup: 'salutation',
     example: 'Chère Madame'
   },
@@ -514,8 +520,10 @@ const TEMPLATE_ROUTINE_CATALOG_ALL: TemplateRoutineEntry[] = [
     tag: '{{entity.displayName}}',
     tagFr: '{{cabinet.nomAffiche}}',
     group: 'entity',
-    description: 'Full entity contact name (title + first name + last name)',
-    descriptionFr: 'Nom affiché du cabinet (titre + prénom + nom)',
+    description:
+      'Firm lawyer full name (Me + first name + last name) — letterhead and signature block',
+    descriptionFr:
+      "Nom complet de l'avocat du cabinet (Me + prénom + nom) — en-tête et bloc signature",
     subGroup: 'identity',
     example: 'Me Person-C LASTNAME-E'
   },
@@ -523,8 +531,8 @@ const TEMPLATE_ROUTINE_CATALOG_ALL: TemplateRoutineEntry[] = [
     tag: '{{entity.firmName}}',
     tagFr: '{{cabinet.nomCabinet}}',
     group: 'entity',
-    description: 'Saved firm name',
-    descriptionFr: 'Nom du cabinet enregistré',
+    description: 'Firm name as saved in Settings (letterhead)',
+    descriptionFr: 'Nom du cabinet enregistré dans les réglages (en-tête du papier à lettres)',
     subGroup: 'identity',
     example: 'Cabinet LASTNAME-E'
   },
@@ -749,8 +757,8 @@ const TEMPLATE_ROUTINE_CATALOG_ALL: TemplateRoutineEntry[] = [
     tag: '{{entity.barreau}}',
     tagFr: '{{cabinet.barreau}}',
     group: 'entity',
-    description: 'Bar (barreau) where the lawyer is registered',
-    descriptionFr: "Barreau d'inscription de l'avocat",
+    description: 'Bar where the lawyer is registered ("Avocat au barreau de …")',
+    descriptionFr: "Barreau d'inscription de l'avocat (« Avocat au barreau de … »)",
     subGroup: 'bar',
     example: 'Paris'
   },
@@ -758,8 +766,8 @@ const TEMPLATE_ROUTINE_CATALOG_ALL: TemplateRoutineEntry[] = [
     tag: '{{entity.toque}}',
     tagFr: '{{cabinet.toque}}',
     group: 'entity',
-    description: 'Toque number (bar roll number)',
-    descriptionFr: 'Numéro de toque (palais)',
+    description: 'Palais box number ("Toque n° …", "Case palais …")',
+    descriptionFr: 'Numéro de toque (« Toque n° … », « Case palais … »)',
     subGroup: 'bar',
     example: 'P0123'
   },
@@ -777,41 +785,42 @@ const TEMPLATE_ROUTINE_CATALOG_ALL: TemplateRoutineEntry[] = [
     tagFr: '{{date.<label>}}',
     group: 'keyDates',
     description:
-      'Dynamic key date (ISO) - replace <label> with the canonical key derived from the date label',
-    descriptionFr: 'Date clé dynamique (ISO) — remplacez <label> par la clé dérivée du libellé',
-    example: '{{dossier.keyDate.audienceDate}}'
+      'Chronology key date (ISO). <label> = camelCase key of the event label: "Audience" → audience, "Renvoi" → renvoi',
+    descriptionFr:
+      "Date clé de la chronologie (ISO). <label> = clé en camelCase du libellé de l'événement : « Audience » → audience, « Renvoi » → renvoi",
+    example: '{{dossier.keyDate.audience}}'
   },
   {
     tag: '{{dossier.keyDate.<label>.formatted}}',
     tagFr: '{{date.<label>.formate}}',
     group: 'keyDates',
-    description: 'Dynamic key date (localized format)',
-    descriptionFr: 'Date clé dynamique (format local JJ/MM/AAAA)',
-    example: '{{dossier.keyDate.audienceDate.formatted}}'
+    description: 'Chronology key date (DD/MM/YYYY)',
+    descriptionFr: 'Date clé de la chronologie (format JJ/MM/AAAA, ex. 12/06/2026)',
+    example: '{{dossier.keyDate.audience.formatted}}'
   },
   {
     tag: '{{dossier.keyDate.<label>.long}}',
     tagFr: '{{date.<label>.texte}}',
     group: 'keyDates',
-    description: 'Dynamic key date (long text)',
-    descriptionFr: 'Date clé dynamique (texte long)',
-    example: '{{dossier.keyDate.audienceDate.long}}'
+    description: 'Chronology key date spelled out (e.g. "12 juin 2026")',
+    descriptionFr: 'Date clé de la chronologie en toutes lettres (ex. « 12 juin 2026 »)',
+    example: '{{dossier.keyDate.audience.long}}'
   },
   {
     tag: '{{dossier.keyDate.<label>.short}}',
     tagFr: '{{date.<label>.court}}',
     group: 'keyDates',
-    description: 'Dynamic key date (abbreviated text)',
-    descriptionFr: 'Date clé dynamique (texte abrégé)',
-    example: '{{dossier.keyDate.audienceDate.short}}'
+    description: 'Chronology key date abbreviated (e.g. "12 juin 26")',
+    descriptionFr: 'Date clé de la chronologie abrégée (ex. « 12 juin 26 »)',
+    example: '{{dossier.keyDate.audience.short}}'
   },
   {
     tag: '{{dossier.keyDate.<label>.label}}',
     tagFr: '{{date.<label>.libelle}}',
     group: 'keyDates',
-    description: 'Dynamic key date label',
-    descriptionFr: "Libellé de l'événement de chronologie",
-    example: '{{dossier.keyDate.audienceDate.label}}'
+    description: 'Chronology event label as typed by the user',
+    descriptionFr: "Libellé de l'événement de chronologie tel que saisi",
+    example: '{{dossier.keyDate.audience.label}}'
   },
   {
     tag: '{{dossier.feeAgreement.generatedDocumentFilename}}',
@@ -1257,24 +1266,26 @@ const TEMPLATE_ROUTINE_CATALOG_ALL: TemplateRoutineEntry[] = [
     tag: '{{todayFormatted}}',
     tagFr: '{{aujourdhuiFormate}}',
     group: 'system',
-    description: 'Current day at generation time (localized format)',
-    descriptionFr: 'Date du jour au moment de la génération (format local JJ/MM/AAAA)',
+    description: 'Current day when the document is generated (DD/MM/YYYY) — the letter date',
+    descriptionFr: 'Date du jour à la génération du document (JJ/MM/AAAA) — la date du courrier',
     example: '15/03/2026'
   },
   {
     tag: '{{todayLong}}',
     tagFr: '{{aujourdhuiTexte}}',
     group: 'system',
-    description: 'Current day at generation time (long text)',
-    descriptionFr: 'Date du jour au moment de la génération (texte long)',
+    description:
+      'Current day when the document is generated, spelled out — the date line "Paris, le 15 mars 2026"',
+    descriptionFr:
+      'Date du jour à la génération, en toutes lettres — la ligne de date « Paris, le 15 mars 2026 »',
     example: '15 mars 2026'
   },
   {
     tag: '{{todayShort}}',
     tagFr: '{{aujourdhuiCourt}}',
     group: 'system',
-    description: 'Current day at generation time (abbreviated text)',
-    descriptionFr: 'Date du jour au moment de la génération (texte abrégé)',
+    description: 'Current day when the document is generated, abbreviated',
+    descriptionFr: 'Date du jour à la génération, abrégée',
     example: '15 mars 26'
   },
   {
@@ -1309,15 +1320,29 @@ const TEMPLATE_ROUTINE_CATALOG_ALL: TemplateRoutineEntry[] = [
     tag: '{{todo}}',
     tagFr: '{{aCompleter}}',
     group: 'system',
-    description: 'Placeholder for content that must be completed manually or by AI',
-    descriptionFr: 'Emplacement à compléter manuellement ou par IA',
-    example: '[A completer]'
+    description:
+      'Placeholder for variable content with no dedicated tag, to fill manually or by AI',
+    descriptionFr:
+      'Emplacement pour un passage variable sans routine dédiée, à compléter manuellement ou par IA',
+    example: '[À compléter]'
   }
 ]
 
 export const templateRoutineCatalog: TemplateRoutineEntry[] = TEMPLATE_ROUTINE_CATALOG_ALL.filter(
   (entry) => entry.visibility !== 'hidden'
 )
+
+const FRENCH_TAG_PATH_LOCALIZER = buildTagPathLocalizer(TEMPLATE_ROUTINE_CATALOG_ALL, 'fr')
+
+/**
+ * Converts any tag path (EN canonical or already-French alias) to its French
+ * form. French is the canonical exchange form of routines everywhere a path is
+ * surfaced or persisted (macros, unresolved/resolved tags, prefill, prompts);
+ * the EN form only lives inside the render-time resolution engine.
+ */
+export function toFrenchTagPath(path: string): string {
+  return FRENCH_TAG_PATH_LOCALIZER(normalizeTagPath(path.trim()))
+}
 
 /**
  * Resolves a human-readable description for each unresolved tag path, using the
@@ -1342,13 +1367,22 @@ export function resolveTagDescriptions(paths: string[]): Record<string, string> 
   const result: Record<string, string> = {}
 
   for (const path of paths) {
+    // Paths circulate in their French form; matching happens on the canonical
+    // twin so both FR and EN spellings resolve to the same description.
+    const canonical = normalizeTagPath(path.trim())
+    if (staticMap.has(canonical)) {
+      result[path] = staticMap.get(canonical)!
+      continue
+    }
     if (staticMap.has(path)) {
       result[path] = staticMap.get(path)!
       continue
     }
 
     // Dynamic keyDate: dossier.keyDate.<label> or dossier.keyDate.<label>.formatted|long|short|label
-    const keyDateMatch = /^dossier\.keyDate\.([^.]+)(?:\.(formatted|long|short|label))?$/.exec(path)
+    const keyDateMatch = /^dossier\.keyDate\.([^.]+)(?:\.(formatted|long|short|label))?$/.exec(
+      canonical
+    )
     if (keyDateMatch) {
       const label = keyDateMatch[1]!
       const variant = keyDateMatch[2]
@@ -1367,7 +1401,7 @@ export function resolveTagDescriptions(paths: string[]): Record<string, string> 
     }
 
     // Dynamic contact role: contact.<role>.<field>
-    const contactRoleMatch = /^contact\.([^.]+)\.([^.]+)$/.exec(path)
+    const contactRoleMatch = /^contact\.([^.]+)\.([^.]+)$/.exec(canonical)
     if (contactRoleMatch) {
       const role = contactRoleMatch[1]!
       const field = contactRoleMatch[2]!

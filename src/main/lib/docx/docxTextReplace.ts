@@ -28,7 +28,10 @@ export interface DocxTextReplaceResult {
 }
 
 const PARAGRAPH_PATTERN = /<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>/g
-const TEXT_NODE_PATTERN = /(<w:t(?:\s[^>]*)?>)([\s\S]*?)(<\/w:t>)/g
+// Must NOT match self-closing nodes (`<w:t xml:space="preserve"/>`): the lazy
+// content group would swallow the inter-run XML up to the next run's `</w:t>`
+// and the rewrite would splice encoded text over real markup.
+const TEXT_NODE_PATTERN = /(<w:t(?:\s[^>]*[^/>])?>)([\s\S]*?)(<\/w:t>)/g
 
 function decodeXmlText(value: string): string {
   return value
